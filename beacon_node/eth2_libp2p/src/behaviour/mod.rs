@@ -43,9 +43,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{
-    ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot, SubnetId,
-};
+use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, SignedBeaconBlock, Slot, SubnetId};
 
 mod gossipsub_scoring_parameters;
 mod handler;
@@ -153,6 +151,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
         fork_context: Arc<ForkContext>,
+        chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
@@ -753,7 +752,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             }
             Ok(RPCReceived::Request(id, request)) => {
                 let peer_request_id = (handler_id, id);
-                match request {
+                match request.req {
                     /* Behaviour managed protocols: Ping and Metadata */
                     RPCRequest::Ping(ping) => {
                         // inform the peer manager and send the response
@@ -839,9 +838,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             return Poll::Ready(NBAction::NotifyHandler {
                 peer_id,
                 handler: NotifyHandler::Any,
-                event: BehaviourHandlerIn::Shutdown(
-                    reason.map(|reason| (RequestId::Behaviour, RPCRequest::Goodbye(reason))),
-                ),
+                event: BehaviourHandlerIn::Shutdown(reason.map(|reason| {
+                    (
+                        RequestId::Behaviour,
+                        RpcRequestContainer {
+                            req: RPCRequest::Goodbye(reason),
+                            fork_context: self.fork_context.clone(),
+                        },
+                    )
+                })),
             });
         }
 
@@ -884,7 +889,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             handler: NotifyHandler::Any,
                             event: BehaviourHandlerIn::Shutdown(Some((
                                 RequestId::Behaviour,
-                                RPCRequest::Goodbye(reason),
+                                RpcRequestContainer {
+                                    req: RPCRequest::Goodbye(reason),
+                                    fork_context: self.fork_context.clone(),
+                                },
                             ))),
                         });
                     }

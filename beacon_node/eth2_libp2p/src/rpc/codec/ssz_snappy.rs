@@ -4,18 +4,19 @@ use crate::rpc::{
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
-use libp2p::{bytes::BytesMut, core::ProtocolName};
+use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
+use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::{convert::TryInto, io::Cursor};
+use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    ChainSpec, EthSpec, ForkContext, ForkType, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
+    EthSpec, ForkContext, ForkType, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase,
 };
 use unsigned_varint::codec::Uvi;
@@ -62,8 +63,8 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         item: RPCCodedResponse<TSpec>,
         dst: &mut BytesMut,
     ) -> Result<(), Self::Error> {
-        let bytes = match item {
-            RPCCodedResponse::Success(resp) => match resp {
+        let bytes = match &item {
+            RPCCodedResponse::Success(resp) => match &resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
@@ -84,15 +85,15 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
 
         // Add the context bytes if required
         if self.protocol.version == Version::V2 {
-            if let RPCCodedResponse(RPCResponse::BlocksByRange(res)) = item {
-                if let SignedBeaconBlockAltair { .. } = res {
-                    dst.extend_from_slice(self.fork_context.to_context_bytes(ForkType::Altair));
+            if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(ref res)) = item {
+                if let SignedBeaconBlock::Altair { .. } = **res {
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Altair));
                 }
             }
 
-            if let RPCCodedResponse(RPCResponse::BlocksByRoot(res)) = item {
-                if let SignedBeaconBlockAltair { .. } = res {
-                    dst.extend_from_slice(self.fork_context.to_context_bytes(ForkType::Genesis));
+            if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = item {
+                if let SignedBeaconBlock::Altair { .. } = *res {
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Altair));
                 }
             }
         }
@@ -292,7 +293,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
         if self.protocol.version == Version::V2 && self.context_bytes.is_none() {
             let context_bytes = src.split_to(4);
             let mut result = [0; 4];
-            result.copy_from_slice(&context_bytes.as_bytes()[0..4]);
+            result.copy_from_slice(&context_bytes.as_ref());
 
             self.context_bytes = Some(result);
         }
@@ -341,10 +342,14 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         // This case should be unreachable as `Goodbye` has no response.
                         Protocol::Goodbye => Err(RPCError::InvalidData),
                         Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                            SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                &decoded_buffer,
+                            )?),
                         )))),
                         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                            SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                &decoded_buffer,
+                            )?),
                         )))),
                         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
@@ -357,44 +362,43 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         let context_bytes = self.context_bytes.ok_or_else(|| {
                             RPCError::ErrorResponse(
                                 RPCResponseErrorCode::InvalidRequest,
-                                "No context bytes provided",
+                                "No context bytes provided".to_string(),
                             )
                         })?;
 
+                        let fork = self
+                            .fork_context
+                            .from_context_bytes(context_bytes)
+                            .ok_or_else(|| {
+                                RPCError::ErrorResponse(
+                                    RPCResponseErrorCode::InvalidRequest,
+                                    "Context bytes does not correspond to a valid fork".to_string(),
+                                )
+                            })?;
                         match self.protocol.message_name {
-                            Protocol::BlocksByRange => match self
-                                .fork_context
-                                .from_context_bytes(context_bytes)
-                                .ok_or_else(|| {
-                                    Err(RPCError::ErrorResponse(
-                                        RPCResponseErrorCode::InvalidRequest,
-                                        "Context bytes does not correspond to a valid fork",
-                                    ))
-                                })? {
+                            Protocol::BlocksByRange => match fork {
                                 ForkType::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                    SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                    SignedBeaconBlock::Altair(
+                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                    ),
                                 )))),
 
-                                ForkType::Genesis => {
-                                    Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                ForkType::Genesis => Ok(Some(RPCResponse::BlocksByRange(
+                                    Box::new(SignedBeaconBlock::Base(
                                         SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
-                                    ))))
-                                }
+                                    )),
+                                ))),
                             },
-                            Protocol::BlocksByRoot => match self
-                                .fork_context
-                                .from_context_bytes(context_bytes)
-                                .ok_or_else(|| {
-                                    Err(RPCError::ErrorResponse(
-                                        RPCResponseErrorCode::InvalidRequest,
-                                        "Context bytes does not correspond to a valid fork",
-                                    ))
-                                })? {
+                            Protocol::BlocksByRoot => match fork {
                                 ForkType::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                    SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                    SignedBeaconBlock::Altair(
+                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
+                                    ),
                                 )))),
                                 ForkType::Genesis => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                    SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
+                                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                        &decoded_buffer,
+                                    )?),
                                 )))),
                             },
 

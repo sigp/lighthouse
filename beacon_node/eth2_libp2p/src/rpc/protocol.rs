@@ -16,6 +16,7 @@ use ssz::Encode;
 use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::Duration;
 use strum::{AsStaticRef, AsStaticStr};
 use tokio_io_timeout::TimeoutStream;
@@ -24,8 +25,7 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, ChainSpec, EthSpec, ForkContext, Hash256, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BeaconBlock, EthSpec, ForkContext, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -296,7 +296,8 @@ impl ProtocolName for ProtocolId {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
+pub type InboundOutput<TSocket, TSpec> =
+    (RpcRequestContainer<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
 
@@ -331,7 +332,13 @@ where
 
             // MetaData requests should be empty, return the stream
             match protocol_name {
-                Protocol::MetaData => Ok((RPCRequest::MetaData(PhantomData), socket)),
+                Protocol::MetaData => Ok((
+                    RpcRequestContainer {
+                        req: RPCRequest::MetaData(PhantomData),
+                        fork_context: self.fork_context.clone(),
+                    },
+                    socket,
+                )),
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -340,7 +347,13 @@ where
                     .await
                     {
                         Err(e) => Err(RPCError::from(e)),
-                        Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
+                        Ok((Some(Ok(request)), stream)) => Ok((
+                            RpcRequestContainer {
+                                req: request,
+                                fork_context: self.fork_context.clone(),
+                            },
+                            stream,
+                        )),
                         Ok((Some(Err(e)), _)) => Err(e),
                         Ok((None, _)) => Err(RPCError::IncompleteStream),
                     }
@@ -356,10 +369,24 @@ where
 // Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
 // `OutboundUpgrade`
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct RpcRequestContainer<TSpec: EthSpec> {
-    pub req: RPCRequest<T>,
+    pub req: RPCRequest<TSpec>,
     pub fork_context: Arc<ForkContext>,
+}
+
+impl<T: EthSpec> std::ops::Deref for RpcRequestContainer<T> {
+    type Target = RPCRequest<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.req
+    }
+}
+
+impl<T: EthSpec> PartialEq for RpcRequestContainer<T> {
+    fn eq(&self, other: &RpcRequestContainer<T>) -> bool {
+        self.req.eq(&other.req)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -424,7 +451,7 @@ impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
 
     /// Number of responses expected for this request.
     pub fn expected_responses(&self) -> u64 {
-        match self.req {
+        match &self.req {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
             RPCRequest::BlocksByRange(req) => req.count,
@@ -436,7 +463,7 @@ impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
 
     /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
-        match self.req {
+        match &self.req {
             RPCRequest::Status(_) => Protocol::Status,
             RPCRequest::Goodbye(_) => Protocol::Goodbye,
             RPCRequest::BlocksByRange(_) => Protocol::BlocksByRange,
@@ -598,6 +625,12 @@ impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
             RPCRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             RPCRequest::MetaData(_) => write!(f, "MetaData request"),
         }
+    }
+}
+
+impl<TSpec: EthSpec> std::fmt::Display for RpcRequestContainer<TSpec> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.req)
     }
 }
 

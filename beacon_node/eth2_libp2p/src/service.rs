@@ -25,7 +25,7 @@ use std::io::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256};
+use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -115,6 +115,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 network_globals.clone(),
                 &log,
                 fork_context,
+                chain_spec,
             )
             .await?;
 

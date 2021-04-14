@@ -160,7 +160,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let next_fork_update = next_fork_delay(&beacon_chain);
 
         // Create a fork context for the given config and genesis validators root
-        let fork_context = Arc::new(ForkContext::new(beacon_chain.genesis_validators_root, spec));
+        let fork_context = Arc::new(ForkContext::new(
+            beacon_chain.genesis_validators_root,
+            &beacon_chain.spec,
+        ));
 
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(

@@ -15,9 +15,10 @@ use libp2p::{Multiaddr, PeerId};
 use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
 use slog::{crit, debug, o};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use types::{ChainSpec, EthSpec, ForkContext, Hash256};
+use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
@@ -43,7 +44,7 @@ pub enum RPCSend<T: EthSpec> {
     ///
     /// The `RequestId` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(RequestId, RPCRequestContainer<T>),
+    Request(RequestId, RpcRequestContainer<T>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
@@ -59,7 +60,7 @@ pub enum RPCReceived<T: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(SubstreamId, RPCRequest<T>),
+    Request(SubstreamId, RpcRequestContainer<T>),
     /// A response received from the outside.
     ///
     /// The `RequestId` corresponds to the application given ID of the original request sent to the
@@ -102,7 +103,7 @@ pub struct RPC<TSpec: EthSpec> {
 }
 
 impl<TSpec: EthSpec> RPC<TSpec> {
-    pub fn new(fork_context: ForkContext, log: slog::Logger) -> Self {
+    pub fn new(fork_context: Arc<ForkContext>, log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
@@ -152,7 +153,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        event: RpcRequest<TSpec>,
+        event: RPCRequest<TSpec>,
     ) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
