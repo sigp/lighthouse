@@ -37,7 +37,6 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
-use work_reprocessing_queue::{spawn_reprocess_scheduler, QueuedBlock, ReadyWork};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -57,11 +56,12 @@ use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
+use work_reprocessing_queue::{spawn_reprocess_scheduler, QueuedBlock, ReadyWork};
 
 use worker::{Toolbox, Worker};
 
-mod work_reprocessing_queue;
 mod tests;
+mod work_reprocessing_queue;
 mod worker;
 
 pub use worker::ProcessId;
@@ -308,22 +308,6 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
-    /// Create a new `Work` event for some block that was delayed for later processing.
-    pub fn delayed_import_beacon_block(
-        peer_id: PeerId,
-        block: Box<GossipVerifiedBlock<T>>,
-        seen_timestamp: Duration,
-    ) -> Self {
-        Self {
-            drop_during_sync: false,
-            work: Work::DelayedImportBlock {
-                peer_id,
-                block,
-                seen_timestamp,
-            },
-        }
-    }
-
     /// Create a new `Work` event for some exit.
     pub fn gossip_voluntary_exit(
         message_id: MessageId,
@@ -439,6 +423,27 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// Get a `str` representation of the type of work this `WorkEvent` contains.
     pub fn work_type(&self) -> &'static str {
         self.work.str_id()
+    }
+}
+
+impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
+    fn from(ready_work: ReadyWork<T>) -> Self {
+        match ready_work {
+            ReadyWork::Block(QueuedBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::DelayedImportBlock {
+                    peer_id,
+                    block: Box::new(block),
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::Attestation(_) => {todo!()}
+            ReadyWork::Aggregate(_) => {todo!()}
+        }
     }
 }
 
@@ -591,16 +596,7 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         // block is required to successfully process some new work.
         match self.reprocess_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
-                let event = match ready_work {
-                    ReadyWork::Block(queued_block) => WorkEvent::delayed_import_beacon_block(
-                        queued_block.peer_id,
-                        Box::new(queued_block.block),
-                        queued_block.seen_timestamp,
-                    ),
-                    ReadyWork::Attestation(queued_attestation) => todo!(),
-                    ReadyWork::Aggregate(queued_aggregate) => todo!(),
-                };
-                return Poll::Ready(Some(InboundEvent::ReprocessingWork(event)));
+                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -1072,7 +1068,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         block,
                         seen_timestamp,
-                    } => worker.process_gossip_verified_block(peer_id, *block, reprocess_tx, seen_timestamp),
+                    } => worker.process_gossip_verified_block(
+                        peer_id,
+                        *block,
+                        reprocess_tx,
+                        seen_timestamp,
+                    ),
                     /*
                      * Voluntary exits received on gossip.
                      */

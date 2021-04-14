@@ -11,8 +11,9 @@ use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
-use futures::stream::Stream;
+use futures::future::ready;
 use futures::task::Poll;
+use futures::{Stream, StreamExt};
 use slog::{crit, debug, error, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -83,15 +84,17 @@ enum InboundEvent<T: BeaconChainTypes> {
     EarlyBlock(QueuedBlock<T>),
     /// A block that was queued for later processing and is ready for import.
     ReadyBlock(QueuedBlock<T>),
-    /// The `DelayQueue` returned an error.
-    DelayQueueError(TimeError),
+    /// An aggregated or unaggreated attestation is ready for re-processing.
+    AttestationReady(QueuedAttestationId),
+    /// Some `DelayQueue` returned an error.
+    DelayQueueError(TimeError, &'static str),
 }
 
 /// Combines the `DelayQueue` and `Receiver` streams into a single stream.
 /// struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
 // TODO: rename and update docs
-struct ReprocessQueue<T: BeaconChainTypes + std::marker::Unpin> {
+struct ReprocessQueue<T: BeaconChainTypes> {
     /// Receiver of messages relevant to schedule works for reprocessing.
     work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
 
@@ -125,46 +128,95 @@ struct ReprocessQueue<T: BeaconChainTypes + std::marker::Unpin> {
 }
 
 enum QueuedAttestationId {
-    Aggregated(usize),
-    Unaggreated(usize),
+    Aggregate(usize),
+    Unaggregate(usize),
 }
 
-impl<T: BeaconChainTypes + std::marker::Unpin> Stream for ReprocessQueue<T> {
+impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
     type Item = InboundEvent<T>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Poll for expired blocks *before* we try to process new blocks.
         //
         // The sequential nature of blockchains means it is generally better to try and import all
         // existing blocks before new ones.
-        // {
-        //     match self.block_delay_queue.poll_expired(cx) {
-        //         Poll::Ready(Some(Ok(queued_block))) => {
-        //             return Poll::Ready(Some(InboundEvent::ReadyBlock(queued_block.into_inner())));
-        //         }
-        //         Poll::Ready(Some(Err(e))) => {
-        //             return Poll::Ready(Some(InboundEvent::DelayQueueError(e)));
-        //         }
-        //         // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
-        //         // will continue to get this result until something else is added into the queue.
-        //         Poll::Ready(None) | Poll::Pending => (),
-        //     }
-        // }
-        //
-        // match self.work_reprocessing_rx.poll_recv(cx) {
-        //     Poll::Ready(Some(message)) => match message {
-        //         ReprocessQueueMessage::EarlyBlock(block) => {
-        //             return Poll::Ready(Some(InboundEvent::EarlyBlock(block)))
-        //         }
-        //         ReprocessQueueMessage::BlockProcessed(_hash) => todo!(),
-        //         ReprocessQueueMessage::UnknownBlockAttestation => todo!(),
-        //         ReprocessQueueMessage::UnknownBlockAggregate => todo!(),
-        //     },
-        //     Poll::Ready(None) => {
-        //         return Poll::Ready(None);
-        //     }
-        //     Poll::Pending => {}
-        // }
+        match self.block_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(queued_block))) => {
+                return Poll::Ready(Some(InboundEvent::ReadyBlock(queued_block.into_inner())));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "block_queue")));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        // Next get the aggregates, since these should be more useful.
+        match self.aggregate_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(aggregate_id))) => {
+                return Poll::Ready(Some(InboundEvent::AttestationReady(
+                    QueuedAttestationId::Aggregate(aggregate_id.into_inner()),
+                )));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "aggregates_queue")));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        // Next get the unaggregates.
+        match self.attestations_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(attestation_id))) => {
+                return Poll::Ready(Some(InboundEvent::AttestationReady(
+                    QueuedAttestationId::Unaggregate(attestation_id.into_inner()),
+                )));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "unaggregates_queue")));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        // First empty the messages channel to ensure that when we start unqueuing attestations for
+        // each root, we have as many as temporarily possible. This mitigates excesive hashing and
+        // heap allocs.
+        match self.work_reprocessing_rx.poll_recv(cx) {
+            Poll::Ready(Some(message)) => match message {
+                ReprocessQueueMessage::EarlyBlock(block) => {
+                    return Poll::Ready(Some(InboundEvent::EarlyBlock(block)))
+                }
+                ReprocessQueueMessage::BlockProcessed(_hash) => todo!(),
+                ReprocessQueueMessage::UnknownBlockAttestation => todo!(),
+                ReprocessQueueMessage::UnknownBlockAggregate => todo!(),
+            },
+            Poll::Ready(None) => {
+                return Poll::Ready(None);
+            }
+            Poll::Pending => {}
+        }
+
+        // Next unqueue attestations for which we know their block is already processed.
+        if let Some(root) = self.current_processing_root {
+            match self.awaiting_attestations_per_root.get_mut(&root) {
+                Some(queued_attestations) => match queued_attestations.pop_front() {
+                    Some(id) => {
+                        if queued_attestations.is_empty() {
+                            self.awaiting_attestations_per_root.remove(&root);
+                        }
+                        return Poll::Ready(Some(InboundEvent::AttestationReady(id)));
+                    }
+                    None => todo!(),
+                },
+                None => {
+                    todo!("check what happens on remove")
+                }
+            }
+        }
 
         Poll::Pending
     }
@@ -181,26 +233,40 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
 ) -> Sender<ReprocessQueueMessage<T>> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
+    let mut queue = ReprocessQueue {
+        work_reprocessing_rx,
+        block_delay_queue: DelayQueue::new(),
+        aggregate_delay_queue: DelayQueue::new(),
+        attestations_delay_queue: DelayQueue::new(),
+        queued_block_roots: HashSet::new(),
+        queued_aggregates: FnvHashMap::default(),
+        queued_attestations: FnvHashMap::default(),
+        awaiting_attestations_per_root: HashMap::new(),
+        next_attestation: 0,
+        current_processing_root: None,
+        slot_clock,
+        log,
+    };
     // spawn handler task and move the message handler instance into the spawned thread
     // TODO: check here
-    // executor.spawn(
-    //     async move {
-    //         debug!(log, "Network message router started");
-    //         UnboundedReceiverStream::new(handler_recv)
-    //             .for_each(move |msg| future::ready(handler.handle_message(msg)))
-    //             .await;
-    //     },
-    //     "router",
-    // );
+    executor.spawn(
+        async move {
+            loop {
+                let msg = queue.next().await;
+                queue.handle_message(msg);
+            }
+        },
+        TASK_NAME,
+    );
     // let queue_future =
-        // work_reprocessing_scheduler(work_reprocessing_rx, ready_work_tx, slot_clock, log);
+    // work_reprocessing_scheduler(work_reprocessing_rx, ready_work_tx, slot_clock, log);
 
     // executor.spawn(queue_future, TASK_NAME);
 
     work_reprocessing_tx
 }
 
-impl<T: BeaconChainTypes + std::marker::Unpin> ReprocessQueue<T> {
+impl<T: BeaconChainTypes> ReprocessQueue<T> {
     fn handle_message(&mut self, msg: Option<InboundEvent<T>>) {
         match msg {
             // Some block has been indicated as "early" and should be processed when the
@@ -281,13 +347,15 @@ impl<T: BeaconChainTypes + std::marker::Unpin> ReprocessQueue<T> {
                 //                 );
                 //         }
             }
-            Some(InboundEvent::DelayQueueError(e)) => {
+            Some(InboundEvent::DelayQueueError(e, queue_name)) => {
                 crit!(
                 self.log,
-                "Failed to poll block delay queue";
+                "Failed to poll queue";
+                "queue" => queue_name,
                 "e" => ?e
                 )
             }
+            Some(InboundEvent::AttestationReady(_id)) => {}
             None => {
                 debug!(
                 self.log,
@@ -301,7 +369,7 @@ impl<T: BeaconChainTypes + std::marker::Unpin> ReprocessQueue<T> {
 }
 // async fn handle_message()
 
-async fn work_reprocessing_scheduler<T: BeaconChainTypes + std::marker::Unpin>(
+async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
     work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
     _ready_work_tx: Sender<ReadyWork<T>>,
     slot_clock: T::SlotClock,
