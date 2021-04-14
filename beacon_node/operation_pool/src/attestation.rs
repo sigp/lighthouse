@@ -4,6 +4,7 @@ use state_processing::common::{
 };
 use std::collections::HashMap;
 use types::{
+    beacon_state::BeaconStateBase,
     consts::altair::{FLAG_INDICES_AND_WEIGHTS, WEIGHT_DENOMINATOR},
     Attestation, BeaconState, BitList, ChainSpec, EthSpec,
 };
@@ -23,8 +24,8 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        if let BeaconState::Base(_) = state {
-            Self::new_for_base(att, state, total_active_balance, spec)
+        if let BeaconState::Base(ref base_state) = state {
+            Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
             Self::new_for_altair(att, state, total_active_balance, spec)
         }
@@ -34,10 +35,11 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
     pub fn new_for_base(
         att: &'a Attestation<T>,
         state: &BeaconState<T>,
+        base_state: &BeaconStateBase<T>,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        let fresh_validators = earliest_attestation_validators(att, state);
+        let fresh_validators = earliest_attestation_validators(att, state, base_state);
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
@@ -167,12 +169,10 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
 pub fn earliest_attestation_validators<T: EthSpec>(
     attestation: &Attestation<T>,
     state: &BeaconState<T>,
+    base_state: &BeaconStateBase<T>,
 ) -> BitList<T::MaxValidatorsPerCommittee> {
     // Bitfield of validators whose attestations are new/fresh.
     let mut new_validators = attestation.aggregation_bits.clone();
-
-    // FIXME(altair): update this
-    let base_state = state.as_base().unwrap();
 
     let state_attestations = if attestation.data.target.epoch == state.current_epoch() {
         &base_state.current_epoch_attestations
