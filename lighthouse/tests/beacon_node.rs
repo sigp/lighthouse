@@ -397,12 +397,16 @@ fn enr_address_flag() {
 #[test]
 fn enr_address_dns_flag() {
     let addr = "127.0.0.1".parse::<IpAddr>().unwrap();
+    let ipv6addr = "::1".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
         .flag("enr-udp-port", Some("9009"))
         .run()
         .with_config(|config| {
-            assert_eq!(config.network.enr_address, Some(addr));
+            assert!(
+                config.network.enr_address == Some(addr)
+                    || config.network.enr_address == Some(ipv6addr)
+            );
             assert_eq!(config.network.enr_udp_port, Some(9009))
         });
 }
