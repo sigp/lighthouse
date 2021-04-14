@@ -161,6 +161,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // Create a fork context for the given config and genesis validators root
         let fork_context = Arc::new(ForkContext::new(
+            // TODO(pawan): handle error
+            beacon_chain.slot().unwrap(),
             beacon_chain.genesis_validators_root,
             &beacon_chain.spec,
         ));

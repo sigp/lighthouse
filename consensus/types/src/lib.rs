@@ -58,6 +58,8 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod fork_context;
+pub mod fork_schedule;
 pub mod participation_flags;
 pub mod slot_epoch;
 pub mod subnet_id;
@@ -94,11 +96,11 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::fork::Fork;
+pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::ForkName;
 pub use crate::fork_schedule::{
-    get_fork_schedule, get_fork_schedule_ssz, init_fork_schedule, ForkContext, ForkSchedule,
-    ForkType,
+    get_fork_schedule, get_fork_schedule_ssz, init_fork_schedule, ForkSchedule, ForkType,
 };
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};

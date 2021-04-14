@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-
 use crate::{ChainSpec, Slot};
-use ethereum_types::H256;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
@@ -48,45 +45,13 @@ pub enum ForkType {
     Genesis,
 }
 
-#[derive(Debug, Clone)]
-pub struct ForkContext {
-    fork_to_digest: HashMap<ForkType, [u8; 4]>,
-    digest_to_fork: HashMap<[u8; 4], ForkType>,
-}
-
-impl ForkContext {
-    pub fn new(genesis_validators_root: H256, spec: &ChainSpec) -> Self {
-        let genesis_fork_version = spec.genesis_fork_digest(genesis_validators_root);
-        let altair_fork_version = spec.genesis_fork_digest(genesis_validators_root);
-        let fork_to_digest = vec![
-            (ForkType::Genesis, genesis_fork_version),
-            (ForkType::Altair, altair_fork_version),
-        ]
-        .into_iter()
-        .collect();
-        let digest_to_fork = vec![
-            (genesis_fork_version, ForkType::Genesis),
-            (altair_fork_version, ForkType::Altair),
-        ]
-        .into_iter()
-        .collect();
-        Self {
-            fork_to_digest,
-            digest_to_fork,
+impl ForkType {
+    /// Returns the `ForkType` given the slot.
+    pub fn from_slot(slot: Slot, spec: &ChainSpec) -> Self {
+        if slot >= spec.altair_fork_slot {
+            ForkType::Altair
+        } else {
+            ForkType::Genesis
         }
-    }
-
-    /// Returns the fork type given the context bytes/fork_digest.
-    /// Returns None if context bytes doesn't correspond to any Fork.
-    pub fn from_context_bytes(&self, context: [u8; 4]) -> Option<&ForkType> {
-        self.digest_to_fork.get(&context)
-    }
-
-    /// Returns the context bytes/fork_digest corresponding to a fork type
-    pub fn to_context_bytes(&self, fork_type: ForkType) -> [u8; 4] {
-        self.fork_to_digest
-            .get(&fork_type)
-            .expect("All possible forks are initialized")
-            .clone()
     }
 }
