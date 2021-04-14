@@ -95,10 +95,10 @@ pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, S
     let response_body: String =
         send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
 
-    /* extract response text here */
+    // Extract response text here.
     let response_result: Result<Value, Value> = response_result_or_error(&response_body)?;
 
-    /* specifically handle Geth's pre-EIP-155 sync error message */
+    // Specifically handle Geth's pre-EIP-155 sync error message.
     match response_result {
         Ok(chain_id) => {
             hex_to_u64_be(chain_id.as_str().ok_or("Data was not string")?).map(|id| id.into())
@@ -421,7 +421,7 @@ pub async fn send_rpc_request(
         .map_err(|e| format!("Failed to receive body: {:?}", e))
 }
 
-/// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value` .
+/// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value`.
 fn response_result_or_error(response: &str) -> Result<Result<Value, Value>, String> {
     let json = serde_json::from_str::<Value>(&response)
         .map_err(|e| format!("Failed to parse response: {:?}", e))?;
