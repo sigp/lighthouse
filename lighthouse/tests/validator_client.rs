@@ -4,11 +4,11 @@ use bls::{Keypair, PublicKeyBytes};
 use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::str::from_utf8;
 use std::string::ToString;
-use std::net::Ipv4Addr;
 use tempfile::TempDir;
 
 const VALIDATOR_CMD: &str = "validator_client";
@@ -25,7 +25,7 @@ fn base_cmd() -> Command {
 
     let mut cmd = Command::new(path);
     cmd.arg(VALIDATOR_CMD)
-    .arg(format!("--{}", IMMEDIATE_SHUTDOWN_CMD));
+        .arg(format!("--{}", IMMEDIATE_SHUTDOWN_CMD));
 
     cmd
 }
@@ -49,11 +49,8 @@ struct CommandLineTest {
 }
 impl CommandLineTest {
     fn new() -> CommandLineTest {
-
         let base_cmd = base_cmd();
-        CommandLineTest {
-            cmd: base_cmd,
-        }
+        CommandLineTest { cmd: base_cmd }
     }
 
     fn flag(mut self, flag: &str, value: Option<&str>) -> Self {
@@ -72,19 +69,22 @@ impl CommandLineTest {
 
         // Add --datadir <temp_dir> --dump-config <temp_path> to cmd
         self.cmd
-        .arg("--datadir")
-        .arg(tmp_dir.path().as_os_str())
-        .arg(format!("--{}", DUMP_CONFIG_CMD))
-        .arg(tmp_path.as_os_str());
+            .arg("--datadir")
+            .arg(tmp_dir.path().as_os_str())
+            .arg(format!("--{}", DUMP_CONFIG_CMD))
+            .arg(tmp_path.as_os_str());
 
-         // Run the command
-         let _output = output_result(&mut self.cmd).expect("Unable to run command");
+        // Run the command
+        let _output = output_result(&mut self.cmd).expect("Unable to run command");
 
-         // Grab the config
-         let config: Config = from_reader(File::open(tmp_path)
-             .expect("Unable to open dumped config"))
-             .expect("Unable to deserialize to ClientConfig");
-         CompletedTest { config, dir: tmp_dir }
+        // Grab the config
+        let config: Config =
+            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
+                .expect("Unable to deserialize to ClientConfig");
+        CompletedTest {
+            config,
+            dir: tmp_dir,
+        }
     }
 
     // In order to test custom validator and secrets directory flags,
@@ -96,17 +96,20 @@ impl CommandLineTest {
 
         // Add --dump-config <temp_path> to cmd
         self.cmd
-        .arg(format!("--{}", DUMP_CONFIG_CMD))
-        .arg(tmp_path.as_os_str());
+            .arg(format!("--{}", DUMP_CONFIG_CMD))
+            .arg(tmp_path.as_os_str());
 
-         // Run the command
-         let _output = output_result(&mut self.cmd).expect("Unable to run command");
+        // Run the command
+        let _output = output_result(&mut self.cmd).expect("Unable to run command");
 
-         // Grab the config
-         let config: Config = from_reader(File::open(tmp_path)
-             .expect("Unable to open dumped config"))
-             .expect("Unable to deserialize to ClientConfig");
-         CompletedTest { config, dir: tmp_dir }
+        // Grab the config
+        let config: Config =
+            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
+                .expect("Unable to deserialize to ClientConfig");
+        CompletedTest {
+            config,
+            dir: tmp_dir,
+        }
     }
 }
 struct CompletedTest {
@@ -114,11 +117,11 @@ struct CompletedTest {
     dir: TempDir,
 }
 impl CompletedTest {
-    fn with_config<F: Fn(&Config)> (self, func : F) -> Self {
+    fn with_config<F: Fn(&Config)>(self, func: F) -> Self {
         func(&self.config);
         self
     }
-    fn with_config_and_dir<F: Fn(&Config, &TempDir)> (self, func : F) -> Self {
+    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) -> Self {
         func(&self.config, &self.dir);
         self
     }
@@ -128,10 +131,10 @@ impl CompletedTest {
 fn datadir_flag() {
     CommandLineTest::new()
         .run()
-        .with_config_and_dir(|config, dir|
-            assert_eq!(config.validator_dir, dir.path().join("validators")))
-        .with_config_and_dir(|config, dir|
-            assert_eq!(config.secrets_dir, dir.path().join("secrets")));
+        .with_config_and_dir(|config, dir| {
+            assert_eq!(config.validator_dir, dir.path().join("validators"));
+            assert_eq!(config.secrets_dir, dir.path().join("secrets"));
+        });
 }
 
 #[test]
@@ -141,7 +144,7 @@ fn validators_and_secrets_dir_flags() {
         .flag("validators-dir", dir.path().join("validators").to_str())
         .flag("secrets-dir", dir.path().join("secrets").to_str())
         .run_with_no_datadir()
-        .with_config(|config|{
+        .with_config(|config| {
             assert_eq!(config.validator_dir, dir.path().join("validators"));
             assert_eq!(config.secrets_dir, dir.path().join("secrets"));
         });
@@ -152,8 +155,12 @@ fn beacon_nodes_flag() {
     CommandLineTest::new()
         .flag("beacon-nodes", Some("localhost:1001,localhost:1010"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.beacon_nodes, vec!["localhost:1001", "localhost:1010"]));
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_nodes,
+                vec!["localhost:1001", "localhost:1010"]
+            )
+        });
 }
 
 #[test]
@@ -161,8 +168,7 @@ fn allow_unsynced_flag() {
     CommandLineTest::new()
         .flag("allow-unsynced", None)
         .run()
-        .with_config(|config|
-            assert!(config.allow_unsynced_beacon_node));
+        .with_config(|config| assert!(config.allow_unsynced_beacon_node));
 }
 
 #[test]
@@ -170,8 +176,7 @@ fn disable_auto_discover_flag() {
     CommandLineTest::new()
         .flag("disable-auto-discover", None)
         .run()
-        .with_config(|config|
-            assert!(config.disable_auto_discover));
+        .with_config(|config| assert!(config.disable_auto_discover));
 }
 
 #[test]
@@ -179,8 +184,7 @@ fn init_slashing_protections_flag() {
     CommandLineTest::new()
         .flag("init-slashing-protection", None)
         .run()
-        .with_config(|config|
-            assert!(config.init_slashing_protection));
+        .with_config(|config| assert!(config.init_slashing_protection));
 }
 
 // Tests for Graffiti flags
@@ -189,9 +193,12 @@ fn grafitti_flag() {
     CommandLineTest::new()
         .flag("graffiti", Some("nice-graffiti"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.graffiti.unwrap().to_string(),
-                "0x6e6963652d677261666669746900000000000000000000000000000000000000"));
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti.unwrap().to_string(),
+                "0x6e6963652d677261666669746900000000000000000000000000000000000000"
+            )
+        });
 }
 #[test]
 fn grafitti_file_flag() {
@@ -200,14 +207,28 @@ fn grafitti_file_flag() {
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
     let contents = "default:nice-graffiti";
-    file.write(contents.as_bytes()).expect("Unable to write to file");
+    file.write(contents.as_bytes())
+        .expect("Unable to write to file");
     CommandLineTest::new()
-        .flag("graffiti-file", dir.path().join("graffiti.txt").as_os_str().to_str())
+        .flag(
+            "graffiti-file",
+            dir.path().join("graffiti.txt").as_os_str().to_str(),
+        )
         .run()
-        .with_config(|config|
+        .with_config(|config| {
             // Public key not present so load default
-            assert_eq!(config.graffiti_file.clone().unwrap().load_graffiti(&pubkeybytes).unwrap().unwrap().to_string(),
-                "0x6e6963652d677261666669746900000000000000000000000000000000000000"));
+            assert_eq!(
+                config
+                    .graffiti_file
+                    .clone()
+                    .unwrap()
+                    .load_graffiti(&pubkeybytes)
+                    .unwrap()
+                    .unwrap()
+                    .to_string(),
+                "0x6e6963652d677261666669746900000000000000000000000000000000000000"
+            )
+        });
 }
 #[test]
 fn grafitti_file_with_pk_flag() {
@@ -216,13 +237,27 @@ fn grafitti_file_with_pk_flag() {
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
     let contents = format!("{}:nice-graffiti", pubkeybytes.to_string());
-    file.write(contents.as_bytes()).expect("Unable to write to file");
+    file.write(contents.as_bytes())
+        .expect("Unable to write to file");
     CommandLineTest::new()
-        .flag("graffiti-file", dir.path().join("graffiti.txt").as_os_str().to_str())
+        .flag(
+            "graffiti-file",
+            dir.path().join("graffiti.txt").as_os_str().to_str(),
+        )
         .run()
-        .with_config(|config|
-            assert_eq!(config.graffiti_file.clone().unwrap().load_graffiti(&pubkeybytes).unwrap().unwrap().to_string(),
-                "0x6e6963652d677261666669746900000000000000000000000000000000000000"));
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .graffiti_file
+                    .clone()
+                    .unwrap()
+                    .load_graffiti(&pubkeybytes)
+                    .unwrap()
+                    .unwrap()
+                    .to_string(),
+                "0x6e6963652d677261666669746900000000000000000000000000000000000000"
+            )
+        });
 }
 
 // Tests for HTTP flags
@@ -231,32 +266,33 @@ fn http_flag() {
     CommandLineTest::new()
         .flag("http", None)
         .run()
-        .with_config(|config|
-            assert!(config.http_api.enabled));
+        .with_config(|config| assert!(config.http_api.enabled));
 }
 #[test]
 fn http_port_flag() {
     CommandLineTest::new()
         .flag("http-port", Some("9090"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_api.listen_port, 9090));
+        .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
 }
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("http://localhost:9009"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_api.allow_origin, Some("http://localhost:9009".to_string())));
+        .with_config(|config| {
+            assert_eq!(
+                config.http_api.allow_origin,
+                Some("http://localhost:9009".to_string())
+            )
+        });
 }
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("*"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+        .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
 
 // Tests for Metrics flags
@@ -265,8 +301,7 @@ fn metrics_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
         .run()
-        .with_config(|config|
-            assert!(config.http_metrics.enabled));
+        .with_config(|config| assert!(config.http_metrics.enabled));
 }
 #[test]
 fn metrics_address_flag() {
@@ -274,30 +309,31 @@ fn metrics_address_flag() {
     CommandLineTest::new()
         .flag("metrics-address", Some("127.0.0.99"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_metrics.listen_addr, addr));
+        .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
 #[test]
 fn metrics_port_flag() {
     CommandLineTest::new()
         .flag("metrics-port", Some("9090"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_metrics.listen_port, 9090));
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
         .flag("metrics-allow-origin", Some("http://localhost:9009"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_metrics.allow_origin, Some("http://localhost:9009".to_string())));
+        .with_config(|config| {
+            assert_eq!(
+                config.http_metrics.allow_origin,
+                Some("http://localhost:9009".to_string())
+            )
+        });
 }
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
         .flag("metrics-allow-origin", Some("*"))
         .run()
-        .with_config(|config|
-            assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
+        .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
 }

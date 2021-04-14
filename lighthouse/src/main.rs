@@ -7,10 +7,10 @@ use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
-use std::path::PathBuf;
-use std::process::exit;
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
+use std::process::exit;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -308,17 +308,18 @@ fn run<E: EthSpec>(
             let dump_config = matches.is_present("dump-config");
             if dump_config {
                 if let Some(dump_path) = matches.value_of("dump-config") {
-                    dump_path.parse::<PathBuf>()
-                    .map_err(|e| format!("Failed to parse dump path: {:?}", e))?;
+                    dump_path
+                        .parse::<PathBuf>()
+                        .map_err(|e| format!("Failed to parse dump path: {:?}", e))?;
 
                     let config_json = serde_json::to_string(&config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
+                        .map_err(|e| format!("Error serializing config: {:?}", e))?;
 
                     let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+                        .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
 
                     file.write_all(config_json.as_bytes())
-                    .map_err(|e| format!("Unable to write to config file: {:?}", e))?;
+                        .map_err(|e| format!("Unable to write to config file: {:?}", e))?;
                 };
             }
 
@@ -348,17 +349,18 @@ fn run<E: EthSpec>(
             let dump_config = matches.is_present("dump-config");
             if dump_config {
                 if let Some(dump_path) = matches.value_of("dump-config") {
-                    dump_path.parse::<PathBuf>()
-                    .map_err(|e| format!("Failed to parse dump path: {:?}", e))?;
+                    dump_path
+                        .parse::<PathBuf>()
+                        .map_err(|e| format!("Failed to parse dump path: {:?}", e))?;
 
                     let config_json = serde_json::to_string(&config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
+                        .map_err(|e| format!("Error serializing config: {:?}", e))?;
 
                     let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+                        .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
 
                     file.write_all(config_json.as_bytes())
-                    .map_err(|e| format!("Unable to write to config file: {:?}", e))?;
+                        .map_err(|e| format!("Unable to write to config file: {:?}", e))?;
                 };
             }
             if !shutdown_flag {
