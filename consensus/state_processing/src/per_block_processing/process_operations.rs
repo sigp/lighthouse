@@ -1,15 +1,12 @@
 use super::*;
 use crate::common::{
-    altair::get_base_reward, increase_balance, initiate_validator_exit, slash_validator,
+    altair::get_base_reward, get_attestation_participation, increase_balance,
+    initiate_validator_exit, slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
-use integer_sqrt::IntegerSquareRoot;
 use safe_arith::SafeArith;
-use types::consts::altair::{
-    FLAG_INDICES_AND_WEIGHTS, PROPOSER_WEIGHT, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
-    TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
-};
+use types::consts::altair::{FLAG_INDICES_AND_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -125,31 +122,9 @@ pub mod altair {
             verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(att_index))?;
 
+        // Matching roots, participation flag indices
         let data = &attestation.data;
-
-        // Matching roots.
-        // Source match is checked by `verify_attestation_for_block_inclusion`.
-        let is_matching_head = data.beacon_block_root == *state.get_block_root(data.slot)?;
-        let is_matching_source = true;
-        let is_matching_target =
-            data.target.root == *state.get_block_root_at_epoch(data.target.epoch)?;
-
-        // Participation flag indices
-        let mut participation_flag_indices = Vec::with_capacity(FLAG_INDICES_AND_WEIGHTS.len());
-        if is_matching_head
-            && is_matching_target
-            && state.slot() <= data.slot.safe_add(spec.min_attestation_inclusion_delay)?
-        {
-            participation_flag_indices.push(TIMELY_HEAD_FLAG_INDEX);
-        }
-        if is_matching_source
-            && state.slot() <= data.slot.safe_add(T::slots_per_epoch().integer_sqrt())?
-        {
-            participation_flag_indices.push(TIMELY_SOURCE_FLAG_INDEX);
-        }
-        if is_matching_target && state.slot() <= data.slot.safe_add(T::slots_per_epoch())? {
-            participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
-        }
+        let participation_flag_indices = get_attestation_participation(data, state, spec)?;
 
         // Update epoch participation flags.
         let total_active_balance = state.get_total_active_balance(spec)?;
