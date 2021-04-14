@@ -11,7 +11,6 @@ use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
 use eth2_libp2p::PeerId;
 use fnv::FnvHashMap;
-use futures::future::ready;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use slog::{crit, debug, error, Logger};
@@ -44,20 +43,20 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that was succesfully processed. We use this to handle attestations for unknown
     /// blocks.
     BlockProcessed(Hash256),
-    UnknownBlockAttestation,
+    UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     UnknownBlockAggregate,
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork<T: BeaconChainTypes> {
     Block(QueuedBlock<T>),
-    Attestation(QueuedAttestation<T::EthSpec>),
+    Attestation(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
 /// later.
-pub struct QueuedAttestation<T: EthSpec> {
+pub struct QueuedUnaggregate<T: EthSpec> {
     peer_id: PeerId,
     attestation: Attestation<T>,
     should_import: bool,
@@ -112,7 +111,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Queued aggreated attestations.
     queued_aggregates: FnvHashMap<usize, QueuedAggregate<T::EthSpec>>,
     /// Queued attestations.
-    queued_attestations: FnvHashMap<usize, QueuedAttestation<T::EthSpec>>,
+    queued_attestations: FnvHashMap<usize, QueuedUnaggregate<T::EthSpec>>,
     /// Attestations (aggreated and unaggreated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, VecDeque<QueuedAttestationId>>,
 
@@ -191,7 +190,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
                     return Poll::Ready(Some(InboundEvent::EarlyBlock(block)))
                 }
                 ReprocessQueueMessage::BlockProcessed(_hash) => todo!(),
-                ReprocessQueueMessage::UnknownBlockAttestation => todo!(),
+                ReprocessQueueMessage::UnknownBlockUnaggregate(_) => todo!(),
                 ReprocessQueueMessage::UnknownBlockAggregate => todo!(),
             },
             Poll::Ready(None) => {
