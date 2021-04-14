@@ -3,6 +3,27 @@ name = "lighthouse"
 version = "1.3.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
+description = "Implementation of https://github.com/ethereum/eth2.0-specs in Rust."
+license = "Apache-2.0"
+
+# Configuration for building a .deb package - for use with `cargo-deb`
+[package.metadata.deb]
+name = "lighthouse"
+extended-description = "Implementation of https://github.com/ethereum/eth2.0-specs in Rust."
+section = "misc"
+maintainer = "sean@sigmaprime.io"
+license-file = ["../LICENSE", "0"]
+# https://www.debian.org/doc/debian-policy/ch-maintainerscripts.html
+maintainer-scripts = "scripts/packaging/deb-maintainer-scripts"
+assets = [
+    ["../target/release/lighthouse", "/usr/bin/", "755"],
+    ["../scripts/packaging/lighthousebeacon.service", "/lib/systemd/system/", "644"],
+    ["../scripts/packaging/lighthousevalidator.service", "/lib/systemd/system/", "644"]
+]
+conf-files = [
+    "/etc/default/lighthousebeacon",
+    "/etc/default/lighthousevalidator"
+]
 
 [features]
 # Writes debugging .ssz files to /tmp during block processing.

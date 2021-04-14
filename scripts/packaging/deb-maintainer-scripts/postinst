@@ -1,0 +1,42 @@
+#!/bin/sh
+
+set -e
+
+action="$1"
+config_file_beacon="/etc/default/lighthousebeacon"
+config_file_validator="/etc/default/lighthousevalidator"
+data_dir_beacon="/var/lib/lighthouse/beacon"
+data_dir_validator="/var/lib/lighthouse/validators"
+
+if [ "$action" = "configure" ]; then
+
+  # make the data dir
+  mkdir -p /var/lib/lighthouse
+
+  # Make user and group
+  getent group lighthousebeacon >/dev/null 2>&1 || addgroup --system lighthousebeacon
+  getent passwd lighthousebeacon >/dev/null 2>&1 ||
+    adduser --system --no-create-home --disabled-password \
+    --ingroup lighthousebeacon lighthousebeacon
+
+  # make the data dir and change ownership
+  mkdir -p /var/lib/lighthouse/beacon
+  chown -R lighthousebeacon:lighthousebeacon /var/lib/lighthouse/beacon
+
+  if [ ! -e "$config_file_beacon" ]; then
+    echo "LIGHTHOUSE_BEACON_CLI_ARGS=\"--datadir $data_dir_beacon\"" > /etc/default/lighthousebeacon
+  fi
+
+  # Make user and group
+  getent group lighthousevalidator >/dev/null 2>&1 || addgroup --system lighthousevalidator
+  getent passwd lighthousevalidator >/dev/null 2>&1 ||
+    adduser --system --no-create-home --disabled-password \
+    --ingroup lighthousevalidator lighthousevalidator
+
+  # make the data dir and change ownership
+  mkdir -p /var/lib/lighthouse/validators
+  chown -R lighthousevalidator:lighthousevalidator /var/lib/lighthouse/validators
+  if [ ! -e "$config_file_validator" ]; then
+    echo "LIGHTHOUSE_VALIDATOR_CLI_ARGS=\"--datadir $data_dir_validator\"" > /etc/default/lighthousevalidator
+  fi
+fi

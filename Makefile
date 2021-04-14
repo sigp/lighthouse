@@ -52,6 +52,15 @@ build-aarch64:
 build-aarch64-portable:
 	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
 
+# The following commands use `cargo-deb` to create a Debian package for lighthouse.
+#
+# `cargo-deb` can be installed with `cargo install cargo-deb`
+build-deb:
+	cargo deb --manifest-path lighthouse/Cargo.toml -- --locked --features portable
+build-deb-aarch64:
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
+	cargo deb --target aarch64-unknown-linux-gnu --no-build --manifest-path lighthouse/Cargo.toml
+
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
 	cp $(1)/lighthouse $(BIN_DIR)/lighthouse
