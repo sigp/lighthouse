@@ -207,7 +207,7 @@ fn grafitti_file_flag() {
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
     let contents = "default:nice-graffiti";
-    file.write(contents.as_bytes())
+    file.write_all(contents.as_bytes())
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(
@@ -237,7 +237,7 @@ fn grafitti_file_with_pk_flag() {
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
     let contents = format!("{}:nice-graffiti", pubkeybytes.to_string());
-    file.write(contents.as_bytes())
+    file.write_all(contents.as_bytes())
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(

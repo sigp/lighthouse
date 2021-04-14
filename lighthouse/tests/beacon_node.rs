@@ -319,7 +319,7 @@ fn disable_upnp_flag() {
 fn boot_nodes_flag() {
     let nodes = "enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8,\
                 enr:-LK4QFOFWca5ABQzxiCRcy37G7wy1K6zD4qMYBSN5ozzanwze_XVvXVhCk9JvF0cHXOBZrHK1E4vU7Gn-a0bHVczoDU6h2F0dG5ldHOIAAAAAAAAAACEZXRoMpA7CIeVAAAgCf__________gmlkgnY0gmlwhNIy-4iJc2VjcDI1NmsxoQJA3AXQJ6M3NpBWtJS3HPtbXG14t7qHjXuIaL6IOz89T4N0Y3CCIyiDdWRwgiMo";
-    let enr: Vec<&str> = nodes.split(",").collect();
+    let enr: Vec<&str> = nodes.split(',').collect();
     CommandLineTest::new()
         .flag("boot-nodes", Some(nodes))
         .run()
@@ -520,7 +520,7 @@ fn validator_monitor_pubkeys_flag() {
 fn validator_monitor_file_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("pubkeys.txt")).expect("Unable to create file");
-    file.write(b"0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef,\
+    file.write_all(b"0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef,\
                 0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
         .expect("Unable to write to file");
     CommandLineTest::new()
@@ -545,7 +545,7 @@ fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, 4 as usize));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
 }
 #[test]
 fn auto_compact_db_flag() {
