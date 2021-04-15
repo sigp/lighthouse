@@ -46,15 +46,15 @@ pub const VALIDATOR_PROCESS_METRICS: &[(&str, &str)] = &[
 
 lazy_static! {
     /// HashMap representing the `BEACON_PROCESS_METRICS`.
-    pub static ref BEACON_METRICS_MAP: HashMap<&'static str, &'static str> = BEACON_PROCESS_METRICS
-        .into_iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+    pub static ref BEACON_METRICS_MAP: HashMap<String, String> = BEACON_PROCESS_METRICS
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
     /// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
-    pub static ref VALIDATOR_METRICS_MAP: HashMap<&'static str, &'static str> =
+    pub static ref VALIDATOR_METRICS_MAP: HashMap<String, String> =
         VALIDATOR_PROCESS_METRICS
-            .into_iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 }
 
@@ -71,16 +71,16 @@ fn get_value(mf: &MetricFamily) -> Option<i64> {
 
 /// Collects all metrics and returns a `serde_json::Value` object with the required metrics
 /// from the metrics hashmap.
-pub fn gather_metrics(metrics_map: &HashMap<&str, &str>) -> Result<serde_json::Value, String> {
+pub fn gather_metrics(metrics_map: &HashMap<String, String>) -> Result<serde_json::Value, String> {
     let metric_families = lighthouse_metrics::gather();
     let mut res = serde_json::Map::new();
     for mf in metric_families.iter() {
         let metric_name = mf.get_name();
-        if metrics_map.contains_key(&metric_name) {
+        if metrics_map.contains_key(metric_name) {
             let value = get_value(&mf)
                 .ok_or_else(|| format!("No value found for metric: {}", metric_name))?;
             let key = metrics_map
-                .get(&metric_name)
+                .get(metric_name)
                 .ok_or_else(|| format!("Failed to find value for metric {}", metric_name))?;
             let _ = res.insert(key.to_string(), value.into());
         }

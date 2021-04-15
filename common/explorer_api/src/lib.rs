@@ -129,7 +129,7 @@ impl ExplorerHttpClient {
             Error::BeaconMetricsFailed("Beacon metrics require freezer db path".to_string())
         })?;
         let metrics = gather_beacon_metrics(&db_path, &freezer_db_path)
-            .map_err(|e| Error::BeaconMetricsFailed(e))?;
+            .map_err(Error::BeaconMetricsFailed)?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
             process_metrics: Process::Beacon(metrics),
@@ -138,7 +138,7 @@ impl ExplorerHttpClient {
 
     /// Gets validator process metrics by querying the validator metrics endpoint
     pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
-        let metrics = gather_validator_metrics().map_err(|e| Error::BeaconMetricsFailed(e))?;
+        let metrics = gather_validator_metrics().map_err(Error::BeaconMetricsFailed)?;
         Ok(ExplorerMetrics {
             metadata: Metadata::new(ProcessType::Beacon),
             process_metrics: Process::Validator(metrics),
