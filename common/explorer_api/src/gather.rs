@@ -4,6 +4,9 @@ use lighthouse_metrics::{MetricFamily, MetricType};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// The required metrics for the beacon and validator processes.
+/// The first value in each tuple represents the name of the metric as used in Lighthouse metrics.
+/// The second value represents the json key that we send to the remote explorer endpoint.
 pub const BEACON_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
     (
         "sync_eth1_fallback_configured",
@@ -38,10 +41,12 @@ pub const VALIDATOR_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
 ];
 
 lazy_static! {
+    /// HashMap representing the `BEACON_PROCESS_METRICS`.
     pub static ref BEACON_METRICS_MAP: HashMap<&'static str, &'static str> = BEACON_PROCESS_METRICS
         .into_iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
+    /// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
     pub static ref VALIDATOR_METRICS_MAP: HashMap<&'static str, &'static str> =
         VALIDATOR_PROCESS_METRICS
             .into_iter()
@@ -49,7 +54,8 @@ lazy_static! {
             .collect();
 }
 
-/// Gets the value from a Counter/Gauge `MetricType` assuming that it has no associated labels
+/// Returns the value from a Counter/Gauge `MetricType` assuming that it has no associated labels
+/// else it returns `None`.
 fn get_value(mf: &MetricFamily) -> Option<i64> {
     let metric = mf.get_metric().first()?;
     match mf.get_field_type() {
@@ -59,20 +65,26 @@ fn get_value(mf: &MetricFamily) -> Option<i64> {
     }
 }
 
-pub fn gather_metrics(metrics_map: &HashMap<&str, &str>) -> Option<serde_json::Value> {
+/// Collects all metrics and returns a `serde_json::Value` object with the required metrics
+/// from the metrics hashmap.
+pub fn gather_metrics(metrics_map: &HashMap<&str, &str>) -> Result<serde_json::Value, String> {
     let metric_families = lighthouse_metrics::gather();
     let mut res = serde_json::Map::new();
     for mf in metric_families.iter() {
         let metric_name = mf.get_name();
         if metrics_map.contains_key(&metric_name) {
-            let value = get_value(&mf)?;
-            let key = metrics_map.get(&metric_name)?;
+            let value = get_value(&mf)
+                .ok_or_else(|| format!("No value found for metric: {}", metric_name))?;
+            let key = metrics_map
+                .get(&metric_name)
+                .ok_or_else(|| format!("Failed to find value for metric {}", metric_name))?;
             let _ = res.insert(key.to_string(), value.into());
         }
     }
-    Some(serde_json::Value::Object(res))
+    Ok(serde_json::Value::Object(res))
 }
 
+/// Gathers and returns the lighthouse beacon metrics.
 pub fn gather_beacon_metrics(
     db_path: &Path,
     freezer_db_path: &Path,
@@ -81,7 +93,7 @@ pub fn gather_beacon_metrics(
     store::metrics::scrape_for_metrics(db_path, freezer_db_path);
 
     let beacon_metrics = gather_metrics(&BEACON_METRICS_MAP)
-        .ok_or_else(|| "Failed to gather beacon metrics".to_string())?;
+        .map_err(|e| format!("Failed to gather beacon metrics: {}", e))?;
     let process = eth2::lighthouse::ProcessHealth::observe()?.into();
 
     Ok(BeaconProcessMetrics {
@@ -90,9 +102,10 @@ pub fn gather_beacon_metrics(
     })
 }
 
+/// Gathers and returns the lighthouse validator metrics.
 pub fn gather_validator_metrics() -> Result<ValidatorProcessMetrics, String> {
     let validator_metrics = gather_metrics(&VALIDATOR_METRICS_MAP)
-        .ok_or_else(|| "Failed to gather validator metrics".to_string())?;
+        .map_err(|e| format!("Failed to gather validator metrics: {}", e))?;
 
     let process = eth2::lighthouse::ProcessHealth::observe()?.into();
     Ok(ValidatorProcessMetrics {
