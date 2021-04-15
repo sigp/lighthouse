@@ -733,6 +733,13 @@ impl Service {
 
         // Set the number of configured eth1 servers
         metrics::set_gauge(&metrics::ETH1_FALLBACK_CONFIGURED, num_fallbacks as i64);
+        // Since we lazily update eth1 fallbacks, it's not possible to know connection status of fallback.
+        // Hence, we set it to 1 if we have atleast one configured fallback.
+        if num_fallbacks > 0 {
+            metrics::set_gauge(&metrics::ETH1_FALLBACK_CONNECTED, 1);
+        } else {
+            metrics::set_gauge(&metrics::ETH1_FALLBACK_CONNECTED, 0);
+        }
         handle.spawn(update_future, "eth1");
     }
 

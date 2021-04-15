@@ -1,4 +1,6 @@
+use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
+use lighthouse_metrics::set_gauge;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
@@ -48,6 +50,8 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             "available" => num_available,
             "synced" => num_synced,
         )
+    } else if num_synced > 1 {
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
     } else {
         error!(
             log,

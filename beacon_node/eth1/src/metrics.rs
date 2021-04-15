@@ -39,7 +39,6 @@ lazy_static! {
         "sync_eth1_fallback_configured", "Number of configured eth1 fallbacks"
     );
 
-    // TODO(pawan): how to check fallbacks connection status? Should we refactor to enable this
     pub static ref ETH1_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
         "eth1_sync_fallback_connected", "Check if eth1 fallback node is configured"
     );

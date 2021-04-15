@@ -113,6 +113,11 @@ lazy_static::lazy_static! {
         "sync_eth2_fallback_configured",
         "The number of configured eth2 fallbacks",
     );
+
+    pub static ref ETH2_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth2_fallback_connected",
+        "Checks if the eth2 fallback is in connected and synced",
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(

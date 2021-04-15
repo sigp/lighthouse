@@ -12,6 +12,10 @@ pub const BEACON_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
         "sync_eth1_fallback_configured",
         "sync_eth1_fallback_configured",
     ),
+    (
+        "sync_eth1_fallback_connected",
+        "sync_eth1_fallback_connected",
+    ),
     ("sync_eth1_connected", "sync_eth1_connected"),
     ("store_disk_db_size", "disk_beaconchain_bytes_total"),
     (
@@ -29,7 +33,7 @@ pub const BEACON_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
 
 pub const VALIDATOR_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
     ("vc_validators_enabled_count", "validator_active"),
-    ("vc_validators_total_count", "validator_active"),
+    ("vc_validators_total_count", "validator_total"),
     (
         "sync_eth2_fallback_configured",
         "sync_eth2_fallback_configured",
