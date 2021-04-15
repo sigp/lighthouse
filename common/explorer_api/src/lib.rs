@@ -14,10 +14,6 @@ use types::*;
 
 pub use types::ProcessType;
 
-/// Endpoint for metrics server to get beacon process metrics.
-pub const BEACON_ENDPOINT: &str = "beacon_process";
-/// Endpoint for metrics server to get validator process metrics.
-pub const VALIDATOR_ENDPOINT: &str = "validator_process";
 /// Duration after which we collect and send metrics to remote endpoint.
 pub const UPDATE_DURATION: u64 = 60;
 /// Timeout for HTTP requests.
@@ -111,10 +107,10 @@ impl ExplorerHttpClient {
                 interval.tick().await;
                 match self.send_metrics(&processes).await {
                     Ok(()) => {
-                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => ?self.explorer_endpoint);
+                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => %self.explorer_endpoint);
                     }
                     Err(e) => {
-                        error!(self.log, "Failed to send metrics to remote endpoint"; "error" => ?e)
+                        error!(self.log, "Failed to send metrics to remote endpoint"; "error" => %e)
                     }
                 }
             }
@@ -176,7 +172,7 @@ impl ExplorerHttpClient {
                     self.log,
                     "Failed to get metrics";
                     "process_type" => ?process,
-                    "error" => ?e
+                    "error" => %e
                 ),
                 Ok(metric) => metrics.push(metric),
             }

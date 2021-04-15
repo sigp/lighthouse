@@ -247,11 +247,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map(CandidateBeaconNode::new)
             .collect();
 
-        // Excluding the primary beacon node
+        // Set the count for beacon node fallbacks excluding the primary beacon node
         set_gauge(
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
+        // Initialize the number of connected, synced fallbacks to 0.
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 

@@ -7,7 +7,7 @@ use std::path::Path;
 /// The required metrics for the beacon and validator processes.
 /// The first value in each tuple represents the name of the metric as used in Lighthouse metrics.
 /// The second value represents the json key that we send to the remote explorer endpoint.
-pub const BEACON_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
+pub const BEACON_PROCESS_METRICS: &[(&str, &str)] = &[
     (
         "sync_eth1_fallback_configured",
         "sync_eth1_fallback_configured",
@@ -31,7 +31,7 @@ pub const BEACON_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
     ("sync_eth2_synced", "sync_eth2_synced"),
 ];
 
-pub const VALIDATOR_PROCESS_METRICS: &[(&'static str, &'static str)] = &[
+pub const VALIDATOR_PROCESS_METRICS: &[(&str, &str)] = &[
     ("vc_validators_enabled_count", "validator_active"),
     ("vc_validators_total_count", "validator_total"),
     (
