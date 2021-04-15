@@ -147,57 +147,13 @@ impl From<SystemHealth> for SystemMetrics {
     }
 }
 
-/// Metrics specific to the beacon node.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BeaconMetrics {
-    #[serde(rename(deserialize = "store_disk_db_size"))]
-    disk_beaconchain_bytes_total: u64,
-
-    #[serde(rename(deserialize = "libp2p_inbound_bytes"))]
-    network_libp2p_bytes_total_receive: u64,
-    #[serde(rename(deserialize = "libp2p_outbound_bytes"))]
-    network_libp2p_bytes_total_transmit: u64,
-    #[serde(rename(deserialize = "libp2p_peer_connected_peers_total"))]
-    network_peers_connected: u64,
-
-    #[serde(deserialize_with = "int_to_bool")]
-    #[serde(default)]
-    sync_eth1_connected: bool,
-    #[serde(deserialize_with = "int_to_bool")]
-    #[serde(default)]
-    sync_eth2_synced: bool,
-    #[serde(rename(deserialize = "notifier_head_slot"))]
-    sync_beacon_head_slot: u64,
-    #[serde(default)]
-    #[serde(deserialize_with = "int_to_bool")]
-    sync_eth1_fallback_configured: bool,
-    /*
-    sync_eth1_fallback_connected: bool,
-    */
-}
-
-/// Metrics specific to validator client.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ValidatorMetrics {
-    #[serde(rename(deserialize = "vc_validators_total_count"))]
-    validator_total: u64,
-    #[serde(rename(deserialize = "vc_validators_enabled_count"))]
-    validator_active: u64,
-
-    #[serde(deserialize_with = "int_to_bool")]
-    sync_eth2_fallback_configured: bool,
-    /*
-    sync_eth2_fallback_connected: bool,
-    */
-}
-
 /// All beacon process metrics.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BeaconProcessMetrics {
     #[serde(flatten)]
     pub common: ProcessMetrics,
     #[serde(flatten)]
-    pub beacon: BeaconMetrics,
+    pub beacon: serde_json::Value,
 }
 
 /// All validator process metrics
@@ -206,7 +162,7 @@ pub struct ValidatorProcessMetrics {
     #[serde(flatten)]
     pub common: ProcessMetrics,
     #[serde(flatten)]
-    pub validator: ValidatorMetrics,
+    pub validator: serde_json::Value,
 }
 
 /// Returns the client name string
@@ -223,15 +179,4 @@ fn client_version() -> String {
 /// TODO: placeholder
 fn client_build() -> u64 {
     42
-}
-
-fn int_to_bool<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::de::Deserializer<'de>,
-{
-    use serde::de::Deserialize;
-    match u8::deserialize(deserializer)? {
-        0 => Ok(false),
-        _ => Ok(true),
-    }
 }

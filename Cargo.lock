@@ -2196,6 +2196,7 @@ version = "0.1.0"
 dependencies = [
  "eth2",
  "futures 0.3.13",
+ "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "reqwest",

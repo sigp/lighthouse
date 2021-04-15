@@ -19,3 +19,4 @@ lighthouse_version = { path = "../lighthouse_version"}
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 slog = "2.5.2"
 store = { path = "../../beacon_node/store" }
+lazy_static = "1.4.0"
