@@ -131,7 +131,7 @@ impl ExplorerHttpClient {
         let metrics = gather_beacon_metrics(&db_path, &freezer_db_path)
             .map_err(Error::BeaconMetricsFailed)?;
         Ok(ExplorerMetrics {
-            metadata: Metadata::new(ProcessType::Beacon),
+            metadata: Metadata::new(ProcessType::BeaconNode),
             process_metrics: Process::Beacon(metrics),
         })
     }
@@ -140,7 +140,7 @@ impl ExplorerHttpClient {
     pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
         let metrics = gather_validator_metrics().map_err(Error::BeaconMetricsFailed)?;
         Ok(ExplorerMetrics {
-            metadata: Metadata::new(ProcessType::Beacon),
+            metadata: Metadata::new(ProcessType::BeaconNode),
             process_metrics: Process::Validator(metrics),
         })
     }
@@ -157,7 +157,7 @@ impl ExplorerHttpClient {
     /// Return explorer metric based on process type.
     pub async fn get_metrics(&self, process_type: &ProcessType) -> Result<ExplorerMetrics, Error> {
         match process_type {
-            ProcessType::Beacon => self.get_beacon_metrics().await,
+            ProcessType::BeaconNode => self.get_beacon_metrics().await,
             ProcessType::System => self.get_system_metrics().await,
             ProcessType::Validator => self.get_validator_metrics().await,
         }

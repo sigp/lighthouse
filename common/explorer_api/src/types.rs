@@ -26,7 +26,7 @@ pub struct ExplorerMetrics {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProcessType {
-    Beacon,
+    BeaconNode,
     Validator,
     System,
 }
@@ -34,7 +34,7 @@ pub enum ProcessType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     version: u64,
-    timestamp: u64,
+    timestamp: u128,
     process: ProcessType,
 }
 
@@ -45,7 +45,7 @@ impl Metadata {
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time should be greater than unix epoch")
-                .as_secs(),
+                .as_millis(),
             process,
         }
     }
@@ -117,6 +117,8 @@ pub struct SystemMetrics {
 
 impl From<SystemHealth> for SystemMetrics {
     fn from(health: SystemHealth) -> Self {
+        // Beaconcha.in uses 3 letter os names
+        let misc_os = health.misc_os[..3].to_string();
         Self {
             cpu_cores: health.cpu_cores,
             cpu_threads: health.cpu_threads,
@@ -142,7 +144,7 @@ impl From<SystemHealth> for SystemMetrics {
             network_node_bytes_total_transmit: health.network_node_bytes_total_transmit,
 
             misc_node_boot_ts_seconds: health.misc_node_boot_ts_seconds,
-            misc_os: health.misc_os,
+            misc_os,
         }
     }
 }
@@ -167,7 +169,7 @@ pub struct ValidatorProcessMetrics {
 
 /// Returns the client name string
 fn client_name() -> String {
-    "Lighthouse".to_string()
+    "lighthouse".to_string()
 }
 
 /// Returns the client version

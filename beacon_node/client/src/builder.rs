@@ -386,7 +386,7 @@ where
         let explorer_client = ExplorerHttpClient::new(config, context.log().clone())?;
         explorer_client.auto_update(
             context.executor,
-            vec![ProcessType::Beacon, ProcessType::System],
+            vec![ProcessType::BeaconNode, ProcessType::System],
         );
         Ok(self)
     }
