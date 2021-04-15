@@ -137,7 +137,7 @@ pub enum Error {
     ///
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
-    UnknownHeadBlock { beacon_block_root: Hash256 },
+    UnknownHeadBlock,
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -375,7 +375,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     pub fn verify(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, (Error, SignedAggregateAndProof<T::EthSpec>)> {
         Self::verify_slashable(signed_aggregate, chain)
             .map(|verified_aggregate| {
                 if let Some(slasher) = chain.slasher.as_ref() {
@@ -383,7 +383,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                 }
                 verified_aggregate
             })
-            .map_err(|slash_info| process_slash_info(slash_info, chain))
+            .map_err(|(slash_info, original_aggregate)| (process_slash_info(slash_info, chain), original_aggregate))
     }
 
     /// Run the checks that happen before an indexed attestation is constructed.
@@ -502,14 +502,25 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     pub fn verify_slashable(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<
+        Self,
+        (
+            AttestationSlashInfo<T, Error>,
+            SignedAggregateAndProof<T::EthSpec>,
+        ),
+    > {
         use AttestationSlashInfo::*;
 
         let attestation = &signed_aggregate.message.aggregate;
         let aggregator_index = signed_aggregate.message.aggregator_index;
         let attestation_root = match Self::verify_early_checks(&signed_aggregate, chain) {
             Ok(root) => root,
-            Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
+            Err(e) => {
+                return Err((
+                    SignatureNotChecked(signed_aggregate.message.aggregate.clone(), e),
+                    signed_aggregate,
+                ))
+            }
         };
 
         let indexed_attestation =
@@ -536,7 +547,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                     .map_err(|e| BeaconChainError::from(e).into())
             }) {
                 Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
+                Err(e) => return Err((SignatureNotChecked(signed_aggregate.message.aggregate.clone(), e), signed_aggregate)),
             };
 
         // Ensure that all signatures are valid.
@@ -550,11 +561,11 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                     }
                 })
         {
-            return Err(SignatureInvalid(e));
+            return Err((SignatureInvalid(e), signed_aggregate));
         }
 
         if let Err(e) = Self::verify_late_checks(&signed_aggregate, attestation_root, chain) {
-            return Err(SignatureValid(indexed_attestation, e));
+            return Err((SignatureValid(indexed_attestation, e), signed_aggregate));
         }
 
         Ok(VerifiedAggregatedAttestation {
@@ -705,7 +716,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, (Error, Attestation<T::EthSpec>)> {
         Self::verify_slashable(attestation, subnet_id, chain)
             .map(|verified_unaggregated| {
                 if let Some(slasher) = chain.slasher.as_ref() {
@@ -713,7 +724,9 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
                 }
                 verified_unaggregated
             })
-            .map_err(|slash_info| process_slash_info(slash_info, chain))
+            .map_err(|(slash_info, original_attestation)| {
+                (process_slash_info(slash_info, chain), original_attestation)
+            })
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
@@ -721,18 +734,19 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<Self, (AttestationSlashInfo<T, Error>, Attestation<T::EthSpec>)> {
         use AttestationSlashInfo::*;
 
         if let Err(e) = Self::verify_early_checks(&attestation, chain) {
-            return Err(SignatureNotChecked(attestation, e));
+            // TODO: check how to avoid copying this
+            return Err((SignatureNotChecked(attestation.clone(), e), attestation));
         }
 
         let (indexed_attestation, committees_per_slot) =
             match obtain_indexed_attestation_and_committees_per_slot(chain, &attestation) {
                 Ok(x) => x,
                 Err(e) => {
-                    return Err(SignatureNotChecked(attestation, e));
+                    return Err((SignatureNotChecked(attestation.clone(), e), attestation));
                 }
             };
 
@@ -744,16 +758,21 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             chain,
         ) {
             Ok(t) => t,
-            Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
+            Err(e) => {
+                return Err((
+                    SignatureNotCheckedIndexed(indexed_attestation, e),
+                    attestation,
+                ))
+            }
         };
 
         // The aggregate signature of the attestation is valid.
         if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
-            return Err(SignatureInvalid(e));
+            return Err((SignatureInvalid(e), attestation));
         }
 
         if let Err(e) = Self::verify_late_checks(&attestation, validator_index, chain) {
-            return Err(SignatureValid(indexed_attestation, e));
+            return Err((SignatureValid(indexed_attestation, e), attestation));
         }
 
         Ok(Self {
@@ -825,9 +844,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 
         Ok(block)
     } else {
-        Err(Error::UnknownHeadBlock {
-            beacon_block_root: attestation.data.beacon_block_root,
-        })
+        Err(Error::UnknownHeadBlock)
     }
 }
 

@@ -1031,6 +1031,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         subnet_id,
                         should_import,
                         seen_timestamp,
+                        reprocess_tx
                     ),
                     /*
                      * Aggregated attestation verification.

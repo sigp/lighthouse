@@ -67,6 +67,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
     ) {
         let beacon_block_root = attestation.data.beacon_block_root;
 
@@ -75,7 +76,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
         {
             Ok(attestation) => attestation,
-            Err(e) => {
+            Err((e, attestation)) => {
                 self.handle_attestation_verification_failure(
                     peer_id,
                     message_id,
@@ -83,6 +84,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "unaggregated",
                     e,
                 );
+                // TODO: diff between first and second
                 return;
             }
         };
@@ -162,15 +164,16 @@ impl<T: BeaconChainTypes> Worker<T> {
             .verify_aggregated_attestation_for_gossip(aggregate)
         {
             Ok(aggregate) => aggregate,
-            Err(e) => {
+            Err((e, original_aggregate)) => {
                 // Report the failure to gossipsub
                 self.handle_attestation_verification_failure(
                     peer_id,
                     message_id,
-                    beacon_block_root,
+                    original_aggregate.message.aggregate.data.beacon_block_root,
                     "aggregated",
                     e,
                 );
+                // TODO: do something here with this
                 return;
             }
         };
@@ -789,7 +792,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            AttnError::UnknownHeadBlock { beacon_block_root } => {
+            AttnError::UnknownHeadBlock => {
 
                 // TODO: Maintain this attestation and re-process once sync completes
                 // TODO: We then score based on whether we can download the block and re-process.
@@ -801,7 +804,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // we don't know the block, get the sync manager to handle the block lookup
                 self.sync_tx
-                    .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                    .send(SyncMessage::UnknownBlockHash(peer_id, beacon_block_root))
                     .unwrap_or_else(|_| {
                         warn!(
                             self.log,
