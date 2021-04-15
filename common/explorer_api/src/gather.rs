@@ -1,60 +1,99 @@
 use super::types::{BeaconProcessMetrics, ValidatorProcessMetrics};
 use lazy_static::lazy_static;
 use lighthouse_metrics::{MetricFamily, MetricType};
+use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path;
 
 /// The required metrics for the beacon and validator processes.
 /// The first value in each tuple represents the name of the metric as used in Lighthouse metrics.
 /// The second value represents the json key that we send to the remote explorer endpoint.
-pub const BEACON_PROCESS_METRICS: &[(&str, &str)] = &[
+/// The third value represents the type of the value in the JSON output.
+pub const BEACON_PROCESS_METRICS: &[(&str, &str, JsonType)] = &[
     (
         "sync_eth1_fallback_configured",
         "sync_eth1_fallback_configured",
+        JsonType::Boolean,
     ),
     (
         "sync_eth1_fallback_connected",
         "sync_eth1_fallback_connected",
+        JsonType::Boolean,
     ),
-    ("sync_eth1_connected", "sync_eth1_connected"),
-    ("store_disk_db_size", "disk_beaconchain_bytes_total"),
+    (
+        "sync_eth1_connected",
+        "sync_eth1_connected",
+        JsonType::Boolean,
+    ),
+    (
+        "store_disk_db_size",
+        "disk_beaconchain_bytes_total",
+        JsonType::Integer,
+    ),
     (
         "libp2p_peer_connected_peers_total",
         "network_peers_connected",
+        JsonType::Integer,
     ),
     (
         "libp2p_outbound_bytes",
         "network_libp2p_bytes_total_transmit",
+        JsonType::Integer,
     ),
-    ("libp2p_inbound_bytes", "network_libp2p_bytes_total_receive"),
-    ("notifier_head_slot", "sync_beacon_head_slot"),
-    ("sync_eth2_synced", "sync_eth2_synced"),
+    (
+        "libp2p_inbound_bytes",
+        "network_libp2p_bytes_total_receive",
+        JsonType::Integer,
+    ),
+    (
+        "notifier_head_slot",
+        "sync_beacon_head_slot",
+        JsonType::Integer,
+    ),
+    ("sync_eth2_synced", "sync_eth2_synced", JsonType::Boolean),
 ];
 
-pub const VALIDATOR_PROCESS_METRICS: &[(&str, &str)] = &[
-    ("vc_validators_enabled_count", "validator_active"),
-    ("vc_validators_total_count", "validator_total"),
+pub const VALIDATOR_PROCESS_METRICS: &[(&str, &str, JsonType)] = &[
+    (
+        "vc_validators_enabled_count",
+        "validator_active",
+        JsonType::Integer,
+    ),
+    (
+        "vc_validators_total_count",
+        "validator_total",
+        JsonType::Integer,
+    ),
     (
         "sync_eth2_fallback_configured",
         "sync_eth2_fallback_configured",
+        JsonType::Boolean,
     ),
     (
         "sync_eth2_fallback_connected",
         "sync_eth2_fallback_connected",
+        JsonType::Boolean,
     ),
 ];
+
+/// Represents the type for the JSON output.
+#[derive(Debug, Clone)]
+pub enum JsonType {
+    Integer,
+    Boolean,
+}
 
 lazy_static! {
     /// HashMap representing the `BEACON_PROCESS_METRICS`.
-    pub static ref BEACON_METRICS_MAP: HashMap<String, String> = BEACON_PROCESS_METRICS
+    pub static ref BEACON_METRICS_MAP: HashMap<String, (String, JsonType)> = BEACON_PROCESS_METRICS
         .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .map(|(k, v, ty)| (k.to_string(), (v.to_string(), ty.clone())))
         .collect();
     /// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
-    pub static ref VALIDATOR_METRICS_MAP: HashMap<String, String> =
+    pub static ref VALIDATOR_METRICS_MAP: HashMap<String, (String, JsonType)> =
         VALIDATOR_PROCESS_METRICS
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v, ty)| (k.to_string(), (v.to_string(), ty.clone())))
             .collect();
 }
 
@@ -69,9 +108,24 @@ fn get_value(mf: &MetricFamily) -> Option<i64> {
     }
 }
 
+/// Return a json value given the JsonType.
+fn get_typed_value(value: i64, ty: &JsonType) -> serde_json::Value {
+    match ty {
+        JsonType::Integer => json!(value),
+        JsonType::Boolean => {
+            if value > 0 {
+                json!(true)
+            } else {
+                json!(false)
+            }
+        }
+    }
+}
 /// Collects all metrics and returns a `serde_json::Value` object with the required metrics
 /// from the metrics hashmap.
-pub fn gather_metrics(metrics_map: &HashMap<String, String>) -> Result<serde_json::Value, String> {
+pub fn gather_metrics(
+    metrics_map: &HashMap<String, (String, JsonType)>,
+) -> Result<serde_json::Value, String> {
     let metric_families = lighthouse_metrics::gather();
     let mut res = serde_json::Map::new();
     for mf in metric_families.iter() {
@@ -79,11 +133,12 @@ pub fn gather_metrics(metrics_map: &HashMap<String, String>) -> Result<serde_jso
         if metrics_map.contains_key(metric_name) {
             let value = get_value(&mf)
                 .ok_or_else(|| format!("No value found for metric: {}", metric_name))?;
-            let key = metrics_map
+            let (key, ty) = metrics_map
                 .get(metric_name)
                 .ok_or_else(|| format!("Failed to find value for metric {}", metric_name))?;
-            let _ = res.insert(key.to_string(), value.into());
-        }
+            let value = get_typed_value(value, ty);
+            let _ = res.insert(key.to_string(), value);
+        };
     }
     Ok(serde_json::Value::Object(res))
 }
