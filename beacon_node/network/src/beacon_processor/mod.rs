@@ -441,8 +441,12 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
-            ReadyWork::Attestation(_) => {todo!()}
-            ReadyWork::Aggregate(_) => {todo!()}
+            ReadyWork::Attestation(_) => {
+                todo!()
+            }
+            ReadyWork::Aggregate(_) => {
+                todo!()
+            }
         }
     }
 }
@@ -1030,8 +1034,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         *attestation,
                         subnet_id,
                         should_import,
+                        Some(reprocess_tx),
                         seen_timestamp,
-                        reprocess_tx
                     ),
                     /*
                      * Aggregated attestation verification.
@@ -1045,6 +1049,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *aggregate,
+                        Some(reprocess_tx),
                         seen_timestamp,
                     ),
                     /*

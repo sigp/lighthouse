@@ -42,9 +42,9 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     EarlyBlock(QueuedBlock<T>),
     /// A block that was succesfully processed. We use this to handle attestations for unknown
     /// blocks.
-    BlockProcessed(Hash256),
+    BlockImported(Hash256),
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
-    UnknownBlockAggregate,
+    UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -59,6 +59,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
 pub struct QueuedUnaggregate<T: EthSpec> {
     peer_id: PeerId,
     attestation: Attestation<T>,
+    subnet_id: SubnetId,
     should_import: bool,
 }
 
@@ -79,28 +80,30 @@ pub struct QueuedBlock<T: BeaconChainTypes> {
 
 /// Unifies the different messages processed by the block delay queue.
 enum InboundEvent<T: BeaconChainTypes> {
-    /// A block that has been received early that we should queue for later processing.
-    EarlyBlock(QueuedBlock<T>),
     /// A block that was queued for later processing and is ready for import.
     ReadyBlock(QueuedBlock<T>),
     /// An aggregated or unaggreated attestation is ready for re-processing.
-    AttestationReady(QueuedAttestationId),
-    /// Some `DelayQueue` returned an error.
+    ReadyAttestation(QueuedAttestationId),
+    /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
+    /// A message sent to the `ReprocessQueue`
+    Msg(ReprocessQueueMessage<T>),
 }
 
 /// Combines the `DelayQueue` and `Receiver` streams into a single stream.
 /// struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
-// TODO: rename and update docs
+// TODO: update docs
 struct ReprocessQueue<T: BeaconChainTypes> {
     /// Receiver of messages relevant to schedule works for reprocessing.
     work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
+    /// Sender of works once they become ready
+    ready_work_tx: Sender<ReadyWork<T>>,
 
     /* Queues */
     /// Queue to manage scheduled early blocks.
     block_delay_queue: DelayQueue<QueuedBlock<T>>,
-    /// Queue to manage scheduled aggreated attestations.
+    /// Queue to manage scheduled aggregated attestations.
     aggregate_delay_queue: DelayQueue<usize>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<usize>,
@@ -118,8 +121,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Aux */
     /// Next attestation id, used for both aggreated and unaggreated attestations
     next_attestation: usize,
-    /// Last processed root with works to unqueue.
-    current_processing_root: Option<Hash256>,
 
     slot_clock: T::SlotClock,
 
@@ -154,7 +155,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         // Next get the aggregates, since these should be more useful.
         match self.aggregate_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(aggregate_id))) => {
-                return Poll::Ready(Some(InboundEvent::AttestationReady(
+                return Poll::Ready(Some(InboundEvent::ReadyAttestation(
                     QueuedAttestationId::Aggregate(aggregate_id.into_inner()),
                 )));
             }
@@ -169,7 +170,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         // Next get the unaggregates.
         match self.attestations_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(attestation_id))) => {
-                return Poll::Ready(Some(InboundEvent::AttestationReady(
+                return Poll::Ready(Some(InboundEvent::ReadyAttestation(
                     QueuedAttestationId::Unaggregate(attestation_id.into_inner()),
                 )));
             }
@@ -185,36 +186,9 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         // each root, we have as many as temporarily possible. This mitigates excesive hashing and
         // heap allocs.
         match self.work_reprocessing_rx.poll_recv(cx) {
-            Poll::Ready(Some(message)) => match message {
-                ReprocessQueueMessage::EarlyBlock(block) => {
-                    return Poll::Ready(Some(InboundEvent::EarlyBlock(block)))
-                }
-                ReprocessQueueMessage::BlockProcessed(_hash) => todo!(),
-                ReprocessQueueMessage::UnknownBlockUnaggregate(_) => todo!(),
-                ReprocessQueueMessage::UnknownBlockAggregate => todo!(),
-            },
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
+            Poll::Ready(Some(message)) => return Poll::Ready(Some(InboundEvent::Msg(message))),
+            Poll::Ready(None) => return Poll::Ready(None),
             Poll::Pending => {}
-        }
-
-        // Next unqueue attestations for which we know their block is already processed.
-        if let Some(root) = self.current_processing_root {
-            match self.awaiting_attestations_per_root.get_mut(&root) {
-                Some(queued_attestations) => match queued_attestations.pop_front() {
-                    Some(id) => {
-                        if queued_attestations.is_empty() {
-                            self.awaiting_attestations_per_root.remove(&root);
-                        }
-                        return Poll::Ready(Some(InboundEvent::AttestationReady(id)));
-                    }
-                    None => todo!(),
-                },
-                None => {
-                    todo!("check what happens on remove")
-                }
-            }
         }
 
         Poll::Pending
@@ -234,6 +208,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
 
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,
+        ready_work_tx,
         block_delay_queue: DelayQueue::new(),
         aggregate_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
@@ -242,12 +217,10 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         queued_attestations: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         next_attestation: 0,
-        current_processing_root: None,
         slot_clock,
         log,
     };
-    // spawn handler task and move the message handler instance into the spawned thread
-    // TODO: check here
+
     executor.spawn(
         async move {
             loop {
@@ -257,20 +230,17 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         },
         TASK_NAME,
     );
-    // let queue_future =
-    // work_reprocessing_scheduler(work_reprocessing_rx, ready_work_tx, slot_clock, log);
-
-    // executor.spawn(queue_future, TASK_NAME);
 
     work_reprocessing_tx
 }
 
 impl<T: BeaconChainTypes> ReprocessQueue<T> {
     fn handle_message(&mut self, msg: Option<InboundEvent<T>>) {
+        use ReprocessQueueMessage::*;
         match msg {
             // Some block has been indicated as "early" and should be processed when the
             // appropriate slot arrives.
-            Some(InboundEvent::EarlyBlock(early_block)) => {
+            Some(InboundEvent::Msg(EarlyBlock(early_block))) => {
                 let block_slot = early_block.block.block.slot();
                 let block_root = early_block.block.block_root;
 
@@ -310,9 +280,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     // error reading the slot clock.
                     if let Some(now) = self.slot_clock.now() {
                         if block_slot <= now
-                        // && ready_work_tx
-                        //     .try_send(ReadyWork::Block(early_block))
-                        //     .is_err()
+                            && self
+                                .ready_work_tx
+                                .try_send(ReadyWork::Block(early_block))
+                                .is_err()
                         {
                             error!(
                             self.log,
@@ -322,6 +293,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
+            Some(InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate))) => {}
+            Some(InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate))) => {}
+            Some(InboundEvent::Msg(BlockImported(root))) => {}
             // A block that was queued for later processing is now ready to be processed.
             Some(InboundEvent::ReadyBlock(ready_block)) => {
                 let block_root = ready_block.block.block_root;
@@ -336,15 +310,16 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     );
                 }
 
-                // if ready_work_tx
-                //     .try_send(ReadyWork::Block(ready_block))
-                //         .is_err()
-                //         {
-                //             error!(
-                //                 log,
-                //                 "Failed to pop queued block";
-                //                 );
-                //         }
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::Block(ready_block))
+                    .is_err()
+                {
+                    error!(
+                    self.log,
+                    "Failed to pop queued block";
+                    );
+                }
             }
             Some(InboundEvent::DelayQueueError(e, queue_name)) => {
                 crit!(
@@ -354,7 +329,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 "e" => ?e
                 )
             }
-            Some(InboundEvent::AttestationReady(_id)) => {}
+            Some(InboundEvent::ReadyAttestation(_id)) => {}
             None => {
                 debug!(
                 self.log,
@@ -364,137 +339,5 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 return;
             }
         }
-    }
-}
-// async fn handle_message()
-
-async fn work_reprocessing_scheduler<T: BeaconChainTypes>(
-    work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
-    _ready_work_tx: Sender<ReadyWork<T>>,
-    slot_clock: T::SlotClock,
-    log: Logger,
-) {
-    // let mut queued_block_roots = HashSet::new();
-    //
-    // let delay_queue = DelayQueue::new();
-    //
-    let _inbound_events = ReprocessQueue {
-        work_reprocessing_rx,
-        block_delay_queue: DelayQueue::new(),
-        aggregate_delay_queue: DelayQueue::new(),
-        attestations_delay_queue: DelayQueue::new(),
-        queued_block_roots: HashSet::new(),
-        queued_aggregates: FnvHashMap::default(),
-        queued_attestations: FnvHashMap::default(),
-        awaiting_attestations_per_root: HashMap::new(),
-        next_attestation: 0,
-        current_processing_root: None,
-        slot_clock,
-        log,
-    };
-
-    loop {
-        // Poll for expired blocks *before* we try to process new blocks.
-        //
-        // The sequential nature of blockchains means it is generally better to try and import all
-        // existing blocks before new ones.
-        // match delay_queue.next().await {
-        //
-        // }
-
-        // match inbound_events.next().await {
-        //     // Some block has been indicated as "early" and should be processed when the
-        //     // appropriate slot arrives.
-        //     Some(InboundEvent::EarlyBlock(early_block)) => {
-        //         let block_slot = early_block.block.block.slot();
-        //         let block_root = early_block.block.block_root;
-        //
-        //         // Don't add the same block to the queue twice. This prevents DoS attacks.
-        //         if queued_block_roots.contains(&block_root) {
-        //             continue;
-        //         }
-        //
-        //         if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
-        //             // Check to ensure this won't over-fill the queue.
-        //             if queued_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
-        //                 error!(
-        //                 log,
-        //                 "Early blocks queue is full";
-        //                 "queue_size" => MAXIMUM_QUEUED_BLOCKS,
-        //                 "msg" => "check system clock"
-        //                 );
-        //                 // Drop the block.
-        //                 continue;
-        //             }
-        //
-        //             queued_block_roots.insert(block_root);
-        //             // Queue the block until the start of the appropriate slot, plus
-        //             // `ADDITIONAL_DELAY`.
-        //             inbound_events
-        //                 .block_delay_queue
-        //                 .insert(early_block, duration_till_slot + ADDITIONAL_DELAY);
-        //         } else {
-        //             // If there is no duration till the next slot, check to see if the slot
-        //             // has already arrived. If it has already arrived, send it out for
-        //             // immediate processing.
-        //             //
-        //             // If we can't read the slot or the slot hasn't arrived, simply drop the
-        //             // block.
-        //             //
-        //             // This logic is slightly awkward since `SlotClock::duration_to_slot`
-        //             // doesn't distinguish between a slot that has already arrived and an
-        //             // error reading the slot clock.
-        //             if let Some(now) = slot_clock.now() {
-        //                 if block_slot <= now
-        //                     && ready_work_tx
-        //                         .try_send(ReadyWork::Block(early_block))
-        //                         .is_err()
-        //                 {
-        //                     error!(
-        //                     log,
-        //                     "Failed to send block";
-        //                     );
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     // A block that was queued for later processing is now ready to be processed.
-        //     Some(InboundEvent::ReadyBlock(ready_block)) => {
-        //         let block_root = ready_block.block.block_root;
-        //
-        //         if !queued_block_roots.remove(&block_root) {
-        //             // Log an error to alert that we've made a bad assumption about how this
-        //             // program works, but still process the block anyway.
-        //             error!(
-        //             log,
-        //             "Unknown block in delay queue";
-        //             "block_root" => ?block_root
-        //             );
-        //         }
-        //
-        //         if ready_work_tx
-        //             .try_send(ReadyWork::Block(ready_block))
-        //             .is_err()
-        //         {
-        //             error!(
-        //             log,
-        //             "Failed to pop queued block";
-        //             );
-        //         }
-        //     }
-        //     Some(InboundEvent::DelayQueueError(e)) => crit!(
-        //     log,
-        //     "Failed to poll block delay queue";
-        //     "e" => ?e
-        //     ),
-        //     None => {
-        //         debug!(
-        //         log,
-        //         "Block delay queue stopped";
-        //         "msg" => "shutting down"
-        //         );
-        //         break;
-        //     }
-        // }
     }
 }
