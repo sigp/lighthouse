@@ -3,20 +3,20 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::sync::Arc;
-use tempfile::tempdir;
-use beacon_chain::{
-    BeaconSnapshot, BlockError,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
+use beacon_chain::{BeaconSnapshot, BlockError};
 use slasher::{Config as SlasherConfig, Slasher};
+use std::sync::Arc;
 use store::config::StoreConfig;
+use tempfile::tempdir;
 use types::{
-    AggregateSignature, AttestationData, AttesterSlashing,
-    Checkpoint, Deposit, DEPOSIT_TREE_DEPTH, DepositData, Epoch, EthSpec, Hash256,
+    test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
+    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
     IndexedAttestation, Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, test_utils::generate_deterministic_keypair, VoluntaryExit,
+    SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, VoluntaryExit, DEPOSIT_TREE_DEPTH,
 };
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType};
 
 type E = MainnetEthSpec;
 

@@ -3,10 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    attestation_verification::Error as AttnError,
-    BeaconChain, BeaconChainTypes,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
+use beacon_chain::{attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes};
 use int_to_bytes::int_to_bytes32;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
@@ -14,11 +14,10 @@ use state_processing::{
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, BeaconStateError, BitList,
-    EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SubnetId, test_utils::generate_deterministic_keypair, Unsigned,
+    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
+    BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
 };
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType};
 
 pub type E = MainnetEthSpec;
 

@@ -1,7 +1,7 @@
 #![cfg(test)]
-use crate::{test_utils::*};
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use crate::test_utils::*;
 use beacon_chain::store::StoreConfig;
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::*;
 use beacon_chain::BeaconChainError;
 use swap_or_not_shuffle::shuffle_list;
@@ -13,7 +13,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness<E:  EthSpec>(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness<E: EthSpec>(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         E::default(),
         KEYPAIRS[0..validator_count].to_vec(),
@@ -40,7 +40,15 @@ fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let harness = get_harness(validator_count);
     let mut head_state = harness.get_current_state();
     if slot > Slot::new(0) {
-        harness.add_attested_blocks_at_slots(head_state, Hash256::zero(), (1..slot.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..validator_count).collect::<Vec<_>>().as_slice());
+        harness.add_attested_blocks_at_slots(
+            head_state,
+            Hash256::zero(),
+            (1..slot.as_u64())
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..validator_count).collect::<Vec<_>>().as_slice(),
+        );
     }
     harness.get_current_state()
 }
@@ -48,7 +56,7 @@ fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
 #[test]
 #[should_panic]
 fn fails_without_validators() {
-        new_state::<MinimalEthSpec>(0, Slot::new(0));
+    new_state::<MinimalEthSpec>(0, Slot::new(0));
 }
 
 #[test]

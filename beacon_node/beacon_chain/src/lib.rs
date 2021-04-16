@@ -18,7 +18,7 @@ pub use types;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    ForkChoiceError, MAXIMUM_GOSSIP_CLOCK_DISPARITY, StateSkipConfig,
+    ForkChoiceError, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
@@ -50,8 +50,7 @@ pub mod schema_change;
 mod shuffling_cache;
 mod snapshot_cache;
 pub mod state_advance_timer;
+pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
 mod validator_pubkey_cache;
-pub mod test_utils;
-

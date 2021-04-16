@@ -3,6 +3,9 @@
 use std::fmt;
 use std::sync::Mutex;
 
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+};
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig,
@@ -13,11 +16,10 @@ use fork_choice::{
 };
 use store::{MemoryStore, StoreConfig};
 use types::{
-    Checkpoint,
-    Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId, test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
+    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
+    Checkpoint, Epoch, EthSpec, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
 };
 use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType};
 
 pub type E = MainnetEthSpec;
 

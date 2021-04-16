@@ -336,10 +336,7 @@ mod test {
 
         harness.advance_slot();
 
-        (
-            harness.get_current_state(),
-            harness.validator_keypairs,
-        )
+        (harness.get_current_state(), harness.validator_keypairs)
     }
 
     fn get_store() -> BeaconStore<T> {

@@ -19,7 +19,10 @@ fn get_state(validator_count: usize) -> BeaconState<E> {
     let mut state = BeaconState::new(0, eth1_data, spec);
 
     for i in 0..validator_count {
-        state.balances_mut().push(i as u64).expect("should add balance");
+        state
+            .balances_mut()
+            .push(i as u64)
+            .expect("should add balance");
         state
             .validators_mut()
             .push(Validator {

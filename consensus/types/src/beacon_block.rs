@@ -359,9 +359,9 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fork_schedule::*;
     use crate::test_utils::{test_ssz_tree_hash_pair, SeedableRng, TestRandom, XorShiftRng};
     use crate::MainnetEthSpec;
-    use crate::fork_schedule::*;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
     type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;

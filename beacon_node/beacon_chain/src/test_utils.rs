@@ -10,6 +10,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
+use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
 use parking_lot::Mutex;
@@ -27,14 +28,20 @@ use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
-use types::{init_fork_schedule, AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ForkSchedule, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, VariableList, VoluntaryExit, DepositData, SignatureBytes, PublicKeyBytes, Deposit, Signature, FixedVector, typenum::U4294967296};
-use bls::get_withdrawal_credentials;
+use types::{
+    init_fork_schedule, typenum::U4294967296, AggregateSignature, Attestation, AttestationData,
+    AttesterSlashing, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData,
+    Domain, Epoch, EthSpec, FixedVector, ForkSchedule, Graffiti, Hash256, IndexedAttestation,
+    Keypair, ProposerSlashing, PublicKeyBytes, SelectionProof, Signature, SignatureBytes,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot,
+    SignedVoluntaryExit, Slot, SubnetId, VariableList, VoluntaryExit,
+};
 
-pub use types::test_utils::generate_deterministic_keypairs;
-use eth1::{DepositCache, DepositLog};
-use eth1::http::Log;
-use merkle_proof::MerkleTree;
 use crate::eth1_chain::int_to_bytes32;
+use eth1::http::Log;
+use eth1::{DepositCache, DepositLog};
+use merkle_proof::MerkleTree;
+pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -866,7 +873,10 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
-    pub fn insert_exits_return_state(&self, exits: Vec<(u64, Epoch)>) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    pub fn insert_exits_return_state(
+        &self,
+        exits: Vec<(u64, Epoch)>,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         let slot = self.chain.slot().unwrap() + Slot::new(1);
         let (block, state) = self.make_block_return_original_state(self.get_current_state(), slot);
         let (mut block, signature) = block.deconstruct();
@@ -878,7 +888,8 @@ where
             let exit = VoluntaryExit {
                 epoch,
                 validator_index,
-            }.sign(sk, &fork, genesis_validators_root, &self.chain.spec);
+            }
+            .sign(sk, &fork, genesis_validators_root, &self.chain.spec);
             block.body_mut().voluntary_exits_mut().push(exit);
         }
 
@@ -893,7 +904,13 @@ where
         (signed_block, state)
     }
 
-    pub fn make_deposits<'a>(&self, state: &'a mut BeaconState<E>, num_deposits: usize, invalid_pubkey: Option<PublicKeyBytes>, invalid_signature: Option<SignatureBytes>) -> (Vec<Deposit>, &'a mut BeaconState<E>) {
+    pub fn make_deposits<'a>(
+        &self,
+        state: &'a mut BeaconState<E>,
+        num_deposits: usize,
+        invalid_pubkey: Option<PublicKeyBytes>,
+        invalid_signature: Option<SignatureBytes>,
+    ) -> (Vec<Deposit>, &'a mut BeaconState<E>) {
         let mut datas = vec![];
 
         for _ in 0..num_deposits {
@@ -901,13 +918,16 @@ where
             let mut pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
 
             let mut data = DepositData {
-                    pubkey: pubkeybytes,
-                    withdrawal_credentials: Hash256::from_slice(
-                        &get_withdrawal_credentials(&keypair.pk, E::default_spec().bls_withdrawal_prefix_byte)[..],
-                    ),
-                    amount: E::default_spec().min_deposit_amount,
-                    signature: SignatureBytes::empty(),
-                };
+                pubkey: pubkeybytes,
+                withdrawal_credentials: Hash256::from_slice(
+                    &get_withdrawal_credentials(
+                        &keypair.pk,
+                        E::default_spec().bls_withdrawal_prefix_byte,
+                    )[..],
+                ),
+                amount: E::default_spec().min_deposit_amount,
+                signature: SignatureBytes::empty(),
+            };
 
             data.signature = data.create_signature(&keypair.sk, &E::default_spec());
 
@@ -934,14 +954,17 @@ where
         state.eth1_data_mut().deposit_count = num_deposits as u64;
         *state.eth1_deposit_index_mut() = 0;
 
-
         // Building the merkle tree used for generating proofs
-        let tree = MerkleTree::create(&leaves[..], E::default_spec().deposit_contract_tree_depth as usize);
+        let tree = MerkleTree::create(
+            &leaves[..],
+            E::default_spec().deposit_contract_tree_depth as usize,
+        );
 
         // Building proofs
         let mut proofs = vec![];
         for i in 0..leaves.len() {
-            let (_, mut proof) = tree.generate_proof(i, E::default_spec().deposit_contract_tree_depth as usize);
+            let (_, mut proof) =
+                tree.generate_proof(i, E::default_spec().deposit_contract_tree_depth as usize);
             proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
             proofs.push(proof);
         }

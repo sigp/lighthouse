@@ -1,6 +1,6 @@
-use types::{BeaconState, EthSpec, MainnetEthSpec};
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::store::StoreConfig;
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use types::{BeaconState, EthSpec, MainnetEthSpec};
 
 const TREE_HASH_LOOPS: usize = 1_000;
 const VALIDATOR_COUNT: usize = 1_000;
@@ -22,8 +22,16 @@ fn build_state<T: EthSpec>() -> BeaconState<T> {
 
     assert_eq!(state.as_base().unwrap().validators.len(), VALIDATOR_COUNT);
     assert_eq!(state.as_base().unwrap().balances.len(), VALIDATOR_COUNT);
-    assert!(state.as_base().unwrap().previous_epoch_attestations.is_empty());
-    assert!(state.as_base().unwrap().current_epoch_attestations.is_empty());
+    assert!(state
+        .as_base()
+        .unwrap()
+        .previous_epoch_attestations
+        .is_empty());
+    assert!(state
+        .as_base()
+        .unwrap()
+        .current_epoch_attestations
+        .is_empty());
     assert!(state.as_base().unwrap().eth1_data_votes.is_empty());
     assert!(state.as_base().unwrap().historical_roots.is_empty());
 

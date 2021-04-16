@@ -1,16 +1,23 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
 
-use beacon_chain::BlockError;
+use crate::per_block_processing;
+use crate::per_block_processing::errors::{
+    AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,
+    DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
+    ProposerSlashingInvalid,
+};
+use crate::{
+    per_block_processing::{process_operations, verify_attestation_for_state},
+    BlockSignatureStrategy, VerifySignatures,
+};
 use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use crate::{per_block_processing::{process_operations, verify_attestation_for_state}, BlockSignatureStrategy, VerifySignatures};
-use crate::per_block_processing;
-use test_utils::generate_deterministic_keypairs;
-use types::*;
-use ssz_types::Bitfield;
-use crate::per_block_processing::errors::{HeaderInvalid, AttestationInvalid, AttesterSlashingInvalid, ProposerSlashingInvalid, IndexedAttestationInvalid, BlockOperationError, IntoWithIndex, BlockProcessingError, DepositInvalid};
-use tree_hash::TreeHash;
+use beacon_chain::BlockError;
 use lazy_static::lazy_static;
+use ssz_types::Bitfield;
+use test_utils::generate_deterministic_keypairs;
+use tree_hash::TreeHash;
+use types::*;
 
 pub const MAX_VALIDATOR_COUNT: usize = 97;
 pub const NUM_DEPOSITS: u64 = 1;
@@ -28,8 +35,8 @@ fn get_harness<E: EthSpec>(
     num_validators: usize,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
-    let last_slot_of_epoch = (MainnetEthSpec::genesis_epoch() + epoch_offset)
-        .end_slot(E::slots_per_epoch());
+    let last_slot_of_epoch =
+        (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
     let harness = BeaconChainHarness::new_with_store_config(
         E::default(),
         KEYPAIRS[0..num_validators].to_vec(),
@@ -37,7 +44,15 @@ fn get_harness<E: EthSpec>(
     );
     let mut state = harness.get_current_state();
     if last_slot_of_epoch > Slot::new(0) {
-        harness.add_attested_blocks_at_slots(state, Hash256::zero(), (1..last_slot_of_epoch.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..num_validators).collect::<Vec<_>>().as_slice());
+        harness.add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            (1..last_slot_of_epoch.as_u64())
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..num_validators).collect::<Vec<_>>().as_slice(),
+        );
     }
     harness
 }
@@ -51,7 +66,7 @@ fn valid_block_ok() {
     let mut state = harness.get_current_state();
 
     let slot = state.slot();
-    let (block, mut state)  = harness.make_block_return_original_state(state, slot  + Slot::new(1));
+    let (block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
 
     let result = per_block_processing(
         &mut state,
@@ -85,12 +100,11 @@ fn invalid_block_header_state_slot() {
     );
 
     assert_eq!(
-        result, Err(
-            BlockProcessingError::HeaderInvalid {
-                    reason: HeaderInvalid::StateSlotMismatch
-                }
-        ));
-
+        result,
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::StateSlotMismatch
+        })
+    );
 }
 
 #[test]
@@ -99,9 +113,10 @@ fn invalid_parent_block_root() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
     let mut state = harness.get_current_state();
-    let slot = state.slot() ;
+    let slot = state.slot();
 
-    let (signed_block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let (signed_block, mut state) =
+        harness.make_block_return_original_state(state, slot + Slot::new(1));
     let (mut block, signature) = signed_block.deconstruct();
     *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
@@ -130,8 +145,9 @@ fn invalid_block_signature() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
     let mut state = harness.get_current_state();
-    let slot = state.slot() ;
-    let (signed_block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let slot = state.slot();
+    let (signed_block, mut state) =
+        harness.make_block_return_original_state(state, slot + Slot::new(1));
     let (mut block, _) = signed_block.deconstruct();
 
     let result = per_block_processing(
@@ -145,10 +161,11 @@ fn invalid_block_signature() {
     // should get a BadSignature error
     assert_eq!(
         result,
-        Err(BlockProcessingError::HeaderInvalid { reason: HeaderInvalid::ProposalSignatureInvalid })
+        Err(BlockProcessingError::HeaderInvalid {
+            reason: HeaderInvalid::ProposalSignatureInvalid
+        })
     );
 }
-
 
 #[test]
 fn invalid_randao_reveal_signature() {
@@ -156,9 +173,10 @@ fn invalid_randao_reveal_signature() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
     let mut state = harness.get_current_state();
-    let slot = state.slot() ;
+    let slot = state.slot();
 
-    let (signed_block, mut state) = harness.make_block_return_original_state_bad_randao(state, slot + Slot::new(1));
+    let (signed_block, mut state) =
+        harness.make_block_return_original_state_bad_randao(state, slot + Slot::new(1));
 
     let result = per_block_processing(
         &mut state,
@@ -184,7 +202,8 @@ fn valid_4_deposits() {
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
@@ -204,7 +223,8 @@ fn invalid_deposit_deposit_count_too_big() {
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data_mut().deposit_count = big_deposit_count;
-    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(
@@ -230,7 +250,8 @@ fn invalid_deposit_count_too_small() {
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data_mut().deposit_count = small_deposit_count;
-    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(
@@ -258,7 +279,8 @@ fn invalid_deposit_bad_merkle_proof() {
     // Manually offsetting deposit count and index to trigger bad merkle proof
     state.eth1_data_mut().deposit_count += 1;
     *state.eth1_deposit_index_mut() += 1;
-    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(
@@ -276,13 +298,15 @@ fn invalid_deposit_wrong_sig() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
     let mut state = harness.get_current_state();
 
-    let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
+    let (deposits, mut state) =
+        harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
     let mut deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
     assert_eq!(result, Ok(()));
 }
@@ -293,13 +317,15 @@ fn invalid_deposit_invalid_pub_key() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
     let mut state = harness.get_current_state();
 
-    let (deposits, mut state) = harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
+    let (deposits, mut state) =
+        harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
     let mut deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result =
+        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
@@ -308,13 +334,19 @@ fn invalid_deposit_invalid_pub_key() {
 #[test]
 fn invalid_attestation_no_committee_for_index() {
     let spec = MainnetEthSpec::default_spec();
-    let harness =
-        get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
     let mut state = harness.get_current_state();
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
-    head_block.to_mut().body_mut().attestations_mut()[0].data.index += 1;
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    head_block.to_mut().body_mut().attestations_mut()[0]
+        .data
+        .index += 1;
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting NoCommitee because we manually set the attestation's index to be invalid
     assert_eq!(
@@ -336,9 +368,16 @@ fn invalid_attestation_wrong_justified_checkpoint() {
     let old_justified_checkpoint = head_block.body().attestations()[0].data.source.clone();
     let mut new_justified_checkpoint = old_justified_checkpoint;
     new_justified_checkpoint.epoch += Epoch::new(1);
-    head_block.to_mut().body_mut().attestations_mut()[0].data.source = new_justified_checkpoint;
+    head_block.to_mut().body_mut().attestations_mut()[0]
+        .data
+        .source = new_justified_checkpoint;
 
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting WrongJustifiedCheckpoint because we manually set the
     // source field of the AttestationData object to be invalid
@@ -362,9 +401,15 @@ fn invalid_attestation_bad_aggregation_bitfield_len() {
 
     let mut state = harness.get_current_state();
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
-    head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits = Bitfield::with_capacity(spec.target_committee_size).unwrap();
+    head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits =
+        Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the commitee size.
     assert_eq!(
@@ -384,7 +429,12 @@ fn invalid_attestation_bad_signature() {
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     head_block.to_mut().body_mut().attestations_mut()[0].signature = AggregateSignature::empty();
 
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
     // Expecting BadSignature because we're signing with invalid secret_keys
     assert_eq!(
         result,
@@ -404,10 +454,18 @@ fn invalid_attestation_included_too_early() {
 
     let mut state = harness.get_current_state();
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot + Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block.to_mut().body_mut().attestations_mut()[0].data.slot = new_attesation_slot;
+    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+        + Slot::new(MainnetEthSpec::slots_per_epoch());
+    head_block.to_mut().body_mut().attestations_mut()[0]
+        .data
+        .slot = new_attesation_slot;
 
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting IncludedTooEarly because the shard included in the crosslink is bigger than expected
     assert_eq!(
@@ -431,10 +489,18 @@ fn invalid_attestation_included_too_late() {
 
     let mut state = harness.get_current_state();
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot - Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block.to_mut().body_mut().attestations_mut()[0].data.slot = new_attesation_slot;
+    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+        - Slot::new(MainnetEthSpec::slots_per_epoch());
+    head_block.to_mut().body_mut().attestations_mut()[0]
+        .data
+        .slot = new_attesation_slot;
 
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
@@ -455,9 +521,17 @@ fn invalid_attestation_target_epoch_slot_mismatch() {
 
     let mut state = harness.get_current_state();
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
-    head_block.to_mut().body_mut().attestations_mut()[0].data.target.epoch += Epoch::new(1);
+    head_block.to_mut().body_mut().attestations_mut()[0]
+        .data
+        .target
+        .epoch += Epoch::new(1);
 
-    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
+    let result = process_operations::process_attestations(
+        &mut state,
+        head_block.body(),
+        VerifySignatures::True,
+        &spec,
+    );
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
@@ -475,10 +549,15 @@ fn valid_insert_attester_slashing() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let  attester_slashing = harness.make_attester_slashing(vec![1,2]);
+    let attester_slashing = harness.make_attester_slashing(vec![1, 2]);
 
     let mut state = harness.get_current_state();
-    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
+    let result = process_operations::process_attester_slashings(
+        &mut state,
+        &[attester_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting Ok(()) because attester slashing is valid
     assert_eq!(result, Ok(()));
@@ -489,11 +568,16 @@ fn invalid_attester_slashing_not_slashable() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut attester_slashing = harness.make_attester_slashing(vec![1,2]);
-    attester_slashing.attestation_1=  attester_slashing.attestation_2.clone();
+    let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
+    attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
 
     let mut state = harness.get_current_state();
-    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
+    let result = process_operations::process_attester_slashings(
+        &mut state,
+        &[attester_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting NotSlashable because the two attestations are the same
     assert_eq!(
@@ -510,12 +594,16 @@ fn invalid_attester_slashing_1_invalid() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut attester_slashing = harness.make_attester_slashing(vec![1,2]);
-    attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2,1]);
+    let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
+    attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
 
     let mut state = harness.get_current_state();
-    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
-
+    let result = process_operations::process_attester_slashings(
+        &mut state,
+        &[attester_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     assert_eq!(
         result,
@@ -535,11 +623,16 @@ fn invalid_attester_slashing_2_invalid() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut attester_slashing = harness.make_attester_slashing(vec![1,2]);
-    attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2,1]);
+    let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
+    attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
 
     let mut state = harness.get_current_state();
-    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
+    let result = process_operations::process_attester_slashings(
+        &mut state,
+        &[attester_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     assert_eq!(
         result,
@@ -560,7 +653,12 @@ fn valid_insert_proposer_slashing() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
     let proposer_slashing = harness.make_proposer_slashing(1);
     let mut state = harness.get_current_state();
-    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
+    let result = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
     // Expecting Ok(_) because we inserted a valid proposer slashing
     assert!(result.is_ok());
 }
@@ -574,7 +672,12 @@ fn invalid_proposer_slashing_proposals_identical() {
     proposer_slashing.signed_header_1.message = proposer_slashing.signed_header_2.message.clone();
 
     let mut state = harness.get_current_state();
-    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
+    let result = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting ProposalsIdentical because we the two headers are identical
     assert_eq!(
@@ -596,7 +699,12 @@ fn invalid_proposer_slashing_proposer_unknown() {
     proposer_slashing.signed_header_2.message.proposer_index = 3_141_592;
 
     let mut state = harness.get_current_state();
-    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
+    let result = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting ProposerUnknown because validator_index is unknown
     assert_eq!(
@@ -615,10 +723,20 @@ fn invalid_proposer_slashing_duplicate_slashing() {
 
     let proposer_slashing = harness.make_proposer_slashing(1);
     let mut state = harness.get_current_state();
-    let result_1 = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing.clone()], VerifySignatures::False, &spec);
+    let result_1 = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing.clone()],
+        VerifySignatures::False,
+        &spec,
+    );
     assert!(result_1.is_ok());
 
-    let result_2 = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::False, &spec);
+    let result_2 = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::False,
+        &spec,
+    );
     // Expecting ProposerNotSlashable because we've already slashed the validator
     assert_eq!(
         result_2,
@@ -636,8 +754,12 @@ fn invalid_bad_proposal_1_signature() {
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_1.signature = Signature::empty();
     let mut state = harness.get_current_state();
-    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
-
+    let result = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting BadProposal1Signature because signature of proposal 1 is invalid
     assert_eq!(
@@ -656,8 +778,12 @@ fn invalid_bad_proposal_2_signature() {
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_2.signature = Signature::empty();
     let mut state = harness.get_current_state();
-    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
-
+    let result = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::True,
+        &spec,
+    );
 
     // Expecting BadProposal2Signature because signature of proposal 2 is invalid
     assert_eq!(
@@ -677,8 +803,12 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     proposer_slashing.signed_header_1.message.slot = Slot::new(0);
     proposer_slashing.signed_header_2.message.slot = Slot::new(128);
     let mut state = harness.get_current_state();
-    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::False, &spec);
-
+    let result = process_operations::process_proposer_slashings(
+        &mut state,
+        &[proposer_slashing],
+        VerifySignatures::False,
+        &spec,
+    );
 
     // Expecting ProposalEpochMismatch because the two epochs are different
     assert_eq!(
@@ -692,5 +822,3 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
         })
     );
 }
-
-

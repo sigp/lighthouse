@@ -341,10 +341,10 @@ mod test {
     use super::*;
     use crate::HotColdDB;
     use crate::StoreConfig as Config;
-    use sloggers::{null::NullLoggerBuilder, Build};
-    use beacon_chain::types::{ChainSpec, Keypair, MainnetEthSpec};
     use beacon_chain::store::StoreConfig;
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use beacon_chain::types::{ChainSpec, Keypair, MainnetEthSpec};
+    use sloggers::{null::NullLoggerBuilder, Build};
 
     fn get_state<T: EthSpec>() -> BeaconState<T> {
         let harness = BeaconChainHarness::new_with_store_config(
@@ -371,11 +371,11 @@ mod test {
         *state_b.slot_mut() = Slot::from(slots_per_historical_root * 2);
 
         let mut hashes = (0..).map(Hash256::from_low_u64_be);
-        let roots_a =  state_a.block_roots_mut();
+        let roots_a = state_a.block_roots_mut();
         for i in 0..roots_a.len() {
             roots_a[i] = hashes.next().unwrap()
         }
-        let roots_b =  state_b.block_roots_mut();
+        let roots_b = state_b.block_roots_mut();
         for i in 0..roots_b.len() {
             roots_b[i] = hashes.next().unwrap()
         }

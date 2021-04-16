@@ -9,7 +9,7 @@ pub use rand_xorshift::XorShiftRng;
 pub use generate_deterministic_keypairs::generate_deterministic_keypair;
 pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
 pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
-use ssz::{Decode, Encode, ssz_encode};
+use ssz::{ssz_encode, Decode, Encode};
 pub use test_random::{test_random_instance, TestRandom};
 use tree_hash::TreeHash;
 

@@ -2,6 +2,10 @@
 mod macros;
 mod exit;
 
+use beacon_chain::{
+    store::StoreConfig,
+    test_utils::{BeaconChainHarness, EphemeralHarnessType},
+};
 use lazy_static::lazy_static;
 use ssz::Encode;
 use std::env;
@@ -9,9 +13,11 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use types::{MainnetEthSpec, Slot, Hash256, Epoch};
-use types::{BeaconState, ChainSpec, EthSpec, Keypair, SignedBeaconBlock, test_utils::generate_deterministic_keypairs};
-use beacon_chain::{store::StoreConfig, test_utils::{BeaconChainHarness, EphemeralHarnessType}};
+use types::{
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Keypair,
+    SignedBeaconBlock,
+};
+use types::{Epoch, Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 
@@ -47,7 +53,10 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness<E:  EthSpec>(slot: Slot, validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness<E: EthSpec>(
+    slot: Slot,
+    validator_count: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         E::default(),
         KEYPAIRS[0..validator_count].to_vec(),
@@ -58,7 +67,15 @@ fn get_harness<E:  EthSpec>(slot: Slot, validator_count: usize) -> BeaconChainHa
 
     harness.set_current_slot(skip_to_slot);
     let mut state = harness.get_current_state();
-    harness.add_attested_blocks_at_slots(state, Hash256::zero(), (skip_to_slot.as_u64()..slot.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..validator_count).collect::<Vec<_>>().as_slice());
+    harness.add_attested_blocks_at_slots(
+        state,
+        Hash256::zero(),
+        (skip_to_slot.as_u64()..slot.as_u64())
+            .map(Slot::new)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        (0..validator_count).collect::<Vec<_>>().as_slice(),
+    );
     harness
 }
 

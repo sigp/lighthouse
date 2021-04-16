@@ -1,9 +1,10 @@
 use super::*;
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
-    per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError, BlockSignatureStrategy,
+    per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
+    BlockSignatureStrategy,
 };
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
@@ -16,7 +17,11 @@ struct ExitTest {
     exit_epoch: Epoch,
     state_epoch: Epoch,
     block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
-    state_generator: Box<dyn FnOnce(BeaconChainHarness<EphemeralHarnessType<E>>) -> (SignedBeaconBlock<E>, BeaconState<E>)>,
+    state_generator: Box<
+        dyn FnOnce(
+            BeaconChainHarness<EphemeralHarnessType<E>>,
+        ) -> (SignedBeaconBlock<E>, BeaconState<E>),
+    >,
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
     #[allow(dead_code)]
     expected: Result<(), BlockProcessingError>,
@@ -29,7 +34,9 @@ impl Default for ExitTest {
             exit_epoch: STATE_EPOCH,
             state_epoch: STATE_EPOCH,
             block_modifier: Box::new(|_| ()),
-            state_generator: Box::new(|x| x.insert_exits_return_state(vec![(VALIDATOR_INDEX, STATE_EPOCH)])),
+            state_generator: Box::new(|x| {
+                x.insert_exits_return_state(vec![(VALIDATOR_INDEX, STATE_EPOCH)])
+            }),
             state_modifier: Box::new(|_| ()),
             expected: Ok(()),
         }
@@ -38,7 +45,10 @@ impl Default for ExitTest {
 
 impl ExitTest {
     fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        let harness = get_harness::<E>(self.state_epoch.start_slot(E::slots_per_epoch()), VALIDATOR_COUNT);
+        let harness = get_harness::<E>(
+            self.state_epoch.start_slot(E::slots_per_epoch()),
+            VALIDATOR_COUNT,
+        );
         let (mut signed_block, mut state) = (self.state_generator)(harness);
         let (mut block, signature) = signed_block.deconstruct();
         (self.block_modifier)(&mut block);
@@ -100,8 +110,7 @@ vectors_and_tests!(
     valid_three_exits,
     ExitTest {
         state_generator: Box::new(|harness| {
-            harness
-                .insert_exits_return_state(vec![(1, STATE_EPOCH),(2, STATE_EPOCH)])
+            harness.insert_exits_return_state(vec![(1, STATE_EPOCH), (2, STATE_EPOCH)])
         }),
         ..ExitTest::default()
     },
@@ -129,7 +138,9 @@ vectors_and_tests!(
     invalid_validator_unknown,
     ExitTest {
         block_modifier: Box::new(|block| {
-            block.body_mut().voluntary_exits_mut()[0].message.validator_index = VALIDATOR_COUNT as u64;
+            block.body_mut().voluntary_exits_mut()[0]
+                .message
+                .validator_index = VALIDATOR_COUNT as u64;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -286,7 +297,9 @@ vectors_and_tests!(
         block_modifier: Box::new(|block| {
             // Shift the validator index by 1 so that it's mismatched from the key that was
             // used to sign.
-            block.body_mut().voluntary_exits_mut()[0].message.validator_index = VALIDATOR_INDEX + 1;
+            block.body_mut().voluntary_exits_mut()[0]
+                .message
+                .validator_index = VALIDATOR_INDEX + 1;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -328,8 +341,7 @@ mod custom_tests {
     fn valid_three() {
         let state = ExitTest {
             state_generator: Box::new(|harness| {
-                harness
-                    .insert_exits_return_state(vec![(1, STATE_EPOCH),(2, STATE_EPOCH)])
+                harness.insert_exits_return_state(vec![(1, STATE_EPOCH), (2, STATE_EPOCH)])
             }),
             ..ExitTest::default()
         }

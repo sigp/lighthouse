@@ -5,15 +5,13 @@ extern crate lazy_static;
 
 use std::sync::Arc;
 
-use sloggers::{Build, null::NullLoggerBuilder};
+use sloggers::{null::NullLoggerBuilder, Build};
 use tempfile::{tempdir, TempDir};
 
-use beacon_chain::{
-    BeaconChain, BeaconChainTypes,
-};
+use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use store::{HotColdDB, LevelDB, StoreConfig};
 use types::{EthSpec, Keypair, MinimalEthSpec};
-use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 
 type E = MinimalEthSpec;
 
