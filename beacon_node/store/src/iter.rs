@@ -353,7 +353,7 @@ mod test {
             StoreConfig::default(),
         );
         harness.advance_slot();
-        harness.chain.head_beacon_state().unwrap()
+        harness.get_current_state()
     }
 
     #[test]

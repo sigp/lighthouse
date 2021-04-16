@@ -559,7 +559,7 @@ mod release_tests {
     #[test]
     fn test_earliest_attestation() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
-        let mut state = harness.chain.head_beacon_state().unwrap();
+        let mut state = harness.get_current_state();
         let slot = state.slot() - 1;
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -627,7 +627,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = harness.chain.head_beacon_state().unwrap();
+        let mut state = harness.get_current_state();
 
         let slot = state.slot() - 1;
         let committees = state
@@ -705,7 +705,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -751,7 +751,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -848,7 +848,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = harness.chain.head_beacon_state().unwrap();
+        let mut state = harness.get_current_state();
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -938,7 +938,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = harness.chain.head_beacon_state().unwrap();
+        let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot() - 1;
@@ -1071,7 +1071,7 @@ mod release_tests {
     #[test]
     fn duplicate_proposer_slashing() {
         let harness = get_harness(32);
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let proposer_index = 0;
@@ -1099,7 +1099,7 @@ mod release_tests {
     #[test]
     fn prune_proposer_slashing_noop() {
         let harness = get_harness(32);
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slashing = harness.make_proposer_slashing(0);
@@ -1116,7 +1116,7 @@ mod release_tests {
     fn prune_attester_slashing_noop() {
         let harness = get_harness(32);
         let spec = &harness.spec;
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slashing = harness.make_attester_slashing(vec![1, 3, 5, 7, 9]);
@@ -1133,7 +1133,7 @@ mod release_tests {
     fn simple_max_cover_attester_slashing() {
         let harness = get_harness(32);
         let spec = &harness.spec;
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slashing_1 = harness.make_attester_slashing(vec![1]);
@@ -1167,7 +1167,7 @@ mod release_tests {
     fn overlapping_max_cover_attester_slashing() {
         let harness = get_harness(32);
         let spec = &harness.spec;
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slashing_1 = harness.make_attester_slashing(vec![1, 2, 3, 4]);
@@ -1201,7 +1201,7 @@ mod release_tests {
     fn max_coverage_attester_proposer_slashings() {
         let harness = get_harness(32);
         let spec = &harness.spec;
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let p_slashing = harness.make_proposer_slashing(1);
@@ -1232,7 +1232,7 @@ mod release_tests {
     fn max_coverage_different_indices_set() {
         let harness = get_harness(32);
         let spec = &harness.spec;
-        let state = harness.chain.head_beacon_state().unwrap();
+        let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slashing_1 = harness.make_attester_slashing_different_indices(
@@ -1264,7 +1264,7 @@ mod release_tests {
     fn max_coverage_effective_balances() {
         let harness = get_harness(32);
         let spec = &harness.spec;
-        let mut state = harness.chain.head_beacon_state().unwrap();
+        let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         state.validators_mut()[1].effective_balance = 17_000_000_000;
         state.validators_mut()[2].effective_balance = 17_000_000_000;

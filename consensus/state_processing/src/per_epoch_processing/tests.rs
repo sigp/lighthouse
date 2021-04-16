@@ -22,9 +22,9 @@ fn runs_without_error() {
     let target_slot =
         (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
 
-    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut state = harness.get_current_state();
     harness.add_attested_blocks_at_slots(state, Hash256::zero(), (1..target_slot.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..8).collect::<Vec<_>>().as_slice());
-    let mut new_head_state = harness.chain.head_beacon_state().unwrap();
+    let mut new_head_state = harness.get_current_state();
 
     process_epoch(&mut new_head_state, &spec).unwrap();
 }

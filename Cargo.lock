@@ -6100,6 +6100,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "eth2_ssz",
+ "lazy_static",
  "state_processing",
  "types",
 ]

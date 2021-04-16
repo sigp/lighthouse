@@ -2,14 +2,15 @@
 mod macros;
 mod exit;
 
+use lazy_static::lazy_static;
 use ssz::Encode;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use types::{MainnetEthSpec, Slot, Hash256};
-use types::{BeaconState, ChainSpec, EthSpec, SignedBeaconBlock};
+use types::{MainnetEthSpec, Slot, Hash256, Epoch};
+use types::{BeaconState, ChainSpec, EthSpec, Keypair, SignedBeaconBlock, test_utils::generate_deterministic_keypairs};
 use beacon_chain::{store::StoreConfig, test_utils::{BeaconChainHarness, EphemeralHarnessType}};
 
 type E = MainnetEthSpec;
@@ -18,6 +19,8 @@ pub const VALIDATOR_COUNT: usize = 64;
 
 /// The base output directory for test vectors.
 pub const BASE_VECTOR_DIR: &str = "vectors";
+
+pub const EPOCH_OFFSET: u64 = 5;
 
 /// Writes all known test vectors to `CARGO_MANIFEST_DIR/vectors`.
 fn main() {
@@ -50,10 +53,12 @@ fn get_harness<E:  EthSpec>(slot: Slot, validator_count: usize) -> BeaconChainHa
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
-    let mut state = harness.chain.head_beacon_state().unwrap();
-    if slot > Slot::new(0) {
-        harness.add_attested_blocks_at_slots(state, Hash256::zero(), (1..last_slot_of_epoch.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..num_validators).collect::<Vec<_>>().as_slice());
-    }
+
+    let skip_to_slot = slot - Epoch::new(EPOCH_OFFSET).start_slot(E::slots_per_epoch());
+
+    harness.set_current_slot(skip_to_slot);
+    let mut state = harness.get_current_state();
+    harness.add_attested_blocks_at_slots(state, Hash256::zero(), (skip_to_slot.as_u64()..slot.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..validator_count).collect::<Vec<_>>().as_slice());
     harness
 }
 

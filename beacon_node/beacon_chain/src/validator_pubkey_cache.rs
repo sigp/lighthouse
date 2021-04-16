@@ -337,7 +337,7 @@ mod test {
         harness.advance_slot();
 
         (
-            harness.chain.head_beacon_state().unwrap(),
+            harness.get_current_state(),
             harness.validator_keypairs,
         )
     }

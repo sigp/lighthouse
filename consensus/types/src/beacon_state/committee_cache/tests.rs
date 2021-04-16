@@ -38,11 +38,11 @@ fn default_values() {
 
 fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let harness = get_harness(validator_count);
-    let mut head_state = harness.chain.head_beacon_state().unwrap();
+    let mut head_state = harness.get_current_state();
     if slot > Slot::new(0) {
         harness.add_attested_blocks_at_slots(head_state, Hash256::zero(), (1..slot.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..validator_count).collect::<Vec<_>>().as_slice());
     }
-    harness.chain.head_beacon_state().unwrap()
+    harness.get_current_state()
 }
 
 #[test]

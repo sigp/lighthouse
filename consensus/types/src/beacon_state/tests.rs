@@ -348,13 +348,13 @@ mod committees {
         let slot = state_epoch.start_slot(T::slots_per_epoch());
 
         let harness = get_harness::<T>(validator_count);
-        let mut state = harness.chain.head_beacon_state().unwrap();
+        let mut state = harness.get_current_state();
 
         if slot.as_usize() > 0 {
             harness.add_attested_blocks_at_slots( state, Hash256::zero(), (1..(slot.as_u64() + 1)).map(Slot::new).collect::<Vec<_>>().as_slice(),(0..validator_count).collect::<Vec<_>>().as_slice());
         }
 
-        let mut new_head_state = harness.chain.head_beacon_state().unwrap();
+        let mut new_head_state = harness.get_current_state();
 
         let distinct_hashes: Vec<Hash256> = (0..T::epochs_per_historical_vector())
             .map(|i| Hash256::from_low_u64_be(i as u64))

@@ -866,6 +866,33 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn insert_exits_return_state(&self, exits: Vec<(u64, Epoch)>) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        let slot = self.chain.slot().unwrap() + Slot::new(1);
+        let (block, state) = self.make_block_return_original_state(self.get_current_state(), slot);
+        let (mut block, signature) = block.deconstruct();
+
+        let fork = self.chain.head_info().unwrap().fork;
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        for (validator_index, epoch) in exits {
+            let sk = &self.validator_keypairs[validator_index as usize].sk;
+            let exit = VoluntaryExit {
+                epoch,
+                validator_index,
+            }.sign(sk, &fork, genesis_validators_root, &self.chain.spec);
+            block.body_mut().voluntary_exits_mut().push(exit);
+        }
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index as usize].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        (signed_block, state)
+    }
+
     pub fn make_deposits<'a>(&self, state: &'a mut BeaconState<E>, num_deposits: usize, invalid_pubkey: Option<PublicKeyBytes>, invalid_signature: Option<SignatureBytes>) -> (Vec<Deposit>, &'a mut BeaconState<E>) {
         let mut datas = vec![];
 
