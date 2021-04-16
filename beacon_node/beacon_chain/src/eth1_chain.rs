@@ -636,7 +636,7 @@ fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
 }
 
 /// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: u64) -> Vec<u8> {
+pub fn int_to_bytes32(int: u64) -> Vec<u8> {
     let mut vec = int.to_le_bytes().to_vec();
     vec.resize(32, 0);
     vec

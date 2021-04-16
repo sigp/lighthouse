@@ -1,27 +1,59 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
 
-use super::block_processing_builder::BlockProcessingBuilder;
-use super::errors::*;
-use crate::{per_block_processing, BlockSignatureStrategy};
-use types::test_utils::{
-    AttestationTestTask, AttesterSlashingTestTask, DepositTestTask, ProposerSlashingTestTask,
-};
+use beacon_chain::BlockError;
+use beacon_chain::store::StoreConfig;
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use crate::{per_block_processing::{process_operations, verify_attestation_for_state}, BlockSignatureStrategy, VerifySignatures};
+use crate::per_block_processing;
+use test_utils::generate_deterministic_keypairs;
 use types::*;
+use ssz_types::Bitfield;
+use crate::per_block_processing::errors::{HeaderInvalid, AttestationInvalid, AttesterSlashingInvalid, ProposerSlashingInvalid, IndexedAttestationInvalid, BlockOperationError, IntoWithIndex, BlockProcessingError, DepositInvalid};
+use tree_hash::TreeHash;
+use lazy_static::lazy_static;
 
+pub const MAX_VALIDATOR_COUNT: usize = 97;
 pub const NUM_DEPOSITS: u64 = 1;
 pub const VALIDATOR_COUNT: usize = 64;
 pub const EPOCH_OFFSET: u64 = 4;
 pub const NUM_ATTESTATIONS: u64 = 1;
+
+lazy_static! {
+    /// A cached set of keys.
+    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(MAX_VALIDATOR_COUNT);
+}
+
+fn get_harness<E: EthSpec>(
+    epoch_offset: u64,
+    num_validators: usize,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
+    let last_slot_of_epoch = (MainnetEthSpec::genesis_epoch() + epoch_offset)
+        .end_slot(E::slots_per_epoch());
+    let harness = BeaconChainHarness::new_with_store_config(
+        E::default(),
+        KEYPAIRS[0..num_validators].to_vec(),
+        StoreConfig::default(),
+    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    if last_slot_of_epoch > Slot::new(0) {
+        harness.add_attested_blocks_at_slots(state, Hash256::zero(), (1..last_slot_of_epoch.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..num_validators).collect::<Vec<_>>().as_slice());
+    }
+    harness
+}
 
 type E = MainnetEthSpec;
 
 #[test]
 fn valid_block_ok() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let (block, mut state) = builder.build(None, None);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let result = per_block_processing(
+    let slot = state.slot();
+    let (block, mut state)  = harness.make_block_return_original_state(state, slot  + Slot::new(1));
+
+    let result2 = per_block_processing(
         &mut state,
         &block,
         None,
@@ -29,44 +61,53 @@ fn valid_block_ok() {
         &spec,
     );
 
-    assert_eq!(result, Ok(()));
+    assert!(result2.is_ok());
 }
 
 #[test]
 fn invalid_block_header_state_slot() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let (mut block, mut state) = builder.build(None, None);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    state.slot = Slot::new(133_713);
-    block.message.slot = Slot::new(424_242);
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let slot = state.slot() + Slot::new(1);
+
+    let (signed_block, mut state) = harness.make_block_return_original_state(state, slot);
+    let (mut block, signature) = signed_block.deconstruct();
+    *block.slot_mut() = slot + Slot::new(1);
 
     let result = per_block_processing(
         &mut state,
-        &block,
+        &SignedBeaconBlock::from_block(block, signature),
         None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
     );
 
     assert_eq!(
-        result,
-        Err(BlockProcessingError::HeaderInvalid {
-            reason: HeaderInvalid::StateSlotMismatch
-        })
-    );
+        result, Err(
+            BlockProcessingError::HeaderInvalid {
+                    reason: HeaderInvalid::StateSlotMismatch
+                }
+        ));
+
 }
 
 #[test]
 fn invalid_parent_block_root() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let invalid_parent_root = Hash256::from([0xAA; 32]);
-    let (block, mut state) = builder.build(None, Some(invalid_parent_root));
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let slot = state.slot() ;
+
+    let (signed_block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let (mut block, signature) = signed_block.deconstruct();
+    *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
     let result = per_block_processing(
         &mut state,
-        &block,
+        &SignedBeaconBlock::from_block(block, signature),
         None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
@@ -76,8 +117,8 @@ fn invalid_parent_block_root() {
         result,
         Err(BlockProcessingError::HeaderInvalid {
             reason: HeaderInvalid::ParentBlockRootMismatch {
-                state: state.latest_block_header.canonical_root(),
-                block: block.parent_root()
+                state: state.latest_block_header().canonical_root(),
+                block: Hash256::from([0xAA; 32])
             }
         })
     );
@@ -86,22 +127,16 @@ fn invalid_parent_block_root() {
 #[test]
 fn invalid_block_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let (block, mut state) = builder.build(None, None);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    // sign the block with a keypair that is not the expected proposer
-    let keypair = Keypair::random();
-    let block = block.message.sign(
-        &keypair.sk,
-        &state.fork,
-        state.genesis_validators_root,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let slot = state.slot() ;
+    let (signed_block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let (mut block, _) = signed_block.deconstruct();
 
-    // process block with invalid block signature
     let result = per_block_processing(
         &mut state,
-        &block,
+        &SignedBeaconBlock::from_block(block, Signature::empty()),
         None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
@@ -110,24 +145,24 @@ fn invalid_block_signature() {
     // should get a BadSignature error
     assert_eq!(
         result,
-        Err(BlockProcessingError::HeaderInvalid {
-            reason: HeaderInvalid::ProposalSignatureInvalid
-        })
+        Err(BlockProcessingError::HeaderInvalid { reason: HeaderInvalid::ProposalSignatureInvalid })
     );
 }
+
 
 #[test]
 fn invalid_randao_reveal_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    // sign randao reveal with random keypair
-    let keypair = Keypair::random();
-    let (block, mut state) = builder.build(Some(keypair.sk), None);
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let slot = state.slot() ;
+
+    let (signed_block, mut state) = harness.make_block_return_original_state_bad_randao(state, slot + Slot::new(1));
 
     let result = per_block_processing(
         &mut state,
-        &block,
+        &signed_block,
         None,
         BlockSignatureStrategy::VerifyIndividual,
         &spec,
@@ -140,18 +175,16 @@ fn invalid_randao_reveal_signature() {
 #[test]
 fn valid_4_deposits() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::Valid;
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let (block, mut state) = builder.build_with_n_deposits(4, test_task, None, None, &spec);
+    let (deposits, mut state) = harness.make_deposits(&mut state, 4, None, None);
+    let mut deposits = VariableList::from(deposits);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+
+    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
@@ -160,22 +193,18 @@ fn valid_4_deposits() {
 #[test]
 fn invalid_deposit_deposit_count_too_big() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::Valid;
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let (block, mut state) =
-        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, None);
+    let mut deposits = VariableList::from(deposits);
+
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data_mut().deposit_count = big_deposit_count;
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(
@@ -190,22 +219,18 @@ fn invalid_deposit_deposit_count_too_big() {
 #[test]
 fn invalid_deposit_count_too_small() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::Valid;
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let (block, mut state) =
-        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, None);
+    let mut deposits = VariableList::from(deposits);
+
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data_mut().deposit_count = small_deposit_count;
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(
@@ -220,24 +245,20 @@ fn invalid_deposit_count_too_small() {
 #[test]
 fn invalid_deposit_bad_merkle_proof() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::Valid;
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let (block, mut state) =
-        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, None);
+    let mut deposits = VariableList::from(deposits);
 
-    let bad_index = state.eth1_deposit_index as usize;
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+    let bad_index = state.eth1_deposit_index() as usize;
 
     // Manually offsetting deposit count and index to trigger bad merkle proof
-    state.eth1_data.deposit_count += 1;
-    state.eth1_deposit_index += 1;
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    state.eth1_data_mut().deposit_count += 1;
+    *state.eth1_deposit_index_mut() += 1;
+    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(
@@ -250,43 +271,18 @@ fn invalid_deposit_bad_merkle_proof() {
 }
 
 #[test]
-fn invalid_deposit_wrong_pubkey() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::BadPubKey;
-
-    let (block, mut state) =
-        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok(()) even though the public key provided does not correspond to the correct public key
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
 fn invalid_deposit_wrong_sig() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::BadSig;
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let (block, mut state) =
-        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
+    let mut deposits = VariableList::from(deposits);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
+    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
     assert_eq!(result, Ok(()));
 }
@@ -294,64 +290,31 @@ fn invalid_deposit_wrong_sig() {
 #[test]
 fn invalid_deposit_invalid_pub_key() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = DepositTestTask::InvalidPubKey;
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut state = harness.chain.head_beacon_state().unwrap();
 
-    let (block, mut state) =
-        builder.build_with_n_deposits(NUM_DEPOSITS, test_task, None, None, &spec);
+    let (deposits, mut state) = harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
+    let mut deposits = VariableList::from(deposits);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    *head_block.to_mut().body_mut().deposits_mut() = deposits;
+
+    let result = process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
 }
 
 #[test]
-fn valid_attestations() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::Valid;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok(()) because these are valid attestations
-    assert_eq!(result, Ok(()));
-}
-
-#[test]
 fn invalid_attestation_no_committee_for_index() {
     let spec = MainnetEthSpec::default_spec();
-    let slot = Epoch::new(EPOCH_OFFSET).start_slot(E::slots_per_epoch());
-    let builder =
-        get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT).insert_attestation(slot, 0, |_, _| true);
-    let committee_index = builder.state.get_committee_count_at_slot(slot).unwrap();
-    let (block, mut state) = builder
-        .modify(|block| {
-            block.body.attestations[0].data.index = committee_index;
-        })
-        .build(None, None);
+    let harness =
+        get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    head_block.to_mut().body_mut().attestations_mut()[0].data.index += 1;
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
 
     // Expecting NoCommitee because we manually set the attestation's index to be invalid
     assert_eq!(
@@ -366,18 +329,16 @@ fn invalid_attestation_no_committee_for_index() {
 #[test]
 fn invalid_attestation_wrong_justified_checkpoint() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::WrongJustifiedCheckpoint;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    let old_justified_checkpoint = head_block.body().attestations()[0].data.source.clone();
+    let mut new_justified_checkpoint = old_justified_checkpoint;
+    new_justified_checkpoint.epoch += Epoch::new(1);
+    head_block.to_mut().body_mut().attestations_mut()[0].data.source = new_justified_checkpoint;
+
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
 
     // Expecting WrongJustifiedCheckpoint because we manually set the
     // source field of the AttestationData object to be invalid
@@ -386,14 +347,8 @@ fn invalid_attestation_wrong_justified_checkpoint() {
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::WrongJustifiedCheckpoint {
-                state: Checkpoint {
-                    epoch: Epoch::from(2_u64),
-                    root: Hash256::zero(),
-                },
-                attestation: Checkpoint {
-                    epoch: Epoch::from(0_u64),
-                    root: Hash256::zero(),
-                },
+                state: old_justified_checkpoint,
+                attestation: new_justified_checkpoint,
                 is_current: true,
             }
         })
@@ -401,48 +356,15 @@ fn invalid_attestation_wrong_justified_checkpoint() {
 }
 
 #[test]
-fn invalid_attestation_bad_indexed_attestation_bad_signature() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadIndexedAttestationBadSignature;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting BadIndexedAttestation(BadSignature) because we ommitted the aggregation bits in the attestation
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::AttestationInvalid {
-            index: 0,
-            reason: AttestationInvalid::BadIndexedAttestation(
-                IndexedAttestationInvalid::BadSignature
-            )
-        })
-    );
-}
-
-#[test]
 fn invalid_attestation_bad_aggregation_bitfield_len() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::BadAggregationBitfieldLen;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits = Bitfield::with_capacity(spec.target_committee_size).unwrap();
+
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
 
     // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the commitee size.
     assert_eq!(
@@ -456,18 +378,13 @@ fn invalid_attestation_bad_aggregation_bitfield_len() {
 #[test]
 fn invalid_attestation_bad_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, 97); // minimal number of required validators for this test
-    let test_task = AttestationTestTask::BadSignature;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, 97); // minimal number of required validators for this test
 
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    head_block.to_mut().body_mut().attestations_mut()[0].signature = AggregateSignature::empty();
+
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
     // Expecting BadSignature because we're signing with invalid secret_keys
     assert_eq!(
         result,
@@ -483,18 +400,14 @@ fn invalid_attestation_bad_signature() {
 #[test]
 fn invalid_attestation_included_too_early() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::IncludedTooEarly;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    let new_attesation_slot = head_block.body().attestations()[0].data.slot + Slot::new(MainnetEthSpec::slots_per_epoch());
+    head_block.to_mut().body_mut().attestations_mut()[0].data.slot = new_attesation_slot;
+
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
 
     // Expecting IncludedTooEarly because the shard included in the crosslink is bigger than expected
     assert_eq!(
@@ -502,9 +415,9 @@ fn invalid_attestation_included_too_early() {
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::IncludedTooEarly {
-                state: state.slot,
+                state: state.slot(),
                 delay: spec.min_attestation_inclusion_delay,
-                attestation: block.message.body.attestations[0].data.slot,
+                attestation: new_attesation_slot,
             }
         })
     );
@@ -514,26 +427,21 @@ fn invalid_attestation_included_too_early() {
 fn invalid_attestation_included_too_late() {
     let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::IncludedTooLate;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    let new_attesation_slot = head_block.body().attestations()[0].data.slot - Slot::new(MainnetEthSpec::slots_per_epoch());
+    head_block.to_mut().body_mut().attestations_mut()[0].data.slot = new_attesation_slot;
 
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::IncludedTooLate {
-                state: state.slot,
-                attestation: block.message.body.attestations[0].data.slot,
+                state: state.slot(),
+                attestation: new_attesation_slot,
             }
         })
     );
@@ -543,27 +451,20 @@ fn invalid_attestation_included_too_late() {
 fn invalid_attestation_target_epoch_slot_mismatch() {
     let spec = MainnetEthSpec::default_spec();
     // note to maintainer: might need to increase validator count if we get NoCommittee
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttestationTestTask::TargetEpochSlotMismatch;
-    let (block, mut state) =
-        builder.build_with_n_attestations(test_task, NUM_ATTESTATIONS, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
+    head_block.to_mut().body_mut().attestations_mut()[0].data.target.epoch += Epoch::new(1);
 
-    let attestation = &block.message.body.attestations[0].data;
+    let result = process_operations::process_attestations(&mut state, head_block.body(), VerifySignatures::True, &spec);
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::TargetEpochSlotMismatch {
-                target_epoch: attestation.target.epoch,
-                slot_epoch: attestation.slot.epoch(E::slots_per_epoch()),
+                target_epoch: Epoch::new(EPOCH_OFFSET + 1),
+                slot_epoch: Epoch::new(EPOCH_OFFSET),
             }
         })
     );
@@ -572,19 +473,12 @@ fn invalid_attestation_target_epoch_slot_mismatch() {
 #[test]
 fn valid_insert_attester_slashing() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttesterSlashingTestTask::Valid;
-    let num_attester_slashings = 1;
-    let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let  attester_slashing = harness.make_attester_slashing(vec![1,2]);
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
 
     // Expecting Ok(()) because attester slashing is valid
     assert_eq!(result, Ok(()));
@@ -593,18 +487,13 @@ fn valid_insert_attester_slashing() {
 #[test]
 fn invalid_attester_slashing_not_slashable() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttesterSlashingTestTask::NotSlashable;
-    let num_attester_slashings = 1;
-    let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+
+    let mut attester_slashing = harness.make_attester_slashing(vec![1,2]);
+    attester_slashing.attestation_1=  attester_slashing.attestation_2.clone();
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
 
     // Expecting NotSlashable because the two attestations are the same
     assert_eq!(
@@ -619,19 +508,14 @@ fn invalid_attester_slashing_not_slashable() {
 #[test]
 fn invalid_attester_slashing_1_invalid() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttesterSlashingTestTask::IndexedAttestation1Invalid;
-    let num_attester_slashings = 1;
-    let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut attester_slashing = harness.make_attester_slashing(vec![1,2]);
+    attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2,1]);
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
+
 
     assert_eq!(
         result,
@@ -649,19 +533,13 @@ fn invalid_attester_slashing_1_invalid() {
 #[test]
 fn invalid_attester_slashing_2_invalid() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = AttesterSlashingTestTask::IndexedAttestation2Invalid;
-    let num_attester_slashings = 1;
-    let (block, mut state) =
-        builder.build_with_attester_slashing(test_task, num_attester_slashings, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut attester_slashing = harness.make_attester_slashing(vec![1,2]);
+    attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2,1]);
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_attester_slashings(&mut state, &[attester_slashing], VerifySignatures::True, &spec);
 
     assert_eq!(
         result,
@@ -679,36 +557,25 @@ fn invalid_attester_slashing_2_invalid() {
 #[test]
 fn valid_insert_proposer_slashing() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::Valid;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
-
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting Ok(()) because we inserted a valid proposer slashing
-    assert_eq!(result, Ok(()));
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let proposer_slashing = harness.make_proposer_slashing(1);
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
+    // Expecting Ok(_) because we inserted a valid proposer slashing
+    assert!(result.is_ok());
 }
 
 #[test]
 fn invalid_proposer_slashing_proposals_identical() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::ProposalsIdentical;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut proposer_slashing = harness.make_proposer_slashing(1);
+    proposer_slashing.signed_header_1.message = proposer_slashing.signed_header_2.message.clone();
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
+
     // Expecting ProposalsIdentical because we the two headers are identical
     assert_eq!(
         result,
@@ -722,17 +589,14 @@ fn invalid_proposer_slashing_proposals_identical() {
 #[test]
 fn invalid_proposer_slashing_proposer_unknown() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::ProposerUnknown;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
+    let mut proposer_slashing = harness.make_proposer_slashing(1);
+    proposer_slashing.signed_header_1.message.proposer_index = 3_141_592;
+    proposer_slashing.signed_header_2.message.proposer_index = 3_141_592;
+
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
 
     // Expecting ProposerUnknown because validator_index is unknown
     assert_eq!(
@@ -745,63 +609,22 @@ fn invalid_proposer_slashing_proposer_unknown() {
 }
 
 #[test]
-fn invalid_proposer_slashing_not_slashable() {
-    let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::ProposerNotSlashable;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
-
-    state.validators[0].slashed = true;
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
-
-    // Expecting ProposerNotSlashable because we've already slashed the validator
-    assert_eq!(
-        result,
-        Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 0,
-            reason: ProposerSlashingInvalid::ProposerNotSlashable(0)
-        })
-    );
-}
-
-#[test]
 fn invalid_proposer_slashing_duplicate_slashing() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::Valid;
-    let (mut block, mut state) =
-        builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let slashing = block.message.body.proposer_slashings[0].clone();
-    let slashed_proposer = slashing.signed_header_1.message.proposer_index;
-    block
-        .message
-        .body
-        .proposer_slashings
-        .push(slashing)
-        .expect("should push slashing");
+    let proposer_slashing = harness.make_proposer_slashing(1);
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result_1 = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing.clone()], VerifySignatures::False, &spec);
+    assert!(result_1.is_ok());
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::NoVerification,
-        &spec,
-    );
-
-    // Expecting ProposerNotSlashable for the 2nd slashing because the validator has been
-    // slashed by the 1st slashing.
+    let result_2 = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::False, &spec);
+    // Expecting ProposerNotSlashable because we've already slashed the validator
     assert_eq!(
-        result,
+        result_2,
         Err(BlockProcessingError::ProposerSlashingInvalid {
-            index: 1,
-            reason: ProposerSlashingInvalid::ProposerNotSlashable(slashed_proposer)
+            index: 0,
+            reason: ProposerSlashingInvalid::ProposerNotSlashable(1)
         })
     );
 }
@@ -809,17 +632,12 @@ fn invalid_proposer_slashing_duplicate_slashing() {
 #[test]
 fn invalid_bad_proposal_1_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::BadProposal1Signature;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut proposer_slashing = harness.make_proposer_slashing(1);
+    proposer_slashing.signed_header_1.signature = Signature::empty();
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
 
     // Expecting BadProposal1Signature because signature of proposal 1 is invalid
     assert_eq!(
@@ -834,17 +652,12 @@ fn invalid_bad_proposal_1_signature() {
 #[test]
 fn invalid_bad_proposal_2_signature() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::BadProposal2Signature;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut proposer_slashing = harness.make_proposer_slashing(1);
+    proposer_slashing.signed_header_2.signature = Signature::empty();
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::True, &spec);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
 
     // Expecting BadProposal2Signature because signature of proposal 2 is invalid
     assert_eq!(
@@ -859,17 +672,13 @@ fn invalid_bad_proposal_2_signature() {
 #[test]
 fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     let spec = MainnetEthSpec::default_spec();
-    let builder = get_builder(&spec, EPOCH_OFFSET, VALIDATOR_COUNT);
-    let test_task = ProposerSlashingTestTask::ProposalEpochMismatch;
-    let (block, mut state) = builder.build_with_proposer_slashing(test_task, 1, None, None, &spec);
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
+    let mut proposer_slashing = harness.make_proposer_slashing(1);
+    proposer_slashing.signed_header_1.message.slot = Slot::new(0);
+    proposer_slashing.signed_header_2.message.slot = Slot::new(128);
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    let result = process_operations::process_proposer_slashings(&mut state, &[proposer_slashing], VerifySignatures::False, &spec);
 
-    let result = per_block_processing(
-        &mut state,
-        &block,
-        None,
-        BlockSignatureStrategy::VerifyIndividual,
-        &spec,
-    );
 
     // Expecting ProposalEpochMismatch because the two epochs are different
     assert_eq!(
@@ -884,13 +693,4 @@ fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     );
 }
 
-fn get_builder(
-    spec: &ChainSpec,
-    epoch_offset: u64,
-    num_validators: usize,
-) -> BlockProcessingBuilder<MainnetEthSpec> {
-    // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
-    let last_slot_of_epoch = (MainnetEthSpec::genesis_epoch() + epoch_offset)
-        .end_slot(MainnetEthSpec::slots_per_epoch());
-    BlockProcessingBuilder::new(num_validators, last_slot_of_epoch, &spec).build_caches()
-}
+

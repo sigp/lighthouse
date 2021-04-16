@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
-use safe_arith::SafeArith;
 
 /// Each of the BLS signature domains.
 #[derive(Debug, PartialEq, Clone, Copy)]

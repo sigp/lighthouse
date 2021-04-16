@@ -361,6 +361,7 @@ mod tests {
     use super::*;
     use crate::test_utils::{test_ssz_tree_hash_pair, SeedableRng, TestRandom, XorShiftRng};
     use crate::MainnetEthSpec;
+    use crate::fork_schedule::*;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
     type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
@@ -368,8 +369,7 @@ mod tests {
 
     fn set_fork_schedule(altair_fork_slot: u64) {
         *FORK_SCHEDULE.write() = Some(ForkSchedule {
-            altair_fork_slot: Slot::new(altair_fork_slot),
-            altair_fork_version: [0xff; 4],
+            altair_fork_slot: Some(Slot::new(altair_fork_slot)),
         });
     }
 

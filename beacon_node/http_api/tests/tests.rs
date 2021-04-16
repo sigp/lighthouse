@@ -1,37 +1,39 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 
-use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-};
-use discv5::enr::{CombinedKey, EnrBuilder};
-use environment::null_logger;
-use eth2::Error;
-use eth2::StatusCode;
-use eth2::{types::*, BeaconNodeHttpClient, Url};
-use eth2_libp2p::{
-    rpc::methods::MetaData,
-    types::{EnrBitfield, SyncState},
-    Enr, EnrExt, NetworkGlobals, PeerId,
-};
-use futures::stream::{Stream, StreamExt};
-use futures::FutureExt;
-use http_api::{Config, Context};
-use network::NetworkMessage;
-use slot_clock::SlotClock;
-use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::iter::Iterator;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+
+use discv5::enr::{CombinedKey, EnrBuilder};
+use futures::FutureExt;
+use futures::stream::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
+
+use beacon_chain::{
+    BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY, StateSkipConfig,
+};
+use environment::null_logger;
+use eth2::{BeaconNodeHttpClient, types::*, Url};
+use eth2::Error;
+use eth2::StatusCode;
+use eth2_libp2p::{
+    Enr,
+    EnrExt,
+    NetworkGlobals, PeerId, rpc::methods::MetaData, types::{EnrBitfield, SyncState},
+};
+use http_api::{Config, Context};
+use network::NetworkMessage;
+use slot_clock::SlotClock;
+use state_processing::per_slot_processing;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
-    EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    AggregateSignature, BeaconState, BitList, Domain, EthSpec,
+    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot, test_utils::generate_deterministic_keypairs,
 };
+use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType};
 
 type E = MainnetEthSpec;
 

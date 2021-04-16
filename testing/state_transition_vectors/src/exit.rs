@@ -4,6 +4,7 @@ use state_processing::{
     test_utils::BlockProcessingBuilder, BlockProcessingError, BlockSignatureStrategy,
 };
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
@@ -15,7 +16,8 @@ struct ExitTest {
     exit_epoch: Epoch,
     state_epoch: Epoch,
     block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
-    builder_modifier: Box<dyn FnOnce(BlockProcessingBuilder<E>) -> BlockProcessingBuilder<E>>,
+    //TODO(sean)
+    builder_modifier: Box<dyn FnOnce(BeaconChainHarness<EphemeralHarnessType<E>>) -> BlockProcessingBuilder<E>>,
     #[allow(dead_code)]
     expected: Result<(), BlockProcessingError>,
 }
@@ -35,14 +37,15 @@ impl Default for ExitTest {
 
 impl ExitTest {
     fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        let spec = &E::default_spec();
 
-        (self.builder_modifier)(
-            get_builder(spec, self.state_epoch.as_u64(), VALIDATOR_COUNT)
-                .insert_exit(self.validator_index, self.exit_epoch)
-                .modify(self.block_modifier),
-        )
-        .build(None, None)
+        let harness = get_harness::<E>(self.state_epoch.start_slot(E::slots_per_epoch()), VALIDATOR_COUNT);
+        let exit = harness.make_voluntary_exit(self.validator_index, self.exit_epoch);
+        let mut state = harness.get_current_state();
+        let slot = state.slot();
+        let (mut block, state) = harness.make_block(state, slot);
+        let (mut block, signature) = block.deconstruct();
+        (self.block_modifier)(&mut block);
+        (SignedBeaconBlock::from_block(block, signature), state)
     }
 
     fn process(

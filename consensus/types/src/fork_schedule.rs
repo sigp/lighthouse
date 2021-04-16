@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use parking_lot::RwLock;
 
 lazy_static! {
-    static ref FORK_SCHEDULE: RwLock<Option<ForkSchedule>> = RwLock::new(None);
+    pub static ref FORK_SCHEDULE: RwLock<Option<ForkSchedule>> = RwLock::new(None);
 }
 
 /// Initialise the global fork schedule.

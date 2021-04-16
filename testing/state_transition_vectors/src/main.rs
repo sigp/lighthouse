@@ -3,14 +3,14 @@ mod macros;
 mod exit;
 
 use ssz::Encode;
-use state_processing::test_utils::BlockProcessingBuilder;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use types::MainnetEthSpec;
+use types::{MainnetEthSpec, Slot, Hash256};
 use types::{BeaconState, ChainSpec, EthSpec, SignedBeaconBlock};
+use beacon_chain::{store::StoreConfig, test_utils::{BeaconChainHarness, EphemeralHarnessType}};
 
 type E = MainnetEthSpec;
 
@@ -39,16 +39,22 @@ pub struct TestVector {
     pub error: Option<String>,
 }
 
-/// Gets a `BlockProcessingBuilder` to be used in testing.
-fn get_builder(
-    spec: &ChainSpec,
-    epoch_offset: u64,
-    num_validators: usize,
-) -> BlockProcessingBuilder<MainnetEthSpec> {
-    // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
-    let last_slot_of_epoch = (MainnetEthSpec::genesis_epoch() + epoch_offset)
-        .end_slot(MainnetEthSpec::slots_per_epoch());
-    BlockProcessingBuilder::new(num_validators, last_slot_of_epoch, &spec).build_caches()
+lazy_static! {
+    /// A cached set of keys.
+    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
+}
+
+fn get_harness<E:  EthSpec>(slot: Slot, validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let harness = BeaconChainHarness::new_with_store_config(
+        E::default(),
+        KEYPAIRS[0..validator_count].to_vec(),
+        StoreConfig::default(),
+    );
+    let mut state = harness.chain.head_beacon_state().unwrap();
+    if slot > Slot::new(0) {
+        harness.add_attested_blocks_at_slots(state, Hash256::zero(), (1..last_slot_of_epoch.as_u64()).map(Slot::new).collect::<Vec<_>>().as_slice(), (0..num_validators).collect::<Vec<_>>().as_slice());
+    }
+    harness
 }
 
 /// Writes all vectors to file.

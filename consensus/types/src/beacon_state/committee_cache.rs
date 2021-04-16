@@ -9,8 +9,7 @@ use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
 
-// FIXME(altair): re-enable
-// mod tests;
+mod tests;
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
@@ -256,7 +255,7 @@ impl CommitteeCache {
     /// Returns the index of some validator in `self.shuffling`.
     ///
     /// Always returns `None` for a non-initialized epoch.
-    fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
+    pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?
             .and_then(|p| Some(p.get() - 1))

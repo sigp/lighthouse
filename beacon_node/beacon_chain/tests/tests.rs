@@ -3,19 +3,17 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    attestation_verification::Error as AttnError,
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        OP_POOL_DB_KEY,
-    },
-};
+use beacon_chain::attestation_verification::Error as AttnError;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
+    EpochProcessingError, per_slot_processing, per_slot_processing::Error as SlotProcessingError,
 };
 use store::config::StoreConfig;
 use types::{BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    OP_POOL_DB_KEY,
+};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 24;

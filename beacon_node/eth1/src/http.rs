@@ -297,8 +297,8 @@ async fn call(
 /// A reduced set of fields from an Eth1 contract log.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Log {
-    pub(crate) block_number: u64,
-    pub(crate) data: Vec<u8>,
+    pub block_number: u64,
+    pub data: Vec<u8>,
 }
 
 /// Returns logs for the `DEPOSIT_EVENT_TOPIC`, for the given `address` in the given

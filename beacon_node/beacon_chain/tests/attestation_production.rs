@@ -3,13 +3,11 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
-    StateSkipConfig,
-};
+use beacon_chain::StateSkipConfig;
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
+use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 
 pub const VALIDATOR_COUNT: usize = 16;
 
