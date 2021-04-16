@@ -4,8 +4,10 @@ use crate::cases::common::SszStaticType;
 use crate::decode::{snappy_decode_file, yaml_decode_file};
 use cached_tree_hash::{CacheArena, CachedTreeHash};
 use serde_derive::Deserialize;
+use ssz::Decode;
 use std::marker::PhantomData;
-use types::Hash256;
+use tree_hash::TreeHash;
+use types::{BeaconState, ForkName, Hash256};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -21,11 +23,10 @@ pub struct SszStatic<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SszStaticTHC<T, C> {
+pub struct SszStaticTHC<T> {
     roots: SszStaticRoots,
     serialized: Vec<u8>,
     value: T,
-    _phantom: PhantomData<C>,
 }
 
 fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
@@ -38,7 +39,7 @@ fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u
 }
 
 impl<T: SszStaticType> LoadCase for SszStatic<T> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
         load_from_dir(path).map(|(roots, serialized, value)| Self {
             roots,
             serialized,
@@ -47,25 +48,28 @@ impl<T: SszStaticType> LoadCase for SszStatic<T> {
     }
 }
 
-impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> LoadCase for SszStaticTHC<T, C> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+impl<T: SszStaticType> LoadCase for SszStaticTHC<T> {
+    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
         load_from_dir(path).map(|(roots, serialized, value)| Self {
             roots,
             serialized,
             value,
-            _phantom: PhantomData,
         })
     }
 }
 
-pub fn check_serialization<T: SszStaticType>(value: &T, serialized: &[u8]) -> Result<(), Error> {
+pub fn check_serialization<T: SszStaticType>(
+    value: &T,
+    serialized: &[u8],
+    deserializer: impl FnOnce(&[u8]) -> Result<T, ssz::DecodeError>,
+) -> Result<(), Error> {
     // Check serialization
     let serialized_result = value.as_ssz_bytes();
     compare_result::<usize, Error>(&Ok(value.ssz_bytes_len()), &Some(serialized.len()))?;
     compare_result::<Vec<u8>, Error>(&Ok(serialized_result), &Some(serialized.to_vec()))?;
 
     // Check deserialization
-    let deserialized_result = T::from_ssz_bytes(serialized);
+    let deserialized_result = deserializer(serialized);
     compare_result(&deserialized_result, &Some(value.clone()))?;
 
     Ok(())
@@ -79,17 +83,20 @@ pub fn check_tree_hash(expected_str: &str, actual_root: &[u8]) -> Result<(), Err
     compare_result::<Hash256, Error>(&Ok(tree_hash_root), &Some(expected_root))
 }
 
-impl<T: SszStaticType> Case for SszStatic<T> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
-        check_serialization(&self.value, &self.serialized)?;
+impl<T: SszStaticType + Decode> Case for SszStatic<T> {
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized, T::from_ssz_bytes)?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
         Ok(())
     }
 }
 
-impl<T: SszStaticType + CachedTreeHash<C>, C: Debug + Sync> Case for SszStaticTHC<T, C> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
-        check_serialization(&self.value, &self.serialized)?;
+impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        let spec = &testing_spec::<E>(fork_name);
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            BeaconState::from_ssz_bytes(bytes, spec)
+        })?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
 
         let arena = &mut CacheArena::default();

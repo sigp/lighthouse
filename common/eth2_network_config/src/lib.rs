@@ -1,11 +1,10 @@
 use eth2_config::{predefined_networks_dir, *};
 
 use enr::{CombinedKey, Enr};
-use ssz::Decode;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{AltairConfig, BeaconState, EthSpec, EthSpecId, YamlConfig};
+use types::{AltairConfig, BeaconState, ChainSpec, EthSpec, EthSpecId, YamlConfig};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
@@ -105,14 +104,25 @@ impl Eth2NetworkConfig {
         self.genesis_state_bytes.is_some()
     }
 
+    /// Construct a consolidated `ChainSpec` from the YAML config.
+    pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
+        ChainSpec::from_yaml::<E>(&self.yaml_config, &self.altair_config).ok_or_else(|| {
+            format!(
+                "YAML configuration incompatible with spec constants for {}",
+                self.yaml_config.config_name
+            )
+        })
+    }
+
     /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
     pub fn beacon_state<E: EthSpec>(&self) -> Result<BeaconState<E>, String> {
+        let spec = self.chain_spec::<E>()?;
         let genesis_state_bytes = self
             .genesis_state_bytes
             .as_ref()
             .ok_or("Genesis state is unknown")?;
 
-        BeaconState::from_ssz_bytes(genesis_state_bytes)
+        BeaconState::from_ssz_bytes(genesis_state_bytes, &spec)
             .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
     }
 

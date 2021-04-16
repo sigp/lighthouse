@@ -2,6 +2,7 @@ use super::*;
 use snap::raw::Decoder;
 use std::fs::{self};
 use std::path::Path;
+use types::{BeaconState, EthSpec};
 
 pub fn yaml_decode<T: serde::de::DeserializeOwned>(string: &str) -> Result<T, Error> {
     serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
@@ -32,9 +33,12 @@ pub fn snappy_decode_file(path: &Path) -> Result<Vec<u8>, Error> {
     })
 }
 
-pub fn ssz_decode_file<T: ssz::Decode>(path: &Path) -> Result<T, Error> {
+pub fn ssz_decode_file_with<T, F>(path: &Path, f: F) -> Result<T, Error>
+where
+    F: FnOnce(&[u8]) -> Result<T, ssz::DecodeError>,
+{
     let bytes = snappy_decode_file(path)?;
-    T::from_ssz_bytes(&bytes).map_err(|e| {
+    f(&bytes).map_err(|e| {
         match e {
             // NOTE: this is a bit hacky, but seemingly better than the alternatives
             ssz::DecodeError::BytesInvalid(message)
@@ -49,4 +53,15 @@ pub fn ssz_decode_file<T: ssz::Decode>(path: &Path) -> Result<T, Error> {
             )),
         }
     })
+}
+
+pub fn ssz_decode_file<T: ssz::Decode>(path: &Path) -> Result<T, Error> {
+    ssz_decode_file_with(path, T::from_ssz_bytes)
+}
+
+pub fn ssz_decode_state<E: EthSpec>(
+    path: &Path,
+    spec: &ChainSpec,
+) -> Result<BeaconState<E>, Error> {
+    ssz_decode_file_with(path, |bytes| BeaconState::from_ssz_bytes(bytes, spec))
 }

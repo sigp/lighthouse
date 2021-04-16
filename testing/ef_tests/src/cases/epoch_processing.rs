@@ -1,11 +1,10 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
-use crate::decode::{snappy_decode_file, yaml_decode_file};
+use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
-use ssz::Decode;
 use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -17,7 +16,7 @@ use state_processing::per_epoch_processing::{
 use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec, ForkName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -190,23 +189,25 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
 }
 
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        let spec = &testing_spec::<E>(fork_name);
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
+        } else if T::name() == "sync_committee_updates" {
+            // FIXME(altair): this is a hack because the epoch tests are missing metadata
+            // and the sync aggregate tests need real BLS
+            Metadata {
+                description: None,
+                bls_setting: Some(BlsSetting::Required),
+            }
         } else {
             Metadata::default()
         };
-        let pre = BeaconState::from_ssz_bytes(
-            snappy_decode_file(&path.join("pre.ssz_snappy"))?.as_slice(),
-        )
-        .expect("Could not ssz decode pre beacon state");
+        let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
         let post_file = path.join("post.ssz_snappy");
         let post = if post_file.is_file() {
-            Some(
-                BeaconState::from_ssz_bytes(snappy_decode_file(&post_file)?.as_slice())
-                    .expect("Could not ssz decode post beacon state"),
-            )
+            Some(ssz_decode_state(&post_file, spec)?)
         } else {
             None
         };
@@ -229,11 +230,21 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
             .unwrap_or_else(String::new)
     }
 
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        match fork_name {
+            // No sync committee tests for genesis fork.
+            ForkName::Genesis => T::name() != "sync_committee_updates",
+            ForkName::Altair => true,
+        }
+    }
+
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        self.metadata.bls_setting.unwrap_or_default().check()?;
+
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
 
-        let spec = &E::default_spec();
+        let spec = &testing_spec::<E>(fork_name);
 
         let mut result = (|| {
             // Processing requires the committee caches.

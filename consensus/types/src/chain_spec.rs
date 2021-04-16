@@ -118,7 +118,8 @@ pub struct ChainSpec {
     domain_sync_committee_selection_proof: u32,
     domain_contribution_and_proof: u32,
     pub altair_fork_version: [u8; 4],
-    pub altair_fork_slot: Slot,
+    /// The Altair fork slot is optional, with `None` representing "Altair never happens".
+    pub altair_fork_slot: Option<Slot>,
 
     /*
      * Networking
@@ -134,6 +135,17 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
+    /// Construct a `ChainSpec` from several YAML config files.
+    pub fn from_yaml<T: EthSpec>(
+        phase0_yaml: &YamlConfig,
+        altair_yaml: &AltairConfig,
+    ) -> Option<Self> {
+        let mut spec = T::default_spec();
+        spec = phase0_yaml.apply_to_chain_spec::<T>(&spec)?;
+        spec = altair_yaml.apply_to_chain_spec::<T>(&spec)?;
+        Some(spec)
+    }
+
     /// Returns an `EnrForkId` for the given `slot`.
     ///
     /// Presently, we don't have any forks so we just ignore the slot. In the future this function
@@ -349,7 +361,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_slot: Slot::new(u64::MAX),
+            altair_fork_slot: Some(Slot::new(u64::MAX)),
 
             /*
              * Network specific
@@ -388,7 +400,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_slot: Slot::new(u64::MAX),
+            altair_fork_slot: Some(Slot::new(u64::MAX)),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -396,24 +408,6 @@ impl ChainSpec {
             deposit_contract_address: "1234567890123456789012345678901234567890"
                 .parse()
                 .expect("minimal chain spec deposit address"),
-            boot_nodes,
-            ..ChainSpec::mainnet()
-        }
-    }
-
-    /// Suits the `v0.12.3` version of the eth2 spec:
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
-    ///
-    /// This method only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
-    /// (e.g., Medalla, Pyrmont, Spadina, Altona, etc.).
-    pub fn v012_legacy() -> Self {
-        let boot_nodes = vec![];
-
-        Self {
-            genesis_delay: 172_800, // 2 days
-            inactivity_penalty_quotient: u64::pow(2, 24),
-            min_slashing_penalty_quotient: 32,
-            eth1_follow_distance: 1024,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
@@ -899,7 +893,7 @@ impl AltairConfig {
             domain_sync_committee_selection_proof: self.domain_sync_committee_selection_proof,
             domain_contribution_and_proof: self.domain_contribution_and_proof,
             altair_fork_version: self.altair_fork_version,
-            altair_fork_slot: self.altair_fork_slot,
+            altair_fork_slot: Some(self.altair_fork_slot),
             ..chain_spec.clone()
         })
     }
