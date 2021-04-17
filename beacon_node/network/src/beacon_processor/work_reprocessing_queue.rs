@@ -9,7 +9,7 @@
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
 use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
-use eth2_libp2p::PeerId;
+use eth2_libp2p::{MessageId, PeerId};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -23,7 +23,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::DelayQueue;
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_block_delay_queue";
 
@@ -57,18 +57,21 @@ pub enum ReadyWork<T: BeaconChainTypes> {
 /// An Attestation for which the corresponding block was not seen while processing, queued for
 /// later.
 pub struct QueuedUnaggregate<T: EthSpec> {
-    peer_id: PeerId,
-    attestation: Attestation<T>,
-    subnet_id: SubnetId,
-    should_import: bool,
+    pub peer_id: PeerId,
+    pub message_id: MessageId,
+    pub attestation: Attestation<T>,
+    pub subnet_id: SubnetId,
+    pub should_import: bool,
+    pub seen_timestamp: Duration,
 }
 
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for
 /// later.
 pub struct QueuedAggregate<T: EthSpec> {
-    peer_id: PeerId,
-    attestation: SignedAggregateAndProof<T>,
-    should_import: bool,
+    pub peer_id: PeerId,
+    pub message_id: MessageId,
+    pub attestation: SignedAggregateAndProof<T>,
+    pub seen_timestamp: Duration,
 }
 
 /// A block that arrived early and has been queued for later import.

@@ -26,15 +26,25 @@ use super::{
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<T: EthSpec> {
-    Unaggregate(Attestation<T>),
-    Aggregate(SignedAggregateAndProof<T>),
+    Unaggregate {
+        attestation: Attestation<T>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    },
+    Aggregate {
+        attestation: SignedAggregateAndProof<T>,
+        seen_timestamp: Duration,
+    },
 }
 
 impl<T: EthSpec> FailedAtt<T> {
     pub fn root(&self) -> &Hash256 {
         match self {
-            FailedAtt::Unaggregate(unaggregate) => &unaggregate.data.beacon_block_root,
-            FailedAtt::Aggregate(aggregate) => &aggregate.message.aggregate.data.beacon_block_root,
+            FailedAtt::Unaggregate { attestation, .. } => &attestation.data.beacon_block_root,
+            FailedAtt::Aggregate { attestation, .. } => {
+                &attestation.message.aggregate.data.beacon_block_root
+            }
         }
     }
 
@@ -103,15 +113,19 @@ impl<T: BeaconChainTypes> Worker<T> {
             .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
         {
             Ok(attestation) => attestation,
-            Err((e, unaggregate)) => {
+            Err((e, attestation)) => {
                 self.handle_attestation_verification_failure(
                     peer_id,
                     message_id,
-                    FailedAtt::Unaggregate(unaggregate),
+                    FailedAtt::Unaggregate {
+                        attestation,
+                        subnet_id,
+                        should_import,
+                        seen_timestamp,
+                    },
                     reprocess_tx,
                     e,
                 );
-                // TODO: diff between first and second
                 return;
             }
         };
@@ -192,16 +206,18 @@ impl<T: BeaconChainTypes> Worker<T> {
             .verify_aggregated_attestation_for_gossip(aggregate)
         {
             Ok(aggregate) => aggregate,
-            Err((e, aggregate)) => {
+            Err((e, attestation)) => {
                 // Report the failure to gossipsub
                 self.handle_attestation_verification_failure(
                     peer_id,
                     message_id,
-                    FailedAtt::Aggregate(aggregate),
+                    FailedAtt::Aggregate {
+                        attestation,
+                        seen_timestamp,
+                    },
                     reprocess_tx,
                     e,
                 );
-                // TODO: do something here with this
                 return;
             }
         };
@@ -862,20 +878,28 @@ impl<T: BeaconChainTypes> Worker<T> {
                             )
                         });
                     let msg = match failed_att {
-                        FailedAtt::Aggregate(aggregate) => {
-                            ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
-                                peer_id,
-                                attestation,
-                                should_import,
-                            })
-                        }
-                        FailedAtt::Unaggregate(unaggregate) => {
-                            ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
-                                peer_id,
-                                attestation,
-                                should_import,
-                            })
-                        }
+                        FailedAtt::Aggregate {
+                            attestation,
+                            seen_timestamp,
+                        } => ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
+                            peer_id,
+                            attestation,
+                            message_id: message_id.clone(),
+                            seen_timestamp,
+                        }),
+                        FailedAtt::Unaggregate {
+                            attestation,
+                            subnet_id,
+                            should_import,
+                            seen_timestamp,
+                        } => ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+                            peer_id,
+                            should_import,
+                            message_id: message_id.clone(),
+                            attestation,
+                            subnet_id,
+                            seen_timestamp,
+                        }),
                     };
                     if sender.try_send(msg).is_err() {}
                     self.propagate_validation_result(
