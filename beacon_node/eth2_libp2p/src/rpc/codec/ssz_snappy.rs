@@ -88,12 +88,16 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(ref res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = **res {
                     dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Altair));
+                } else if let SignedBeaconBlock::Base { .. } = **res {
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Genesis));
                 }
             }
 
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = *res {
                     dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Altair));
+                } else if let SignedBeaconBlock::Base { .. } = *res {
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Genesis));
                 }
             }
         }
@@ -375,6 +379,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                                     "Context bytes does not correspond to a valid fork".to_string(),
                                 )
                             })?;
+                        self.context_bytes = None;
+
                         match self.protocol.message_name {
                             Protocol::BlocksByRange => match fork {
                                 ForkType::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
