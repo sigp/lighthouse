@@ -17,7 +17,7 @@ pub fn process_sync_committee<T: EthSpec>(
 
     let previous_slot = state.slot().saturating_sub(1u64);
 
-    let committee_pubkeys = &state.as_altair()?.current_sync_committee.pubkeys;
+    let committee_pubkeys = &state.current_sync_committee()?.pubkeys;
 
     let participant_pubkeys = committee_pubkeys
         .iter()

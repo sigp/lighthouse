@@ -142,7 +142,7 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
             if !matching_target_indices.contains(&index) {
                 let penalty_numerator = state.validators()[index]
                     .effective_balance
-                    .safe_mul(state.as_altair()?.inactivity_scores[index])?;
+                    .safe_mul(state.inactivity_scores()?[index])?;
                 let penalty_denominator =
                     INACTIVITY_SCORE_BIAS.safe_mul(INACTIVITY_PENALTY_QUOTIENT_ALTAIR)?;
                 delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;

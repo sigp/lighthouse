@@ -46,9 +46,9 @@ pub struct BeaconBlock<T: EthSpec> {
     pub parent_root: Hash256,
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
-    #[superstruct(only(Base))]
+    #[superstruct(only(Base), partial_getter(rename = "body_base"))]
     pub body: BeaconBlockBodyBase<T>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
     pub body: BeaconBlockBodyAltair<T>,
 }
 

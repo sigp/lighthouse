@@ -165,7 +165,8 @@ impl From<BeaconStateHash> for Hash256 {
         serde(bound = "T: EthSpec", deny_unknown_fields),
         derivative(Clone),
     ),
-    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]

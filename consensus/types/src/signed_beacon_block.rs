@@ -61,9 +61,9 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 #[serde(bound = "E: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct SignedBeaconBlock<E: EthSpec> {
-    #[superstruct(only(Base))]
+    #[superstruct(only(Base), partial_getter(rename = "message_base"))]
     pub message: BeaconBlockBase<E>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E>,
     pub signature: Signature,
 }
