@@ -40,18 +40,18 @@ impl From<&ChainSpec> for ForkSchedule {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum ForkType {
+pub enum ForkName {
     Altair,
     Genesis,
 }
 
-impl ForkType {
-    /// Returns the `ForkType` given the slot.
+impl ForkName {
+    /// Returns the `ForkName` given the slot.
     pub fn from_slot(slot: Slot, spec: &ChainSpec) -> Self {
         if slot >= spec.altair_fork_slot {
-            ForkType::Altair
+            ForkName::Altair
         } else {
-            ForkType::Genesis
+            ForkName::Base
         }
     }
 }
