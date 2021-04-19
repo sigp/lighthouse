@@ -1218,7 +1218,7 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self.client.get_config_spec().await.unwrap().data;
 
-        let expected = YamlConfig::from_spec::<E>(&self.chain.spec);
+        let expected = StandardConfig::from_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 

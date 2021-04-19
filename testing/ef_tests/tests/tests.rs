@@ -1,7 +1,6 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use types::*;
 
@@ -14,22 +13,19 @@ fn config_test<E: EthSpec + TypeName>() {
         .join("config");
     let phase0_config_path = config_dir.join("phase0.yaml");
     let altair_config_path = config_dir.join("altair.yaml");
-    let phase0_config = YamlConfig::from_file(&phase0_config_path).expect("config file loads OK");
+    let phase0_config = BaseConfig::from_file(&phase0_config_path).expect("config file loads OK");
     let altair_config = AltairConfig::from_file(&altair_config_path).expect("altair config loads");
     let spec = E::default_spec();
 
-    let unified_spec =
-        ChainSpec::from_yaml::<E>(&phase0_config, &altair_config).expect("config unification");
+    let unified_spec = ChainSpec::from_standard_config::<E>(&phase0_config, Some(&altair_config))
+        .expect("config unification");
     assert_eq!(unified_spec, spec);
 
-    let phase0_from_spec = YamlConfig::from_spec::<E>(&spec);
+    let phase0_from_spec = BaseConfig::from_chain_spec::<E>(&spec);
     assert_eq!(phase0_from_spec, phase0_config);
 
-    assert_eq!(
-        phase0_config.extra_fields,
-        HashMap::new(),
-        "not all config fields read"
-    );
+    let altair_from_spec = AltairConfig::from_chain_spec::<E>(&spec);
+    assert_eq!(altair_from_spec, Some(altair_config));
 }
 
 #[test]

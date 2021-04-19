@@ -714,7 +714,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET config/spec`
-    pub async fn get_config_spec(&self) -> Result<GenericResponse<YamlConfig>, Error> {
+    pub async fn get_config_spec(&self) -> Result<GenericResponse<StandardConfig>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()

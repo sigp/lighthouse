@@ -4,20 +4,20 @@ use enr::{CombinedKey, Enr};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{AltairConfig, BeaconState, ChainSpec, EthSpec, EthSpecId, YamlConfig};
+use types::{AltairConfig, BaseConfig, BeaconState, ChainSpec, EthSpec, EthSpecId};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
-pub const YAML_CONFIG_FILE: &str = "config.yaml";
+pub const BASE_CONFIG_FILE: &str = "config.yaml";
 pub const ALTAIR_CONFIG_FILE: &str = "altair.yaml";
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
     pub name: &'static str,
     pub genesis_is_known: bool,
-    pub yaml_config: &'static [u8],
+    pub base_config: &'static [u8],
     pub altair_config: &'static [u8],
     pub deploy_block: &'static [u8],
     pub boot_enr: &'static [u8],
@@ -31,7 +31,7 @@ macro_rules! define_net {
         HardcodedNet {
             name: ETH2_NET_DIR.name,
             genesis_is_known: ETH2_NET_DIR.genesis_is_known,
-            yaml_config: $include_file!("../", "config.yaml"),
+            base_config: $include_file!("../", "config.yaml"),
             altair_config: $include_file!("../", "altair.yaml"),
             deploy_block: $include_file!("../", "deploy_block.txt"),
             boot_enr: $include_file!("../", "boot_enr.yaml"),
@@ -58,7 +58,7 @@ pub struct Eth2NetworkConfig {
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state_bytes: Option<Vec<u8>>,
-    pub yaml_config: YamlConfig,
+    pub base_config: BaseConfig,
     pub altair_config: AltairConfig,
 }
 
@@ -84,7 +84,7 @@ impl Eth2NetworkConfig {
             ),
             genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
                 .filter(|bytes| !bytes.is_empty()),
-            yaml_config: serde_yaml::from_reader(net.yaml_config)
+            base_config: serde_yaml::from_reader(net.base_config)
                 .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
             altair_config: serde_yaml::from_reader(net.altair_config)
                 .map_err(|e| format!("Unable to parse Altair config: {:?}", e))?,
@@ -94,9 +94,9 @@ impl Eth2NetworkConfig {
     /// Returns an identifier that should be used for selecting an `EthSpec` instance for this
     /// network configuration.
     pub fn eth_spec_id(&self) -> Result<EthSpecId, String> {
-        self.yaml_config
+        self.base_config
             .eth_spec_id()
-            .ok_or_else(|| format!("Unknown CONFIG_NAME: {}", self.yaml_config.config_name))
+            .ok_or_else(|| format!("Unknown CONFIG_NAME: {}", self.base_config.config_name))
     }
 
     /// Returns `true` if this configuration contains a `BeaconState`.
@@ -106,12 +106,13 @@ impl Eth2NetworkConfig {
 
     /// Construct a consolidated `ChainSpec` from the YAML config.
     pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
-        ChainSpec::from_yaml::<E>(&self.yaml_config, &self.altair_config).ok_or_else(|| {
-            format!(
-                "YAML configuration incompatible with spec constants for {}",
-                self.yaml_config.config_name
-            )
-        })
+        ChainSpec::from_standard_config::<E>(&self.base_config, Some(&self.altair_config))
+            .ok_or_else(|| {
+                format!(
+                    "YAML configuration incompatible with spec constants for {}",
+                    self.base_config.config_name
+                )
+            })
     }
 
     /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
@@ -172,7 +173,8 @@ impl Eth2NetworkConfig {
             write_to_yaml_file!(BOOT_ENR_FILE, boot_enr);
         }
 
-        write_to_yaml_file!(YAML_CONFIG_FILE, &self.yaml_config);
+        write_to_yaml_file!(BASE_CONFIG_FILE, &self.base_config);
+        write_to_yaml_file!(ALTAIR_CONFIG_FILE, &self.altair_config);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         if let Some(genesis_state_bytes) = &self.genesis_state_bytes {
@@ -213,7 +215,7 @@ impl Eth2NetworkConfig {
 
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
-        let yaml_config = load_from_file!(YAML_CONFIG_FILE);
+        let base_config = load_from_file!(BASE_CONFIG_FILE);
         let altair_config = load_from_file!(ALTAIR_CONFIG_FILE);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
@@ -236,7 +238,7 @@ impl Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes,
-            yaml_config,
+            base_config,
             altair_config,
         })
     }
@@ -247,7 +249,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, Hash256, MainnetEthSpec, V012LegacyEthSpec, YamlConfig};
+    use types::{BaseConfig, Eth1Data, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -263,10 +265,7 @@ mod tests {
                 || net.name == "prater"
             {
                 // Ensure we can parse the YAML config to a chain spec.
-                config
-                    .yaml_config
-                    .apply_to_chain_spec::<MainnetEthSpec>(&E::default_spec())
-                    .unwrap();
+                config.chain_spec::<MainnetEthSpec>().unwrap();
             }
 
             assert_eq!(
@@ -291,16 +290,23 @@ mod tests {
         // TODO: figure out how to generate ENR and add some here.
         let boot_enr = None;
         let genesis_state = Some(BeaconState::new(42, eth1_data, spec));
-        let yaml_config = Some(YamlConfig::from_spec::<E>(spec));
+        let base_config = BaseConfig::from_chain_spec::<E>(spec);
+        let altair_config = AltairConfig::from_chain_spec::<E>(spec).unwrap();
 
-        do_test::<E>(boot_enr, genesis_state, yaml_config);
-        do_test::<E>(None, None, None);
+        do_test::<E>(
+            boot_enr,
+            genesis_state,
+            base_config.clone(),
+            altair_config.clone(),
+        );
+        do_test::<E>(None, None, base_config, altair_config);
     }
 
     fn do_test<E: EthSpec>(
         boot_enr: Option<Vec<Enr<CombinedKey>>>,
         genesis_state: Option<BeaconState<E>>,
-        yaml_config: Option<YamlConfig>,
+        base_config: BaseConfig,
+        altair_config: AltairConfig,
     ) {
         let temp_dir = TempBuilder::new()
             .prefix("eth2_testnet_test")
@@ -313,7 +319,8 @@ mod tests {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
-            yaml_config,
+            base_config,
+            altair_config,
         };
 
         testnet

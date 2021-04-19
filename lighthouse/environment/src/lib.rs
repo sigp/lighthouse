@@ -212,21 +212,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = eth2_network_config
-            .yaml_config
-            .apply_to_chain_spec::<E>(&self.eth2_config.spec)
-            .and_then(|spec| {
-                eth2_network_config
-                    .altair_config
-                    .apply_to_chain_spec::<E>(&spec)
-            })
-            .ok_or_else(|| {
-                format!(
-                    "The loaded config is not compatible with the {} spec",
-                    &self.eth2_config.eth_spec_id
-                )
-            })?;
-
+        self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
         self.testnet = Some(eth2_network_config);
 
         Ok(self)

@@ -210,7 +210,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/spec`
-    pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<YamlConfig>, Error> {
+    pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<StandardConfig>, Error> {
         let mut path = self.server.clone();
 
         path.path_segments_mut()
