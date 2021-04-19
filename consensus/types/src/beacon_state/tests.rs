@@ -10,8 +10,6 @@ use beacon_chain::types::{
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;
 
-// ssz_and_tree_hash_tests!(FoundationBeaconState);
-
 pub const MAX_VALIDATOR_COUNT: usize = 129;
 
 lazy_static! {
@@ -19,7 +17,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(MAX_VALIDATOR_COUNT);
 }
 
-fn get_harness<E: eth_spec::EthSpec>(
+fn get_harness<E: EthSpec>(
     validator_count: usize,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
@@ -31,14 +29,14 @@ fn get_harness<E: eth_spec::EthSpec>(
     harness
 }
 
-fn build_state<E: eth_spec::EthSpec>(validator_count: usize) -> BeaconState<E> {
+fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     get_harness(validator_count)
         .chain
         .head_beacon_state()
         .unwrap()
 }
 
-fn test_beacon_proposer_index<T: eth_spec::EthSpec>() {
+fn test_beacon_proposer_index<T: EthSpec>() {
     let spec = T::default_spec();
     let relative_epoch = RelativeEpoch::Current;
 
@@ -90,7 +88,7 @@ fn test_beacon_proposer_index<T: eth_spec::EthSpec>() {
 
 #[test]
 fn beacon_proposer_index() {
-    test_beacon_proposer_index::<eth_spec::MinimalEthSpec>();
+    test_beacon_proposer_index::<MinimalEthSpec>();
 }
 
 /// Test that
@@ -98,7 +96,7 @@ fn beacon_proposer_index() {
 /// 1. Using the cache before it's built fails.
 /// 2. Using the cache after it's build passes.
 /// 3. Using the cache after it's dropped fails.
-fn test_cache_initialization<T: eth_spec::EthSpec>(
+fn test_cache_initialization<T: EthSpec>(
     state: &mut BeaconState<T>,
     relative_epoch: RelativeEpoch,
     spec: &ChainSpec,
@@ -127,19 +125,19 @@ fn test_cache_initialization<T: eth_spec::EthSpec>(
 
 #[test]
 fn cache_initialization() {
-    let spec = eth_spec::MinimalEthSpec::default_spec();
+    let spec = MinimalEthSpec::default_spec();
 
-    let mut state = build_state::<eth_spec::MinimalEthSpec>(16);
+    let mut state = build_state::<MinimalEthSpec>(16);
 
-    *state.slot_mut() = (eth_spec::MinimalEthSpec::genesis_epoch() + 1)
-        .start_slot(eth_spec::MinimalEthSpec::slots_per_epoch());
+    *state.slot_mut() =
+        (MinimalEthSpec::genesis_epoch() + 1).start_slot(MinimalEthSpec::slots_per_epoch());
 
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Next, &spec);
 }
 
-fn test_clone_config<E: eth_spec::EthSpec>(base_state: &BeaconState<E>, clone_config: CloneConfig) {
+fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: CloneConfig) {
     let state = base_state.clone_with(clone_config);
     if clone_config.committee_caches {
         state
@@ -187,9 +185,9 @@ fn test_clone_config<E: eth_spec::EthSpec>(base_state: &BeaconState<E>, clone_co
 
 #[test]
 fn clone_config() {
-    let spec = eth_spec::MinimalEthSpec::default_spec();
+    let spec = MinimalEthSpec::default_spec();
 
-    let mut state = build_state::<eth_spec::MinimalEthSpec>(16);
+    let mut state = build_state::<MinimalEthSpec>(16);
 
     state.build_all_caches(&spec).unwrap();
     state
@@ -211,66 +209,6 @@ fn clone_config() {
     }
 }
 
-//TODO(sean): fix this
-//
-// #[test]
-// fn tree_hash_cache() {
-//     use crate::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-//     use tree_hash::TreeHash;
-//
-//     let mut rng = XorShiftRng::from_seed([42; 16]);
-//
-//     let mut state: FoundationBeaconState = BeaconState::random_for_test(&mut rng);
-//
-//     let root = state.update_tree_hash_cache().unwrap();
-//
-//     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
-//
-//     /*
-//      * A cache should hash twice without updating the slot.
-//      */
-//
-//     assert_eq!(
-//         state.update_tree_hash_cache().unwrap(),
-//         root,
-//         "tree hash result should be identical on the same slot"
-//     );
-//
-//     /*
-//      * A cache should not hash after updating the slot but not updating the state roots.
-//      */
-//
-//     // The tree hash cache needs to be rebuilt since it was dropped when it failed.
-//     state
-//         .update_tree_hash_cache()
-//         .expect("should rebuild cache");
-//
-//     *state.slot_mut() += 1;
-//
-//     assert_eq!(
-//         state.update_tree_hash_cache(),
-//         Err(BeaconStateError::NonLinearTreeHashCacheHistory),
-//         "should not build hash without updating the state root"
-//     );
-//
-//     /*
-//      * The cache should update if the slot and state root are updated.
-//      */
-//
-//     // The tree hash cache needs to be rebuilt since it was dropped when it failed.
-//     let root = state
-//         .update_tree_hash_cache()
-//         .expect("should rebuild cache");
-//
-//     *state.slot_mut() += 1;
-//     state
-//         .set_state_root(state.slot() - 1, root)
-//         .expect("should set state root");
-//
-//     let root = state.update_tree_hash_cache().unwrap();
-//     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
-// }
-
 /// Tests committee-specific components
 #[cfg(test)]
 mod committees {
@@ -278,7 +216,7 @@ mod committees {
     use std::ops::{Add, Div};
     use swap_or_not_shuffle::shuffle_list;
 
-    fn execute_committee_consistency_test<T: eth_spec::EthSpec>(
+    fn execute_committee_consistency_test<T: EthSpec>(
         state: BeaconState<T>,
         epoch: Epoch,
         validator_count: usize,
@@ -350,7 +288,7 @@ mod committees {
         assert!(expected_indices_iter.next().is_none());
     }
 
-    fn committee_consistency_test<T: eth_spec::EthSpec>(
+    fn committee_consistency_test<T: EthSpec>(
         validator_count: usize,
         state_epoch: Epoch,
         cache_epoch: RelativeEpoch,
@@ -401,7 +339,7 @@ mod committees {
         );
     }
 
-    fn committee_consistency_test_suite<T: eth_spec::EthSpec>(cached_epoch: RelativeEpoch) {
+    fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
         let spec = T::default_spec();
 
         let validator_count = spec
@@ -432,17 +370,17 @@ mod committees {
 
     #[test]
     fn current_epoch_committee_consistency() {
-        committee_consistency_test_suite::<eth_spec::MinimalEthSpec>(RelativeEpoch::Current);
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Current);
     }
 
     #[test]
     fn previous_epoch_committee_consistency() {
-        committee_consistency_test_suite::<eth_spec::MinimalEthSpec>(RelativeEpoch::Previous);
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Previous);
     }
 
     #[test]
     fn next_epoch_committee_consistency() {
-        committee_consistency_test_suite::<eth_spec::MinimalEthSpec>(RelativeEpoch::Next);
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next);
     }
 }
 
@@ -450,7 +388,7 @@ mod get_outstanding_deposit_len {
     use super::*;
     use crate::eth_spec::MinimalEthSpec;
 
-    fn state() -> BeaconState<eth_spec::MinimalEthSpec> {
+    fn state() -> BeaconState<MinimalEthSpec> {
         get_harness(16).chain.head_beacon_state().unwrap()
     }
 
