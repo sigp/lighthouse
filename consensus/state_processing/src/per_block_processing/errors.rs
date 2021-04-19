@@ -50,6 +50,14 @@ pub enum BlockProcessingError {
     SszTypesError(ssz_types::Error),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
+    ExecutionHashChainIncontiguous {
+        expected: Hash256,
+        found: Hash256,
+    },
+    ExecutionBlockNumberIncontiguous {
+        expected: u64,
+        found: u64,
+    },
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

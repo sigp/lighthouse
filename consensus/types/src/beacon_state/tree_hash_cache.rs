@@ -196,8 +196,6 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
                 .as_bytes(),
         )?;
         hasher.write(state.eth1_deposit_index.tree_hash_root().as_bytes())?;
-        hasher.write(state.application_state_root.as_bytes())?;
-        hasher.write(state.application_block_hash.as_bytes())?;
         hasher.write(
             self.validators
                 .recalculate_tree_hash_root(&state.validators[..])?
@@ -242,6 +240,12 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
                 .as_bytes(),
         )?;
         hasher.write(state.finalized_checkpoint.tree_hash_root().as_bytes())?;
+        hasher.write(
+            state
+                .latest_execution_payload_header
+                .tree_hash_root()
+                .as_bytes(),
+        )?;
 
         let root = hasher.finish()?;
 

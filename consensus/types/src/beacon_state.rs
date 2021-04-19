@@ -177,10 +177,6 @@ where
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
-    // Merge only.
-    pub application_state_root: Hash256,
-    // Merge only.
-    pub application_block_hash: Hash256,
 
     // Registry
     #[compare_fields(as_slice)]
@@ -206,6 +202,9 @@ where
     pub previous_justified_checkpoint: Checkpoint,
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
+
+    // Merge only.
+    pub latest_execution_payload_header: ExecutionPayloadHeader,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -262,8 +261,6 @@ impl<T: EthSpec> BeaconState<T> {
             eth1_data,
             eth1_data_votes: VariableList::empty(),
             eth1_deposit_index: 0,
-            application_state_root: Hash256::zero(),
-            application_block_hash: Hash256::zero(),
 
             // Validator registry
             validators: VariableList::empty(), // Set later.
@@ -284,6 +281,9 @@ impl<T: EthSpec> BeaconState<T> {
             previous_justified_checkpoint: Checkpoint::default(),
             current_justified_checkpoint: Checkpoint::default(),
             finalized_checkpoint: Checkpoint::default(),
+
+            // Merge
+            latest_execution_payload_header: <_>::default(),
 
             // Caching (not in spec)
             committee_caches: [
@@ -1197,8 +1197,6 @@ impl<T: EthSpec> BeaconState<T> {
             eth1_data: self.eth1_data.clone(),
             eth1_data_votes: self.eth1_data_votes.clone(),
             eth1_deposit_index: self.eth1_deposit_index,
-            application_state_root: self.application_state_root,
-            application_block_hash: self.application_block_hash,
             validators: self.validators.clone(),
             balances: self.balances.clone(),
             randao_mixes: self.randao_mixes.clone(),
@@ -1209,6 +1207,7 @@ impl<T: EthSpec> BeaconState<T> {
             previous_justified_checkpoint: self.previous_justified_checkpoint,
             current_justified_checkpoint: self.current_justified_checkpoint,
             finalized_checkpoint: self.finalized_checkpoint,
+            latest_execution_payload_header: self.latest_execution_payload_header.clone(),
             committee_caches: if config.committee_caches {
                 self.committee_caches.clone()
             } else {

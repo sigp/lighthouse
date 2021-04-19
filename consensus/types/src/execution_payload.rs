@@ -14,12 +14,14 @@ pub type MaxExecutionTransactions = ssz_types::typenum::U16384;
 )]
 pub struct ExecutionPayload {
     pub block_hash: Hash256,
+    pub parent_hash: Hash256,
     pub coinbase: Address,
     pub state_root: Hash256,
+    pub number: u64,
     pub gas_limit: u64,
     pub gas_used: u64,
+    pub timestamp: u64,
     pub receipt_root: Hash256,
     pub logs_bloom: FixedVector<u8, BytesPerLogsBloom>,
-    pub difficulty: u64,
     pub transactions: VariableList<Transaction, MaxExecutionTransactions>,
 }

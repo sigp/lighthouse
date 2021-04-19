@@ -141,7 +141,7 @@ pub fn per_block_processing<T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_execution_payload(&mut state, &block.body);
+    process_execution_payload(&mut state, &block.body, spec)?;
 
     Ok(())
 }
@@ -504,7 +504,67 @@ pub fn process_exits<T: EthSpec>(
 pub fn process_execution_payload<T: EthSpec>(
     state: &mut BeaconState<T>,
     body: &BeaconBlockBody<T>,
-) {
-    state.application_state_root = body.execution_payload.state_root;
-    state.application_block_hash = body.execution_payload.block_hash;
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let transition_completed = state.latest_execution_payload_header == <_>::default();
+
+    // This emulates the following line of the specification with less allocations:
+    //
+    // ```
+    // if not is_transition_completed(state) and not is_transition_block(state, body)
+    // ```
+    if transition_completed && body.execution_payload == <_>::default() {
+        return Ok(());
+    }
+
+    let execution_payload = &body.execution_payload;
+
+    if transition_completed {
+        // assert execution_payload.parent_hash == state.latest_execution_payload_header.block_hash
+        block_verify!(
+            execution_payload.parent_hash == state.latest_execution_payload_header.block_hash,
+            BlockProcessingError::ExecutionHashChainIncontiguous {
+                expected: state.latest_execution_payload_header.block_hash,
+                found: execution_payload.parent_hash,
+            }
+        );
+
+        // assert execution_payload.number == state.latest_execution_payload_header.number + 1
+        block_verify!(
+            execution_payload.number == state.latest_execution_payload_header.number.safe_add(1)?,
+            BlockProcessingError::ExecutionBlockNumberIncontiguous {
+                expected: state.latest_execution_payload_header.number.safe_add(1)?,
+                found: execution_payload.number,
+            }
+        );
+    }
+
+    let timestamp = compute_time_at_slot(state, spec)?;
+
+    state.latest_execution_payload_header = ExecutionPayloadHeader {
+        block_hash: execution_payload.block_hash,
+        parent_hash: execution_payload.parent_hash,
+        coinbase: execution_payload.coinbase,
+        state_root: execution_payload.state_root,
+        number: execution_payload.number,
+        gas_limit: execution_payload.gas_limit,
+        gas_used: execution_payload.gas_used,
+        timestamp,
+        receipt_root: execution_payload.receipt_root,
+        logs_bloom: execution_payload.logs_bloom.clone(),
+        transactions_root: execution_payload.transactions.tree_hash_root(),
+    };
+
+    Ok(())
+}
+
+fn compute_time_at_slot<T: EthSpec>(
+    state: &BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<u64, ArithError> {
+    let slots_since_genesis = state.slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+
+    slots_since_genesis
+        .safe_mul(spec.seconds_per_slot)
+        .and_then(|since_genesis| state.genesis_time.safe_add(since_genesis))
 }
