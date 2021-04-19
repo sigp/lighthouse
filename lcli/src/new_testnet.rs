@@ -4,7 +4,7 @@ use clap_utils::{
 };
 use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
-use types::{Address, EthSpec, YamlConfig};
+use types::{Address, EthSpec, StandardConfig};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let testnet_dir_path = parse_path_with_default_in_home_dir(
@@ -60,7 +60,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state_bytes: None,
-        yaml_config: Some(YamlConfig::from_spec::<T>(&spec)),
+        yaml_config: Some(StandardConfig::from_spec::<T>(&spec)),
     };
 
     testnet.write_to_file(testnet_dir_path, overwrite_files)

@@ -32,6 +32,7 @@ pub mod eth1_data;
 pub mod eth_spec;
 pub mod fork;
 pub mod fork_data;
+pub mod fork_name;
 pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
@@ -51,7 +52,6 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
-pub mod fork_schedule;
 pub mod participation_flags;
 pub mod slot_epoch;
 pub mod subnet_id;
@@ -76,7 +76,7 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::chain_spec::{AltairConfig, ChainSpec, Domain, YamlConfig};
+pub use crate::chain_spec::{AltairConfig, BaseConfig, ChainSpec, Domain, StandardConfig};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
@@ -86,9 +86,7 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::fork::Fork;
 pub use crate::fork_data::ForkData;
-pub use crate::fork_schedule::{
-    get_fork_schedule, get_fork_schedule_ssz, init_fork_schedule, ForkSchedule,
-};
+pub use crate::fork_name::ForkName;
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;

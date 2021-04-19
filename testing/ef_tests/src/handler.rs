@@ -1,15 +1,11 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
+use crate::type_name;
 use crate::type_name::TypeName;
-use crate::{get_fork_name, init_testing_fork_schedule, type_name};
-use cached_tree_hash::CachedTreeHash;
-use parking_lot::Once;
-use std::fmt::Debug;
+use derivative::Derivative;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use types::EthSpec;
-
-static INIT_FORK: Once = Once::new();
+use types::{BeaconState, EthSpec, ForkName};
 
 pub trait Handler {
     type Case: Case + LoadCase;
@@ -22,25 +18,29 @@ pub trait Handler {
 
     fn handler_name() -> String;
 
-    fn run() {
-        // XXX: This is a a bit of a hack.
-        let fork_name = get_fork_name();
-        INIT_FORK.call_once(|| {
-            init_testing_fork_schedule(&fork_name);
-        });
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        Self::Case::is_enabled_for_fork(fork_name)
+    }
 
-        // If the test is for the "general" config, then all its files lived under phase0.
-        let effective_fork_name = if Self::config_name() == "general" {
-            "phase0"
-        } else {
-            &fork_name
+    fn run(&self) {
+        for fork_name in ForkName::list_all() {
+            if self.is_enabled_for_fork(fork_name) {
+                Self::run_for_fork(fork_name)
+            }
+        }
+    }
+
+    fn run_for_fork(fork_name: ForkName) {
+        let fork_name_str = match fork_name {
+            ForkName::Base => "phase0",
+            ForkName::Altair => "altair",
         };
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("eth2.0-spec-tests")
             .join("tests")
             .join(Self::config_name())
-            .join(effective_fork_name)
+            .join(fork_name_str)
             .join(Self::runner_name())
             .join(Self::handler_name());
 
@@ -56,24 +56,35 @@ pub trait Handler {
             .flat_map(Result::ok)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
-                let case = Self::Case::load_from_dir(&path).expect("test should load");
+                let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results();
+        let results = Cases { test_cases }.test_results(fork_name);
 
-        let name = format!("{}/{}", Self::runner_name(), Self::handler_name());
+        let name = format!(
+            "{}/{}/{}",
+            fork_name_str,
+            Self::runner_name(),
+            Self::handler_name()
+        );
         crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
 }
 
 macro_rules! bls_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
+        #[derive(Derivative)]
+        #[derivative(Default(bound = ""))]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
             type Case = cases::$case_name;
+
+            fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+                fork_name == ForkName::Base
+            }
 
             fn runner_name() -> &'static str {
                 "bls"
@@ -101,14 +112,47 @@ bls_handler!(
 );
 
 /// Handler for SSZ types.
-pub struct SszStaticHandler<T, E>(PhantomData<(T, E)>);
+pub struct SszStaticHandler<T, E> {
+    supported_forks: Vec<ForkName>,
+    _phantom: PhantomData<(T, E)>,
+}
+
+impl<T, E> Default for SszStaticHandler<T, E> {
+    fn default() -> Self {
+        Self::for_forks(ForkName::list_all())
+    }
+}
+
+impl<T, E> SszStaticHandler<T, E> {
+    pub fn for_forks(supported_forks: Vec<ForkName>) -> Self {
+        SszStaticHandler {
+            supported_forks,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn base_only() -> Self {
+        Self::for_forks(vec![ForkName::Base])
+    }
+
+    pub fn altair_only() -> Self {
+        Self::for_forks(vec![ForkName::Altair])
+    }
+}
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
-pub struct SszStaticTHCHandler<T, C, E>(PhantomData<(T, C, E)>);
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
+
+/// Handler for SSZ types that don't implement `ssz::Decode`.
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + TypeName,
+    T: cases::SszStaticType + ssz::Decode + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
@@ -124,15 +168,38 @@ where
     fn handler_name() -> String {
         T::name().into()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        self.supported_forks.contains(&fork_name)
+    }
 }
 
-impl<T, C, E> Handler for SszStaticTHCHandler<T, C, E>
+impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
 where
-    T: cases::SszStaticType + CachedTreeHash<C> + TypeName,
-    C: Debug + Sync,
-    E: TypeName,
+    E: EthSpec + TypeName,
 {
-    type Case = cases::SszStaticTHC<T, C>;
+    type Case = cases::SszStaticTHC<BeaconState<E>>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "ssz_static"
+    }
+
+    fn handler_name() -> String {
+        BeaconState::<E>::name().into()
+    }
+}
+
+impl<T, E> Handler for SszStaticWithSpecHandler<T, E>
+where
+    T: TypeName,
+    E: EthSpec + TypeName,
+    cases::SszStaticWithSpec<T>: Case + LoadCase,
+{
+    type Case = cases::SszStaticWithSpec<T>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -147,6 +214,8 @@ where
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct ShufflingHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
@@ -163,8 +232,14 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
     fn handler_name() -> String {
         "core".into()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name == ForkName::Base
+    }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct SanityBlocksHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
@@ -181,8 +256,16 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
     fn handler_name() -> String {
         "blocks".into()
     }
+
+    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+        // FIXME(altair): v1.1.0-alpha.3 doesn't mark the historical blocks test as
+        // requiring real crypto, so only run these tests with real crypto for now.
+        cfg!(not(feature = "fake_crypto"))
+    }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct SanitySlotsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
@@ -201,6 +284,8 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct EpochProcessingHandler<E, T>(PhantomData<(E, T)>);
 
 impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHandler<E, T> {
@@ -219,6 +304,8 @@ impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHa
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct FinalityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
@@ -238,6 +325,8 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
@@ -256,6 +345,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct GenesisInitializationHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
@@ -274,6 +365,8 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
 
 impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
@@ -292,6 +385,8 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
     }
 }
 
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct SszGenericHandler<H>(PhantomData<H>);
 
 impl<H: TypeName> Handler for SszGenericHandler<H> {
@@ -303,6 +398,11 @@ impl<H: TypeName> Handler for SszGenericHandler<H> {
 
     fn runner_name() -> &'static str {
         "ssz_generic"
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // SSZ generic tests are genesis only
+        fork_name == ForkName::Base
     }
 
     fn handler_name() -> String {

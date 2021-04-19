@@ -3,7 +3,10 @@ use crate::chunked_vector::{
 };
 use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::forwards_iter::HybridForwardsBlockRootsIterator;
-use crate::impls::beacon_state::{get_full_state, store_full_state};
+use crate::impls::{
+    beacon_block_as_kv_store_op,
+    beacon_state::{get_full_state, store_full_state},
+};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
@@ -235,7 +238,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block: SignedBeaconBlock<E>,
     ) -> Result<(), Error> {
         // Store on disk.
-        self.hot_db.put(block_root, &block)?;
+        self.hot_db
+            .do_atomically(vec![beacon_block_as_kv_store_op(block_root, &block)])?;
 
         // Update cache.
         self.block_cache.lock().put(*block_root, block);
@@ -254,20 +258,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Fetch from database.
-        match self.hot_db.get::<SignedBeaconBlock<E>>(block_root)? {
-            Some(block) => {
+        match self
+            .hot_db
+            .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
+        {
+            Some(block_bytes) => {
+                // Deserialize.
+                let block = SignedBeaconBlock::from_ssz_bytes(&block_bytes, &self.spec)?;
+
                 // Add to cache.
                 self.block_cache.lock().put(*block_root, block.clone());
+
                 Ok(Some(block))
             }
             None => Ok(None),
         }
     }
 
+    /// Determine whether a block exists in the database.
+    pub fn block_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.hot_db
+            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_bytes())
+    }
+
     /// Delete a block from the store and the block cache.
     pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
         self.block_cache.lock().pop(block_root);
-        self.hot_db.delete::<SignedBeaconBlock<E>>(block_root)
+        self.hot_db
+            .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())
     }
 
     pub fn put_state_summary(
@@ -435,7 +453,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    key_value_batch.push(block.as_kv_store_op(*block_root));
+                    key_value_batch.push(beacon_block_as_kv_store_op(block_root, block));
                 }
 
                 StoreOp::PutState(state_root, state) => {
@@ -559,9 +577,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state = get_full_state(&self.hot_db, &epoch_boundary_state_root)?.ok_or(
-                HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
-            )?;
+            let boundary_state =
+                get_full_state(&self.hot_db, &epoch_boundary_state_root, &self.spec)?.ok_or(
+                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
+                )?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
             // on an epoch boundary.
@@ -649,10 +668,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load a restore point state by its `state_root`.
     fn load_restore_point(&self, state_root: &Hash256) -> Result<BeaconState<E>, Error> {
-        let mut partial_state: PartialBeaconState<E> = self
+        let partial_state_bytes = self
             .cold_db
-            .get(state_root)?
+            .get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())?
             .ok_or_else(|| HotColdDBError::MissingRestorePoint(*state_root))?;
+        let mut partial_state: PartialBeaconState<E> =
+            PartialBeaconState::from_ssz_bytes(&partial_state_bytes, &self.spec)?;
 
         // Fill in the fields of the partial state.
         partial_state.load_block_roots(&self.cold_db, &self.spec)?;
@@ -1042,7 +1063,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
 
         if slot % store.config.slots_per_restore_point == 0 {
-            let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root)?
+            let state: BeaconState<E> = get_full_state(&store.hot_db, &state_root, &store.spec)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;

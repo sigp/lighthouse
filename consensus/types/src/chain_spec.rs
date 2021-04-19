@@ -1,3 +1,12 @@
+//! This file contains several different representations of the beacon chain configuration
+//! parameters.
+//!
+//! Arguably the most import of these is `ChainSpec`, which is used throughout Lighthouse as the
+//! source-of-truth regarding spec-level configuration.
+//!
+//! The other types exist for interoperability with other systems. The `StandardConfig` is an object
+//! intended to match an EF spec configuration (usually YAML), and is broken into sub-parts for
+//! each relevant fork. It is also serialised as JSON for the standardised HTTP API.
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
@@ -118,7 +127,8 @@ pub struct ChainSpec {
     domain_sync_committee_selection_proof: u32,
     domain_contribution_and_proof: u32,
     pub altair_fork_version: [u8; 4],
-    pub altair_fork_slot: Slot,
+    /// The Altair fork slot is optional, with `None` representing "Altair never happens".
+    pub altair_fork_slot: Option<Slot>,
 
     /*
      * Networking
@@ -134,6 +144,20 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
+    /// Construct a `ChainSpec` from several standard config files.
+    pub fn from_standard_config<T: EthSpec>(
+        base: &BaseConfig,
+        altair: Option<&AltairConfig>,
+    ) -> Option<Self> {
+        let mut spec = T::default_spec();
+        spec = base.apply_to_chain_spec::<T>(&spec)?;
+
+        if let Some(altair_config) = altair {
+            spec = altair_config.apply_to_chain_spec::<T>(&spec)?;
+        }
+        Some(spec)
+    }
+
     /// Returns an `EnrForkId` for the given `slot`.
     ///
     /// Presently, we don't have any forks so we just ignore the slot. In the future this function
@@ -349,7 +373,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_slot: Slot::new(u64::MAX),
+            altair_fork_slot: Some(Slot::new(u64::MAX)),
 
             /*
              * Network specific
@@ -388,7 +412,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_slot: Slot::new(u64::MAX),
+            altair_fork_slot: Some(Slot::new(u64::MAX)),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -396,24 +420,6 @@ impl ChainSpec {
             deposit_contract_address: "1234567890123456789012345678901234567890"
                 .parse()
                 .expect("minimal chain spec deposit address"),
-            boot_nodes,
-            ..ChainSpec::mainnet()
-        }
-    }
-
-    /// Suits the `v0.12.3` version of the eth2 spec:
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.3/configs/mainnet/phase0.yaml
-    ///
-    /// This method only needs to exist whilst we provide support for "legacy" testnets prior to v1.0.0
-    /// (e.g., Medalla, Pyrmont, Spadina, Altona, etc.).
-    pub fn v012_legacy() -> Self {
-        let boot_nodes = vec![];
-
-        Self {
-            genesis_delay: 172_800, // 2 days
-            inactivity_penalty_quotient: u64::pow(2, 24),
-            min_slashing_penalty_quotient: 32,
-            eth1_follow_distance: 1024,
             boot_nodes,
             ..ChainSpec::mainnet()
         }
@@ -426,62 +432,37 @@ impl Default for ChainSpec {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Configuration struct for compatibility with the spec's .yaml configuration
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct StandardConfig {
+    #[serde(flatten)]
+    pub base: BaseConfig,
+    /// Configuration related to the Altair hard fork.
+    #[serde(flatten)]
+    pub altair: Option<AltairConfig>,
 
-    #[test]
-    fn test_mainnet_spec_can_be_constructed() {
-        let _ = ChainSpec::mainnet();
-    }
+    // Extra fields (could be from a future hard-fork that we don't yet know).
+    #[serde(flatten)]
+    pub extra_fields: HashMap<String, String>,
+}
 
-    #[allow(clippy::useless_vec)]
-    fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
-        let previous_version = [0, 0, 0, 1];
-        let current_version = [0, 0, 0, 2];
-        let genesis_validators_root = Hash256::from_low_u64_le(77);
-        let fork_epoch = Epoch::new(1024);
-        let fork = Fork {
-            previous_version,
-            current_version,
-            epoch: fork_epoch,
-        };
-
-        for (epoch, version) in vec![
-            (fork_epoch - 1, previous_version),
-            (fork_epoch, current_version),
-            (fork_epoch + 1, current_version),
-        ] {
-            let domain1 = spec.get_domain(epoch, domain_type, &fork, genesis_validators_root);
-            let domain2 = spec.compute_domain(domain_type, version, genesis_validators_root);
-
-            assert_eq!(domain1, domain2);
-            assert_eq!(&domain1.as_bytes()[0..4], &int_to_bytes4(raw_domain)[..]);
+impl StandardConfig {
+    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+        let base = BaseConfig::from_chain_spec::<T>(spec);
+        let altair = AltairConfig::from_chain_spec::<T>(spec);
+        let extra_fields = HashMap::new();
+        Self {
+            base,
+            altair,
+            extra_fields,
         }
-    }
-
-    #[test]
-    fn test_get_domain() {
-        let spec = ChainSpec::mainnet();
-
-        test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
-        test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
-        test_domain(Domain::Randao, spec.domain_randao, &spec);
-        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
-        test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
-        test_domain(Domain::SelectionProof, spec.domain_selection_proof, &spec);
-        test_domain(
-            Domain::AggregateAndProof,
-            spec.domain_aggregate_and_proof,
-            &spec,
-        );
     }
 }
 
-/// YAML config file as defined by the spec.
+/// Configuration related to the base/phase0/genesis fork (YAML/JSON version).
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
-pub struct YamlConfig {
+pub struct BaseConfig {
     pub config_name: String,
     // ChainSpec
     #[serde(with = "serde_utils::quoted_u64")]
@@ -605,20 +586,16 @@ pub struct YamlConfig {
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
-
-    // Extra fields (could be from a future hard-fork that we don't yet know).
-    #[serde(flatten)]
-    pub extra_fields: HashMap<String, String>,
 }
 
-impl Default for YamlConfig {
+impl Default for BaseConfig {
     fn default() -> Self {
         let chain_spec = MainnetEthSpec::default_spec();
-        YamlConfig::from_spec::<MainnetEthSpec>(&chain_spec)
+        BaseConfig::from_chain_spec::<MainnetEthSpec>(&chain_spec)
     }
 }
 
-impl YamlConfig {
+impl BaseConfig {
     /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
     ///
     /// Returns `None` if there is no match.
@@ -633,7 +610,7 @@ impl YamlConfig {
         })
     }
 
-    pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: T::spec_name().to_string(),
             // ChainSpec
@@ -700,8 +677,6 @@ impl YamlConfig {
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
-
-            extra_fields: HashMap::new(),
         }
     }
 
@@ -883,25 +858,114 @@ impl AltairConfig {
     }
 
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
-        if self.sync_committee_size != T::SyncCommitteeSize::to_u64()
-            || self.sync_pubkeys_per_aggregate != T::SyncPubkeysPerAggregate::to_u64()
+        // Pattern-match to avoid missing any fields.
+        let &AltairConfig {
+            // Ignore config name.
+            config_name: _,
+            inactivity_penalty_quotient_altair,
+            min_slashing_penalty_quotient_altair,
+            proportional_slashing_multiplier_altair,
+            sync_committee_size,
+            sync_pubkeys_per_aggregate,
+            inactivity_score_bias,
+            epochs_per_sync_committee_period,
+            domain_sync_committee,
+            domain_sync_committee_selection_proof,
+            domain_contribution_and_proof,
+            altair_fork_version,
+            altair_fork_slot,
+        } = self;
+
+        if sync_committee_size != T::SyncCommitteeSize::to_u64()
+            || sync_pubkeys_per_aggregate != T::SyncPubkeysPerAggregate::to_u64()
         {
             return None;
         }
 
         Some(ChainSpec {
-            inactivity_penalty_quotient_altair: self.inactivity_penalty_quotient_altair,
-            min_slashing_penalty_quotient_altair: self.min_slashing_penalty_quotient_altair,
-            proportional_slashing_multiplier_altair: self.proportional_slashing_multiplier_altair,
-            inactivity_score_bias: self.inactivity_score_bias,
-            epochs_per_sync_committee_period: self.epochs_per_sync_committee_period,
-            domain_sync_committee: self.domain_sync_committee,
-            domain_sync_committee_selection_proof: self.domain_sync_committee_selection_proof,
-            domain_contribution_and_proof: self.domain_contribution_and_proof,
-            altair_fork_version: self.altair_fork_version,
-            altair_fork_slot: self.altair_fork_slot,
+            inactivity_penalty_quotient_altair,
+            min_slashing_penalty_quotient_altair,
+            proportional_slashing_multiplier_altair,
+            inactivity_score_bias,
+            epochs_per_sync_committee_period,
+            domain_sync_committee,
+            domain_sync_committee_selection_proof,
+            domain_contribution_and_proof,
+            altair_fork_version,
+            altair_fork_slot: Some(altair_fork_slot),
             ..chain_spec.clone()
         })
+    }
+
+    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Option<Self> {
+        Some(Self {
+            config_name: T::spec_name().to_string(),
+            inactivity_penalty_quotient_altair: spec.inactivity_penalty_quotient_altair,
+            min_slashing_penalty_quotient_altair: spec.min_slashing_penalty_quotient_altair,
+            proportional_slashing_multiplier_altair: spec.proportional_slashing_multiplier_altair,
+            sync_committee_size: T::SyncCommitteeSize::to_u64(),
+            sync_pubkeys_per_aggregate: T::SyncPubkeysPerAggregate::to_u64(),
+            inactivity_score_bias: spec.inactivity_score_bias,
+            epochs_per_sync_committee_period: spec.epochs_per_sync_committee_period,
+            domain_sync_committee: spec.domain_sync_committee,
+            domain_sync_committee_selection_proof: spec.domain_sync_committee_selection_proof,
+            domain_contribution_and_proof: spec.domain_contribution_and_proof,
+            altair_fork_version: spec.altair_fork_version,
+            altair_fork_slot: spec.altair_fork_slot?,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mainnet_spec_can_be_constructed() {
+        let _ = ChainSpec::mainnet();
+    }
+
+    #[allow(clippy::useless_vec)]
+    fn test_domain(domain_type: Domain, raw_domain: u32, spec: &ChainSpec) {
+        let previous_version = [0, 0, 0, 1];
+        let current_version = [0, 0, 0, 2];
+        let genesis_validators_root = Hash256::from_low_u64_le(77);
+        let fork_epoch = Epoch::new(1024);
+        let fork = Fork {
+            previous_version,
+            current_version,
+            epoch: fork_epoch,
+        };
+
+        for (epoch, version) in vec![
+            (fork_epoch - 1, previous_version),
+            (fork_epoch, current_version),
+            (fork_epoch + 1, current_version),
+        ] {
+            let domain1 = spec.get_domain(epoch, domain_type, &fork, genesis_validators_root);
+            let domain2 = spec.compute_domain(domain_type, version, genesis_validators_root);
+
+            assert_eq!(domain1, domain2);
+            assert_eq!(&domain1.as_bytes()[0..4], &int_to_bytes4(raw_domain)[..]);
+        }
+    }
+
+    #[test]
+    fn test_get_domain() {
+        let spec = ChainSpec::mainnet();
+
+        test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
+        test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
+        test_domain(Domain::Randao, spec.domain_randao, &spec);
+        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
+        test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
+        test_domain(Domain::SelectionProof, spec.domain_selection_proof, &spec);
+        test_domain(
+            Domain::AggregateAndProof,
+            spec.domain_aggregate_and_proof,
+            &spec,
+        );
+        test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
     }
 }
 
@@ -922,7 +986,7 @@ mod yaml_tests {
             .expect("error opening file");
         let minimal_spec = ChainSpec::minimal();
 
-        let yamlconfig = YamlConfig::from_spec::<MinimalEthSpec>(&minimal_spec);
+        let yamlconfig = BaseConfig::from_chain_spec::<MinimalEthSpec>(&minimal_spec);
         // write fresh minimal config to file
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
@@ -932,7 +996,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         // deserialize minimal config from file
-        let from: YamlConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: BaseConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -945,7 +1009,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
-        let yamlconfig = YamlConfig::from_spec::<MainnetEthSpec>(&mainnet_spec);
+        let yamlconfig = BaseConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()
@@ -953,7 +1017,7 @@ mod yaml_tests {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: YamlConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: BaseConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -966,7 +1030,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
-        let mut yamlconfig = YamlConfig::from_spec::<MainnetEthSpec>(&mainnet_spec);
+        let mut yamlconfig = BaseConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
         yamlconfig.extra_fields.insert(k1.into(), v1.into());
@@ -978,14 +1042,14 @@ mod yaml_tests {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: YamlConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: BaseConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
     #[test]
     fn apply_to_spec() {
         let mut spec = ChainSpec::minimal();
-        let yamlconfig = YamlConfig::from_spec::<MinimalEthSpec>(&spec);
+        let yamlconfig = BaseConfig::from_chain_spec::<MinimalEthSpec>(&spec);
 
         // modifying the original spec
         spec.max_committees_per_slot += 1;
