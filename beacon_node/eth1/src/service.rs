@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ApplicationPayload, BeaconChainData, ChainSpec, EthSpec, Hash256, Unsigned};
+use types::{BeaconChainData, ChainSpec, EthSpec, ExecutionPayload, Hash256, Unsigned};
 
 /// Indicates the default eth1 network id we use for the deposit contract.
 pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
@@ -300,9 +300,9 @@ pub enum SingleEndpointError {
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
     /// Failed to get an application payload for a new block.
-    GetApplicationPayloadFailed(String),
+    GetExecutionPayloadFailed(String),
     /// Failed to process an application payload for a new block.
-    ProcessApplicationPayloadFailed(String),
+    ProcessExecutionPayloadFailed(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -312,7 +312,7 @@ pub enum Error {
     /// There was an inconsistency when adding a deposit to the cache.
     FailedToInsertDeposit(DepositCacheError),
     /// There was an inconsistency when adding a deposit to the cache.
-    FailedToGetApplicationPayload(String),
+    FailedToGetExecutionPayload(String),
     /// A log downloaded from the eth1 contract was not well formed.
     FailedToParseDepositLog {
         block_range: Range<u64>,
@@ -631,11 +631,11 @@ impl Service {
         }
     }
 
-    pub async fn produce_application_payload(
+    pub async fn produce_execution_payload(
         &self,
         application_parent_hash: Hash256,
         beacon_chain_data: &BeaconChainData,
-    ) -> Result<ApplicationPayload, Error> {
+    ) -> Result<ExecutionPayload, Error> {
         let endpoints = self.init_endpoints();
 
         endpoints
@@ -650,17 +650,17 @@ impl Service {
                     Duration::from_millis(GET_APPLICATION_PAYLOAD_TIMEOUT_MILLIS),
                 )
                 .await
-                .map_err(SingleEndpointError::GetApplicationPayloadFailed)
+                .map_err(SingleEndpointError::GetExecutionPayloadFailed)
             })
             .await
             .map_err(Error::FallbackError)
     }
 
-    pub async fn process_application_payload(
+    pub async fn process_execution_payload(
         &self,
         application_parent_hash: Hash256,
         beacon_chain_data: &BeaconChainData,
-        application_payload: &ApplicationPayload,
+        execution_payload: &ExecutionPayload,
     ) -> Result<bool, Error> {
         let endpoints = self.init_endpoints();
 
@@ -673,11 +673,11 @@ impl Service {
                     beacon_chain_data.slot,
                     beacon_chain_data.timestamp,
                     &beacon_chain_data.recent_block_roots,
-                    application_payload,
+                    execution_payload,
                     Duration::from_millis(GET_APPLICATION_PAYLOAD_TIMEOUT_MILLIS),
                 )
                 .await
-                .map_err(SingleEndpointError::ProcessApplicationPayloadFailed)
+                .map_err(SingleEndpointError::ProcessExecutionPayloadFailed)
             })
             .await
             .map_err(Error::FallbackError)

@@ -1995,15 +1995,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => %beacon_chain_data.slot,
         );
 
-        let application_payload =
-            eth1_chain.get_application_payload(state.application_block_hash, &beacon_chain_data)?;
+        let execution_payload =
+            eth1_chain.get_execution_payload(state.application_block_hash, &beacon_chain_data)?;
 
         info!(
             self.log,
             "Eth1 node provided block";
-            "coinbase" => ?application_payload.coinbase,
-            "tx_count" => application_payload.transactions.len(),
-            "block_hash" => ?application_payload.block_hash,
+            "coinbase" => ?execution_payload.coinbase,
+            "tx_count" => execution_payload.transactions.len(),
+            "block_hash" => ?execution_payload.block_hash,
         );
 
         let parent_root = if state.slot > 0 {
@@ -2088,7 +2088,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attestations,
                     deposits,
                     voluntary_exits: self.op_pool.get_voluntary_exits(&state, &self.spec).into(),
-                    application_payload,
+                    execution_payload,
                 },
             },
             // The block is not signed here, that is the task of a validator client.

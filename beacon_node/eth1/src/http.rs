@@ -19,7 +19,7 @@ use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
 use types::{
-    Address, ApplicationPayload, FixedVector, Hash256, Slot, Transaction, Uint256, VariableList,
+    Address, ExecutionPayload, FixedVector, Hash256, Slot, Transaction, Uint256, VariableList,
 };
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
@@ -222,7 +222,7 @@ pub async fn eth2_produce_block(
     timestamp: u64,
     recent_block_roots: &[Hash256],
     timeout: Duration,
-) -> Result<ApplicationPayload, String> {
+) -> Result<ExecutionPayload, String> {
     let params = json!([ProduceBlockRequest {
         parent_hash,
         randao_mix,
@@ -241,7 +241,7 @@ pub async fn eth2_produce_block(
     let logs_bloom = base64::decode(&response.logs_bloom)
         .map_err(|e| format!("Failed to decode logs_bloom base64: {:?}", e))?;
 
-    Ok(ApplicationPayload {
+    Ok(ExecutionPayload {
         block_hash: response.block_hash,
         coinbase: response.coinbase,
         state_root: response.state_root,
@@ -282,28 +282,28 @@ pub async fn eth2_insert_block(
     slot: Slot,
     timestamp: u64,
     recent_block_roots: &[Hash256],
-    application_payload: &ApplicationPayload,
+    execution_payload: &ExecutionPayload,
     timeout: Duration,
 ) -> Result<bool, String> {
-    let logs_bloom = base64::encode(application_payload.logs_bloom.as_ref());
+    let logs_bloom = base64::encode(execution_payload.logs_bloom.as_ref());
     let executable_data = ExecutableData {
-        coinbase: application_payload.coinbase,
-        state_root: application_payload.state_root,
-        gas_limit: application_payload.gas_limit,
-        gas_used: application_payload.gas_used,
+        coinbase: execution_payload.coinbase,
+        state_root: execution_payload.state_root,
+        gas_limit: execution_payload.gas_limit,
+        gas_used: execution_payload.gas_used,
         transactions: Some(
-            application_payload
+            execution_payload
                 .transactions
                 .iter()
                 .cloned()
                 .map(Into::into)
                 .collect(),
         ),
-        receipt_root: application_payload.receipt_root,
+        receipt_root: execution_payload.receipt_root,
         logs_bloom,
-        block_hash: application_payload.block_hash,
+        block_hash: execution_payload.block_hash,
         parent_hash,
-        difficulty: application_payload.difficulty,
+        difficulty: execution_payload.difficulty,
     };
 
     let params = json!([InsertBlockRequest {

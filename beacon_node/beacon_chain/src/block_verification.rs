@@ -995,10 +995,10 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         let beacon_chain_data =
             chain.beacon_chain_data(&state, &block.message.body.randao_reveal)?;
         if !eth1_chain
-            .process_application_payload(
+            .process_execution_payload(
                 state.application_block_hash,
                 &beacon_chain_data,
-                &block.message.body.application_payload,
+                &block.message.body.execution_payload,
             )
             .map_err(BlockError::Eth1VerificationError)?
         {
@@ -1008,9 +1008,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         info!(
             chain.log,
             "Verified Eth1 components of block";
-            "coinbase" => ?block.message.body.application_payload.coinbase,
-            "tx_count" => block.message.body.application_payload.transactions.len(),
-            "block_hash" => ?block.message.body.application_payload.block_hash,
+            "coinbase" => ?block.message.body.execution_payload.coinbase,
+            "tx_count" => block.message.body.execution_payload.transactions.len(),
+            "block_hash" => ?block.message.body.execution_payload.block_hash,
         );
 
         /*

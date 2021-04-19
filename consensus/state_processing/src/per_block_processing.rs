@@ -141,7 +141,7 @@ pub fn per_block_processing<T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_application_payload(&mut state, &block.body);
+    process_execution_payload(&mut state, &block.body);
 
     Ok(())
 }
@@ -496,15 +496,15 @@ pub fn process_exits<T: EthSpec>(
     Ok(())
 }
 
-/// Applies the "application" (Eth1) components of the `body` to the `state`.
+/// Applies the "execution" (Eth1) components of the `body` to the `state`.
 ///
 /// ## Note
 ///
-/// This function **does not verify the application payload**, it must be verified upstream.
-pub fn process_application_payload<T: EthSpec>(
+/// This function **does not verify the execution payload**, it must be verified upstream.
+pub fn process_execution_payload<T: EthSpec>(
     state: &mut BeaconState<T>,
     body: &BeaconBlockBody<T>,
 ) {
-    state.application_state_root = body.application_payload.state_root;
-    state.application_block_hash = body.application_payload.block_hash;
+    state.application_state_root = body.execution_payload.state_root;
+    state.application_block_hash = body.execution_payload.block_hash;
 }

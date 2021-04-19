@@ -23,7 +23,7 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
     // Merge-only
-    pub application_payload: ApplicationPayload,
+    pub execution_payload: ExecutionPayload,
 }
 
 #[cfg(test)]

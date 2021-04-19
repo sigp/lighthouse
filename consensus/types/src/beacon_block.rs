@@ -48,7 +48,7 @@ impl<T: EthSpec> BeaconBlock<T> {
                 attestations: VariableList::empty(),
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
-                application_payload: <_>::default(),
+                execution_payload: <_>::default(),
             },
         }
     }
