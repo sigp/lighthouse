@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::exit;
+use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -330,11 +331,11 @@ fn run<E: EthSpec>(
                     // shutting down.
                     let _ = executor
                         .shutdown_sender()
-                        .try_send("Failed to start beacon node");
+                        .try_send(ShutdownReason::Failure("Failed to start beacon node"));
                 } else if shutdown_flag {
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send("Beacon node immediate shutdown triggered.");
+                    let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
+                        "Beacon node immediate shutdown triggered.",
+                    ));
                 }
             });
         }
@@ -377,13 +378,13 @@ fn run<E: EthSpec>(
                         // shutting down.
                         let _ = executor
                             .shutdown_sender()
-                            .try_send("Failed to start validator client");
+                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
                     }
                 });
             } else {
-                let _ = executor
-                    .shutdown_sender()
-                    .try_send("Validator client immediate shutdown triggered.");
+                let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
+                    "Validator client immediate shutdown triggered.",
+                ));
             }
         }
         ("remote_signer", Some(matches)) => {
@@ -393,7 +394,7 @@ fn run<E: EthSpec>(
                     .core_context()
                     .executor
                     .shutdown_sender()
-                    .try_send("Failed to start remote signer");
+                    .try_send(ShutdownReason::Failure("Failed to start remote signer"));
             }
         }
         _ => {
@@ -403,12 +404,16 @@ fn run<E: EthSpec>(
     };
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
-    environment.block_until_shutdown_requested()?;
-    info!(log, "Shutting down..");
+    let shutdown_reason = environment.block_until_shutdown_requested()?;
+    info!(log, "Shutting down.."; "reason" => ?shutdown_reason);
 
     environment.fire_signal();
 
     // Shutdown the environment once all tasks have completed.
     environment.shutdown_on_idle();
-    Ok(())
+
+    match shutdown_reason {
+        ShutdownReason::Success(_) => Ok(()),
+        ShutdownReason::Failure(msg) => Err(msg.to_string()),
+    }
 }

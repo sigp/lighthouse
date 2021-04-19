@@ -16,6 +16,7 @@ use futures::prelude::*;
 use slog::{debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
+use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{EthSpec, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
@@ -522,10 +523,14 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
                         }
                         Libp2pEvent::ZeroListeners => {
-                            let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
-                                warn!(service.log, "failed to send a shutdown signal"; "error" => %e
-                                )
-                            });
+                            let _ = shutdown_sender
+                                .send(ShutdownReason::Failure("All listeners are closed. Unable to listen"))
+                                .await
+                                .map_err(|e| warn!(
+                                    service.log,
+                                    "failed to send a shutdown signal";
+                                    "error" => %e
+                                ));
                         }
                     }
                 }

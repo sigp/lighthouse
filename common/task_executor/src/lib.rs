@@ -6,6 +6,24 @@ use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 
+/// Provides a reason when Lighthouse is shut down.
+#[derive(Copy, Clone, Debug)]
+pub enum ShutdownReason {
+    /// The node shut down successfully.
+    Success(&'static str),
+    /// The node shut down due to an error condition.
+    Failure(&'static str),
+}
+
+impl ShutdownReason {
+    pub fn message(&self) -> &'static str {
+        match self {
+            ShutdownReason::Success(msg) => msg,
+            ShutdownReason::Failure(msg) => msg,
+        }
+    }
+}
+
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
 pub struct TaskExecutor {
@@ -17,7 +35,7 @@ pub struct TaskExecutor {
     /// continue they can request that everything shuts down.
     ///
     /// The task must provide a reason for shutting down.
-    signal_tx: Sender<&'static str>,
+    signal_tx: Sender<ShutdownReason>,
 
     log: slog::Logger,
 }
@@ -31,7 +49,7 @@ impl TaskExecutor {
         runtime: Weak<Runtime>,
         exit: exit_future::Exit,
         log: slog::Logger,
-        signal_tx: Sender<&'static str>,
+        signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
             runtime,
@@ -255,7 +273,7 @@ impl TaskExecutor {
     }
 
     /// Get a channel to request shutting down.
-    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+    pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
     }
 
