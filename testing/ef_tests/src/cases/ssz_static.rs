@@ -5,9 +5,8 @@ use crate::decode::{snappy_decode_file, yaml_decode_file};
 use cached_tree_hash::{CacheArena, CachedTreeHash};
 use serde_derive::Deserialize;
 use ssz::Decode;
-use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::{BeaconState, ForkName, Hash256};
+use types::{BeaconBlock, BeaconState, ForkName, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -15,6 +14,7 @@ struct SszStaticRoots {
     signing_root: Option<String>,
 }
 
+/// Runner for types that implement `ssz::Decode`.
 #[derive(Debug, Clone)]
 pub struct SszStatic<T> {
     roots: SszStaticRoots,
@@ -22,8 +22,17 @@ pub struct SszStatic<T> {
     value: T,
 }
 
+/// Runner for `BeaconState` (with tree hash cache).
 #[derive(Debug, Clone)]
 pub struct SszStaticTHC<T> {
+    roots: SszStaticRoots,
+    serialized: Vec<u8>,
+    value: T,
+}
+
+/// Runner for types that require a `ChainSpec` to be decoded (`BeaconBlock`, etc).
+#[derive(Debug, Clone)]
+pub struct SszStaticWithSpec<T> {
     roots: SszStaticRoots,
     serialized: Vec<u8>,
     value: T,
@@ -49,6 +58,16 @@ impl<T: SszStaticType> LoadCase for SszStatic<T> {
 }
 
 impl<T: SszStaticType> LoadCase for SszStaticTHC<T> {
+    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
+    }
+}
+
+impl<T: SszStaticType> LoadCase for SszStaticWithSpec<T> {
     fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
         load_from_dir(path).map(|(roots, serialized, value)| Self {
             roots,
@@ -107,6 +126,28 @@ impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
             .unwrap();
         check_tree_hash(&self.roots.root, cached_tree_hash_root.as_bytes())?;
 
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<BeaconBlock<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        let spec = &testing_spec::<E>(fork_name);
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        let spec = &testing_spec::<E>(fork_name);
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
         Ok(())
     }
 }

@@ -240,8 +240,8 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         match fork_name {
-            // Genesis doesn't have sync aggregate tests
-            ForkName::Genesis => O::handler_name() != "sync_committee",
+            // Base fork doesn't have sync aggregate tests
+            ForkName::Base => O::handler_name() != "sync_committee",
             _ => true,
         }
     }

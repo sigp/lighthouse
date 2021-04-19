@@ -2,20 +2,20 @@ use crate::ChainSpec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ForkName {
-    Genesis,
+    Base,
     Altair,
 }
 
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![ForkName::Genesis, ForkName::Altair]
+        vec![ForkName::Base, ForkName::Altair]
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
     /// is the only fork in effect from genesis.
     pub fn make_genesis_spec(&self, mut spec: ChainSpec) -> ChainSpec {
         match self {
-            ForkName::Genesis => {
+            ForkName::Base => {
                 spec.altair_fork_slot = None;
                 spec
             }

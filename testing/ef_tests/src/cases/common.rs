@@ -1,15 +1,14 @@
 use crate::cases::LoadCase;
 use crate::decode::yaml_decode_file;
 use crate::error::Error;
-use crate::testing_spec;
 use serde_derive::Deserialize;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::Path;
 use tree_hash::TreeHash;
-use types::{BeaconState, EthSpec, ForkName, SignedBeaconBlock};
+use types::ForkName;
 
 /// Trait for all BLS cases to eliminate some boilerplate.
 pub trait BlsCase: serde::de::DeserializeOwned {}
@@ -66,29 +65,9 @@ uint_wrapper!(TestU256, ethereum_types::U256);
 pub trait SszStaticType:
     serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
 {
-    // fn decode(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError>;
 }
 
 impl<T> SszStaticType for T where
     T: serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
 {
 }
-/*
-{
-    fn decode(bytes: &[u8], _: ForkName) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes)
-    }
-}
-
-impl<E: EthSpec> SszStaticType for BeaconState<E> {
-    fn decode(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, &testing_spec::<E>(fork_name))
-    }
-}
-
-impl<E: EthSpec> SszStaticType for SignedBeaconBlock<E> {
-    fn decode(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, &testing_spec::<E>(fork_name))
-    }
-}
-*/

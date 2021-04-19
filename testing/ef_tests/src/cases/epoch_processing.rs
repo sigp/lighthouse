@@ -233,7 +233,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         match fork_name {
             // No sync committee tests for genesis fork.
-            ForkName::Genesis => T::name() != "sync_committee_updates",
+            ForkName::Base => T::name() != "sync_committee_updates",
             ForkName::Altair => true,
         }
     }
