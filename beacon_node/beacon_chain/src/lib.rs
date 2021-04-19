@@ -1,5 +1,4 @@
 #![recursion_limit = "128"] // For lazy-static
-
 pub mod attestation_verification;
 mod beacon_chain;
 mod beacon_fork_choice_store;

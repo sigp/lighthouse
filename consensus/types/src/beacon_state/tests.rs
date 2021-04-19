@@ -1,16 +1,16 @@
 #![cfg(test)]
 use crate::test_utils::*;
-use crate::{EthSpec, MinimalEthSpec};
 use beacon_chain::store::config::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    eth_spec, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Domain, Epoch,
-    EthSpec as EthSpec2, FixedVector, FoundationBeaconState, Hash256, Keypair, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, ChainSpec, CloneConfig, Domain, Epoch, EthSpec, FixedVector,
+    FoundationBeaconState, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
 };
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;
 
 pub const MAX_VALIDATOR_COUNT: usize = 129;
+pub const SLOT_OFFSET: Slot = Slot::new(1);
 
 lazy_static! {
     /// A cached set of keys.
@@ -19,18 +19,32 @@ lazy_static! {
 
 fn get_harness<E: EthSpec>(
     validator_count: usize,
+    slot: Slot,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         E::default(),
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
-    harness.advance_slot();
+
+    let skip_to_slot = slot - SLOT_OFFSET;
+    if skip_to_slot > Slot::new(0) {
+        let slots = (skip_to_slot.as_u64()..=slot.as_u64())
+            .map(Slot::new)
+            .collect::<Vec<_>>();
+        let mut state = harness.get_current_state();
+        harness.add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            slots.as_slice(),
+            (0..validator_count).collect::<Vec<_>>().as_slice(),
+        );
+    }
     harness
 }
 
 fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
-    get_harness(validator_count)
+    get_harness(validator_count, Slot::new(0))
         .chain
         .head_beacon_state()
         .unwrap()
@@ -296,22 +310,7 @@ mod committees {
         let spec = &T::default_spec();
 
         let slot = state_epoch.start_slot(T::slots_per_epoch());
-
-        let harness = get_harness::<T>(validator_count);
-        let mut state = harness.get_current_state();
-
-        if slot.as_usize() > 0 {
-            harness.add_attested_blocks_at_slots(
-                state,
-                Hash256::zero(),
-                (1..(slot.as_u64() + 1))
-                    .map(Slot::new)
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                (0..validator_count).collect::<Vec<_>>().as_slice(),
-            );
-        }
-
+        let harness = get_harness::<T>(validator_count, slot);
         let mut new_head_state = harness.get_current_state();
 
         let distinct_hashes: Vec<Hash256> = (0..T::epochs_per_historical_vector())
@@ -356,16 +355,14 @@ mod committees {
             cached_epoch,
         );
 
-        //TODO(sean): this takes way too long with the refactor
-
-        // committee_consistency_test::<T>(
-        //     validator_count as usize,
-        //     T::genesis_epoch()
-        //         + (T::slots_per_historical_root() as u64)
-        //             .mul(T::slots_per_epoch())
-        //             .mul(4),
-        //     cached_epoch,
-        // );
+        committee_consistency_test::<T>(
+            validator_count as usize,
+            T::genesis_epoch()
+                + (T::slots_per_historical_root() as u64)
+                    .mul(T::slots_per_epoch())
+                    .mul(4),
+            cached_epoch,
+        );
     }
 
     #[test]
@@ -386,10 +383,12 @@ mod committees {
 
 mod get_outstanding_deposit_len {
     use super::*;
-    use crate::eth_spec::MinimalEthSpec;
 
     fn state() -> BeaconState<MinimalEthSpec> {
-        get_harness(16).chain.head_beacon_state().unwrap()
+        get_harness(16, Slot::new(0))
+            .chain
+            .head_beacon_state()
+            .unwrap()
     }
 
     #[test]

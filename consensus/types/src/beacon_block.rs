@@ -345,7 +345,6 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fork_schedule::*;
     use crate::test_utils::{test_ssz_tree_hash_pair, SeedableRng, TestRandom, XorShiftRng};
     use crate::MainnetEthSpec;
 
@@ -353,16 +352,9 @@ mod tests {
     type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
     type BeaconBlockAltair = super::BeaconBlockAltair<MainnetEthSpec>;
 
-    fn set_fork_schedule(altair_fork_slot: u64) {
-        *FORK_SCHEDULE.write() = Some(ForkSchedule {
-            altair_fork_slot: Some(Slot::new(altair_fork_slot)),
-        });
-    }
-
     #[test]
     fn roundtrip_base_block() {
         let fork_slot = 100_000;
-        set_fork_schedule(fork_slot);
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
@@ -381,7 +373,6 @@ mod tests {
     #[test]
     fn roundtrip_altair_block() {
         let fork_slot = 100_000;
-        set_fork_schedule(fork_slot);
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 

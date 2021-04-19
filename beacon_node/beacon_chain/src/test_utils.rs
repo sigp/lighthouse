@@ -29,12 +29,12 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
-    typenum::U4294967296, AggregateSignature, Attestation, AttestationData,
-    AttesterSlashing, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData,
-    Domain, Epoch, EthSpec, FixedVector, Graffiti, Hash256, IndexedAttestation,
-    Keypair, ProposerSlashing, PublicKeyBytes, SelectionProof, Signature, SignatureBytes,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot,
-    SignedVoluntaryExit, Slot, SubnetId, VariableList, VoluntaryExit,
+    typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
+    BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
+    Epoch, EthSpec, FixedVector, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
+    PublicKeyBytes, SelectionProof, Signature, SignatureBytes, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId,
+    VariableList, VoluntaryExit,
 };
 
 use crate::eth1_chain::int_to_bytes32;
@@ -428,6 +428,8 @@ where
         (signed_block, state)
     }
 
+    /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
+    /// caches are built but before the generated block is processed.
     pub fn make_block_return_original_state(
         &self,
         mut state: BeaconState<E>,
@@ -863,13 +865,19 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
-    pub fn insert_exits_return_state(
+    /// Useful for the `state_transition_vectors` tests. Modifies the current harness state before
+    /// generating a block. Modifies the generated block before signing it.
+    pub fn make_block_with_modifications(
         &self,
         exits: Vec<(u64, Epoch)>,
+        state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
+        block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         let slot = self.chain.slot().unwrap() + Slot::new(1);
-        let (block, state) = self.make_block_return_original_state(self.get_current_state(), slot);
-        let (mut block, signature) = block.deconstruct();
+        let mut current_state = self.get_current_state();
+        state_modifier(&mut current_state);
+        let (block, state) = self.make_block_return_original_state(current_state, slot);
+        let (mut block, _) = block.deconstruct();
 
         let fork = self.chain.head_info().unwrap().fork;
         let genesis_validators_root = self.chain.genesis_validators_root;
@@ -882,6 +890,7 @@ where
             .sign(sk, &fork, genesis_validators_root, &self.chain.spec);
             block.body_mut().voluntary_exits_mut().push(exit);
         }
+        block_modifier(&mut block);
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 

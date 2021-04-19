@@ -598,7 +598,8 @@ mod release_tests {
 
             assert_eq!(
                 att1.aggregation_bits.num_set_bits(),
-                earliest_attestation_validators(&att1, &state).num_set_bits()
+                earliest_attestation_validators(&att1, &state, state.as_base().unwrap())
+                    .num_set_bits()
             );
 
             //TODO: handle altair
@@ -616,7 +617,8 @@ mod release_tests {
 
             assert_eq!(
                 committees.get(0).unwrap().committee.len() - 2,
-                earliest_attestation_validators(&att2, &state).num_set_bits()
+                earliest_attestation_validators(&att2, &state, state.as_base().unwrap())
+                    .num_set_bits()
             );
         }
     }
@@ -669,7 +671,7 @@ mod release_tests {
         *state.slot_mut() -= 1;
         assert_eq!(
             op_pool
-                .get_attestations(state, |_| true, |_| true, spec)
+                .get_attestations(&state, |_| true, |_| true, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -679,7 +681,7 @@ mod release_tests {
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -920,7 +922,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -1015,7 +1017,7 @@ mod release_tests {
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, |_| true, |_| true, spec)
+            .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -1030,7 +1032,8 @@ mod release_tests {
         let mut prev_reward = u64::max_value();
 
         for att in &best_attestations {
-            let fresh_validators_bitlist = earliest_attestation_validators(att, &state);
+            let fresh_validators_bitlist =
+                earliest_attestation_validators(att, &state, state.as_base().unwrap());
             let committee = state
                 .get_beacon_committee(att.data.slot, att.data.index)
                 .expect("should get beacon committee");

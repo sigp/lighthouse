@@ -8,7 +8,6 @@ use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
-//TODO:(sean) this is way too slow
 // Epoch that the state will be transitioned to by default, equal to SHARD_COMMITTEE_PERIOD.
 pub const STATE_EPOCH: Epoch = Epoch::new(256);
 
@@ -20,6 +19,9 @@ struct ExitTest {
     state_generator: Box<
         dyn FnOnce(
             BeaconChainHarness<EphemeralHarnessType<E>>,
+            Epoch,
+            Box<dyn FnOnce(&mut BeaconState<E>)>,
+            Box<dyn FnOnce(&mut BeaconBlock<E>)>,
         ) -> (SignedBeaconBlock<E>, BeaconState<E>),
     >,
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
@@ -34,8 +36,12 @@ impl Default for ExitTest {
             exit_epoch: STATE_EPOCH,
             state_epoch: STATE_EPOCH,
             block_modifier: Box::new(|_| ()),
-            state_generator: Box::new(|x| {
-                x.insert_exits_return_state(vec![(VALIDATOR_INDEX, STATE_EPOCH)])
+            state_generator: Box::new(|x, exit_epoch, state_modifier, block_modifier| {
+                x.make_block_with_modifications(
+                    vec![(VALIDATOR_INDEX, exit_epoch)],
+                    state_modifier,
+                    block_modifier,
+                )
             }),
             state_modifier: Box::new(|_| ()),
             expected: Ok(()),
@@ -49,11 +55,12 @@ impl ExitTest {
             self.state_epoch.start_slot(E::slots_per_epoch()),
             VALIDATOR_COUNT,
         );
-        let (mut signed_block, mut state) = (self.state_generator)(harness);
-        let (mut block, signature) = signed_block.deconstruct();
-        (self.block_modifier)(&mut block);
-        (self.state_modifier)(&mut state);
-        (SignedBeaconBlock::from_block(block, signature), state)
+        (self.state_generator)(
+            harness,
+            self.exit_epoch,
+            self.state_modifier,
+            self.block_modifier,
+        )
     }
 
     fn process(
@@ -109,8 +116,12 @@ vectors_and_tests!(
     // Tests three exists in the same block.
     valid_three_exits,
     ExitTest {
-        state_generator: Box::new(|harness| {
-            harness.insert_exits_return_state(vec![(1, STATE_EPOCH), (2, STATE_EPOCH)])
+        state_generator: Box::new(|harness, exit_epoch, state_modifier, block_modifier| {
+            harness.make_block_with_modifications(
+                vec![(0, exit_epoch), (1, exit_epoch), (2, exit_epoch)],
+                state_modifier,
+                block_modifier,
+            )
         }),
         ..ExitTest::default()
     },
@@ -340,8 +351,12 @@ mod custom_tests {
     #[test]
     fn valid_three() {
         let state = ExitTest {
-            state_generator: Box::new(|harness| {
-                harness.insert_exits_return_state(vec![(1, STATE_EPOCH), (2, STATE_EPOCH)])
+            state_generator: Box::new(|harness, exit_epoch, state_modifier, block_modifier| {
+                harness.make_block_with_modifications(
+                    vec![(0, exit_epoch), (1, exit_epoch), (2, exit_epoch)],
+                    state_modifier,
+                    block_modifier,
+                )
             }),
             ..ExitTest::default()
         }
