@@ -9,7 +9,7 @@ use lighthouse_version::VERSION;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use types::{init_fork_schedule, EthSpec, EthSpecId, ForkSchedule};
+use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 fn bls_library_name() -> &'static str {
@@ -212,9 +212,6 @@ fn run<E: EthSpec>(
         .multi_threaded_tokio_runtime()?
         .optional_eth2_network_config(Some(testnet_config))?
         .build()?;
-
-    // Initialize fork schedule globals.
-    init_fork_schedule(ForkSchedule::from(&environment.eth2_config.spec));
 
     let log = environment.core_context().log().clone();
 

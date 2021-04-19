@@ -970,7 +970,11 @@ impl ApiTester {
                 .map(|res| res.data);
             assert_eq!(json_result, expected, "{:?}", block_id);
 
-            let ssz_result = self.client.get_beacon_blocks_ssz(block_id).await.unwrap();
+            let ssz_result = self
+                .client
+                .get_beacon_blocks_ssz(block_id, &harness.chain.spec)
+                .await
+                .unwrap();
             assert_eq!(ssz_result, expected, "{:?}", block_id);
         }
 

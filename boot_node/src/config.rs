@@ -95,7 +95,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                     let enr_fork = spec.enr_fork_id(
                         types::Slot::from(0u64),
-                        genesis_state.genesis_validators_root,
+                        genesis_state.genesis_validators_root(),
                     );
 
                     Some(enr_fork.as_ssz_bytes())

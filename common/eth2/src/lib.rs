@@ -20,7 +20,6 @@ pub use reqwest;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
 use serde::{de::DeserializeOwned, Serialize};
-use ssz::Decode;
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
@@ -497,6 +496,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_ssz<T: EthSpec>(
         &self,
         block_id: BlockId,
+        spec: &ChainSpec,
     ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -508,7 +508,7 @@ impl BeaconNodeHttpClient {
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz)
             .await?
-            .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
     }
 
@@ -882,6 +882,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states_ssz<T: EthSpec>(
         &self,
         state_id: StateId,
+        spec: &ChainSpec,
     ) -> Result<Option<BeaconState<T>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -894,7 +895,7 @@ impl BeaconNodeHttpClient {
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz)
             .await?
-            .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
     }
 

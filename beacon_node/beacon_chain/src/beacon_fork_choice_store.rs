@@ -10,10 +10,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
-use types::{
-    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, SignedBeaconBlock,
-    Slot,
-};
+use types::{BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum Error {
@@ -318,7 +315,7 @@ where
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
             let justified_block = self
                 .store
-                .get_item::<SignedBeaconBlock<E>>(&self.justified_checkpoint.root)
+                .get_block(&self.justified_checkpoint.root)
                 .map_err(Error::FailedToReadBlock)?
                 .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
                 .deconstruct()
