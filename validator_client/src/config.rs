@@ -229,14 +229,12 @@ impl Config {
         /*
          * Explorer metrics
          */
-        if cli_args.is_present("explorer-metrics") {
-            if let Some(explorer_endpoint) = cli_args.value_of("explorer-endpoint") {
-                config.explorer_metrics = Some(explorer_api::Config {
-                    db_path: None,
-                    freezer_db_path: None,
-                    explorer_endpoint: explorer_endpoint.to_string(),
-                });
-            }
+        if let Some(explorer_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            config.explorer_metrics = Some(explorer_api::Config {
+                db_path: None,
+                freezer_db_path: None,
+                explorer_endpoint: explorer_endpoint.to_string(),
+            });
         }
 
         Ok(config)

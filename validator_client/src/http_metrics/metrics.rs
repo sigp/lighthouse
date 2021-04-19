@@ -116,7 +116,7 @@ lazy_static::lazy_static! {
 
     pub static ref ETH2_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
         "sync_eth2_fallback_connected",
-        "Checks if the eth2 fallback is in connected and synced",
+        "Set to 1 if connected to atleast one synced eth2 fallback node, otherwise set to 0",
     );
 }
 

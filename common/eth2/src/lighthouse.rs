@@ -252,7 +252,9 @@ impl ProcessHealth {
             pid_num_threads: stat.num_threads,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
-            cpu_process_seconds_total: (time_since_boot - process.create_time()).as_secs(),
+            cpu_process_seconds_total: time_since_boot
+                .as_secs()
+                .saturating_sub(process.create_time().as_secs()),
         })
     }
 }

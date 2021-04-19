@@ -140,7 +140,7 @@ impl ExplorerHttpClient {
     pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
         let metrics = gather_validator_metrics().map_err(Error::BeaconMetricsFailed)?;
         Ok(ExplorerMetrics {
-            metadata: Metadata::new(ProcessType::BeaconNode),
+            metadata: Metadata::new(ProcessType::Validator),
             process_metrics: Process::Validator(metrics),
         })
     }
