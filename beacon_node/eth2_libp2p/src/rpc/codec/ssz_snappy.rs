@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    EthSpec, ForkContext, ForkType, SignedBeaconBlock, SignedBeaconBlockAltair,
+    EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase,
 };
 use unsigned_varint::codec::Uvi;
@@ -87,17 +87,17 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         if self.protocol.version == Version::V2 {
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(ref res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = **res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Altair));
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Altair));
                 } else if let SignedBeaconBlock::Base { .. } = **res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Genesis));
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Base));
                 }
             }
 
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = *res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Altair));
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Altair));
                 } else if let SignedBeaconBlock::Base { .. } = *res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkType::Genesis));
+                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Base));
                 }
             }
         }
@@ -383,25 +383,25 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
                         match self.protocol.message_name {
                             Protocol::BlocksByRange => match fork {
-                                ForkType::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                                     SignedBeaconBlock::Altair(
                                         SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
                                     ),
                                 )))),
 
-                                ForkType::Genesis => Ok(Some(RPCResponse::BlocksByRange(
-                                    Box::new(SignedBeaconBlock::Base(
-                                        SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?,
-                                    )),
-                                ))),
+                                ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                        &decoded_buffer,
+                                    )?),
+                                )))),
                             },
                             Protocol::BlocksByRoot => match fork {
-                                ForkType::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                                     SignedBeaconBlock::Altair(
                                         SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
                                     ),
                                 )))),
-                                ForkType::Genesis => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
                                         &decoded_buffer,
                                     )?),

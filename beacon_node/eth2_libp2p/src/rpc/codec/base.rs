@@ -189,7 +189,7 @@ mod tests {
     type Spec = types::MainnetEthSpec;
 
     fn fork_context() -> ForkContext {
-        ForkContext::new(Slot::new(0), Hash256::zero(), &Spec::default_spec())
+        ForkContext::new(Hash256::zero(), &Spec::default_spec())
     }
 
     #[test]

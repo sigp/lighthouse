@@ -11,14 +11,14 @@ use std::sync::Arc;
 use std::sync::Weak;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use types::{ChainSpec, EnrForkId, ForkContext, Hash256, MinimalEthSpec, Slot};
+use types::{ChainSpec, EnrForkId, ForkContext, Hash256, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
 fn fork_context() -> ForkContext {
-    ForkContext::new(Slot::new(0), Hash256::zero(), &ChainSpec::minimal())
+    ForkContext::new(Hash256::zero(), &ChainSpec::minimal())
 }
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
