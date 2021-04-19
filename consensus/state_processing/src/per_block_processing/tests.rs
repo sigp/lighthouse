@@ -7,16 +7,14 @@ use crate::per_block_processing::errors::{
     ProposerSlashingInvalid,
 };
 use crate::{
-    per_block_processing::{process_operations, verify_attestation_for_state},
+    per_block_processing::process_operations,
     BlockSignatureStrategy, VerifySignatures,
 };
 use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use beacon_chain::BlockError;
 use lazy_static::lazy_static;
 use ssz_types::Bitfield;
 use test_utils::generate_deterministic_keypairs;
-use tree_hash::TreeHash;
 use types::*;
 
 pub const MAX_VALIDATOR_COUNT: usize = 97;
@@ -42,7 +40,7 @@ fn get_harness<E: EthSpec>(
         KEYPAIRS[0..num_validators].to_vec(),
         StoreConfig::default(),
     );
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
     if last_slot_of_epoch > Slot::new(0) {
         harness.add_attested_blocks_at_slots(
             state,
@@ -57,13 +55,11 @@ fn get_harness<E: EthSpec>(
     harness
 }
 
-type E = MainnetEthSpec;
-
 #[test]
 fn valid_block_ok() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
 
     let slot = state.slot();
     let (block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
@@ -84,7 +80,7 @@ fn invalid_block_header_state_slot() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
     let slot = state.slot() + Slot::new(1);
 
     let (signed_block, mut state) = harness.make_block_return_original_state(state, slot);
@@ -112,7 +108,7 @@ fn invalid_parent_block_root() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
     let slot = state.slot();
 
     let (signed_block, mut state) =
@@ -144,11 +140,11 @@ fn invalid_block_signature() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
     let slot = state.slot();
     let (signed_block, mut state) =
         harness.make_block_return_original_state(state, slot + Slot::new(1));
-    let (mut block, _) = signed_block.deconstruct();
+    let (block, _) = signed_block.deconstruct();
 
     let result = per_block_processing(
         &mut state,
@@ -172,7 +168,7 @@ fn invalid_randao_reveal_signature() {
     let spec = MainnetEthSpec::default_spec();
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT);
 
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
     let slot = state.slot();
 
     let (signed_block, mut state) =
@@ -197,7 +193,7 @@ fn valid_4_deposits() {
     let mut state = harness.get_current_state();
 
     let (deposits, mut state) = harness.make_deposits(&mut state, 4, None, None);
-    let mut deposits = VariableList::from(deposits);
+    let deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
@@ -216,7 +212,7 @@ fn invalid_deposit_deposit_count_too_big() {
     let mut state = harness.get_current_state();
 
     let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, None);
-    let mut deposits = VariableList::from(deposits);
+    let deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
@@ -243,7 +239,7 @@ fn invalid_deposit_count_too_small() {
     let mut state = harness.get_current_state();
 
     let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, None);
-    let mut deposits = VariableList::from(deposits);
+    let deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
@@ -270,7 +266,7 @@ fn invalid_deposit_bad_merkle_proof() {
     let mut state = harness.get_current_state();
 
     let (deposits, mut state) = harness.make_deposits(&mut state, 1, None, None);
-    let mut deposits = VariableList::from(deposits);
+    let deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
@@ -300,7 +296,7 @@ fn invalid_deposit_wrong_sig() {
 
     let (deposits, mut state) =
         harness.make_deposits(&mut state, 1, None, Some(SignatureBytes::empty()));
-    let mut deposits = VariableList::from(deposits);
+    let deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
@@ -319,7 +315,7 @@ fn invalid_deposit_invalid_pub_key() {
 
     let (deposits, mut state) =
         harness.make_deposits(&mut state, 1, Some(PublicKeyBytes::empty()), None);
-    let mut deposits = VariableList::from(deposits);
+    let deposits = VariableList::from(deposits);
 
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;

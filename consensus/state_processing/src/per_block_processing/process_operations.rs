@@ -202,7 +202,8 @@ pub fn process_attester_slashings<T: EthSpec>(
 
     Ok(())
 }
-
+/// Wrapper function to handle calling the correct version of `process_attestations` based on
+/// the fork.
 pub fn process_attestations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T>,

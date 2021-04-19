@@ -1,7 +1,7 @@
 #![cfg(test)]
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::store::StoreConfig;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
 use bls::Hash256;
 use env_logger::{Builder, Env};
@@ -22,7 +22,7 @@ fn runs_without_error() {
     let target_slot =
         (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
 
-    let mut state = harness.get_current_state();
+    let state = harness.get_current_state();
     harness.add_attested_blocks_at_slots(
         state,
         Hash256::zero(),

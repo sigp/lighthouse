@@ -31,15 +31,13 @@ use tree_hash::TreeHash;
 use types::{
     typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
-    Epoch, EthSpec, FixedVector, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
+    Epoch, EthSpec, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, Signature, SignatureBytes, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId,
     VariableList, VoluntaryExit,
 };
 
 use crate::eth1_chain::int_to_bytes32;
-use eth1::http::Log;
-use eth1::{DepositCache, DepositLog};
 use merkle_proof::MerkleTree;
 pub use types::test_utils::generate_deterministic_keypairs;
 
@@ -524,14 +522,7 @@ where
             .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
             .unwrap();
 
-        *block.body_mut().randao_reveal_mut() = Signature::empty();
 
-        let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        );
 
         (signed_block, state2)
     }
@@ -888,7 +879,7 @@ where
                 validator_index,
             }
             .sign(sk, &fork, genesis_validators_root, &self.chain.spec);
-            block.body_mut().voluntary_exits_mut().push(exit);
+            block.body_mut().voluntary_exits_mut().push(exit).unwrap();
         }
         block_modifier(&mut block);
 
@@ -914,7 +905,7 @@ where
 
         for _ in 0..num_deposits {
             let keypair = Keypair::random();
-            let mut pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
+            let pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
 
             let mut data = DepositData {
                 pubkey: pubkeybytes,

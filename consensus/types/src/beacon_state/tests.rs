@@ -211,7 +211,6 @@ fn clone_config() {
     let num_caches = 4;
     let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
         committee_caches: (i & 1) != 0,
-        //TODO(sean): figure this out
         current_sync_committee_cache: false,
         pubkey_cache: ((i >> 1) & 1) != 0,
         exit_cache: ((i >> 2) & 1) != 0,
