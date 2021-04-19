@@ -182,10 +182,15 @@ mod tests {
     use snap::write::FrameEncoder;
     use ssz::Encode;
     use std::io::Write;
-    use types::{Epoch, Hash256, Slot};
+    use std::sync::Arc;
+    use types::{Epoch, ForkContext, Hash256, Slot};
     use unsigned_varint::codec::Uvi;
 
     type Spec = types::MainnetEthSpec;
+
+    fn fork_context() -> ForkContext {
+        ForkContext::new(Slot::new(0), Hash256::zero(), &Spec::default_spec())
+    }
 
     #[test]
     fn test_decode_status_message() {
@@ -196,8 +201,9 @@ mod tests {
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
 
+        let fork_context = Arc::new(fork_context());
         let mut snappy_outbound_codec =
-            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576, fork_context);
 
         // remove response code
         let mut snappy_buf = buf.clone();
@@ -229,8 +235,10 @@ mod tests {
 
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+
+        let fork_context = Arc::new(fork_context());
         let mut snappy_outbound_codec =
-            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576, fork_context);
 
         let snappy_decoded_message = snappy_outbound_codec.decode(&mut dst).unwrap_err();
 
@@ -256,21 +264,35 @@ mod tests {
         // Response limits
         let limit = protocol_id.rpc_response_limits::<Spec>();
         let mut max = encode_len(limit.max + 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id.clone(), 1_048_576);
+        let fork_context = Arc::new(fork_context());
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            1_048_576,
+            fork_context.clone(),
+        );
         assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
 
         let mut min = encode_len(limit.min - 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id.clone(), 1_048_576);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            1_048_576,
+            fork_context.clone(),
+        );
         assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
 
         // Request limits
         let limit = protocol_id.rpc_request_limits();
         let mut max = encode_len(limit.max + 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id.clone(), 1_048_576);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            1_048_576,
+            fork_context.clone(),
+        );
         assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
 
         let mut min = encode_len(limit.min - 1);
-        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id, 1_048_576);
+        let mut codec =
+            SSZSnappyOutboundCodec::<Spec>::new(protocol_id, 1_048_576, fork_context.clone());
         assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
     }
 
@@ -325,9 +347,9 @@ mod tests {
 
         let snappy_protocol_id =
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
-
+        let fork_context = Arc::new(fork_context());
         let mut snappy_outbound_codec =
-            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576);
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576, fork_context);
 
         let snappy_decoded_message = snappy_outbound_codec.decode(&mut dst).unwrap_err();
         assert_eq!(snappy_decoded_message, RPCError::InvalidData);
