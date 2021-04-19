@@ -167,21 +167,18 @@ impl ChainSpec {
 
     /// Returns the `ForkDigest` for the given slot.
     ///
-    /// Add additional if else branches with additional forks.
+    /// If `self.altair_fork_slot == None`, then this function returns the genesis fork digest
+    /// otherwise, returns the fork digest based on the slot.
     pub fn fork_digest(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        if slot >= self.altair_fork_slot {
-            Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
+        if let Some(altair_fork_slot) = self.altair_fork_slot {
+            if slot >= altair_fork_slot {
+                Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
+            } else {
+                Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
+            }
         } else {
             Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
         }
-    }
-
-    pub fn genesis_fork_digest(&self, genesis_validators_root: Hash256) -> [u8; 4] {
-        Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
-    }
-
-    pub fn altair_fork_digest(&self, genesis_validators_root: Hash256) -> [u8; 4] {
-        Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
     }
 
     /// Returns the epoch of the next scheduled change in the `fork.current_version`.
