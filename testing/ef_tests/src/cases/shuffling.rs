@@ -4,6 +4,7 @@ use crate::decode::yaml_decode_file;
 use serde_derive::Deserialize;
 use std::marker::PhantomData;
 use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list};
+use types::ForkName;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Shuffling<T> {
@@ -15,13 +16,13 @@ pub struct Shuffling<T> {
 }
 
 impl<T: EthSpec> LoadCase for Shuffling<T> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
         yaml_decode_file(&path.join("mapping.yaml"))
     }
 }
 
 impl<T: EthSpec> Case for Shuffling<T> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         if self.count == 0 {
             compare_result::<_, Error>(&Ok(vec![]), &Some(self.mapping.clone()))?;
         } else {

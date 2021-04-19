@@ -235,7 +235,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_item::<SignedBeaconBlock<TEthSpec>>(&chain.genesis_block_root)
+            .get_block(&chain.genesis_block_root)
             .map_err(|e| format!("DB error when reading genesis block: {:?}", e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -291,12 +291,12 @@ where
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put_item(&beacon_block_root, &beacon_block)
+            .put_block(&beacon_block_root, beacon_block.clone())
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_item(&Hash256::zero(), &beacon_block)
+            .put_block(&Hash256::zero(), beacon_block.clone())
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
@@ -434,7 +434,7 @@ where
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
         let head_block = store
-            .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
+            .get_block(&head_block_root)
             .map_err(|e| format!("DB error when reading head block: {:?}", e))?
             .ok_or("Head block not found in store")?;
         let head_state_root = head_block.state_root();

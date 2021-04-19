@@ -4,7 +4,6 @@ use crate::{
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;
@@ -62,32 +61,34 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 #[serde(bound = "E: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct SignedBeaconBlock<E: EthSpec> {
-    #[superstruct(only(Base))]
+    #[superstruct(only(Base), partial_getter(rename = "message_base"))]
     pub message: BeaconBlockBase<E>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E>,
     pub signature: Signature,
 }
 
-/// Proxy the decode implementation to `BeaconBlock`'s slot-switching impl.
-#[derive(Debug, Decode)]
-struct SignedBeaconBlockForDecoding<E: EthSpec> {
-    pub message: BeaconBlock<E>,
-    pub signature: Signature,
-}
-
-impl<E: EthSpec> Decode for SignedBeaconBlock<E> {
-    fn is_ssz_fixed_len() -> bool {
-        <SignedBeaconBlockForDecoding<E> as Decode>::is_ssz_fixed_len()
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        SignedBeaconBlockForDecoding::from_ssz_bytes(bytes)
-            .map(|block| SignedBeaconBlock::from_block(block.message, block.signature))
-    }
-}
-
 impl<E: EthSpec> SignedBeaconBlock<E> {
+    /// SSZ decode.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // We need to use the slot-switching `from_ssz_bytes` of `BeaconBlock`, which doesn't
+        // compose with the other SSZ utils, so we duplicate some parts of `ssz_derive` here.
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        // Register the message type as `BeaconBlockBase`, even though that isn't accurate.
+        // Really we just need some variable-length type to provide here.
+        builder.register_type::<BeaconBlockBase<E>>()?;
+        builder.register_type::<Signature>()?;
+
+        let mut decoder = builder.build()?;
+
+        // Read the first item as a `BeaconBlock`.
+        let message = decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+        let signature = decoder.decode_next()?;
+
+        Ok(Self::from_block(message, signature))
+    }
+
     /// Create a new `SignedBeaconBlock` from a `BeaconBlock` and `Signature`.
     pub fn from_block(block: BeaconBlock<E>, signature: Signature) -> Self {
         match block {

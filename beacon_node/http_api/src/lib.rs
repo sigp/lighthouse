@@ -37,7 +37,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, CommitteeCache, Epoch, EthSpec, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, StandardConfig,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -1274,11 +1274,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                Ok(api_types::GenericResponse::from(YamlConfig::from_spec::<
-                    T::EthSpec,
-                >(
-                    &chain.spec
-                )))
+                Ok(api_types::GenericResponse::from(
+                    StandardConfig::from_chain_spec::<T::EthSpec>(&chain.spec),
+                ))
             })
         });
 

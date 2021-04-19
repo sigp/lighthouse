@@ -1125,7 +1125,7 @@ pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceSto
         // 2. The parent is unknown to us, we probably want to download it since it might actually
         //    descend from the finalized root.
         if store
-            .item_exists::<SignedBeaconBlock<T::EthSpec>>(&block.parent_root())
+            .block_exists(&block.parent_root())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
             Err(BlockError::NotFinalizedDescendant {

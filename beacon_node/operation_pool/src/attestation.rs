@@ -79,9 +79,9 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             get_attesting_indices::<T>(committee.committee, &att.aggregation_bits).ok()?;
 
         let participation_list = if att.data.target.epoch == state.current_epoch() {
-            &state.as_altair().ok()?.current_epoch_participation
+            state.current_epoch_participation().ok()?
         } else if att.data.target.epoch == state.previous_epoch() {
-            &state.as_altair().ok()?.previous_epoch_participation
+            state.previous_epoch_participation().ok()?
         } else {
             return None;
         };

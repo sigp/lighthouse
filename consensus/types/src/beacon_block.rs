@@ -46,44 +46,10 @@ pub struct BeaconBlock<T: EthSpec> {
     pub parent_root: Hash256,
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
-    #[superstruct(only(Base))]
+    #[superstruct(only(Base), partial_getter(rename = "body_base"))]
     pub body: BeaconBlockBodyBase<T>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
     pub body: BeaconBlockBodyAltair<T>,
-}
-
-/// Custom `Decode` implementation for blocks that differentiates between hard fork blocks by slot.
-impl<T: EthSpec> Decode for BeaconBlock<T> {
-    fn is_ssz_fixed_len() -> bool {
-        assert!(
-            !<BeaconBlockBase<T> as Decode>::is_ssz_fixed_len()
-                && !<BeaconBlockAltair<T> as Decode>::is_ssz_fixed_len()
-        );
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_len {
-            return Err(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_len,
-            });
-        }
-
-        let slot = Slot::from_ssz_bytes(&bytes[0..slot_len])?;
-
-        let fork_schedule = get_fork_schedule_ssz()?;
-
-        if fork_schedule
-            .altair_fork_slot
-            .map_or(true, |altair_slot| slot < altair_slot)
-        {
-            BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            BeaconBlockAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
-    }
 }
 
 impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
@@ -92,9 +58,7 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if get_fork_schedule().map_or(false, |schedule| {
-            schedule.altair_fork_slot == Some(spec.genesis_slot)
-        }) {
+        if spec.altair_fork_slot == Some(spec.genesis_slot) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {
             Self::Base(BeaconBlockBase::empty(spec))
@@ -194,6 +158,28 @@ impl<T: EthSpec> BeaconBlock<T> {
             block.body.attestations.push(attestation.clone()).unwrap();
         }
         BeaconBlock::Base(block)
+    }
+
+    /// Custom SSZ decoder that takes a `ChainSpec` as context.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        if bytes.len() < slot_len {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_len,
+            });
+        }
+
+        let slot = Slot::from_ssz_bytes(&bytes[0..slot_len])?;
+
+        if spec
+            .altair_fork_slot
+            .map_or(true, |altair_slot| slot < altair_slot)
+        {
+            BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
+        } else {
+            BeaconBlockAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        }
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.

@@ -501,7 +501,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })?;
 
         if let Some(block_root) = root {
-            Ok(self.store.get_item(&block_root)?)
+            Ok(self.store.get_block(&block_root)?)
         } else {
             Ok(None)
         }
@@ -2654,13 +2654,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             map_fn(&committee_cache, shuffling_decision_block)
         }
-    }
-
-    /// Returns `true` if the given block root has not been processed.
-    pub fn is_new_block_root(&self, beacon_block_root: &Hash256) -> Result<bool, Error> {
-        Ok(!self
-            .store
-            .item_exists::<SignedBeaconBlock<T::EthSpec>>(beacon_block_root)?)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.

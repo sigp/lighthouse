@@ -972,7 +972,11 @@ impl ApiTester {
                 .map(|res| res.data);
             assert_eq!(json_result, expected, "{:?}", block_id);
 
-            let ssz_result = self.client.get_beacon_blocks_ssz(block_id).await.unwrap();
+            let ssz_result = self
+                .client
+                .get_beacon_blocks_ssz(block_id, &harness.chain.spec)
+                .await
+                .unwrap();
             assert_eq!(ssz_result, expected, "{:?}", block_id);
         }
 
@@ -1216,7 +1220,7 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self.client.get_config_spec().await.unwrap().data;
 
-        let expected = YamlConfig::from_spec::<E>(&self.chain.spec);
+        let expected = StandardConfig::from_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 

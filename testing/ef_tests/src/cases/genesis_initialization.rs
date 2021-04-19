@@ -1,10 +1,10 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
-use crate::decode::{ssz_decode_file, yaml_decode_file};
+use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::initialize_beacon_state_from_eth1;
 use std::path::PathBuf;
-use types::{BeaconState, Deposit, EthSpec, Hash256};
+use types::{BeaconState, Deposit, EthSpec, ForkName, Hash256};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -28,7 +28,7 @@ pub struct GenesisInitialization<E: EthSpec> {
 }
 
 impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let Eth1 {
             eth1_block_hash,
             eth1_timestamp,
@@ -40,7 +40,8 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
                 ssz_decode_file(&path.join(filename))
             })
             .collect::<Result<_, _>>()?;
-        let state = ssz_decode_file(&path.join("state.ssz_snappy"))?;
+        let spec = &testing_spec::<E>(fork_name);
+        let state = ssz_decode_state(&path.join("state.ssz_snappy"), spec)?;
 
         Ok(Self {
             path: path.into(),
@@ -53,8 +54,8 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
 }
 
 impl<E: EthSpec> Case for GenesisInitialization<E> {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
-        let spec = &E::default_spec();
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        let spec = &testing_spec::<E>(fork_name);
 
         let mut result = initialize_beacon_state_from_eth1(
             self.eth1_block_hash,

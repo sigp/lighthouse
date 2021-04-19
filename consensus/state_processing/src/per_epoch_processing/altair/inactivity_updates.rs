@@ -19,12 +19,11 @@ pub fn process_inactivity_updates<T: EthSpec>(
             spec,
         )?;
         if unslashed_indices.contains(&index) {
-            if state.as_altair()?.inactivity_scores[index] > 0 {
-                state.as_altair_mut()?.inactivity_scores[index].safe_sub_assign(1)?;
+            if state.inactivity_scores()?[index] > 0 {
+                state.inactivity_scores_mut()?[index].safe_sub_assign(1)?;
             }
         } else if state.is_in_inactivity_leak(spec) {
-            state.as_altair_mut()?.inactivity_scores[index]
-                .safe_add_assign(INACTIVITY_SCORE_BIAS)?;
+            state.inactivity_scores_mut()?[index].safe_add_assign(INACTIVITY_SCORE_BIAS)?;
         }
     }
     Ok(())

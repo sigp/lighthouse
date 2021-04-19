@@ -2,8 +2,8 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots, RandaoMixes,
     StateRoots,
 };
-use crate::{Error, KeyValueStore};
-use ssz::{Decode, DecodeError};
+use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use types::superstruct;
@@ -90,41 +90,6 @@ where
     pub next_sync_committee: SyncCommittee<T>,
 }
 
-impl<T: EthSpec> Decode for PartialBeaconState<T> {
-    fn is_ssz_fixed_len() -> bool {
-        assert!(
-            !<PartialBeaconStateBase<T> as Decode>::is_ssz_fixed_len()
-                && !<PartialBeaconStateAltair<T> as Decode>::is_ssz_fixed_len()
-        );
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_offset + slot_len {
-            return Err(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_offset + slot_len,
-            });
-        }
-
-        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
-
-        let fork_schedule = get_fork_schedule_ssz()?;
-
-        if fork_schedule
-            .altair_fork_slot
-            .map_or(true, |altair_slot| slot < altair_slot)
-        {
-            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
-    }
-}
-
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
 macro_rules! impl_from_state_forgetful {
     ($s:ident, $outer:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*]) => {
@@ -198,6 +163,37 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 ]
             ),
         }
+    }
+
+    /// SSZ decode.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        if bytes.len() < slot_offset + slot_len {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_offset + slot_len,
+            });
+        }
+
+        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+
+        if spec
+            .altair_fork_slot
+            .map_or(true, |altair_slot| slot < altair_slot)
+        {
+            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
+        } else {
+            PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        }
+    }
+
+    /// Prepare the partial state for storage in the KV database.
+    #[must_use]
+    pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
+        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
+        KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())
     }
 
     pub fn load_block_roots<S: KeyValueStore<T>>(

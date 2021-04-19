@@ -3,7 +3,7 @@
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use std::path::PathBuf;
-use types::{V012LegacyEthSpec, YamlConfig};
+use types::{StandardConfig, V012LegacyEthSpec};
 
 fn builder() -> EnvironmentBuilder<V012LegacyEthSpec> {
     EnvironmentBuilder::v012_legacy()
@@ -26,7 +26,7 @@ mod setup_eth2_config {
             let config_yaml = PathBuf::from("./tests/testnet_dir/config.yaml");
 
             eth2_network_config.yaml_config = Some(
-                YamlConfig::from_file(config_yaml.as_path()).expect("should load yaml config"),
+                StandardConfig::from_file(config_yaml.as_path()).expect("should load yaml config"),
             );
 
             let environment = builder()

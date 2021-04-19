@@ -1,10 +1,10 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
-use crate::decode::{ssz_decode_file, yaml_decode_file};
+use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
+use crate::testing_spec;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
-use ssz::Decode;
 use state_processing::per_block_processing::{
     errors::BlockProcessingError,
     process_block_header,
@@ -17,7 +17,7 @@ use state_processing::per_block_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec, ForkName,
     ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
 };
 
@@ -35,7 +35,7 @@ pub struct Operations<E: EthSpec, O: Operation<E>> {
     pub post: Option<BeaconState<E>>,
 }
 
-pub trait Operation<E: EthSpec>: Decode + TypeName + Debug + Sync {
+pub trait Operation<E: EthSpec>: TypeName + Debug + Sync + Sized {
     fn handler_name() -> String {
         Self::name().to_lowercase()
     }
@@ -43,6 +43,8 @@ pub trait Operation<E: EthSpec>: Decode + TypeName + Debug + Sync {
     fn filename() -> String {
         format!("{}.ssz_snappy", Self::handler_name())
     }
+
+    fn decode(path: &Path, spec: &ChainSpec) -> Result<Self, Error>;
 
     fn apply_to(
         &self,
@@ -52,6 +54,10 @@ pub trait Operation<E: EthSpec>: Decode + TypeName + Debug + Sync {
 }
 
 impl<E: EthSpec> Operation<E> for Attestation<E> {
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -73,6 +79,10 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         "attester_slashing".into()
     }
 
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -83,6 +93,10 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
 }
 
 impl<E: EthSpec> Operation<E> for Deposit {
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -97,6 +111,10 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         "proposer_slashing".into()
     }
 
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -109,6 +127,10 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
 impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
     fn handler_name() -> String {
         "voluntary_exit".into()
+    }
+
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
     }
 
     fn apply_to(
@@ -127,6 +149,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
 
     fn filename() -> String {
         "block.ssz_snappy".into()
+    }
+
+    fn decode(path: &Path, spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file_with(path, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
     }
 
     fn apply_to(
@@ -148,6 +174,10 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
         "sync_aggregate.ssz_snappy".into()
     }
 
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -159,7 +189,8 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
 }
 
 impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        let spec = &testing_spec::<E>(fork_name);
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
@@ -167,12 +198,12 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
             Metadata::default()
         };
 
-        let pre = ssz_decode_file(&path.join("pre.ssz_snappy"))?;
+        let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
 
         // Check BLS setting here before SSZ deserialization, as most types require signatures
         // to be valid.
         let (operation, bls_error) = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
-            match ssz_decode_file(&path.join(O::filename())) {
+            match O::decode(&path.join(O::filename()), spec) {
                 Ok(op) => (Some(op), None),
                 Err(Error::InvalidBLSInput(error)) => (None, Some(error)),
                 Err(e) => return Err(e),
@@ -185,7 +216,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
             if let Some(bls_error) = bls_error {
                 panic!("input is unexpectedly invalid: {}", bls_error);
             }
-            Some(ssz_decode_file(&post_filename)?)
+            Some(ssz_decode_state(&post_filename, spec)?)
         } else {
             None
         };
@@ -207,8 +238,16 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .unwrap_or_else(String::new)
     }
 
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
-        let spec = &E::default_spec();
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        match fork_name {
+            // Base fork doesn't have sync aggregate tests
+            ForkName::Base => O::handler_name() != "sync_committee",
+            _ => true,
+        }
+    }
+
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        let spec = &testing_spec::<E>(fork_name);
         let mut state = self.pre.clone();
         let mut expected = self.post.clone();
 

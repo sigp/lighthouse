@@ -29,9 +29,9 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
-    init_fork_schedule, typenum::U4294967296, AggregateSignature, Attestation, AttestationData,
+    typenum::U4294967296, AggregateSignature, Attestation, AttestationData,
     AttesterSlashing, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData,
-    Domain, Epoch, EthSpec, FixedVector, ForkSchedule, Graffiti, Hash256, IndexedAttestation,
+    Domain, Epoch, EthSpec, FixedVector, Graffiti, Hash256, IndexedAttestation,
     Keypair, ProposerSlashing, PublicKeyBytes, SelectionProof, Signature, SignatureBytes,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot,
     SignedVoluntaryExit, Slot, SubnetId, VariableList, VoluntaryExit,
@@ -177,11 +177,6 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         store_config: StoreConfig,
         chain_config: ChainConfig,
     ) -> Self {
-        //TODO: handle altair
-        init_fork_schedule(ForkSchedule {
-            altair_fork_slot: None,
-        });
-
         let data_dir = tempdir().expect("should create temporary data_dir");
         let mut spec = E::default_spec();
 
@@ -234,11 +229,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
-        //TODO: handle altair
-        init_fork_schedule(ForkSchedule {
-            altair_fork_slot: None,
-        });
-
         let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = E::default_spec();
 

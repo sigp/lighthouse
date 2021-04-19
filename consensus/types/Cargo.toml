@@ -44,7 +44,7 @@ regex = "1.3.9"
 lazy_static = "1.4.0"
 parking_lot = "0.11.1"
 # FIXME(altair): publish to crates.io
-superstruct = { git = "https://github.com/sigp/superstruct", rev = "53c1cfd7fa068faaed06426cc96b1fc507ac1032" }
+superstruct = { git = "https://github.com/sigp/superstruct", rev = "f358a4b4e7531fb1b6f797097da4ced34cb7fa8a" }
 # superstruct = { path = "../../../superstruct" }
 
 [dev-dependencies]

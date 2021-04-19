@@ -277,6 +277,14 @@ impl<'a> SszDecoder<'a> {
     pub fn decode_next<T: Decode>(&mut self) -> Result<T, DecodeError> {
         T::from_ssz_bytes(self.items.remove(0))
     }
+
+    /// Decodes the next item using the provided function.
+    pub fn decode_next_with<T, F>(&mut self, f: F) -> Result<T, DecodeError>
+    where
+        F: FnOnce(&'a [u8]) -> Result<T, DecodeError>,
+    {
+        f(self.items.remove(0))
+    }
 }
 
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte union index from `bytes`, where `bytes.len() >=

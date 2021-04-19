@@ -165,7 +165,8 @@ impl From<BeaconStateHash> for Hash256 {
         serde(bound = "T: EthSpec", deny_unknown_fields),
         derivative(Clone),
     ),
-    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
@@ -290,43 +291,6 @@ impl<T: EthSpec> Clone for BeaconState<T> {
     }
 }
 
-impl<T: EthSpec> Decode for BeaconState<T> {
-    fn is_ssz_fixed_len() -> bool {
-        assert!(
-            !<BeaconStateBase<T> as Decode>::is_ssz_fixed_len()
-                && !<BeaconStateAltair<T> as Decode>::is_ssz_fixed_len()
-        );
-        false
-    }
-
-    // FIXME(altair): not sure if we should abstract this pattern
-    // it's repeated on PartialBeaconState & BeaconBlock
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_offset + slot_len {
-            return Err(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_offset + slot_len,
-            });
-        }
-
-        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
-
-        let fork_schedule = get_fork_schedule_ssz()?;
-
-        if fork_schedule
-            .altair_fork_slot
-            .map_or(true, |altair_slot| slot < altair_slot)
-        {
-            BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            BeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
-    }
-}
-
 impl<T: EthSpec> BeaconState<T> {
     /// Create a new BeaconState suitable for genesis.
     ///
@@ -385,6 +349,30 @@ impl<T: EthSpec> BeaconState<T> {
             exit_cache: ExitCache::default(),
             tree_hash_cache: None,
         })
+    }
+
+    /// Specialised deserialisation method that uses the `ChainSpec` as context.
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_len = <Slot as Decode>::ssz_fixed_len();
+        if bytes.len() < slot_offset + slot_len {
+            return Err(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_offset + slot_len,
+            });
+        }
+
+        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+
+        if spec
+            .altair_fork_slot
+            .map_or(true, |altair_slot| slot < altair_slot)
+        {
+            BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
+        } else {
+            BeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        }
     }
 
     /// Returns the `tree_hash_root` of the state.
