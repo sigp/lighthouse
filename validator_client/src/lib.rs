@@ -435,7 +435,7 @@ async fn init_from_beacon_node<E: EthSpec>(
     loop {
         beacon_nodes.update_unready_candidates().await;
         let num_available = beacon_nodes.num_available().await;
-        let num_total = beacon_nodes.num_total().await;
+        let num_total = beacon_nodes.num_total();
         if num_available > 0 {
             info!(
                 context.log(),

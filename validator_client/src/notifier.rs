@@ -41,7 +41,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
 ) {
     let num_available = duties_service.beacon_nodes.num_available().await;
     let num_synced = duties_service.beacon_nodes.num_synced().await;
-    let num_total = duties_service.beacon_nodes.num_total().await;
+    let num_total = duties_service.beacon_nodes.num_total();
     if num_synced > 0 {
         info!(
             log,

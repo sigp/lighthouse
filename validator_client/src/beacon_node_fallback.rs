@@ -302,7 +302,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     }
 
     /// The count of candidates, regardless of their state.
-    pub async fn num_total(&self) -> usize {
+    pub fn num_total(&self) -> usize {
         self.candidates.len()
     }
 
@@ -320,7 +320,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// The count of synced and ready fallbacks excluding the primary beacon node candidate.
     pub async fn num_synced_fallback(&self) -> usize {
         let mut n = 0;
-        for candidate in &self.candidates[1..] {
+        for candidate in self.candidates.iter().skip(1) {
             if candidate.status(RequireSynced::Yes).await.is_ok() {
                 n += 1
             }
