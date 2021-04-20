@@ -7,6 +7,7 @@ use tree_hash_derive::TreeHash;
 // TODO: move this into `EthSpec`.
 pub type BytesPerLogsBloom = ssz_types::typenum::U256;
 pub type MaxExecutionTransactions = ssz_types::typenum::U16384;
+pub type MaxBytesPerOpaqueTransaction = ssz_types::typenum::U1048576;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
@@ -23,5 +24,6 @@ pub struct ExecutionPayload {
     pub timestamp: u64,
     pub receipt_root: Hash256,
     pub logs_bloom: FixedVector<u8, BytesPerLogsBloom>,
-    pub transactions: VariableList<Transaction, MaxExecutionTransactions>,
+    pub transactions:
+        VariableList<VariableList<u8, MaxBytesPerOpaqueTransaction>, MaxExecutionTransactions>,
 }
