@@ -155,7 +155,10 @@ impl MonitoringHttpClient {
     }
 
     /// Return explorer metric based on process type.
-    pub async fn get_metrics(&self, process_type: &ProcessType) -> Result<MonitoringMetrics, Error> {
+    pub async fn get_metrics(
+        &self,
+        process_type: &ProcessType,
+    ) -> Result<MonitoringMetrics, Error> {
         match process_type {
             ProcessType::BeaconNode => self.get_beacon_metrics().await,
             ProcessType::System => self.get_system_metrics().await,

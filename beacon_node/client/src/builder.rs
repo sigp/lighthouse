@@ -13,8 +13,8 @@ use beacon_chain::{
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
-use monitoring_api::{MonitoringHttpClient, ProcessType};
 use genesis::{interop_genesis_state, Eth1GenesisService};
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
