@@ -26,19 +26,7 @@ pub fn process_operations<'a, T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    match block_body {
-        BeaconBlockBodyRef::Base(_) => {
-            base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
-        }
-        BeaconBlockBodyRef::Altair(_) => {
-            altair::process_attestations(
-                state,
-                block_body.attestations(),
-                verify_signatures,
-                spec,
-            )?;
-        }
-    }
+    process_attestations(state, block_body, verify_signatures, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
     Ok(())
@@ -212,6 +200,29 @@ pub fn process_attester_slashings<T: EthSpec>(
         }
     }
 
+    Ok(())
+}
+/// Wrapper function to handle calling the correct version of `process_attestations` based on
+/// the fork.
+pub fn process_attestations<'a, T: EthSpec>(
+    state: &mut BeaconState<T>,
+    block_body: BeaconBlockBodyRef<'a, T>,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    match block_body {
+        BeaconBlockBodyRef::Base(_) => {
+            base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
+        }
+        BeaconBlockBodyRef::Altair(_) => {
+            altair::process_attestations(
+                state,
+                block_body.attestations(),
+                verify_signatures,
+                spec,
+            )?;
+        }
+    }
     Ok(())
 }
 

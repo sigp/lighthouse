@@ -1,23 +1,22 @@
 #![allow(clippy::integer_arithmetic)]
 
-#[macro_use]
-mod macros;
-// FIXME(altair): fix these builders
-// mod builders;
-mod generate_deterministic_keypairs;
-mod test_random;
+use std::fmt::Debug;
+
+pub use rand::{RngCore, SeedableRng};
+pub use rand_xorshift::XorShiftRng;
 
 // pub use builders::*;
 pub use generate_deterministic_keypairs::generate_deterministic_keypair;
 pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
 pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
-pub use rand::{RngCore, SeedableRng};
-pub use rand_xorshift::XorShiftRng;
-pub use test_random::{test_random_instance, TestRandom};
-
 use ssz::{ssz_encode, Decode, Encode};
-use std::fmt::Debug;
+pub use test_random::{test_random_instance, TestRandom};
 use tree_hash::TreeHash;
+
+#[macro_use]
+mod macros;
+mod generate_deterministic_keypairs;
+mod test_random;
 
 pub fn test_ssz_tree_hash_pair<T, U>(v1: &T, v2: &U)
 where

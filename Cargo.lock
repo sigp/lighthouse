@@ -4441,6 +4441,7 @@ dependencies = [
 name = "operation_pool"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "eth2_ssz",
  "eth2_ssz_derive",
  "int_to_bytes",
@@ -6070,6 +6071,7 @@ name = "state_processing"
 version = "0.2.0"
 dependencies = [
  "arbitrary",
+ "beacon_chain",
  "bls",
  "criterion",
  "env_logger 0.8.3",
@@ -6097,7 +6099,9 @@ dependencies = [
 name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
+ "beacon_chain",
  "eth2_ssz",
+ "lazy_static",
  "state_processing",
  "types",
 ]
@@ -6161,6 +6165,7 @@ checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 name = "store"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "criterion",
  "db-key",
  "directory",
@@ -6861,6 +6866,7 @@ dependencies = [
 name = "tree_hash"
 version = "0.1.1"
 dependencies = [
+ "beacon_chain",
  "criterion",
  "eth2_hashing",
  "ethereum-types",
@@ -6937,6 +6943,7 @@ name = "types"
 version = "0.2.0"
 dependencies = [
  "arbitrary",
+ "beacon_chain",
  "bls",
  "cached_tree_hash",
  "compare_fields",

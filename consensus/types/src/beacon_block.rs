@@ -352,17 +352,9 @@ mod tests {
     type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
     type BeaconBlockAltair = super::BeaconBlockAltair<MainnetEthSpec>;
 
-    fn set_fork_schedule(altair_fork_slot: u64) {
-        *FORK_SCHEDULE.write() = Some(ForkSchedule {
-            altair_fork_slot: Slot::new(altair_fork_slot),
-            altair_fork_version: [0xff; 4],
-        });
-    }
-
     #[test]
     fn roundtrip_base_block() {
         let fork_slot = 100_000;
-        set_fork_schedule(fork_slot);
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
@@ -381,7 +373,6 @@ mod tests {
     #[test]
     fn roundtrip_altair_block() {
         let fork_slot = 100_000;
-        set_fork_schedule(fork_slot);
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 

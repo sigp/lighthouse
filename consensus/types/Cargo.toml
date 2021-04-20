@@ -50,6 +50,7 @@ superstruct = { git = "https://github.com/sigp/superstruct", rev = "f358a4b4e753
 [dev-dependencies]
 serde_json = "1.0.58"
 criterion = "0.3.3"
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
 
 [features]
 default = ["sqlite", "legacy-arith"]

@@ -10,6 +10,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
+use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
 use parking_lot::Mutex;
@@ -28,13 +29,16 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconState,
-    BeaconStateHash, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Graffiti, Hash256,
-    IndexedAttestation, Keypair, ProposerSlashing, SelectionProof, SignedAggregateAndProof,
+    typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
+    BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
+    Epoch, EthSpec, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
+    PublicKeyBytes, SelectionProof, Signature, SignatureBytes, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId,
     VariableList, VoluntaryExit,
 };
 
+use crate::eth1_chain::int_to_bytes32;
+use merkle_proof::MerkleTree;
 pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019
@@ -120,7 +124,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub rng: Mutex<StdRng>,
 }
 
-type HarnessAttestations<E> = Vec<(
+pub type HarnessAttestations<E> = Vec<(
     Vec<(Attestation<E>, SubnetId)>,
     Option<SignedAggregateAndProof<E>>,
 )>;
@@ -422,6 +426,107 @@ where
         (signed_block, state)
     }
 
+    /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
+    /// caches are built but before the generated block is processed.
+    pub fn make_block_return_original_state(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        complete_state_advance(&mut state, None, slot, &self.spec)
+            .expect("should be able to advance state to slot");
+
+        state
+            .build_all_caches(&self.spec)
+            .expect("should build caches");
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        // If we produce two blocks for the same slot, they hash up to the same value and
+        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // different blocks each time.
+        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+
+        let randao_reveal = {
+            let epoch = slot.epoch(E::slots_per_epoch());
+            let domain = self.spec.get_domain(
+                epoch,
+                Domain::Randao,
+                &state.fork(),
+                state.genesis_validators_root(),
+            );
+            let message = epoch.signing_root(domain);
+            let sk = &self.validator_keypairs[proposer_index].sk;
+            sk.sign(message)
+        };
+
+        let state2 = state.clone();
+
+        let (block, state) = self
+            .chain
+            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+
+        (signed_block, state2)
+    }
+
+    pub fn make_block_return_original_state_bad_randao(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        complete_state_advance(&mut state, None, slot, &self.spec)
+            .expect("should be able to advance state to slot");
+
+        state
+            .build_all_caches(&self.spec)
+            .expect("should build caches");
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        // If we produce two blocks for the same slot, they hash up to the same value and
+        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // different blocks each time.
+        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+
+        let randao_reveal = {
+            let epoch = slot.epoch(E::slots_per_epoch());
+            let domain = self.spec.get_domain(
+                epoch,
+                Domain::Randao,
+                &state.fork(),
+                state.genesis_validators_root(),
+            );
+            let message = epoch.signing_root(domain);
+            let sk = &self.validator_keypairs[proposer_index].sk;
+            sk.sign(message)
+        };
+
+        let state2 = state.clone();
+
+        let (mut block, state) = self
+            .chain
+            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .unwrap();
+
+
+
+        (signed_block, state2)
+    }
+
     /// A list of attestations for each committee for the given slot.
     ///
     /// The first layer of the Vec is organised per committee. For example, if the return value is
@@ -652,6 +757,64 @@ where
         }
     }
 
+    pub fn make_attester_slashing_different_indices(
+        &self,
+        validator_indices_1: Vec<u64>,
+        validator_indices_2: Vec<u64>,
+    ) -> AttesterSlashing<E> {
+        let data = AttestationData {
+            slot: Slot::new(0),
+            index: 0,
+            beacon_block_root: Hash256::zero(),
+            target: Checkpoint {
+                root: Hash256::zero(),
+                epoch: Epoch::new(0),
+            },
+            source: Checkpoint {
+                root: Hash256::zero(),
+                epoch: Epoch::new(0),
+            },
+        };
+
+        let mut attestation_1 = IndexedAttestation {
+            attesting_indices: VariableList::new(validator_indices_1).unwrap(),
+            data: data.clone(),
+            signature: AggregateSignature::infinity(),
+        };
+
+        let mut attestation_2 = IndexedAttestation {
+            attesting_indices: VariableList::new(validator_indices_2).unwrap(),
+            data,
+            signature: AggregateSignature::infinity(),
+        };
+
+        attestation_2.data.index += 1;
+
+        for attestation in &mut [&mut attestation_1, &mut attestation_2] {
+            for &i in &attestation.attesting_indices {
+                let sk = &self.validator_keypairs[i as usize].sk;
+
+                let fork = self.chain.head_info().unwrap().fork;
+                let genesis_validators_root = self.chain.genesis_validators_root;
+
+                let domain = self.chain.spec.get_domain(
+                    attestation.data.target.epoch,
+                    Domain::BeaconAttester,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = attestation.data.signing_root(domain);
+
+                attestation.signature.add_assign(&sk.sign(message));
+            }
+        }
+
+        AttesterSlashing {
+            attestation_1,
+            attestation_2,
+        }
+    }
+
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
         let mut block_header_1 = self
             .chain
@@ -691,6 +854,121 @@ where
             validator_index,
         }
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
+    }
+
+    /// Useful for the `state_transition_vectors` tests. Modifies the current harness state before
+    /// generating a block. Modifies the generated block before signing it.
+    pub fn make_block_with_modifications(
+        &self,
+        exits: Vec<(u64, Epoch)>,
+        state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
+        block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        let slot = self.chain.slot().unwrap() + Slot::new(1);
+        let mut current_state = self.get_current_state();
+        state_modifier(&mut current_state);
+        let (block, state) = self.make_block_return_original_state(current_state, slot);
+        let (mut block, _) = block.deconstruct();
+
+        let fork = self.chain.head_info().unwrap().fork;
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        for (validator_index, epoch) in exits {
+            let sk = &self.validator_keypairs[validator_index as usize].sk;
+            let exit = VoluntaryExit {
+                epoch,
+                validator_index,
+            }
+            .sign(sk, &fork, genesis_validators_root, &self.chain.spec);
+            block.body_mut().voluntary_exits_mut().push(exit).unwrap();
+        }
+        block_modifier(&mut block);
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index as usize].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        (signed_block, state)
+    }
+
+    pub fn make_deposits<'a>(
+        &self,
+        state: &'a mut BeaconState<E>,
+        num_deposits: usize,
+        invalid_pubkey: Option<PublicKeyBytes>,
+        invalid_signature: Option<SignatureBytes>,
+    ) -> (Vec<Deposit>, &'a mut BeaconState<E>) {
+        let mut datas = vec![];
+
+        for _ in 0..num_deposits {
+            let keypair = Keypair::random();
+            let pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
+
+            let mut data = DepositData {
+                pubkey: pubkeybytes,
+                withdrawal_credentials: Hash256::from_slice(
+                    &get_withdrawal_credentials(
+                        &keypair.pk,
+                        E::default_spec().bls_withdrawal_prefix_byte,
+                    )[..],
+                ),
+                amount: E::default_spec().min_deposit_amount,
+                signature: SignatureBytes::empty(),
+            };
+
+            data.signature = data.create_signature(&keypair.sk, &E::default_spec());
+
+            if let Some(invalid_pubkey) = invalid_pubkey.clone() {
+                data.pubkey = invalid_pubkey;
+            }
+            if let Some(invalid_signature) = invalid_signature.clone() {
+                data.signature = invalid_signature;
+            }
+            datas.push(data);
+        }
+
+        // Vector containing all leaves
+        let leaves = datas
+            .iter()
+            .map(|data| data.tree_hash_root())
+            .collect::<Vec<_>>();
+
+        // Building a VarList from leaves
+        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+
+        // Setting the deposit_root to be the tree_hash_root of the VarList
+        state.eth1_data_mut().deposit_root = deposit_data_list.tree_hash_root();
+        state.eth1_data_mut().deposit_count = num_deposits as u64;
+        *state.eth1_deposit_index_mut() = 0;
+
+        // Building the merkle tree used for generating proofs
+        let tree = MerkleTree::create(
+            &leaves[..],
+            E::default_spec().deposit_contract_tree_depth as usize,
+        );
+
+        // Building proofs
+        let mut proofs = vec![];
+        for i in 0..leaves.len() {
+            let (_, mut proof) =
+                tree.generate_proof(i, E::default_spec().deposit_contract_tree_depth as usize);
+            proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
+            proofs.push(proof);
+        }
+
+        // Building deposits
+        let deposits = datas
+            .into_par_iter()
+            .zip(proofs.into_par_iter())
+            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| Deposit { proof, data })
+            .collect::<Vec<_>>();
+
+        // Pushing deposits to block body
+        (deposits, state)
     }
 
     pub fn process_block(

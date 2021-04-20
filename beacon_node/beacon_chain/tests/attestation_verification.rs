@@ -3,11 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    attestation_verification::Error as AttnError,
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, BeaconChainTypes,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
+use beacon_chain::{attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes};
 use int_to_bytes::int_to_bytes32;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,

@@ -1,7 +1,12 @@
 #![cfg(not(debug_assertions))]
 
+use std::fmt;
+use std::sync::Mutex;
+
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+};
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig,
 };
@@ -9,8 +14,6 @@ use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
-use std::fmt;
-use std::sync::Mutex;
 use store::{MemoryStore, StoreConfig};
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},

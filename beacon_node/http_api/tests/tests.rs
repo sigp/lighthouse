@@ -1,10 +1,21 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 
-use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-};
+use std::convert::TryInto;
+use std::iter::Iterator;
+use std::net::Ipv4Addr;
+use std::sync::Arc;
+
 use discv5::enr::{CombinedKey, EnrBuilder};
+use futures::stream::{Stream, StreamExt};
+use futures::FutureExt;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::time::Duration;
+
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+};
+use beacon_chain::{BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
@@ -14,19 +25,10 @@ use eth2_libp2p::{
     types::{EnrBitfield, SyncState},
     Enr, EnrExt, NetworkGlobals, PeerId,
 };
-use futures::stream::{Stream, StreamExt};
-use futures::FutureExt;
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
-use std::convert::TryInto;
-use std::iter::Iterator;
-use std::net::Ipv4Addr;
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
-use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,

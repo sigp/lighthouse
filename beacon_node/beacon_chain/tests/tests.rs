@@ -3,12 +3,9 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    attestation_verification::Error as AttnError,
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        OP_POOL_DB_KEY,
-    },
+use beacon_chain::attestation_verification::Error as AttnError;
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, OP_POOL_DB_KEY,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{

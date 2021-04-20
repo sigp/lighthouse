@@ -10,3 +10,5 @@ edition = "2018"
 state_processing = { path = "../../consensus/state_processing" }
 types = { path = "../../consensus/types" }
 eth2_ssz = "0.1.2"
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
+lazy_static = "1.4.0"

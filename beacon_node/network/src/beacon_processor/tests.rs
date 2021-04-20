@@ -3,10 +3,10 @@
 
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
-use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
+use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::{null_logger, Environment, EnvironmentBuilder};
 use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, MessageId, NetworkGlobals, PeerId};

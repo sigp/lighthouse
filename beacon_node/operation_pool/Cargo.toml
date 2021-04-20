@@ -21,3 +21,5 @@ store = { path = "../store" }
 
 [dev-dependencies]
 rand = "0.7.3"
+lazy_static = "1.4.0"
+beacon_chain =  { path = "../beacon_chain" }

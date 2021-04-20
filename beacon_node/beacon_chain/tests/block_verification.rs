@@ -3,10 +3,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconSnapshot, BlockError,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
+use beacon_chain::{BeaconSnapshot, BlockError};
 use slasher::{Config as SlasherConfig, Slasher};
 use std::sync::Arc;
 use store::config::StoreConfig;

@@ -663,7 +663,7 @@ mod test {
     use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
-    use types::{init_fork_schedule, EthSpec, ForkSchedule, MinimalEthSpec, Slot};
+    use types::{EthSpec, ForkSchedule, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
 
@@ -674,11 +674,6 @@ mod test {
 
     #[test]
     fn recent_genesis() {
-        //TODO: handle altair
-        init_fork_schedule(ForkSchedule {
-            altair_fork_slot: None,
-        });
-
         let validator_count = 1;
         let genesis_time = 13_371_337;
 

@@ -684,7 +684,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Compute the seed to use for the beacon proposer selection at the given `slot`.
     ///
     /// Spec v0.12.1
-    fn get_beacon_proposer_seed(&self, slot: Slot, spec: &ChainSpec) -> Result<Vec<u8>, Error> {
+    pub fn get_beacon_proposer_seed(&self, slot: Slot, spec: &ChainSpec) -> Result<Vec<u8>, Error> {
         let epoch = slot.epoch(T::slots_per_epoch());
         let mut preimage = self
             .get_seed(epoch, Domain::BeaconProposer, spec)?
@@ -1335,7 +1335,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Drops the cache, leaving it in an uninitialized state.
-    fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) {
+    pub fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) {
         self.committee_caches_mut()[Self::committee_cache_index(relative_epoch)] =
             CommitteeCache::default();
     }
