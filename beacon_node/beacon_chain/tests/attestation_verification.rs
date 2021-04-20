@@ -16,7 +16,7 @@ use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
     BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
+    SignedAggregateAndProof, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -945,7 +945,7 @@ fn attestation_that_skips_epochs() {
     let block_slot = harness
         .chain
         .store
-        .get_item::<SignedBeaconBlock<E>>(&block_root)
+        .get_block(&block_root)
         .expect("should not error getting block")
         .expect("should find attestation block")
         .message()

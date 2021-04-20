@@ -663,7 +663,7 @@ mod test {
     use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
-    use types::{EthSpec, ForkSchedule, MinimalEthSpec, Slot};
+    use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
 

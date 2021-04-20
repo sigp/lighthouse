@@ -10,6 +10,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
+use serde_utils::quoted_u64::Quoted;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
@@ -446,7 +447,7 @@ pub struct StandardConfig {
 impl StandardConfig {
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         let base = BaseConfig::from_chain_spec::<T>(spec);
-        let altair = AltairConfig::from_chain_spec::<T>(spec).unwrap();
+        let altair = AltairConfig::from_chain_spec::<T>(spec);
         let extra_fields = HashMap::new();
         Self {
             base,
@@ -840,8 +841,7 @@ pub struct AltairConfig {
     domain_contribution_and_proof: u32,
     #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
-    #[serde(with = "serde_utils::quoted_u64")]
-    altair_fork_slot: Slot,
+    altair_fork_slot: Option<Quoted<Slot>>,
     // FIXME(altair): sync protocol params?
 }
 
@@ -886,13 +886,13 @@ impl AltairConfig {
             domain_sync_committee_selection_proof,
             domain_contribution_and_proof,
             altair_fork_version,
-            altair_fork_slot: Some(altair_fork_slot),
+            altair_fork_slot: altair_fork_slot.map(|q| q.value),
             ..chain_spec.clone()
         })
     }
 
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Option<Self> {
-        Some(Self {
+    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
             inactivity_penalty_quotient_altair: spec.inactivity_penalty_quotient_altair,
             min_slashing_penalty_quotient_altair: spec.min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair: spec.proportional_slashing_multiplier_altair,
@@ -904,8 +904,8 @@ impl AltairConfig {
             domain_sync_committee_selection_proof: spec.domain_sync_committee_selection_proof,
             domain_contribution_and_proof: spec.domain_contribution_and_proof,
             altair_fork_version: spec.altair_fork_version,
-            altair_fork_slot: spec.altair_fork_slot?,
-        })
+            altair_fork_slot: spec.altair_fork_slot.map(|slot| Quoted { value: slot }),
+        }
     }
 }
 

@@ -292,7 +292,7 @@ mod tests {
         let boot_enr = None;
         let genesis_state = Some(BeaconState::new(42, eth1_data, spec));
         let base_config = BaseConfig::from_chain_spec::<E>(spec);
-        let altair_config = AltairConfig::from_chain_spec::<E>(spec).unwrap();
+        let altair_config = AltairConfig::from_chain_spec::<E>(spec);
 
         do_test::<E>(
             boot_enr,
