@@ -123,13 +123,13 @@ pub enum JsonType {
 lazy_static! {
     /// HashMap representing the `BEACON_PROCESS_METRICS`.
     pub static ref BEACON_METRICS_MAP: HashMap<String, JsonMetric> = BEACON_PROCESS_METRICS
-        .into_iter()
+        .iter()
         .map(|metric| (metric.lighthouse_metric_name.to_string(), metric.clone()))
         .collect();
     /// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
     pub static ref VALIDATOR_METRICS_MAP: HashMap<String,JsonMetric> =
         VALIDATOR_PROCESS_METRICS
-            .iter()
+        .iter()
         .map(|metric| (metric.lighthouse_metric_name.to_string(), metric.clone()))
         .collect();
 }
