@@ -44,7 +44,7 @@ use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
-    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::{compute_time_at_slot, errors::AttestationValidationError},
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
@@ -1986,17 +1986,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_chain_data(&state, &randao_reveal)
             .map_err(BlockProductionError::UnableToGetBeaconChainData)?;
 
+        let execution_timestamp = compute_time_at_slot(&state, &self.spec)
+            .map_err(BlockProductionError::UnableToComputeTimestamp)?;
+        let execution_parent_hash = state.latest_execution_payload_header.block_hash;
+
         info!(
             self.log,
             "Requesting block from eth1 node";
-            "randao_mix" => ?beacon_chain_data.randao_mix,
-            "timestamp" => %beacon_chain_data.timestamp,
-            "block_hash" => ?state.application_block_hash,
+            "timestamp" => execution_timestamp,
+            "parent_hash" => ?execution_parent_hash,
             "slot" => %beacon_chain_data.slot,
         );
 
         let execution_payload =
-            eth1_chain.get_execution_payload(state.application_block_hash, &beacon_chain_data)?;
+            eth1_chain.get_execution_payload(execution_parent_hash, execution_timestamp)?;
 
         info!(
             self.log,

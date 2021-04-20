@@ -153,6 +153,7 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
+    UnableToComputeTimestamp(ArithError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

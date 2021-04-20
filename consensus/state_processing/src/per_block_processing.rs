@@ -558,7 +558,7 @@ pub fn process_execution_payload<T: EthSpec>(
     Ok(())
 }
 
-fn compute_time_at_slot<T: EthSpec>(
+pub fn compute_time_at_slot<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {

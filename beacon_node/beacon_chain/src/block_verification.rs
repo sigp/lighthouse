@@ -995,11 +995,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         let beacon_chain_data =
             chain.beacon_chain_data(&state, &block.message.body.randao_reveal)?;
         if !eth1_chain
-            .process_execution_payload(
-                state.application_block_hash,
-                &beacon_chain_data,
-                &block.message.body.execution_payload,
-            )
+            .process_execution_payload(&block.message.body.execution_payload)
             .map_err(BlockError::Eth1VerificationError)?
         {
             return Err(BlockError::FailedEth1Verfication);

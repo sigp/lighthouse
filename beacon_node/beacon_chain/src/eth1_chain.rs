@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
-    Address, BeaconChainData, BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec,
+    Address, BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec,
     ExecutionPayload, Hash256, Slot, Unsigned, DEPOSIT_TREE_DEPTH,
 };
 
@@ -278,37 +278,26 @@ where
 
     pub fn get_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
+        parent_hash: Hash256,
+        timestamp: u64,
     ) -> Result<ExecutionPayload, Error> {
         if self.use_dummy_backend {
             let dummy_backend: DummyEth1ChainBackend<E> = DummyEth1ChainBackend::default();
-            dummy_backend.get_execution_payload(application_parent_hash, beacon_chain_data)
+            dummy_backend.get_execution_payload(parent_hash, timestamp)
         } else {
-            self.backend
-                .get_execution_payload(application_parent_hash, beacon_chain_data)
+            self.backend.get_execution_payload(parent_hash, timestamp)
         }
     }
 
     pub fn process_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
         execution_payload: &ExecutionPayload,
     ) -> Result<bool, Error> {
         if self.use_dummy_backend {
             let dummy_backend: DummyEth1ChainBackend<E> = DummyEth1ChainBackend::default();
-            dummy_backend.process_execution_payload(
-                application_parent_hash,
-                beacon_chain_data,
-                execution_payload,
-            )
+            dummy_backend.process_execution_payload(execution_payload)
         } else {
-            self.backend.process_execution_payload(
-                application_parent_hash,
-                beacon_chain_data,
-                execution_payload,
-            )
+            self.backend.process_execution_payload(execution_payload)
         }
     }
 
@@ -380,14 +369,12 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
 
     fn get_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
+        parent_hash: Hash256,
+        timestamp: u64,
     ) -> Result<ExecutionPayload, Error>;
 
     fn process_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
         execution_payload: &ExecutionPayload,
     ) -> Result<bool, Error>;
 
@@ -448,33 +435,34 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
 
     fn get_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        _beacon_chain_data: &BeaconChainData,
+        parent_hash: Hash256,
+        timestamp: u64,
     ) -> Result<ExecutionPayload, Error> {
         let rehash =
             |original: Hash256| -> Hash256 { Hash256::from_slice(&hash(original.as_bytes())) };
 
-        let state_root = rehash(application_parent_hash);
+        // Generate some pseudo-random values by repeatedly hashing the parent hash.
+        let state_root = rehash(parent_hash);
         let receipt_root = rehash(state_root);
         let block_hash = rehash(receipt_root);
 
         Ok(ExecutionPayload {
             block_hash,
+            parent_hash,
             coinbase: Address::from_low_u64_le(1),
             state_root,
+            number: 1,
             gas_limit: 1,
             gas_used: 0,
+            timestamp,
             receipt_root,
             logs_bloom: <_>::default(),
-            difficulty: 1,
             transactions: <_>::default(),
         })
     }
 
     fn process_execution_payload(
         &self,
-        _application_parent_hash: Hash256,
-        _beacon_chain_data: &BeaconChainData,
         _execution_payload: &ExecutionPayload,
     ) -> Result<bool, Error> {
         Ok(true)
@@ -654,8 +642,8 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn get_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
+        parent_hash: Hash256,
+        timestamp: u64,
     ) -> Result<ExecutionPayload, Error> {
         self.executor
             .runtime()
@@ -663,7 +651,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             .ok_or(Error::ShuttingDown)?
             .block_on(async {
                 self.core
-                    .produce_execution_payload(application_parent_hash, beacon_chain_data)
+                    .produce_execution_payload(parent_hash, timestamp)
                     .await
                     .map_err(|e| Error::UnableToGetExecutionPayload(format!("{:?}", e)))
             })
@@ -671,8 +659,6 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn process_execution_payload(
         &self,
-        application_parent_hash: Hash256,
-        beacon_chain_data: &BeaconChainData,
         execution_payload: &ExecutionPayload,
     ) -> Result<bool, Error> {
         self.executor
@@ -681,11 +667,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             .ok_or(Error::ShuttingDown)?
             .block_on(async {
                 self.core
-                    .process_execution_payload(
-                        application_parent_hash,
-                        beacon_chain_data,
-                        execution_payload,
-                    )
+                    .process_execution_payload(execution_payload)
                     .await
                     .map_err(|e| Error::UnableToGetExecutionPayload(format!("{:?}", e)))
             })

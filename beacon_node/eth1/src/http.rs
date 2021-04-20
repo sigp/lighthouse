@@ -193,6 +193,8 @@ struct AssembleBlockRequest {
     timestamp: u64,
 }
 
+/// A redefinition of the `ExecutionPayload` struct which will serialize/deserialize in accordance
+/// with the Eth1 JSON schema.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct JsonExecutionPayload {
     #[serde(rename = "blockHash")]
