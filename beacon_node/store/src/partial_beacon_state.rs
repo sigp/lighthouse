@@ -41,10 +41,6 @@ where
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
-    // Merge only.
-    pub application_state_root: Hash256,
-    // Merge only.
-    pub application_block_hash: Hash256,
 
     // Registry
     pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
@@ -69,6 +65,9 @@ where
     pub previous_justified_checkpoint: Checkpoint,
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
+
+    // Merge
+    pub latest_execution_payload_header: ExecutionPayloadHeader,
 }
 
 impl<T: EthSpec> PartialBeaconState<T> {
@@ -91,8 +90,6 @@ impl<T: EthSpec> PartialBeaconState<T> {
             eth1_data: s.eth1_data.clone(),
             eth1_data_votes: s.eth1_data_votes.clone(),
             eth1_deposit_index: s.eth1_deposit_index,
-            application_state_root: s.application_state_root,
-            application_block_hash: s.application_block_hash,
 
             // Validator registry
             validators: s.validators.clone(),
@@ -116,6 +113,9 @@ impl<T: EthSpec> PartialBeaconState<T> {
             previous_justified_checkpoint: s.previous_justified_checkpoint,
             current_justified_checkpoint: s.current_justified_checkpoint,
             finalized_checkpoint: s.finalized_checkpoint,
+
+            // Merge
+            latest_execution_payload_header: s.latest_execution_payload_header.clone(),
         }
     }
 
@@ -203,8 +203,6 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             eth1_data: self.eth1_data,
             eth1_data_votes: self.eth1_data_votes,
             eth1_deposit_index: self.eth1_deposit_index,
-            application_state_root: self.application_state_root,
-            application_block_hash: self.application_block_hash,
 
             // Validator registry
             validators: self.validators,
@@ -225,6 +223,9 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
             previous_justified_checkpoint: self.previous_justified_checkpoint,
             current_justified_checkpoint: self.current_justified_checkpoint,
             finalized_checkpoint: self.finalized_checkpoint,
+
+            // Merge
+            latest_execution_payload_header: self.latest_execution_payload_header,
 
             // Caching
             committee_caches: <_>::default(),
