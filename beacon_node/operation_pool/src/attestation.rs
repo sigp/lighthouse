@@ -164,8 +164,8 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
 /// is judged against the state's `current_epoch_attestations` or `previous_epoch_attestations`
 /// depending on when it was created, and all those validators who have already attested are
 /// removed from the `aggregation_bits` before returning it.
-// TODO: This could be optimised with a map from validator index to whether that validator has
-// attested in each of the current and previous epochs. Currently quadratic in number of validators.
+///
+/// This isn't optimal, but with the Altair fork this code is obsolete and not worth upgrading.
 pub fn earliest_attestation_validators<T: EthSpec>(
     attestation: &Attestation<T>,
     state: &BeaconState<T>,

@@ -147,14 +147,11 @@ impl ChainSpec {
     /// Construct a `ChainSpec` from several standard config files.
     pub fn from_standard_config<T: EthSpec>(
         base: &BaseConfig,
-        altair: Option<&AltairConfig>,
+        altair: &AltairConfig,
     ) -> Option<Self> {
         let mut spec = T::default_spec();
         spec = base.apply_to_chain_spec::<T>(&spec)?;
-
-        if let Some(altair_config) = altair {
-            spec = altair_config.apply_to_chain_spec::<T>(&spec)?;
-        }
+        spec = altair.apply_to_chain_spec::<T>(&spec)?;
         Some(spec)
     }
 
@@ -439,7 +436,7 @@ pub struct StandardConfig {
     pub base: BaseConfig,
     /// Configuration related to the Altair hard fork.
     #[serde(flatten)]
-    pub altair: Option<AltairConfig>,
+    pub altair: AltairConfig,
 
     // Extra fields (could be from a future hard-fork that we don't yet know).
     #[serde(flatten)]
@@ -449,7 +446,7 @@ pub struct StandardConfig {
 impl StandardConfig {
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         let base = BaseConfig::from_chain_spec::<T>(spec);
-        let altair = AltairConfig::from_chain_spec::<T>(spec);
+        let altair = AltairConfig::from_chain_spec::<T>(spec).unwrap();
         let extra_fields = HashMap::new();
         Self {
             base,
@@ -821,7 +818,6 @@ impl BaseConfig {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct AltairConfig {
-    config_name: String,
     #[serde(with = "serde_utils::quoted_u64")]
     inactivity_penalty_quotient_altair: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -860,8 +856,6 @@ impl AltairConfig {
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern-match to avoid missing any fields.
         let &AltairConfig {
-            // Ignore config name.
-            config_name: _,
             inactivity_penalty_quotient_altair,
             min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair,
@@ -899,7 +893,6 @@ impl AltairConfig {
 
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Option<Self> {
         Some(Self {
-            config_name: T::spec_name().to_string(),
             inactivity_penalty_quotient_altair: spec.inactivity_penalty_quotient_altair,
             min_slashing_penalty_quotient_altair: spec.min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair: spec.proportional_slashing_multiplier_altair,
@@ -1030,7 +1023,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
-        let mut yamlconfig = BaseConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let mut yamlconfig = StandardConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
         yamlconfig.extra_fields.insert(k1.into(), v1.into());
@@ -1042,7 +1035,8 @@ mod yaml_tests {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: BaseConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: StandardConfig =
+            serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 

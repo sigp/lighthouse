@@ -14,10 +14,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Keypair,
-    SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs, BeaconState, EthSpec, Keypair, SignedBeaconBlock,
 };
-use types::{Epoch, Hash256, MainnetEthSpec, Slot};
+use types::{Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 
@@ -64,7 +63,7 @@ fn get_harness<E: EthSpec>(
     );
     let skip_to_slot = slot - SLOT_OFFSET;
     if skip_to_slot > Slot::new(0) {
-        let mut state = harness.get_current_state();
+        let state = harness.get_current_state();
         harness.add_attested_blocks_at_slots(
             state,
             Hash256::zero(),

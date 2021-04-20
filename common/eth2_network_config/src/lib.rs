@@ -106,13 +106,14 @@ impl Eth2NetworkConfig {
 
     /// Construct a consolidated `ChainSpec` from the YAML config.
     pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
-        ChainSpec::from_standard_config::<E>(&self.base_config, Some(&self.altair_config))
-            .ok_or_else(|| {
+        ChainSpec::from_standard_config::<E>(&self.base_config, &self.altair_config).ok_or_else(
+            || {
                 format!(
                     "YAML configuration incompatible with spec constants for {}",
                     self.base_config.config_name
                 )
-            })
+            },
+        )
     }
 
     /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.

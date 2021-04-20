@@ -4,7 +4,7 @@ use beacon_chain::store::config::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
     BeaconState, BeaconStateError, ChainSpec, CloneConfig, Domain, Epoch, EthSpec, FixedVector,
-    FoundationBeaconState, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
+    Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
 };
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;
@@ -32,7 +32,7 @@ fn get_harness<E: EthSpec>(
         let slots = (skip_to_slot.as_u64()..=slot.as_u64())
             .map(Slot::new)
             .collect::<Vec<_>>();
-        let mut state = harness.get_current_state();
+        let state = harness.get_current_state();
         harness.add_attested_blocks_at_slots(
             state,
             Hash256::zero(),
@@ -52,7 +52,6 @@ fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
 
 fn test_beacon_proposer_index<T: EthSpec>() {
     let spec = T::default_spec();
-    let relative_epoch = RelativeEpoch::Current;
 
     // Get the i'th candidate proposer for the given state and slot
     let ith_candidate = |state: &BeaconState<T>, slot: Slot, i: usize, spec: &ChainSpec| {
@@ -174,6 +173,18 @@ fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: Clon
             .committee_cache(RelativeEpoch::Next)
             .expect_err("shouldn't exist");
     }
+    let base_epoch = state
+        .sync_committee_base_epoch(state.current_epoch(), &E::default_spec())
+        .unwrap();
+    if clone_config.current_sync_committee_cache {
+        assert!(state
+            .current_sync_committee_cache()
+            .is_initialized_for(base_epoch));
+    } else {
+        assert!(!state
+            .current_sync_committee_cache()
+            .is_initialized_for(base_epoch));
+    }
     if clone_config.pubkey_cache {
         assert_ne!(state.pubkey_cache().len(), 0);
     } else {
@@ -208,13 +219,13 @@ fn clone_config() {
         .update_tree_hash_cache()
         .expect("should update tree hash cache");
 
-    let num_caches = 4;
+    let num_caches = 5;
     let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
         committee_caches: (i & 1) != 0,
-        current_sync_committee_cache: false,
-        pubkey_cache: ((i >> 1) & 1) != 0,
-        exit_cache: ((i >> 2) & 1) != 0,
-        tree_hash_cache: ((i >> 3) & 1) != 0,
+        current_sync_committee_cache: ((i >> 1) & 1) != 0,
+        pubkey_cache: ((i >> 2) & 1) != 0,
+        exit_cache: ((i >> 3) & 1) != 0,
+        tree_hash_cache: ((i >> 4) & 1) != 0,
     });
 
     for config in all_configs {

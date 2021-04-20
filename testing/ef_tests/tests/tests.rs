@@ -17,7 +17,7 @@ fn config_test<E: EthSpec + TypeName>() {
     let altair_config = AltairConfig::from_file(&altair_config_path).expect("altair config loads");
     let spec = E::default_spec();
 
-    let unified_spec = ChainSpec::from_standard_config::<E>(&phase0_config, Some(&altair_config))
+    let unified_spec = ChainSpec::from_standard_config::<E>(&phase0_config, &altair_config)
         .expect("config unification");
     assert_eq!(unified_spec, spec);
 

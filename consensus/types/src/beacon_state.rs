@@ -815,7 +815,11 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Compute the `base_epoch` used by sync committees.
-    fn sync_committee_base_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> Result<Epoch, Error> {
+    pub fn sync_committee_base_epoch(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Epoch, Error> {
         Ok(std::cmp::max(
             epoch.safe_div(spec.epochs_per_sync_committee_period)?,
             Epoch::new(1),

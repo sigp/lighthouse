@@ -6,10 +6,7 @@ use crate::per_block_processing::errors::{
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{
-    per_block_processing::process_operations,
-    BlockSignatureStrategy, VerifySignatures,
-};
+use crate::{per_block_processing::process_operations, BlockSignatureStrategy, VerifySignatures};
 use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
@@ -171,8 +168,9 @@ fn invalid_randao_reveal_signature() {
     let state = harness.get_current_state();
     let slot = state.slot();
 
-    let (signed_block, mut state) =
-        harness.make_block_return_original_state_bad_randao(state, slot + Slot::new(1));
+    let (signed_block, mut state) = harness.make_block_with_modifier(state, slot + 1, |block| {
+        *block.body_mut().randao_reveal_mut() = Signature::empty();
+    });
 
     let result = per_block_processing(
         &mut state,

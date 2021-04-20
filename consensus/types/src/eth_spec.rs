@@ -223,8 +223,6 @@ impl EthSpec for MainnetEthSpec {
     }
 }
 
-pub type FoundationBeaconState = BeaconState<MainnetEthSpec>;
-
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -264,5 +262,3 @@ impl EthSpec for MinimalEthSpec {
         EthSpecId::Minimal
     }
 }
-
-pub type MinimalBeaconState = BeaconState<MinimalEthSpec>;

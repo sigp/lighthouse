@@ -3,7 +3,6 @@ use crate::test_utils::*;
 use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::*;
-use beacon_chain::BeaconChainError;
 use swap_or_not_shuffle::shuffle_list;
 
 pub const VALIDATOR_COUNT: usize = 16;
@@ -38,7 +37,7 @@ fn default_values() {
 
 fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let harness = get_harness(validator_count);
-    let mut head_state = harness.get_current_state();
+    let head_state = harness.get_current_state();
     if slot > Slot::new(0) {
         harness.add_attested_blocks_at_slots(
             head_state,
@@ -79,8 +78,6 @@ fn initializes_with_the_right_epoch() {
 
 #[test]
 fn shuffles_for_the_right_epoch() {
-    use crate::EthSpec;
-
     let num_validators = MinimalEthSpec::minimum_validator_count() * 2;
     let epoch = Epoch::new(6);
     let slot = epoch.start_slot(MinimalEthSpec::slots_per_epoch());

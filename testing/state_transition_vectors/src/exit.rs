@@ -15,16 +15,9 @@ struct ExitTest {
     validator_index: u64,
     exit_epoch: Epoch,
     state_epoch: Epoch,
-    block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
-    state_generator: Box<
-        dyn FnOnce(
-            BeaconChainHarness<EphemeralHarnessType<E>>,
-            Epoch,
-            Box<dyn FnOnce(&mut BeaconState<E>)>,
-            Box<dyn FnOnce(&mut BeaconBlock<E>)>,
-        ) -> (SignedBeaconBlock<E>, BeaconState<E>),
-    >,
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
+    block_modifier:
+        Box<dyn FnOnce(&BeaconChainHarness<EphemeralHarnessType<E>>, &mut BeaconBlock<E>)>,
     #[allow(dead_code)]
     expected: Result<(), BlockProcessingError>,
 }
@@ -35,15 +28,8 @@ impl Default for ExitTest {
             validator_index: VALIDATOR_INDEX,
             exit_epoch: STATE_EPOCH,
             state_epoch: STATE_EPOCH,
-            block_modifier: Box::new(|_| ()),
-            state_generator: Box::new(|x, exit_epoch, state_modifier, block_modifier| {
-                x.make_block_with_modifications(
-                    vec![(VALIDATOR_INDEX, exit_epoch)],
-                    state_modifier,
-                    block_modifier,
-                )
-            }),
             state_modifier: Box::new(|_| ()),
+            block_modifier: Box::new(|_, _| ()),
             expected: Ok(()),
         }
     }
@@ -55,12 +41,19 @@ impl ExitTest {
             self.state_epoch.start_slot(E::slots_per_epoch()),
             VALIDATOR_COUNT,
         );
-        (self.state_generator)(
-            harness,
-            self.exit_epoch,
-            self.state_modifier,
-            self.block_modifier,
-        )
+        let mut state = harness.get_current_state();
+        (self.state_modifier)(&mut state);
+
+        let block_modifier = self.block_modifier;
+        let validator_index = self.validator_index;
+        let exit_epoch = self.exit_epoch;
+
+        let (signed_block, state) =
+            harness.make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
+                harness.add_voluntary_exit(block, validator_index, exit_epoch);
+                block_modifier(&harness, block);
+            });
+        (signed_block, state)
     }
 
     fn process(
@@ -113,24 +106,21 @@ vectors_and_tests!(
     // Ensures we can process a valid exit,
     valid_single_exit,
     ExitTest::default(),
-    // Tests three exists in the same block.
+    // Tests three exits in the same block.
     valid_three_exits,
     ExitTest {
-        state_generator: Box::new(|harness, exit_epoch, state_modifier, block_modifier| {
-            harness.make_block_with_modifications(
-                vec![(0, exit_epoch), (1, exit_epoch), (2, exit_epoch)],
-                state_modifier,
-                block_modifier,
-            )
+        block_modifier: Box::new(|harness, block| {
+            harness.add_voluntary_exit(block, 1, STATE_EPOCH);
+            harness.add_voluntary_exit(block, 2, STATE_EPOCH);
         }),
         ..ExitTest::default()
     },
     // Ensures that a validator cannot be exited twice in the same block.
     invalid_duplicate,
     ExitTest {
-        block_modifier: Box::new(|block| {
+        block_modifier: Box::new(|_, block| {
             // Duplicate the exit
-            let exit = block.body_mut().voluntary_exits_mut()[0].clone();
+            let exit = block.body().voluntary_exits()[0].clone();
             block.body_mut().voluntary_exits_mut().push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
@@ -148,7 +138,7 @@ vectors_and_tests!(
     // ```
     invalid_validator_unknown,
     ExitTest {
-        block_modifier: Box::new(|block| {
+        block_modifier: Box::new(|_, block| {
             block.body_mut().voluntary_exits_mut()[0]
                 .message
                 .validator_index = VALIDATOR_COUNT as u64;
@@ -305,7 +295,7 @@ vectors_and_tests!(
     // ```
     invalid_bad_signature,
     ExitTest {
-        block_modifier: Box::new(|block| {
+        block_modifier: Box::new(|_, block| {
             // Shift the validator index by 1 so that it's mismatched from the key that was
             // used to sign.
             block.body_mut().voluntary_exits_mut()[0]
@@ -351,12 +341,9 @@ mod custom_tests {
     #[test]
     fn valid_three() {
         let state = ExitTest {
-            state_generator: Box::new(|harness, exit_epoch, state_modifier, block_modifier| {
-                harness.make_block_with_modifications(
-                    vec![(0, exit_epoch), (1, exit_epoch), (2, exit_epoch)],
-                    state_modifier,
-                    block_modifier,
-                )
+            block_modifier: Box::new(|harness, block| {
+                harness.add_voluntary_exit(block, 1, STATE_EPOCH);
+                harness.add_voluntary_exit(block, 2, STATE_EPOCH);
             }),
             ..ExitTest::default()
         }

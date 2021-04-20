@@ -2,6 +2,7 @@ use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2::lighthouse::Eth1SyncStatusData;
 use eth2_hashing::hash;
+use int_to_bytes::int_to_bytes32;
 use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -633,13 +634,6 @@ fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
         .iter()
         .max_by_key(|((_eth1_data, block_number), vote_count)| (*vote_count, block_number))
         .map(|((eth1_data, _), _)| eth1_data.clone())
-}
-
-/// Returns `int` as little-endian bytes with a length of 32.
-pub fn int_to_bytes32(int: u64) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
 }
 
 /// Returns the unix-epoch seconds at the start of the given `slot`.

@@ -182,13 +182,3 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         self.message().tree_hash_root()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    /* FIXME(altair)
-    use super::*;
-    use crate::MainnetEthSpec;
-
-    ssz_tests!(SignedBeaconBlock<MainnetEthSpec>);
-    */
-}

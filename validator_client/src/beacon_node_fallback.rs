@@ -226,7 +226,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
         let beacon_node_spec = ChainSpec::from_standard_config::<E>(
             &std_config.base,
-            std_config.altair.as_ref(),
+            &std_config.altair,
         )
         .ok_or_else(|| {
             error!(

@@ -497,7 +497,6 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
     }
 }
 
-// TODO: more tests
 #[cfg(all(test, not(debug_assertions)))]
 mod release_tests {
     use lazy_static::lazy_static;
@@ -506,7 +505,6 @@ mod release_tests {
     use super::*;
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use state_processing::{
-        //TODO: get_base_reward for altair
         common::{base::get_base_reward, get_attesting_indices},
         VerifyOperation,
     };
@@ -602,7 +600,7 @@ mod release_tests {
                     .num_set_bits()
             );
 
-            //TODO: handle altair
+            // FIXME(altair): handle altair in these tests
             state
                 .as_base_mut()
                 .unwrap()

@@ -11,7 +11,6 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 test_logger = [] # Print log output to stderr when running tests instead of dropping it
 
 [dev-dependencies]
-int_to_bytes = { path = "../../consensus/int_to_bytes" }
 maplit = "1.0.2"
 environment = { path = "../../lighthouse/environment" }
 
@@ -45,6 +44,7 @@ eth1 = { path = "../eth1" }
 futures = "0.3.7"
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1.5"
+int_to_bytes = { path = "../../consensus/int_to_bytes" }
 rand = "0.7.3"
 rand_core = "0.6.2"
 proto_array = { path = "../../consensus/proto_array" }

@@ -13,6 +13,8 @@ use crate::{
 use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
+use int_to_bytes::int_to_bytes32;
+use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -32,13 +34,11 @@ use types::{
     typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
     Epoch, EthSpec, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
-    PublicKeyBytes, SelectionProof, Signature, SignatureBytes, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId,
-    VariableList, VoluntaryExit,
+    PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, VariableList,
+    VoluntaryExit,
 };
 
-use crate::eth1_chain::int_to_bytes32;
-use merkle_proof::MerkleTree;
 pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019
@@ -463,7 +463,7 @@ where
             sk.sign(message)
         };
 
-        let state2 = state.clone();
+        let pre_state = state.clone();
 
         let (block, state) = self
             .chain
@@ -477,54 +477,7 @@ where
             &self.spec,
         );
 
-        (signed_block, state2)
-    }
-
-    pub fn make_block_return_original_state_bad_randao(
-        &self,
-        mut state: BeaconState<E>,
-        slot: Slot,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        assert_ne!(slot, 0, "can't produce a block at slot 0");
-        assert!(slot >= state.slot());
-
-        complete_state_advance(&mut state, None, slot, &self.spec)
-            .expect("should be able to advance state to slot");
-
-        state
-            .build_all_caches(&self.spec)
-            .expect("should build caches");
-
-        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
-
-        // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
-        // different blocks each time.
-        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
-
-        let randao_reveal = {
-            let epoch = slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(
-                epoch,
-                Domain::Randao,
-                &state.fork(),
-                state.genesis_validators_root(),
-            );
-            let message = epoch.signing_root(domain);
-            let sk = &self.validator_keypairs[proposer_index].sk;
-            sk.sign(message)
-        };
-
-        let state2 = state.clone();
-
-        let (mut block, state) = self
-            .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
-            .unwrap();
-
-
-
-        (signed_block, state2)
+        (signed_block, pre_state)
     }
 
     /// A list of attestations for each committee for the given slot.
@@ -856,31 +809,31 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
-    /// Useful for the `state_transition_vectors` tests. Modifies the current harness state before
-    /// generating a block. Modifies the generated block before signing it.
-    pub fn make_block_with_modifications(
+    pub fn add_voluntary_exit(
         &self,
-        exits: Vec<(u64, Epoch)>,
-        state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
-        block_modifier: Box<dyn FnOnce(&mut BeaconBlock<E>)>,
+        block: &mut BeaconBlock<E>,
+        validator_index: u64,
+        epoch: Epoch,
+    ) {
+        let exit = self.make_voluntary_exit(validator_index, epoch);
+        block.body_mut().voluntary_exits_mut().push(exit).unwrap();
+    }
+
+    /// Create a new block, apply `block_modifier` to it, sign it and return it.
+    ///
+    /// The state returned is a pre-block state at the same slot as the produced block.
+    pub fn make_block_with_modifier(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        block_modifier: impl FnOnce(&mut BeaconBlock<E>),
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        let slot = self.chain.slot().unwrap() + Slot::new(1);
-        let mut current_state = self.get_current_state();
-        state_modifier(&mut current_state);
-        let (block, state) = self.make_block_return_original_state(current_state, slot);
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        let (block, state) = self.make_block_return_original_state(state, slot);
         let (mut block, _) = block.deconstruct();
 
-        let fork = self.chain.head_info().unwrap().fork;
-        let genesis_validators_root = self.chain.genesis_validators_root;
-        for (validator_index, epoch) in exits {
-            let sk = &self.validator_keypairs[validator_index as usize].sk;
-            let exit = VoluntaryExit {
-                epoch,
-                validator_index,
-            }
-            .sign(sk, &fork, genesis_validators_root, &self.chain.spec);
-            block.body_mut().voluntary_exits_mut().push(exit).unwrap();
-        }
         block_modifier(&mut block);
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();

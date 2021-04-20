@@ -345,8 +345,8 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{test_ssz_tree_hash_pair, SeedableRng, TestRandom, XorShiftRng};
-    use crate::MainnetEthSpec;
+    use crate::test_utils::{test_ssz_tree_hash_pair_with, SeedableRng, TestRandom, XorShiftRng};
+    use crate::{ForkName, MainnetEthSpec};
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
     type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
@@ -354,12 +354,11 @@ mod tests {
 
     #[test]
     fn roundtrip_base_block() {
-        let fork_slot = 100_000;
-
         let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Base.make_genesis_spec(MainnetEthSpec::default_spec());
 
         let inner_block = BeaconBlockBase {
-            slot: Slot::random_for_test(rng) % fork_slot,
+            slot: Slot::random_for_test(rng),
             proposer_index: u64::random_for_test(rng),
             parent_root: Hash256::random_for_test(rng),
             state_root: Hash256::random_for_test(rng),
@@ -367,17 +366,18 @@ mod tests {
         };
         let block = BeaconBlock::Base(inner_block.clone());
 
-        test_ssz_tree_hash_pair(&block, &inner_block);
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
     }
 
     #[test]
     fn roundtrip_altair_block() {
-        let fork_slot = 100_000;
-
         let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Altair.make_genesis_spec(MainnetEthSpec::default_spec());
 
         let inner_block = BeaconBlockAltair {
-            slot: Slot::from(fork_slot),
+            slot: Slot::random_for_test(rng),
             proposer_index: u64::random_for_test(rng),
             parent_root: Hash256::random_for_test(rng),
             state_root: Hash256::random_for_test(rng),
@@ -385,6 +385,8 @@ mod tests {
         };
         let block = BeaconBlock::Altair(inner_block.clone());
 
-        test_ssz_tree_hash_pair(&block, &inner_block);
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
     }
 }
