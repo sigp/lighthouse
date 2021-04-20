@@ -317,6 +317,17 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         n
     }
 
+    /// The count of synced and ready fallbacks excluding the primary beacon node candidate.
+    pub async fn num_synced_fallback(&self) -> usize {
+        let mut n = 0;
+        for candidate in &self.candidates[1..] {
+            if candidate.status(RequireSynced::Yes).await.is_ok() {
+                n += 1
+            }
+        }
+        n
+    }
+
     /// The count of candidates that are online and compatible, but not necessarily synced.
     pub async fn num_available(&self) -> usize {
         let mut n = 0;

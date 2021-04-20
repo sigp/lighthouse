@@ -50,8 +50,6 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             "available" => num_available,
             "synced" => num_synced,
         )
-    } else if num_synced > 1 {
-        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
     } else {
         error!(
             log,
@@ -60,6 +58,12 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             "available" => num_available,
             "synced" => num_synced,
         )
+    }
+    let num_synced_fallback = duties_service.beacon_nodes.num_synced_fallback().await;
+    if num_synced_fallback > 0 {
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
+    } else {
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
     }
 
     if let Some(slot) = duties_service.slot_clock.now() {
