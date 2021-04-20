@@ -18,9 +18,7 @@ use serde_json::{json, Value};
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{
-    Address, ExecutionPayload, FixedVector, Hash256, Slot, Transaction, Uint256, VariableList,
-};
+use types::{Address, ExecutionPayload, FixedVector, Hash256, Transaction, Uint256, VariableList};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -188,139 +186,120 @@ pub async fn get_block(
 }
 
 #[derive(Serialize)]
-struct ProduceBlockRequest<'a> {
+struct AssembleBlockRequest {
+    #[serde(rename = "parentHash")]
     parent_hash: Hash256,
-    randao_mix: Hash256,
-    slot: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
     timestamp: u64,
-    recent_block_roots: &'a [Hash256],
 }
 
-/// The `ExecutableData` is a struct defined in the draft RPC spec:
-///
-/// https://hackmd.io/@n0ble/eth1-eth2-communication-protocol-draft
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct ExecutableData {
-    coinbase: Address,
-    state_root: Hash256,
-    gas_limit: u64,
-    gas_used: u64,
-    transactions: Option<Vec<JsonTransaction>>,
-    receipt_root: Hash256,
-    logs_bloom: String,
+struct JsonExecutionPayload {
+    #[serde(rename = "blockHash")]
     block_hash: Hash256,
-    #[allow(unused)]
+    #[serde(rename = "parentHash")]
     parent_hash: Hash256,
-    difficulty: u64,
+    miner: Address,
+    #[serde(rename = "stateRoot")]
+    state_root: Hash256,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    number: u64,
+    #[serde(with = "serde_utils::u64_hex_be", rename = "gasLimit")]
+    gas_limit: u64,
+    #[serde(with = "serde_utils::u64_hex_be", rename = "gasUsed")]
+    gas_used: u64,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    timestamp: u64,
+    #[serde(rename = "receiptsRoot")]
+    receipts_root: Hash256,
+    #[serde(rename = "logsBloom")]
+    logs_bloom: String,
+    #[serde(with = "serde_utils::list_of_bytes_lists")]
+    transactions: Vec<Vec<u8>>,
 }
 
-pub async fn eth2_produce_block(
+pub async fn consensus_assemble_block(
     endpoint: &str,
     parent_hash: Hash256,
-    randao_mix: Hash256,
-    slot: Slot,
     timestamp: u64,
-    recent_block_roots: &[Hash256],
     timeout: Duration,
 ) -> Result<ExecutionPayload, String> {
-    let params = json!([ProduceBlockRequest {
+    let params = json!([AssembleBlockRequest {
         parent_hash,
-        randao_mix,
-        slot: slot.into(),
         timestamp,
-        recent_block_roots
     }]);
 
-    let response_body = send_rpc_request(endpoint, "eth2_produceBlock", params, timeout).await?;
+    let response_body = send_rpc_request(endpoint, "eth2_assembleBlock", params, timeout).await?;
     let result = response_result(&response_body)?
-        .ok_or("No result field was returned for eth2_produceBlock")?;
+        .ok_or("No result field was returned for eth2_assembleBlock")?;
 
-    let response: ExecutableData = serde_json::from_value(result)
-        .map_err(|e| format!("Unable to parse eth2_produceBlock JSON: {:?}", e))?;
+    let response: JsonExecutionPayload = serde_json::from_value(result)
+        .map_err(|e| format!("Unable to parse eth2_assembleBlock JSON: {:?}", e))?;
 
     let logs_bloom = base64::decode(&response.logs_bloom)
         .map_err(|e| format!("Failed to decode logs_bloom base64: {:?}", e))?;
 
+    let transactions = response
+        .transactions
+        .into_iter()
+        .map(VariableList::new)
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("Invalid transactions in eth2_assembleBlock: {:?}", e))?;
+
     Ok(ExecutionPayload {
         block_hash: response.block_hash,
-        coinbase: response.coinbase,
+        parent_hash: response.parent_hash,
+        coinbase: response.miner,
         state_root: response.state_root,
+        number: response.number,
         gas_limit: response.gas_limit,
         gas_used: response.gas_used,
-        receipt_root: response.receipt_root,
+        timestamp: response.timestamp,
+        receipt_root: response.receipts_root,
         logs_bloom: FixedVector::new(logs_bloom)
-            .map_err(|e| format!("Invalid logs_bloom in eth2_produceBlock: {:?}", e))?,
-        difficulty: response.difficulty,
-        transactions: response
-            .transactions
-            .map(|transactions| {
-                VariableList::new(
-                    transactions
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Result<Vec<Transaction>, String>>()?,
-                )
-                .map_err(|e| format!("Invalid transactions in eth2_produceBlock: {:?}", e))
-            })
-            .unwrap_or_else(|| Ok(VariableList::default()))?,
+            .map_err(|e| format!("Invalid logs_bloom in eth2_assembleBlock: {:?}", e))?,
+        transactions: VariableList::new(transactions)
+            .map_err(|e| format!("Invalid transactions list in eth2_assembleBlock: {:?}", e))?,
     })
 }
 
-#[derive(Serialize)]
-struct InsertBlockRequest<'a> {
-    randao_mix: Hash256,
-    slot: u64,
-    timestamp: u64,
-    recent_block_roots: &'a [Hash256],
-    executable_data: ExecutableData,
+#[derive(Debug, PartialEq, Deserialize)]
+struct NewBlockResponse {
+    valid: bool,
 }
 
-pub async fn eth2_insert_block(
+pub async fn consensus_new_block(
     endpoint: &str,
-    parent_hash: Hash256,
-    randao_mix: Hash256,
-    slot: Slot,
-    timestamp: u64,
-    recent_block_roots: &[Hash256],
     execution_payload: &ExecutionPayload,
     timeout: Duration,
 ) -> Result<bool, String> {
-    let logs_bloom = base64::encode(execution_payload.logs_bloom.as_ref());
-    let executable_data = ExecutableData {
-        coinbase: execution_payload.coinbase,
+    let json_execution_payload = JsonExecutionPayload {
+        block_hash: execution_payload.block_hash,
+        parent_hash: execution_payload.parent_hash,
+        miner: execution_payload.coinbase,
         state_root: execution_payload.state_root,
+        number: execution_payload.number,
         gas_limit: execution_payload.gas_limit,
         gas_used: execution_payload.gas_used,
-        transactions: Some(
-            execution_payload
-                .transactions
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect(),
-        ),
-        receipt_root: execution_payload.receipt_root,
-        logs_bloom,
-        block_hash: execution_payload.block_hash,
-        parent_hash,
-        difficulty: execution_payload.difficulty,
+        timestamp: execution_payload.timestamp,
+        receipts_root: execution_payload.receipt_root,
+        logs_bloom: base64::encode(&execution_payload.logs_bloom[..]),
+        transactions: execution_payload
+            .transactions
+            .iter()
+            .map(|variable_list| variable_list.clone().into())
+            .collect(),
     };
 
-    let params = json!([InsertBlockRequest {
-        randao_mix,
-        slot: slot.into(),
-        timestamp,
-        recent_block_roots,
-        executable_data
-    }]);
+    let params = json!([json_execution_payload]);
 
-    let response_body = send_rpc_request(endpoint, "eth2_insertBlock", params, timeout).await?;
-    let result = response_result(&response_body)?
-        .ok_or("No result field was returned for eth2_insertBlock")?
-        .as_bool()
-        .ok_or("eth2_insertBlock result was not a bool")?;
+    let response_body = send_rpc_request(endpoint, "eth2_newBlock", params, timeout).await?;
+    let result =
+        response_result(&response_body)?.ok_or("No result field was returned for eth2_newBlock")?;
 
-    Ok(result)
+    serde_json::from_value::<NewBlockResponse>(result)
+        .map(|response| response.valid)
+        .map_err(|e| format!("Unable to parse eth2_newBlock JSON: {:?}", e))
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
@@ -644,43 +623,62 @@ mod test {
     use super::*;
 
     #[test]
-    fn parse_executable_data_json() {
-        let data = r#"
-		{
-          "coinbase": "0x0000000000000000000000000000000000000001",
-          "state_root": "0xc3095c9894c8f71b9f0730b3bc071c6414e7510dc14458599b49b5734345008f",
-          "gas_limit": 3141592,
-          "gas_used": 21000,
-          "transactions": [
-            {
-              "nonce": "0x0",
-              "gasPrice": "0x3b9aca00",
-              "gas": "0x5208",
-              "to": "0x25c4a76e7d118705e7ea2e9b7d8c59930d8acd3b",
-              "value": "0x0",
-              "input": "0x",
-              "v": "0x2e9356953b",
-              "r": "0x5d640e947ab33bc3d47a067765115dd31e46fb5b5dcfa68db68e5dded9bdcd05",
-              "s": "0x1922e21a732ab6bc9332105a4d758c5a35521ca0535ac6d5958120ab866c3195",
-              "hash": "0xc67add5be7392507b15eef85a9d2794ec07a38daea32a827c07e5a6c534a65aa"
-            }
-          ],
-          "receipt_root": "0x056b23fbba480696b65fe5a59b8f2148a1299103c4f57df839233af2cf4ca2d2",
-          "logs_bloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-          "block_hash": "0xbf94b00f0d9c86f02b6f66626ea284aea9ef8417a7d0c33596121db0a653c755",
-          "parent_hash": "0xddce9c6ed083fc7daf708d0c4ed4fc73320a4c0b752929d677f70461266acc4d",
-          "difficulty": 131072
-        }"#;
+    fn encode_assemble_block_request() {
+        let reference = r#"{"parentHash":"0xa68f81fa333010c7f6b84536793a722aa20b3d7eb73b54ca8ea2a0fd5834ddaf","timestamp":"0x607e8240"}"#;
 
-        let data: ExecutableData = serde_json::from_str(data).expect("should parse example json");
+        let local = AssembleBlockRequest {
+            parent_hash: serde_json::from_str(
+                "\"0xa68f81fa333010c7f6b84536793a722aa20b3d7eb73b54ca8ea2a0fd5834ddaf\"",
+            )
+            .unwrap(),
+            timestamp: 1618903616,
+        };
 
-        let encoded = serde_json::to_string(&data).unwrap();
+        assert_eq!(serde_json::to_string(&local).unwrap(), reference);
+    }
+
+    #[test]
+    fn decode_json_execution_payload() {
+        // Pretty is easy to troubleshoot since serde gives the line number with the issue, this
+        // makes it easy to find the offending field.
+        let reference_pretty = r#"{
+			"blockHash": "0x927be870eaa59bac61d9e118904d898de2a20cba1dea5dd8856c2cc7a38364a2",
+			"parentHash": "0xa68f81fa333010c7f6b84536793a722aa20b3d7eb73b54ca8ea2a0fd5834ddaf",
+			"miner": "0x1000000000000000000000000000000000000000",
+			"stateRoot": "0x0aef2cef869e5b93c69722bbea2f76d477ccefa1862a5a48450726d7a067db42",
+			"number": "0x1",
+			"gasLimit": "0x400000",
+			"gasUsed": "0x5208",
+			"timestamp": "0x607e8240",
+			"receiptsRoot": "0x056b23fbba480696b65fe5a59b8f2148a1299103c4f57df839233af2cf4ca2d2",
+			"logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+			"transactions": [
+			  "0xf8698004825208944a776e9369831f50564e430aacdd58b6be78a10b880de0b6b3a76400008082059ca07c3cc5403b459b15ff24a961d58d525c860b432fa3dc98c914342f8089a766bba02d6402409be46cec176d180d04f9f0cc0c00bb20c254a633949aff1b0962f2ab"
+			]
+		  }"#;
+
+        // Compact is necessary to check that the encoding is accurate.
+        let reference_compact = r#"{"blockHash":"0x927be870eaa59bac61d9e118904d898de2a20cba1dea5dd8856c2cc7a38364a2","parentHash":"0xa68f81fa333010c7f6b84536793a722aa20b3d7eb73b54ca8ea2a0fd5834ddaf","miner":"0x1000000000000000000000000000000000000000","stateRoot":"0x0aef2cef869e5b93c69722bbea2f76d477ccefa1862a5a48450726d7a067db42","number":"0x1","gasLimit":"0x400000","gasUsed":"0x5208","timestamp":"0x607e8240","receiptsRoot":"0x056b23fbba480696b65fe5a59b8f2148a1299103c4f57df839233af2cf4ca2d2","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","transactions":["0xf8698004825208944a776e9369831f50564e430aacdd58b6be78a10b880de0b6b3a76400008082059ca07c3cc5403b459b15ff24a961d58d525c860b432fa3dc98c914342f8089a766bba02d6402409be46cec176d180d04f9f0cc0c00bb20c254a633949aff1b0962f2ab"]}"#;
+
+        let decoded: JsonExecutionPayload =
+            serde_json::from_str(reference_pretty).expect("should decode reference string");
 
         assert_eq!(
-            serde_json::from_str::<ExecutableData>(&encoded)
-                .expect("should decode encoded version"),
-            data,
-            "should perform serialization round-trip"
+            serde_json::to_string(&decoded).unwrap(),
+            reference_compact,
+            "should encode exactly as reference string"
+        );
+    }
+
+    #[test]
+    fn decode_new_block_response() {
+        assert_eq!(
+            serde_json::from_str::<NewBlockResponse>(r#"{"valid":true}"#).unwrap(),
+            NewBlockResponse { valid: true }
+        );
+        assert_eq!(
+            serde_json::from_str::<NewBlockResponse>(r#"{"valid":false}"#).unwrap(),
+            NewBlockResponse { valid: false }
         );
     }
 }
