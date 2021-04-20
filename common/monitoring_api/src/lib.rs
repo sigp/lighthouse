@@ -45,7 +45,7 @@ impl std::fmt::Display for Error {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// Endpoint
-    pub explorer_endpoint: String,
+    pub monitoring_endpoint: String,
     /// Path for the hot database required for fetching beacon db size metrics.
     /// Note: not relevant for validator and system metrics.
     pub db_path: Option<PathBuf>,
@@ -55,23 +55,23 @@ pub struct Config {
 }
 
 #[derive(Clone)]
-pub struct ExplorerHttpClient {
+pub struct MonitoringHttpClient {
     client: reqwest::Client,
     /// Path to the hot database. Required for getting db size metrics
     db_path: Option<PathBuf>,
     /// Path to the freezer database.
     freezer_db_path: Option<PathBuf>,
-    explorer_endpoint: Url,
+    monitoring_endpoint: Url,
     log: slog::Logger,
 }
 
-impl ExplorerHttpClient {
+impl MonitoringHttpClient {
     pub fn new(config: &Config, log: slog::Logger) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
-            explorer_endpoint: Url::parse(&config.explorer_endpoint)
+            monitoring_endpoint: Url::parse(&config.monitoring_endpoint)
                 .map_err(|e| format!("Invalid explorer endpoint: {}", e))?,
             log,
         })
@@ -100,14 +100,14 @@ impl ExplorerHttpClient {
             Duration::from_secs(UPDATE_DURATION),
         );
 
-        info!(self.log, "Starting explorer api");
+        info!(self.log, "Starting monitoring api");
 
         let update_future = async move {
             loop {
                 interval.tick().await;
                 match self.send_metrics(&processes).await {
                     Ok(()) => {
-                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => %self.explorer_endpoint);
+                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => %self.monitoring_endpoint);
                     }
                     Err(e) => {
                         error!(self.log, "Failed to send metrics to remote endpoint"; "error" => %e)
@@ -116,11 +116,11 @@ impl ExplorerHttpClient {
             }
         };
 
-        executor.spawn(update_future, "explorer_api");
+        executor.spawn(update_future, "monitoring_api");
     }
 
     /// Gets beacon metrics and updates the metrics struct
-    pub async fn get_beacon_metrics(&self) -> Result<ExplorerMetrics, Error> {
+    pub async fn get_beacon_metrics(&self) -> Result<MonitoringMetrics, Error> {
         let db_path = self.db_path.as_ref().ok_or_else(|| {
             Error::BeaconMetricsFailed("Beacon metrics require db path".to_string())
         })?;
@@ -130,32 +130,32 @@ impl ExplorerHttpClient {
         })?;
         let metrics = gather_beacon_metrics(&db_path, &freezer_db_path)
             .map_err(Error::BeaconMetricsFailed)?;
-        Ok(ExplorerMetrics {
+        Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::BeaconNode),
             process_metrics: Process::Beacon(metrics),
         })
     }
 
     /// Gets validator process metrics by querying the validator metrics endpoint
-    pub async fn get_validator_metrics(&self) -> Result<ExplorerMetrics, Error> {
+    pub async fn get_validator_metrics(&self) -> Result<MonitoringMetrics, Error> {
         let metrics = gather_validator_metrics().map_err(Error::BeaconMetricsFailed)?;
-        Ok(ExplorerMetrics {
+        Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::Validator),
             process_metrics: Process::Validator(metrics),
         })
     }
 
     /// Gets system metrics by observing capturing the SystemHealth metrics.
-    pub async fn get_system_metrics(&self) -> Result<ExplorerMetrics, Error> {
+    pub async fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
         let system_health = SystemHealth::observe().map_err(Error::SystemMetricsFailed)?;
-        Ok(ExplorerMetrics {
+        Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::System),
             process_metrics: Process::System(system_health.into()),
         })
     }
 
     /// Return explorer metric based on process type.
-    pub async fn get_metrics(&self, process_type: &ProcessType) -> Result<ExplorerMetrics, Error> {
+    pub async fn get_metrics(&self, process_type: &ProcessType) -> Result<MonitoringMetrics, Error> {
         match process_type {
             ProcessType::BeaconNode => self.get_beacon_metrics().await,
             ProcessType::System => self.get_system_metrics().await,
@@ -180,9 +180,9 @@ impl ExplorerHttpClient {
         info!(
             self.log,
             "Sending metrics to remote endpoint";
-            "endpoint" => %self.explorer_endpoint
+            "endpoint" => %self.monitoring_endpoint
         );
-        self.post(self.explorer_endpoint.clone(), &metrics).await
+        self.post(self.monitoring_endpoint.clone(), &metrics).await
     }
 }
 

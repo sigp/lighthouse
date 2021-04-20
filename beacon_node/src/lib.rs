@@ -82,10 +82,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
-        let builder = if let Some(explorer_config) = &mut client_config.explorer_metrics {
-            explorer_config.db_path = Some(db_path);
-            explorer_config.freezer_db_path = Some(freezer_db_path);
-            builder.explorer_client(explorer_config)?
+        let builder = if let Some(monitoring_config) = &mut client_config.monitoring_api {
+            monitoring_config.db_path = Some(db_path);
+            monitoring_config.freezer_db_path = Some(freezer_db_path);
+            builder.monitoring_client(monitoring_config)?
         } else {
             builder
         };

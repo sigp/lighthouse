@@ -44,4 +44,4 @@ http_api = { path = "../http_api" }
 http_metrics = { path = "../http_metrics" }
 slasher = { path = "../../slasher" }
 slasher_service = { path = "../../slasher/service" }
-explorer_api = {path = "../../common/explorer_api"}
+monitoring_api = {path = "../../common/monitoring_api"}

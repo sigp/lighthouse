@@ -43,7 +43,7 @@ pub struct Config {
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
-    pub explorer_metrics: Option<explorer_api::Config>,
+    pub monitoring_api: Option<monitoring_api::Config>,
 }
 
 impl Default for Config {
@@ -68,7 +68,7 @@ impl Default for Config {
             graffiti_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
-            explorer_metrics: None,
+            monitoring_api: None,
         }
     }
 }
@@ -229,11 +229,11 @@ impl Config {
         /*
          * Explorer metrics
          */
-        if let Some(explorer_endpoint) = cli_args.value_of("monitoring-endpoint") {
-            config.explorer_metrics = Some(explorer_api::Config {
+        if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
-                explorer_endpoint: explorer_endpoint.to_string(),
+                monitoring_endpoint: monitoring_endpoint.to_string(),
             });
         }
 

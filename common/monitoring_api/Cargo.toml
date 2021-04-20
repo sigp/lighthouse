@@ -1,5 +1,5 @@
 [package]
-name = "explorer_api"
+name = "monitoring_api"
 version = "0.1.0"
 authors = ["pawan <pawandhananjay@gmail.com>"]
 edition = "2018"

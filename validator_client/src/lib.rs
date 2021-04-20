@@ -17,7 +17,7 @@ pub mod http_api;
 
 pub use cli::cli_app;
 pub use config::Config;
-use explorer_api::{ExplorerHttpClient, ProcessType};
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 use lighthouse_metrics::set_gauge;
 
 use crate::beacon_node_fallback::{
@@ -129,9 +129,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         // Start the explorer client which periodically sends validator process
         // and system metrics to the configured endpoint.
-        if let Some(explorer_config) = &config.explorer_metrics {
-            let explorer_client = ExplorerHttpClient::new(explorer_config, context.log().clone())?;
-            explorer_client.auto_update(
+        if let Some(monitoring_config) = &config.monitoring_api {
+            let monitoring_client = MonitoringHttpClient::new(monitoring_config, context.log().clone())?;
+            monitoring_client.auto_update(
                 context.executor.clone(),
                 vec![ProcessType::Validator, ProcessType::System],
             );

@@ -643,13 +643,13 @@ dependencies = [
  "eth2_network_config",
  "eth2_ssz",
  "exit-future",
- "explorer_api",
  "futures 0.3.13",
  "genesis",
  "hex",
  "hyper 0.14.4",
  "lighthouse_version",
  "logging",
+ "monitoring_api",
  "node_test_rig",
  "rand 0.7.3",
  "serde",
@@ -1093,13 +1093,13 @@ dependencies = [
  "eth2_config",
  "eth2_libp2p",
  "eth2_ssz",
- "explorer_api",
  "futures 0.3.13",
  "genesis",
  "http_api",
  "http_metrics",
  "lazy_static",
  "lighthouse_metrics",
+ "monitoring_api",
  "network",
  "parking_lot",
  "prometheus",
@@ -2188,25 +2188,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e43f2f1833d64e33f15592464d6fdd70f349dda7b1a53088eb83cd94014008c5"
 dependencies = [
  "futures 0.3.13",
-]
-
-[[package]]
-name = "explorer_api"
-version = "0.1.0"
-dependencies = [
- "eth2",
- "futures 0.3.13",
- "lazy_static",
- "lighthouse_metrics",
- "lighthouse_version",
- "reqwest",
- "serde",
- "serde_derive",
- "serde_json",
- "slog",
- "store",
- "task_executor",
- "tokio 1.2.0",
 ]
 
 [[package]]
@@ -4044,6 +4025,25 @@ checksum = "5a33c1b55807fbed163481b5ba66db4b2fa6cde694a5027be10fb724206c5897"
 dependencies = [
  "socket2",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "monitoring_api"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "futures 0.3.13",
+ "lazy_static",
+ "lighthouse_metrics",
+ "lighthouse_version",
+ "reqwest",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "store",
+ "task_executor",
+ "tokio 1.2.0",
 ]
 
 [[package]]
@@ -7085,7 +7085,6 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "exit-future",
- "explorer_api",
  "fallback",
  "futures 0.3.13",
  "hex",
@@ -7097,6 +7096,7 @@ dependencies = [
  "lighthouse_version",
  "lockfile",
  "logging",
+ "monitoring_api",
  "parking_lot",
  "rand 0.7.3",
  "rayon",

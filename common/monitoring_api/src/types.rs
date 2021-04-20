@@ -16,7 +16,7 @@ pub struct ErrorMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExplorerMetrics {
+pub struct MonitoringMetrics {
     #[serde(flatten)]
     pub metadata: Metadata,
     #[serde(flatten)]
