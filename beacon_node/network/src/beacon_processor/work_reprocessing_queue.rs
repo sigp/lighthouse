@@ -22,7 +22,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
-use tokio_util::time::DelayQueue;
+use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_block_delay_queue";
@@ -50,7 +50,7 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork<T: BeaconChainTypes> {
     Block(QueuedBlock<T>),
-    Attestation(QueuedUnaggregate<T::EthSpec>),
+    Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
 }
 
@@ -106,18 +106,16 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Queues */
     /// Queue to manage scheduled early blocks.
     block_delay_queue: DelayQueue<QueuedBlock<T>>,
-    /// Queue to manage scheduled aggregated attestations.
-    aggregate_delay_queue: DelayQueue<usize>,
     /// Queue to manage scheduled attestations.
-    attestations_delay_queue: DelayQueue<usize>,
+    attestations_delay_queue: DelayQueue<QueuedAttestationId>,
 
     /* Queued items */
     /// Queued blocks.
     queued_block_roots: HashSet<Hash256>,
     /// Queued aggreated attestations.
-    queued_aggregates: FnvHashMap<usize, QueuedAggregate<T::EthSpec>>,
+    queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
     /// Queued attestations.
-    queued_attestations: FnvHashMap<usize, QueuedUnaggregate<T::EthSpec>>,
+    queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
     /// Attestations (aggreated and unaggreated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, VecDeque<QueuedAttestationId>>,
 
@@ -130,15 +128,31 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     log: Logger,
 }
 
+#[derive(Debug, Clone, Copy)]
 enum QueuedAttestationId {
     Aggregate(usize),
     Unaggregate(usize),
+}
+
+impl<T: EthSpec> QueuedAggregate<T> {
+    pub fn root(&self) -> &Hash256 {
+        &self.attestation.message.aggregate.data.beacon_block_root
+    }
+}
+
+impl<T: EthSpec> QueuedUnaggregate<T> {
+    pub fn root(&self) -> &Hash256 {
+        &self.attestation.data.beacon_block_root
+    }
 }
 
 impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
     type Item = InboundEvent<T>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // NOTE: implementing `Stream` is not necessary but allows to maintain the future selection
+        // order fine-grained and separate from the logic of handling each message, which is nice.
+
         // Poll for expired blocks *before* we try to process new blocks.
         //
         // The sequential nature of blockchains means it is generally better to try and import all
@@ -155,26 +169,10 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
-        // Next get the aggregates, since these should be more useful.
-        match self.aggregate_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(aggregate_id))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyAttestation(
-                    QueuedAttestationId::Aggregate(aggregate_id.into_inner()),
-                )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "aggregates_queue")));
-            }
-            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
-            // will continue to get this result until something else is added into the queue.
-            Poll::Ready(None) | Poll::Pending => (),
-        }
-
-        // Next get the unaggregates.
         match self.attestations_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(attestation_id))) => {
                 return Poll::Ready(Some(InboundEvent::ReadyAttestation(
-                    QueuedAttestationId::Unaggregate(attestation_id.into_inner()),
+                    attestation_id.into_inner(),
                 )));
             }
             Poll::Ready(Some(Err(e))) => {
@@ -185,13 +183,10 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
-        // First empty the messages channel to ensure that when we start unqueuing attestations for
-        // each root, we have as many as temporarily possible. This mitigates excesive hashing and
-        // heap allocs.
+        // Last empty the messages channel.
         match self.work_reprocessing_rx.poll_recv(cx) {
             Poll::Ready(Some(message)) => return Poll::Ready(Some(InboundEvent::Msg(message))),
-            Poll::Ready(None) => return Poll::Ready(None),
-            Poll::Pending => {}
+            Poll::Ready(None) | Poll::Pending => {}
         }
 
         Poll::Pending
@@ -213,11 +208,10 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         work_reprocessing_rx,
         ready_work_tx,
         block_delay_queue: DelayQueue::new(),
-        aggregate_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         queued_block_roots: HashSet::new(),
         queued_aggregates: FnvHashMap::default(),
-        queued_attestations: FnvHashMap::default(),
+        queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         next_attestation: 0,
         slot_clock,
@@ -256,10 +250,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     // Check to ensure this won't over-fill the queue.
                     if self.queued_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
                         error!(
-                        self.log,
-                        "Early blocks queue is full";
-                        "queue_size" => MAXIMUM_QUEUED_BLOCKS,
-                        "msg" => "check system clock"
+                            self.log,
+                            "Early blocks queue is full";
+                            "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                            "msg" => "check system clock"
                         );
                         // Drop the block.
                         return;
@@ -289,16 +283,107 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 .is_err()
                         {
                             error!(
-                            self.log,
-                            "Failed to send block";
+                                self.log,
+                                "Failed to send block";
                             );
                         }
                     }
                 }
             }
-            Some(InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate))) => {}
-            Some(InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate))) => {}
-            Some(InboundEvent::Msg(BlockImported(root))) => {}
+            Some(InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate))) => {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
+                    error!(
+                        self.log,
+                        "Attestation delay queue is full";
+                        "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                        "msg" => "check system clock"
+                    );
+                    // Drop the attestation.
+                    return;
+                }
+
+                let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
+
+                // Register the delay.
+                let delay_key = self
+                    .attestations_delay_queue
+                    .insert(att_id, ADDITIONAL_DELAY);
+
+                // Register this attestation for the corresponding root.
+                self.awaiting_attestations_per_root
+                    .entry(*queued_aggregate.root())
+                    .or_default()
+                    .push_back(att_id);
+
+                // Store the attestation and its info.
+                self.queued_aggregates
+                    .insert(self.next_attestation, (queued_aggregate, delay_key));
+
+                self.next_attestation += 1;
+            }
+            Some(InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate))) => {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
+                    error!(
+                        self.log,
+                        "Attestation delay queue is full";
+                        "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                        "msg" => "check system clock"
+                    );
+                    // Drop the attestation.
+                    return;
+                }
+
+                let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
+
+                // Register the delay.
+                let delay_key = self
+                    .attestations_delay_queue
+                    .insert(att_id, ADDITIONAL_DELAY);
+
+                // Register this attestation for the corresponding root.
+                self.awaiting_attestations_per_root
+                    .entry(*queued_unaggregate.root())
+                    .or_default()
+                    .push_back(att_id);
+
+                // Store the attestation and its info.
+                self.queued_unaggregates
+                    .insert(self.next_attestation, (queued_unaggregate, delay_key));
+
+                self.next_attestation += 1;
+            }
+            Some(InboundEvent::Msg(BlockImported(root))) => {
+                // Unqueue the attestations we have for this root, if any.
+                if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
+                    for id in queued_ids {
+                        if let Some((work, delay_key)) = match id {
+                            QueuedAttestationId::Aggregate(id) => self
+                                .queued_aggregates
+                                .remove(&id)
+                                .map(|(aggregate, delay_key)| {
+                                    (ReadyWork::Aggregate(aggregate), delay_key)
+                                }),
+                            QueuedAttestationId::Unaggregate(id) => self
+                                .queued_unaggregates
+                                .remove(&id)
+                                .map(|(unaggregate, delay_key)| {
+                                    (ReadyWork::Unaggregate(unaggregate), delay_key)
+                                }),
+                        } {
+                            // remove the delay
+                            self.attestations_delay_queue.remove(&delay_key);
+
+                            // send the work
+                            if self.ready_work_tx.try_send(work).is_err() {
+                                error!(
+                                    self.log,
+                                    "Failed to send scheduled attestation";
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             // A block that was queued for later processing is now ready to be processed.
             Some(InboundEvent::ReadyBlock(ready_block)) => {
                 let block_root = ready_block.block.block_root;
@@ -307,9 +392,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     // Log an error to alert that we've made a bad assumption about how this
                     // program works, but still process the block anyway.
                     error!(
-                    self.log,
-                    "Unknown block in delay queue";
-                    "block_root" => ?block_root
+                        self.log,
+                        "Unknown block in delay queue";
+                        "block_root" => ?block_root
                     );
                 }
 
@@ -319,25 +404,44 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .is_err()
                 {
                     error!(
-                    self.log,
-                    "Failed to pop queued block";
+                        self.log,
+                        "Failed to pop queued block";
                     );
                 }
             }
             Some(InboundEvent::DelayQueueError(e, queue_name)) => {
                 crit!(
-                self.log,
-                "Failed to poll queue";
-                "queue" => queue_name,
-                "e" => ?e
+                    self.log,
+                    "Failed to poll queue";
+                    "queue" => queue_name,
+                    "e" => ?e
                 )
             }
-            Some(InboundEvent::ReadyAttestation(_id)) => {}
+            Some(InboundEvent::ReadyAttestation(queued_id)) => {
+                if let Some(work) = match queued_id {
+                    QueuedAttestationId::Aggregate(id) => self
+                        .queued_aggregates
+                        .remove(&id)
+                        .map(|(aggregate, _delay_key)| ReadyWork::Aggregate(aggregate)),
+                    QueuedAttestationId::Unaggregate(id) => self
+                        .queued_unaggregates
+                        .remove(&id)
+                        .map(|(unaggregate, _delay_key)| ReadyWork::Unaggregate(unaggregate)),
+                } {
+                    if self.ready_work_tx.try_send(work).is_err() {
+                        error!(
+                            self.log,
+                            "Failed to send scheduled attestation";
+                        );
+                    }
+                    // TODO: remove from awaiting_attestations_per_root
+                }
+            }
             None => {
                 debug!(
-                self.log,
-                "Block delay queue stopped";
-                "msg" => "shutting down"
+                    self.log,
+                    "Block delay queue stopped";
+                    "msg" => "shutting down"
                 );
                 return;
             }

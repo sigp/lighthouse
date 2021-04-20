@@ -56,7 +56,9 @@ use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
-use work_reprocessing_queue::{spawn_reprocess_scheduler, QueuedBlock, ReadyWork};
+use work_reprocessing_queue::{
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReadyWork,
+};
 
 use worker::{Toolbox, Worker};
 
@@ -148,6 +150,8 @@ pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
+pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
+pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 
 /// Used to send/receive results from a rpc block import in a blocking task.
 pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
@@ -441,12 +445,38 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
-            ReadyWork::Attestation(_) => {
-                todo!()
-            }
-            ReadyWork::Aggregate(_) => {
-                todo!()
-            }
+            ReadyWork::Unaggregate(QueuedUnaggregate {
+                peer_id,
+                message_id,
+                attestation,
+                subnet_id,
+                should_import,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockAttestation {
+                    message_id,
+                    peer_id,
+                    attestation: Box::new(attestation),
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::Aggregate(QueuedAggregate {
+                peer_id,
+                message_id,
+                attestation,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnkonwnBlockAggregate {
+                    message_id,
+                    peer_id,
+                    aggregate: Box::new(attestation),
+                    seen_timestamp,
+                },
+            },
         }
     }
 }
@@ -463,6 +493,20 @@ pub enum Work<T: BeaconChainTypes> {
         seen_timestamp: Duration,
     },
     GossipAggregate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownBlockAttestation {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<T::EthSpec>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    },
+    UnkonwnBlockAggregate {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
@@ -534,6 +578,8 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
+            Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
+            Work::UnkonwnBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
     }
 }
@@ -664,6 +710,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut aggregate_debounce = TimeLatch::default();
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
+        let mut unknown_block_aggregate_queue =
+            LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
+        let mut unknown_block_attestation_queue =
+            LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
 
         // Using a FIFO queue for voluntary exits since it prevents exit censoring. I don't have
         // a strong feeling about queue type for exits.
@@ -892,6 +942,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::UnknownBlockAttestation { .. } => {
+                                unknown_block_attestation_queue.push(work)
+                            }
+                            Work::UnkonwnBlockAggregate { .. } => {
+                                unknown_block_aggregate_queue.push(work)
                             }
                         }
                     }
@@ -1144,6 +1200,34 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         request_id,
                         request,
                     } => worker.handle_blocks_by_root_request(peer_id, request_id, request),
+                    Work::UnknownBlockAttestation {
+                        message_id,
+                        peer_id,
+                        attestation,
+                        subnet_id,
+                        should_import,
+                        seen_timestamp,
+                    } => worker.process_gossip_attestation(
+                        message_id,
+                        peer_id,
+                        *attestation,
+                        subnet_id,
+                        should_import,
+                        None, // do not allow this attestation to be re processed beyond this point
+                        seen_timestamp,
+                    ),
+                    Work::UnkonwnBlockAggregate {
+                        message_id,
+                        peer_id,
+                        aggregate,
+                        seen_timestamp,
+                    } => worker.process_gossip_aggregate(
+                        message_id,
+                        peer_id,
+                        *aggregate,
+                        None,
+                        seen_timestamp,
+                    ),
                 };
 
                 trace!(

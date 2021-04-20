@@ -853,8 +853,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
             AttnError::UnknownHeadBlock => {
-                // TODO: Maintain this attestation and re-process once sync completes
-                // TODO: We then score based on whether we can download the block and re-process.
                 debug!(
                     self.log,
                     "Attestation for unknown block";
@@ -863,8 +861,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 if let Some(sender) = reprocess_tx {
                     // we don't know the block, get the sync manager to handle the block lookup, and
-                    // send the attestation to be scheduled for re-processing., and send the
-                    // attestation to be scheduled for re-processing.
+                    // send the attestation to be scheduled for re-processing.                    self.sync_tx
                     self.sync_tx
                         .send(SyncMessage::UnknownBlockHash(
                             peer_id,
@@ -901,18 +898,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                             seen_timestamp,
                         }),
                     };
-                    if sender.try_send(msg).is_err() {}
-                    self.propagate_validation_result(
-                        message_id,
-                        peer_id,
-                        MessageAcceptance::Ignore,
-                    );
-                    return;
+                    if sender.try_send(msg).is_err() {
+                        error!(
+                            self.log,
+                            "Failed to send attestation for re-processing";
+                        )
+                    }
                 } else {
                     // We shouldn't make any further attempts to process this attestation.
                     // Downscore the peer.
                     self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
                 }
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return;
             }
             AttnError::UnknownTargetRoot(_) => {
                 /*

@@ -1,4 +1,3 @@
-use super::QueuedBlock;
 use super::work_reprocessing_queue::ReprocessQueueMessage;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
