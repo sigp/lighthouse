@@ -16,7 +16,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::borrow::Cow;
 use std::convert::TryInto;
-use std::fmt;
+use std::{fmt, mem};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -1349,7 +1349,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Adds all `pubkeys` from the `validators` which are not already in the cache. Will
     /// never re-add a pubkey.
     pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
-        let mut pubkey_cache = std::mem::take(self.pubkey_cache_mut());
+        let mut pubkey_cache = mem::take(self.pubkey_cache_mut());
         for (i, validator) in self
             .validators()
             .iter()
@@ -1446,7 +1446,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Transform a `Base` state into an `Altair` state.
-    pub fn upgrade_to_altair(self, spec: &ChainSpec) -> Result<Self, Error> {
+    pub fn upgrade_to_altair(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let epoch = self.current_epoch();
         let pre = if let BeaconState::Base(pre) = self {
             pre
@@ -1457,6 +1457,12 @@ impl<T: EthSpec> BeaconState<T> {
         let default_epoch_participation =
             VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
         let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
+
+        // Where possible, use something like `mem::take` to move fields from behind the &mut
+        // reference. For other fields that don't have a good default value, use `clone`.
+        //
+        // Fixed size vectors get cloned because replacing them would require the same size
+        // allocation as cloning.
         let mut post = BeaconState::Altair(BeaconStateAltair {
             // Versioning
             genesis_time: pre.genesis_time,
@@ -1468,26 +1474,26 @@ impl<T: EthSpec> BeaconState<T> {
                 epoch,
             },
             // History
-            latest_block_header: pre.latest_block_header,
-            block_roots: pre.block_roots,
-            state_roots: pre.state_roots,
-            historical_roots: pre.historical_roots,
+            latest_block_header: pre.latest_block_header.clone(),
+            block_roots: pre.block_roots.clone(),
+            state_roots: pre.state_roots.clone(),
+            historical_roots: mem::take(&mut pre.historical_roots),
             // Eth1
-            eth1_data: pre.eth1_data,
-            eth1_data_votes: pre.eth1_data_votes,
+            eth1_data: pre.eth1_data.clone(),
+            eth1_data_votes: mem::take(&mut pre.eth1_data_votes),
             eth1_deposit_index: pre.eth1_deposit_index,
             // Registry
-            validators: pre.validators,
-            balances: pre.balances,
+            validators: mem::take(&mut pre.validators),
+            balances: mem::take(&mut pre.balances),
             // Randomness
-            randao_mixes: pre.randao_mixes,
+            randao_mixes: pre.randao_mixes.clone(),
             // Slashings
-            slashings: pre.slashings,
+            slashings: pre.slashings.clone(),
             // `Participation
             previous_epoch_participation: default_epoch_participation.clone(),
             current_epoch_participation: default_epoch_participation,
             // Finality
-            justification_bits: pre.justification_bits,
+            justification_bits: pre.justification_bits.clone(),
             previous_justified_checkpoint: pre.previous_justified_checkpoint,
             current_justified_checkpoint: pre.current_justified_checkpoint,
             finalized_checkpoint: pre.finalized_checkpoint,
@@ -1497,11 +1503,11 @@ impl<T: EthSpec> BeaconState<T> {
             current_sync_committee: SyncCommittee::temporary()?, // not read
             next_sync_committee: SyncCommittee::temporary()?,    // not read
             // Caches
-            committee_caches: pre.committee_caches,
-            current_sync_committee_cache: pre.current_sync_committee_cache,
-            pubkey_cache: pre.pubkey_cache,
-            exit_cache: pre.exit_cache,
-            tree_hash_cache: pre.tree_hash_cache,
+            committee_caches: mem::take(&mut pre.committee_caches),
+            current_sync_committee_cache: mem::take(&mut pre.current_sync_committee_cache),
+            pubkey_cache: mem::take(&mut pre.pubkey_cache),
+            exit_cache: mem::take(&mut pre.exit_cache),
+            tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
         });
 
         // Fill in sync committees
@@ -1514,7 +1520,9 @@ impl<T: EthSpec> BeaconState<T> {
             spec,
         )?;
 
-        Ok(post)
+        *self = post;
+
+        Ok(())
     }
 
     pub fn clone_with_only_committee_caches(&self) -> Self {

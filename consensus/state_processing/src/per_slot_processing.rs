@@ -39,6 +39,11 @@ pub fn per_slot_processing<T: EthSpec>(
 
     state.slot_mut().safe_add_assign(1)?;
 
+    // If the Altair fork slot is reached, perform an irregular state upgrade.
+    if spec.altair_fork_slot == Some(state.slot()) {
+        state.upgrade_to_altair(spec)?;
+    }
+
     Ok(summary)
 }
 
