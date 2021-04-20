@@ -12,7 +12,9 @@ use std::marker::PhantomData;
 use types::{Attestation, Epoch, EthSpec, Unsigned};
 
 pub type ObservedAttesters<E> = AutoPruningContainer<EpochBitfield, E>;
+pub type ObservedSyncContributors<E> = AutoPruningContainer<EpochBitfield, E>;
 pub type ObservedAggregators<E> = AutoPruningContainer<EpochHashSet, E>;
+pub type ObservedSyncAggregators<E> = AutoPruningContainer<EpochHashSet, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -172,12 +174,10 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
     pub fn observe_validator(
         &mut self,
-        a: &Attestation<E>,
+        epoch: Epoch,
         validator_index: usize,
     ) -> Result<bool, Error> {
-        self.sanitize_request(a, validator_index)?;
-
-        let epoch = a.data.target.epoch;
+        self.sanitize_request(epoch, validator_index)?;
 
         self.prune(epoch);
 
@@ -214,14 +214,14 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
     pub fn validator_has_been_observed(
         &self,
-        a: &Attestation<E>,
+        epoch: Epoch,
         validator_index: usize,
     ) -> Result<bool, Error> {
-        self.sanitize_request(a, validator_index)?;
+        self.sanitize_request(epoch, validator_index)?;
 
         let exists = self
             .items
-            .get(&a.data.target.epoch)
+            .get(&epoch)
             .map_or(false, |item| item.contains(validator_index));
 
         Ok(exists)
@@ -233,12 +233,11 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
         self.items.get(&epoch).map(|item| item.validator_count())
     }
 
-    fn sanitize_request(&self, a: &Attestation<E>, validator_index: usize) -> Result<(), Error> {
+    fn sanitize_request(&self, epoch: Epoch, validator_index: usize) -> Result<(), Error> {
         if validator_index > E::ValidatorRegistryLimit::to_usize() {
             return Err(Error::ValidatorIndexTooHigh(validator_index));
         }
 
-        let epoch = a.data.target.epoch;
         let lowest_permissible_epoch = self.lowest_permissible_epoch;
         if epoch < lowest_permissible_epoch {
             return Err(Error::EpochTooLow {

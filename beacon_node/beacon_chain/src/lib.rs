@@ -14,7 +14,7 @@ mod head_tracker;
 mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
-mod observed_attestations;
+mod observed_aggregates;
 mod observed_attesters;
 mod observed_block_producers;
 pub mod observed_operations;

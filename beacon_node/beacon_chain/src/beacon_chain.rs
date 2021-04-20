@@ -14,9 +14,9 @@ use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
-use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
-use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
-use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
+use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool, AggregatedAttestationMap, SyncAggregateMap};
+use crate::observed_aggregates::{Error as AttestationObservationError, ObservedAggregates, ObservedAggregateAttestations, ObservedSyncAggregates};
+use crate::observed_attesters::{ObservedAggregators, ObservedAttesters, ObservedSyncContributors, ObservedSyncAggregators};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
@@ -207,14 +207,23 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     ///
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
-    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<T::EthSpec>>,
+    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<AggregatedAttestationMap<T::EthSpec>>>,
+    //TODO: clean up sync committee related additions
+    pub naive_sync_aggregation_pool: RwLock<NaiveAggregationPool<SyncAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
-    pub(crate) observed_attestations: RwLock<ObservedAttestations<T::EthSpec>>,
+    pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
+    /// Contains a store of attestations which have been observed by the beacon chain.
+    pub(crate) observed_sync_contributions: RwLock<ObservedSyncAggregates<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen to attest in recent epochs.
+    pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
     pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
+    /// in recent epochs.
+    pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub(crate) observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -1601,7 +1610,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             match self
                 .observed_attestations
                 .write()
-                .observe_attestation(a, None)
+                .observe_item(a, None)
             {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.

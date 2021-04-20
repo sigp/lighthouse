@@ -1,9 +1,12 @@
 use crate::metrics;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, EthSpec, Hash256, Slot};
+use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeSigningData};
+use store::SyncAggregate;
 
 type AttestationDataRoot = Hash256;
+type SyncDataRoot = Hash256;
+
 /// The number of slots that will be stored in the pool.
 ///
 /// For example, if `SLOTS_RETAINED == 3` and the pool is pruned at slot `6`, then all attestations
@@ -52,15 +55,31 @@ pub enum Error {
     IncorrectSlot { expected: Slot, attestation: Slot },
 }
 
+trait AggregateMap {
+    type Key;
+    type Value;
+    type Data;
+    fn new(initial_capacity: usize) -> Self;
+    fn insert(&mut self, a: &Self::Value) -> Result<InsertOutcome, Error>;
+    fn get(&self, data: &Self::Data) -> Option<Self::Value>;
+    fn get_map(&self) -> &HashMap<Self::Key, Self::Value>;
+    fn get_by_root(&self, root: &Self::Key) -> Option<&Self::Value>;
+    fn len(&self) -> usize;
+}
+
 /// A collection of `Attestation` objects, keyed by their `attestation.data`. Enforces that all
 /// `attestation` are from the same slot.
-struct AggregatedAttestationMap<E: EthSpec> {
+pub struct AggregatedAttestationMap<E: EthSpec> {
     map: HashMap<AttestationDataRoot, Attestation<E>>,
 }
 
-impl<E: EthSpec> AggregatedAttestationMap<E> {
+impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
+    type Key = AttestationDataRoot;
+    type Value = Attestation<E>;
+    type Data = AttestationData;
+
     /// Create an empty collection with the given `initial_capacity`.
-    pub fn new(initial_capacity: usize) -> Self {
+    fn new(initial_capacity: usize) -> Self {
         Self {
             map: HashMap::with_capacity(initial_capacity),
         }
@@ -69,7 +88,7 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     /// Insert an attestation into `self`, aggregating it into the pool.
     ///
     /// The given attestation (`a`) must only have one signature.
-    pub fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
+    fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
 
         let set_bits = a
@@ -119,21 +138,110 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     ///
     /// The given `a.data.slot` must match the slot that `self` was initialized with.
-    pub fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
+    fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
         self.map.get(&data.tree_hash_root()).cloned()
     }
 
+    fn get_map(&self) -> &HashMap<AttestationDataRoot, Attestation<E>>{
+        &self.map
+    }
+
     /// Returns an aggregated `Attestation` with the given `root`, if any.
-    pub fn get_by_root(&self, root: &AttestationDataRoot) -> Option<&Attestation<E>> {
+    fn get_by_root(&self, root: &AttestationDataRoot) -> Option<&Attestation<E>> {
         self.map.get(root)
     }
 
-    /// Iterate all attestations in `self`.
-    pub fn iter(&self) -> impl Iterator<Item = &Attestation<E>> {
-        self.map.iter().map(|(_key, attestation)| attestation)
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+}
+
+/// A collection of `Attestation` objects, keyed by their `attestation.data`. Enforces that all
+/// `attestation` are from the same slot.
+pub struct SyncAggregateMap<E: EthSpec> {
+    map: HashMap<SyncDataRoot, SyncAggregate<E>>,
+}
+
+impl<E: EthSpec> AggregateMap for SyncAggregateMap<E> {
+    type Key = SyncDataRoot;
+    type Value = SyncAggregate<E>;
+    type Data = SyncCommitteeSigningData;
+
+    /// Create an empty collection with the given `initial_capacity`.
+    fn new(initial_capacity: usize) -> Self {
+        Self {
+            map: HashMap::with_capacity(initial_capacity),
+        }
     }
 
-    pub fn len(&self) -> usize {
+    //TODO: fix for sync agg logic
+    /// Insert an attestation into `self`, aggregating it into the pool.
+    ///
+    /// The given attestation (`a`) must only have one signature.
+    fn insert(&mut self, a: &SyncAggregate<E>) -> Result<InsertOutcome, Error> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
+
+        let set_bits = a
+            .sync_committee_bits
+            .iter()
+            .enumerate()
+            .filter(|(_i, bit)| *bit)
+            .map(|(i, _bit)| i)
+            .collect::<Vec<_>>();
+
+        let committee_index = set_bits
+            .first()
+            .copied()
+            .ok_or(Error::NoAggregationBitsSet)?;
+
+        if set_bits.len() > 1 {
+            return Err(Error::MoreThanOneAggregationBitSet(set_bits.len()));
+        }
+
+        let attestation_data_root = a.data.tree_hash_root();
+
+        if let Some(existing_attestation) = self.map.get_mut(&attestation_data_root) {
+            if existing_attestation
+                .aggregation_bits
+                .get(committee_index)
+                .map_err(|_| Error::InconsistentBitfieldLengths)?
+            {
+                Ok(InsertOutcome::SignatureAlreadyKnown { committee_index })
+            } else {
+                let _timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_AGGREGATION);
+                existing_attestation.aggregate(a);
+                Ok(InsertOutcome::SignatureAggregated { committee_index })
+            }
+        } else {
+            if self.map.len() >= MAX_ATTESTATIONS_PER_SLOT {
+                return Err(Error::ReachedMaxAttestationsPerSlot(
+                    MAX_ATTESTATIONS_PER_SLOT,
+                ));
+            }
+
+            self.map.insert(attestation_data_root, a.clone());
+            Ok(InsertOutcome::NewAttestationData { committee_index })
+        }
+    }
+
+    /// Returns an aggregated `Attestation` with the given `data`, if any.
+    ///
+    /// The given `a.data.slot` must match the slot that `self` was initialized with.
+    fn get(&self, data: &SyncCommitteeSigningData) -> Option<SyncAggregate<E>> {
+        self.map.get(&data.tree_hash_root()).cloned()
+    }
+
+    fn get_map(&self) -> &HashMap<SyncDataRoot, SyncAggregate<E>>{
+        &self.map
+    }
+
+    /// Returns an aggregated `Attestation` with the given `root`, if any.
+    fn get_by_root(&self, root: &SyncDataRoot) -> Option<&SyncAggregate<E>> {
+        self.map.get(root)
+    }
+
+    fn len(&self) -> usize {
         self.map.len()
     }
 }
@@ -159,12 +267,12 @@ impl<E: EthSpec> AggregatedAttestationMap<E> {
 /// `current_slot - SLOTS_RETAINED` will be removed and any future attestation with a slot lower
 /// than that will also be refused. Pruning is done automatically based upon the attestations it
 /// receives and it can be triggered manually.
-pub struct NaiveAggregationPool<E: EthSpec> {
+pub struct NaiveAggregationPool<T: AggregateMap> {
     lowest_permissible_slot: Slot,
-    maps: HashMap<Slot, AggregatedAttestationMap<E>>,
+    maps: HashMap<Slot, T>,
 }
 
-impl<E: EthSpec> Default for NaiveAggregationPool<E> {
+impl<T: AggregateMap> Default for NaiveAggregationPool<T> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
@@ -173,7 +281,7 @@ impl<E: EthSpec> Default for NaiveAggregationPool<E> {
     }
 }
 
-impl<E: EthSpec> NaiveAggregationPool<E> {
+impl<T: AggregateMap> NaiveAggregationPool<T> {
     /// Insert an attestation into `self`, aggregating it into the pool.
     ///
     /// The given attestation (`a`) must only have one signature and have an
@@ -181,7 +289,7 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     ///
     /// The pool may be pruned if the given `attestation.data` has a slot higher than any
     /// previously seen.
-    pub fn insert(&mut self, attestation: &Attestation<E>) -> Result<InsertOutcome, Error> {
+    pub fn insert(&mut self, attestation: &T::Value) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT);
         let slot = attestation.data.slot;
         let lowest_permissible_slot = self.lowest_permissible_slot;
@@ -229,12 +337,12 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     }
 
     /// Returns the total number of attestations stored in `self`.
-    pub fn num_attestations(&self) -> usize {
+    pub fn num_items(&self) -> usize {
         self.maps.iter().map(|(_, map)| map.len()).sum()
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
-    pub fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
+    pub fn get(&self, data: &T::Data) -> Option<T::Value> {
         self.maps.get(&data.slot).and_then(|map| map.get(data))
     }
 
@@ -242,16 +350,16 @@ impl<E: EthSpec> NaiveAggregationPool<E> {
     pub fn get_by_slot_and_root(
         &self,
         slot: Slot,
-        root: &AttestationDataRoot,
-    ) -> Option<Attestation<E>> {
+        root: &T::Key,
+    ) -> Option<T::Value> {
         self.maps
             .get(&slot)
             .and_then(|map| map.get_by_root(root).cloned())
     }
 
     /// Iterate all attestations in all slots of `self`.
-    pub fn iter(&self) -> impl Iterator<Item = &Attestation<E>> {
-        self.maps.iter().map(|(_slot, map)| map.iter()).flatten()
+    pub fn iter(&self) -> impl Iterator<Item = &T::Value> {
+        self.maps.iter().map(|(_slot, map)| map.get_map().iter().map(|(_key, value)| value)).flatten()
     }
 
     /// Removes any attestations with a slot lower than `current_slot` and bars any future

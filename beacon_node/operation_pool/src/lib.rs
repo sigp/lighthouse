@@ -21,15 +21,13 @@ use state_processing::SigVerifiedOp;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
-use types::{
-    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch,
-    SignedVoluntaryExit, Validator,
-};
+use types::{typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator, SyncCommitteeContribution};
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
+    /// Map from attestation ID (see below) to vectors of attestations.
+    sync_contributions: RwLock<HashMap<SyncContributionId, Vec<SyncCommitteeContribution<T>>>>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
     /// Map from proposer index to slashing.
