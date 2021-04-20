@@ -474,7 +474,7 @@ fn strip_peer_id(addr: &mut Multiaddr) {
 
 /// Load metadata from persisted file. Return default metadata if loading fails.
 fn load_or_build_metadata<E: EthSpec>(
-    network_dir: &std::path::PathBuf,
+    network_dir: &std::path::Path,
     log: &slog::Logger,
 ) -> MetaData<E> {
     // Default metadata

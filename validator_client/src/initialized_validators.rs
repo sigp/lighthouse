@@ -19,7 +19,7 @@ use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
 
 use crate::key_cache;
@@ -101,20 +101,16 @@ impl InitializedValidator {
     }
 }
 
-fn open_keystore(path: &PathBuf) -> Result<Keystore, Error> {
+fn open_keystore(path: &Path) -> Result<Keystore, Error> {
     let keystore_file = File::open(path).map_err(Error::UnableToOpenVotingKeystore)?;
     Keystore::from_json_reader(keystore_file).map_err(Error::UnableToParseVotingKeystore)
 }
 
-fn get_lockfile_path(file_path: &PathBuf) -> Option<PathBuf> {
+fn get_lockfile_path(file_path: &Path) -> Option<PathBuf> {
     file_path
         .file_name()
         .and_then(|os_str| os_str.to_str())
-        .map(|filename| {
-            file_path
-                .clone()
-                .with_file_name(format!("{}.lock", filename))
-        })
+        .map(|filename| file_path.with_file_name(format!("{}.lock", filename)))
 }
 
 impl InitializedValidator {
@@ -238,7 +234,7 @@ impl InitializedValidator {
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
 fn unlock_keystore_via_stdin_password(
     keystore: &Keystore,
-    keystore_path: &PathBuf,
+    keystore_path: &Path,
 ) -> Result<(ZeroizeString, Keypair), Error> {
     eprintln!();
     eprintln!(

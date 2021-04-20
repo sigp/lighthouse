@@ -7,7 +7,7 @@ use state_processing::test_utils::BlockProcessingBuilder;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use types::MainnetEthSpec;
 use types::{BeaconState, ChainSpec, EthSpec, SignedBeaconBlock};
@@ -91,12 +91,12 @@ fn write_vectors_to_file(title: &str, vectors: &[TestVector]) -> Result<(), Stri
 }
 
 /// Write some SSZ object to file.
-fn write_to_ssz_file<T: Encode>(path: &PathBuf, item: &T) -> Result<(), String> {
+fn write_to_ssz_file<T: Encode>(path: &Path, item: &T) -> Result<(), String> {
     write_to_file(path, &item.as_ssz_bytes())
 }
 
 /// Write some bytes to file.
-fn write_to_file(path: &PathBuf, item: &[u8]) -> Result<(), String> {
+fn write_to_file(path: &Path, item: &[u8]) -> Result<(), String> {
     File::create(path)
         .map_err(|e| format!("Unable to create {:?}: {:?}", path, e))
         .and_then(|mut file| {

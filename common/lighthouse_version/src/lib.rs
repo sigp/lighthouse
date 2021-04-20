@@ -16,7 +16,7 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v1.2.1-",
+    prefix = "Lighthouse/v1.3.0-",
     fallback = "unknown"
 );
 
@@ -38,6 +38,10 @@ mod test {
     fn version_formatting() {
         let re = Regex::new(r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-rc.[0-9])?-[[:xdigit:]]{7}\+?$")
             .unwrap();
-        assert!(re.is_match(VERSION), VERSION);
+        assert!(
+            re.is_match(VERSION),
+            "version doesn't match regex: {}",
+            VERSION
+        );
     }
 }
