@@ -266,8 +266,7 @@ impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
     ///
     /// Returns `None` if `bytes` are not a valid encoding.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
-        let bit_len = bytes.len() * 8;
-        Self::from_raw_bytes(bytes,  bit_len)
+        Self::from_raw_bytes(bytes, Self::capacity())
     }
 
     /// Compute the intersection of two fixed-length `Bitfield`s.
