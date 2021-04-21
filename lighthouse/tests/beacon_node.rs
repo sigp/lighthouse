@@ -5,6 +5,7 @@ use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
+use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::str::{from_utf8, FromStr};
@@ -16,6 +17,7 @@ const BEACON_CMD: &str = "beacon_node";
 const CONFIG_NAME: &str = "bn_dump.json";
 const DUMP_CONFIG_CMD: &str = "dump-config";
 const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
+const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545";
 
 /// Returns the `lighthouse beacon_node --immediate-shutdown` command.
 fn base_cmd() -> Command {
@@ -68,6 +70,35 @@ impl CommandLineTest {
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
 
+        // Add --datadir <temp_dir> --dump-config <temp_path> -z to cmd.
+        self.cmd
+            .arg("--datadir")
+            .arg(tmp_dir.path().as_os_str())
+            .arg(format!("--{}", DUMP_CONFIG_CMD))
+            .arg(tmp_path.as_os_str())
+            .arg("-z");
+
+        // Run the command.
+        let output = output_result(&mut self.cmd);
+        if let Err(e) = output {
+            panic!("{:?}", e);
+        }
+
+        // Grab the config.
+        let config: Config =
+            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
+                .expect("Unable to deserialize to ClientConfig");
+        CompletedTest {
+            config,
+            dir: tmp_dir,
+        }
+    }
+
+    fn run_with_no_zero_port(&mut self) -> CompletedTest {
+        // Setup temp directories.
+        let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
+        let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
+
         // Add --datadir <temp_dir> --dump-config <temp_path> to cmd.
         self.cmd
             .arg("--datadir")
@@ -76,7 +107,10 @@ impl CommandLineTest {
             .arg(tmp_path.as_os_str());
 
         // Run the command.
-        let _output = output_result(&mut self.cmd).expect("Unable to run command");
+        let output = output_result(&mut self.cmd);
+        if let Err(e) = output {
+            panic!("{:?}", e);
+        }
 
         // Grab the config.
         let config: Config =
@@ -116,6 +150,7 @@ fn staking_flag() {
         .with_config(|config| {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
+            assert_eq!(config.eth1.endpoints[0], DEFAULT_ETH1_ENDPOINT);
         });
 }
 
@@ -267,38 +302,34 @@ fn network_import_all_attestations_flag() {
 }
 #[test]
 fn network_listen_address_flag() {
-    let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("listen-address", Some("192.167.1.1"))
+        .flag("listen-address", Some("127.0.0.2"))
         .run()
         .with_config(|config| assert_eq!(config.network.listen_address, addr));
 }
 #[test]
 fn network_port_flag() {
+    let port = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("port", Some("9009"))
-        .run()
+        .flag("port", Some(port.to_string().as_str()))
+        .run_with_no_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.libp2p_port, 9009);
-            assert_eq!(config.network.discovery_port, 9009);
+            assert_eq!(config.network.libp2p_port, port);
+            assert_eq!(config.network.discovery_port, port);
         });
 }
 #[test]
-fn network_discovery_port_flag() {
-    CommandLineTest::new()
-        .flag("discovery-port", Some("9011"))
-        .run()
-        .with_config(|config| assert_eq!(config.network.discovery_port, 9011));
-}
-#[test]
 fn network_port_and_discovery_port_flags() {
+    let port1 = unused_port("tcp").expect("Unable to find unused port.");
+    let port2 = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("port", Some("9009"))
-        .flag("discovery-port", Some("9011"))
-        .run()
+        .flag("port", Some(port1.to_string().as_str()))
+        .flag("discovery-port", Some(port2.to_string().as_str()))
+        .run_with_no_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.libp2p_port, 9009);
-            assert_eq!(config.network.discovery_port, 9011);
+            assert_eq!(config.network.libp2p_port, port1);
+            assert_eq!(config.network.discovery_port, port2);
         });
 }
 #[test]
@@ -316,6 +347,50 @@ fn disable_upnp_flag() {
         .with_config(|config| assert!(!config.network.upnp_enabled));
 }
 #[test]
+fn default_boot_nodes() {
+    let mainnet = vec![
+    // Lighthouse Team (Sigma Prime)
+    "enr:-Jq4QFs9If3eUC8mHx6-BLVw0jRMbyEgXNn6sl7c77bBmji_afJ-0_X7Q4vttQ8SO8CYReudHsGVvgSybh1y96yyL-oChGV0aDKQtTA_KgAAAAD__________4JpZIJ2NIJpcIQ2_YtGiXNlY3AyNTZrMaECSHaY_36GdNjF8-CLfMSg-8lB0wce5VRZ96HkT9tSkVeDdWRwgiMo",
+    "enr:-Jq4QA4kNIdO1FkIHpl5iqEKjJEjCVfp77aFulytCEPvEQOdbTTf6ucNmWSuXjlwvgka86gkpnCTv-V7CfBn4AMBRvIChGV0aDKQtTA_KgAAAAD__________4JpZIJ2NIJpcIQ22Gh-iXNlY3AyNTZrMaEC0EiXxAB2QKZJuXnUwmf-KqbP9ZP7m9gsRxcYvoK9iTCDdWRwgiMo",
+    // EF Team
+    "enr:-Ku4QHqVeJ8PPICcWk1vSn_XcSkjOkNiTg6Fmii5j6vUQgvzMc9L1goFnLKgXqBJspJjIsB91LTOleFmyWWrFVATGngBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhAMRHkWJc2VjcDI1NmsxoQKLVXFOhp2uX6jeT0DvvDpPcU8FWMjQdR4wMuORMhpX24N1ZHCCIyg",
+    "enr:-Ku4QG-2_Md3sZIAUebGYT6g0SMskIml77l6yR-M_JXc-UdNHCmHQeOiMLbylPejyJsdAPsTHJyjJB2sYGDLe0dn8uYBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhBLY-NyJc2VjcDI1NmsxoQORcM6e19T1T9gi7jxEZjk_sjVLGFscUNqAY9obgZaxbIN1ZHCCIyg",
+    "enr:-Ku4QPn5eVhcoF1opaFEvg1b6JNFD2rqVkHQ8HApOKK61OIcIXD127bKWgAtbwI7pnxx6cDyk_nI88TrZKQaGMZj0q0Bh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhDayLMaJc2VjcDI1NmsxoQK2sBOLGcUb4AwuYzFuAVCaNHA-dy24UuEKkeFNgCVCsIN1ZHCCIyg",
+    "enr:-Ku4QEWzdnVtXc2Q0ZVigfCGggOVB2Vc1ZCPEc6j21NIFLODSJbvNaef1g4PxhPwl_3kax86YPheFUSLXPRs98vvYsoBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhDZBrP2Jc2VjcDI1NmsxoQM6jr8Rb1ktLEsVcKAPa08wCsKUmvoQ8khiOl_SLozf9IN1ZHCCIyg",
+    // Teku team (Consensys)
+    "enr:-KG4QOtcP9X1FbIMOe17QNMKqDxCpm14jcX5tiOE4_TyMrFqbmhPZHK_ZPG2Gxb1GE2xdtodOfx9-cgvNtxnRyHEmC0ghGV0aDKQ9aX9QgAAAAD__________4JpZIJ2NIJpcIQDE8KdiXNlY3AyNTZrMaEDhpehBDbZjM_L9ek699Y7vhUJ-eAdMyQW_Fil522Y0fODdGNwgiMog3VkcIIjKA",
+    "enr:-KG4QDyytgmE4f7AnvW-ZaUOIi9i79qX4JwjRAiXBZCU65wOfBu-3Nb5I7b_Rmg3KCOcZM_C3y5pg7EBU5XGrcLTduQEhGV0aDKQ9aX9QgAAAAD__________4JpZIJ2NIJpcIQ2_DUbiXNlY3AyNTZrMaEDKnz_-ps3UUOfHWVYaskI5kWYO_vtYMGYCQRAR3gHDouDdGNwgiMog3VkcIIjKA",
+    // Prysm team (Prysmatic Labs)
+    "enr:-Ku4QImhMc1z8yCiNJ1TyUxdcfNucje3BGwEHzodEZUan8PherEo4sF7pPHPSIB1NNuSg5fZy7qFsjmUKs2ea1Whi0EBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhBLf22SJc2VjcDI1NmsxoQOVphkDqal4QzPMksc5wnpuC3gvSC8AfbFOnZY_On34wIN1ZHCCIyg",
+    "enr:-Ku4QP2xDnEtUXIjzJ_DhlCRN9SN99RYQPJL92TMlSv7U5C1YnYLjwOQHgZIUXw6c-BvRg2Yc2QsZxxoS_pPRVe0yK8Bh2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhBLf22SJc2VjcDI1NmsxoQMeFF5GrS7UZpAH2Ly84aLK-TyvH-dRo0JM1i8yygH50YN1ZHCCJxA",
+    "enr:-Ku4QPp9z1W4tAO8Ber_NQierYaOStqhDqQdOPY3bB3jDgkjcbk6YrEnVYIiCBbTxuar3CzS528d2iE7TdJsrL-dEKoBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhBLf22SJc2VjcDI1NmsxoQMw5fqqkw2hHC4F5HZZDPsNmPdB1Gi8JPQK7pRc9XHh-oN1ZHCCKvg",
+    // Nimbus team
+    "enr:-LK4QA8FfhaAjlb_BXsXxSfiysR7R52Nhi9JBt4F8SPssu8hdE1BXQQEtVDC3qStCW60LSO7hEsVHv5zm8_6Vnjhcn0Bh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhAN4aBKJc2VjcDI1NmsxoQJerDhsJ-KxZ8sHySMOCmTO6sHM3iCFQ6VMvLTe948MyYN0Y3CCI4yDdWRwgiOM",
+    "enr:-LK4QKWrXTpV9T78hNG6s8AM6IO4XH9kFT91uZtFg1GcsJ6dKovDOr1jtAAFPnS2lvNltkOGA9k29BUN7lFh_sjuc9QBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhANAdd-Jc2VjcDI1NmsxoQLQa6ai7y9PMN5hpLe5HmiJSlYzMuzP7ZhwRiwHvqNXdoN0Y3CCI4yDdWRwgiOM"
+    ];
+
+    CommandLineTest::new().run().with_config(|config| {
+        // Lighthouse Team (Sigma Prime)
+        assert_eq!(config.network.boot_nodes_enr[0].to_base64(), mainnet[0]);
+        assert_eq!(config.network.boot_nodes_enr[1].to_base64(), mainnet[1]);
+        // EF Team
+        assert_eq!(config.network.boot_nodes_enr[2].to_base64(), mainnet[2]);
+        assert_eq!(config.network.boot_nodes_enr[3].to_base64(), mainnet[3]);
+        assert_eq!(config.network.boot_nodes_enr[4].to_base64(), mainnet[4]);
+        assert_eq!(config.network.boot_nodes_enr[5].to_base64(), mainnet[5]);
+        // Teku team (Consensys)
+        assert_eq!(config.network.boot_nodes_enr[6].to_base64(), mainnet[6]);
+        assert_eq!(config.network.boot_nodes_enr[7].to_base64(), mainnet[7]);
+        // Prysm team (Prysmatic Labs)
+        assert_eq!(config.network.boot_nodes_enr[8].to_base64(), mainnet[8]);
+        assert_eq!(config.network.boot_nodes_enr[9].to_base64(), mainnet[9]);
+        assert_eq!(config.network.boot_nodes_enr[10].to_base64(), mainnet[10]);
+        // Nimbus team
+        assert_eq!(config.network.boot_nodes_enr[11].to_base64(), mainnet[11]);
+        assert_eq!(config.network.boot_nodes_enr[12].to_base64(), mainnet[12]);
+    });
+}
+#[test]
 fn boot_nodes_flag() {
     let nodes = "enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8,\
                 enr:-LK4QFOFWca5ABQzxiCRcy37G7wy1K6zD4qMYBSN5ozzanwze_XVvXVhCk9JvF0cHXOBZrHK1E4vU7Gn-a0bHVczoDU6h2F0dG5ldHOIAAAAAAAAAACEZXRoMpA7CIeVAAAgCf__________gmlkgnY0gmlwhNIy-4iJc2VjcDI1NmsxoQJA3AXQJ6M3NpBWtJS3HPtbXG14t7qHjXuIaL6IOz89T4N0Y3CCIyiDdWRwgiMo";
@@ -328,7 +403,25 @@ fn boot_nodes_flag() {
             assert_eq!(config.network.boot_nodes_enr[1].to_base64(), enr[1]);
         });
 }
-// TODO - Add test for Boot Node using Multiaddr format.
+#[test]
+fn boot_nodes_multiaddr_flag() {
+    let nodes = "/ip4/0.0.0.0/tcp/9000/p2p/16Uiu2HAkynrfLjeoAP7R3WFySad2NfduShkTpx8f8ygpSSfP1yen,\
+                /ip4/192.167.55.55/tcp/9000/p2p/16Uiu2HAkynrfLjeoBP7R3WFyDad2NfduVhkWpx8f8ygpSSfP1yen";
+    let multiaddr: Vec<&str> = nodes.split(',').collect();
+    CommandLineTest::new()
+        .flag("boot-nodes", Some(nodes))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.boot_nodes_multiaddr[0].to_string(),
+                multiaddr[0]
+            );
+            assert_eq!(
+                config.network.boot_nodes_multiaddr[1].to_string(),
+                multiaddr[1]
+            );
+        });
+}
 #[test]
 fn private_flag() {
     CommandLineTest::new()
@@ -338,76 +431,76 @@ fn private_flag() {
 }
 #[test]
 fn zero_ports_flag() {
-    CommandLineTest::new()
-        .flag("zero-ports", None)
-        .run()
-        .with_config(|config| {
-            assert_eq!(config.network.enr_address, None);
-            assert_eq!(config.http_api.listen_port, 0);
-            assert_eq!(config.http_metrics.listen_port, 0);
-            // Around 1/65535 chance it fails.
-            assert_ne!(config.network.libp2p_port, 9000);
-            // Around 1/65535 chance it fails.
-            assert_ne!(config.network.discovery_port, 9000);
-        });
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.network.enr_address, None);
+        assert_eq!(config.http_api.listen_port, 0);
+        assert_eq!(config.http_metrics.listen_port, 0);
+    });
 }
 
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flags() {
+    let port = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-udp-port", Some("9009"))
+        .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run()
-        .with_config(|config| assert_eq!(config.network.enr_udp_port, Some(9009)));
+        .with_config(|config| assert_eq!(config.network.enr_udp_port, Some(port)));
 }
 #[test]
 fn enr_tcp_port_flags() {
+    let port = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-tcp-port", Some("9009"))
+        .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run()
-        .with_config(|config| assert_eq!(config.network.enr_tcp_port, Some(9009)));
+        .with_config(|config| assert_eq!(config.network.enr_tcp_port, Some(port)));
 }
 #[test]
 fn enr_match_flag() {
-    let addr = "192.167.1.1".parse::<IpAddr>().unwrap();
+    let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
+    let port1 = unused_port("udp").expect("Unable to find unused port.");
+    let port2 = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-match", None)
-        .flag("listen-address", Some("192.167.1.1"))
-        .flag("discovery-port", Some("9009"))
-        .run()
+        .flag("listen-address", Some("127.0.0.2"))
+        .flag("discovery-port", Some(port1.to_string().as_str()))
+        .flag("port", Some(port2.to_string().as_str()))
+        .run_with_no_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.listen_address, addr);
             assert_eq!(config.network.enr_address, Some(addr));
-            assert_eq!(config.network.discovery_port, 9009);
-            assert_eq!(config.network.enr_udp_port, Some(9009));
+            assert_eq!(config.network.discovery_port, port1);
+            assert_eq!(config.network.enr_udp_port, Some(port1));
         });
 }
 #[test]
 fn enr_address_flag() {
     let addr = "192.167.1.1".parse::<IpAddr>().unwrap();
+    let port = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
-        .flag("enr-udp-port", Some("9009"))
+        .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, Some(addr));
-            assert_eq!(config.network.enr_udp_port, Some(9009));
+            assert_eq!(config.network.enr_udp_port, Some(port));
         });
 }
 #[test]
 fn enr_address_dns_flag() {
     let addr = "127.0.0.1".parse::<IpAddr>().unwrap();
     let ipv6addr = "::1".parse::<IpAddr>().unwrap();
+    let port = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
-        .flag("enr-udp-port", Some("9009"))
+        .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert!(
                 config.network.enr_address == Some(addr)
                     || config.network.enr_address == Some(ipv6addr)
             );
-            assert_eq!(config.network.enr_udp_port, Some(9009));
+            assert_eq!(config.network.enr_udp_port, Some(port));
         });
 }
 #[test]
@@ -436,10 +529,13 @@ fn http_address_flag() {
 }
 #[test]
 fn http_port_flag() {
+    let port1 = unused_port("tcp").expect("Unable to find unused port.");
+    let port2 = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("http-port", Some("5059"))
-        .run()
-        .with_config(|config| assert_eq!(config.http_api.listen_port, 5059));
+        .flag("http-port", Some(port1.to_string().as_str()))
+        .flag("port", Some(port2.to_string().as_str()))
+        .run_with_no_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
 #[test]
 fn http_allow_origin_flag() {
@@ -470,32 +566,39 @@ fn metrics_flag() {
 fn metrics_address_flag() {
     let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
 #[test]
 fn metrics_port_flag() {
+    let port1 = unused_port("tcp").expect("Unable to find unused port.");
+    let port2 = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("metrics-port", Some("13123"))
-        .run()
-        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 13123));
+        .flag("metrics", None)
+        .flag("metrics-port", Some(port1.to_string().as_str()))
+        .flag("port", Some(port2.to_string().as_str()))
+        .run_with_no_zero_port()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
 }
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
-        .flag("metrics-allow-origin", Some("localhost:5059"))
+        .flag("metrics", None)
+        .flag("metrics-allow-origin", Some("http://localhost:5059"))
         .run()
         .with_config(|config| {
             assert_eq!(
                 config.http_metrics.allow_origin,
-                Some("localhost:5059".to_string())
+                Some("http://localhost:5059".to_string())
             )
         });
 }
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
+        .flag("metrics", None)
         .flag("metrics-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
@@ -617,11 +720,11 @@ fn slasher_update_period_flag() {
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-history-length", Some("10"))
+        .flag("slasher-history-length", Some("2048"))
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.history_length, 10);
+                assert_eq!(slasher_config.history_length, 2048);
             } else {
                 panic!("Slasher config was parsed incorrectly");
             }
@@ -634,39 +737,39 @@ fn slasher_max_db_size_flag() {
         .flag("slasher-max-db-size", Some("10"))
         .run()
         .with_config(|config| {
-            if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.max_db_size_mbs, 10240);
-            } else {
-                panic!("Slasher config was parsed incorrectly");
-            }
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.max_db_size_mbs, 10240);
         });
 }
 #[test]
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-chunk-size", Some("10"))
+        .flag("slasher-chunk-size", Some("32"))
         .run()
         .with_config(|config| {
-            if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.chunk_size, 10);
-            } else {
-                panic!("Slasher config was parsed incorrectly");
-            }
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.chunk_size, 32);
         });
 }
 #[test]
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-validator-chunk-size", Some("10"))
+        .flag("slasher-validator-chunk-size", Some("512"))
         .run()
         .with_config(|config| {
-            if let Some(slasher_config) = &config.slasher {
-                assert_eq!(slasher_config.validator_chunk_size, 10);
-            } else {
-                panic!("Slasher config was parsed incorrectly");
-            }
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.validator_chunk_size, 512);
         });
 }
 #[test]
@@ -676,10 +779,66 @@ fn slasher_broadcast_flag() {
         .flag("slasher-broadcast", None)
         .run()
         .with_config(|config| {
-            if let Some(slasher_config) = &config.slasher {
-                assert!(slasher_config.broadcast);
-            } else {
-                panic!("Slasher config was parsed incorrectly");
-            }
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
         });
+}
+#[test]
+#[should_panic]
+fn ensure_panic_on_failed_launch() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-chunk-size", Some("10"))
+        .run()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.chunk_size, 10);
+        });
+}
+
+/// A bit of hack to find an unused port.
+///
+/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// unused before the function started (i.e., it does not reserve a port).
+///
+/// Used for passing unused ports to libp2 so that lighthouse won't have to update
+/// its own ENR.
+///
+/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
+/// ports returned by this function as the OS has a buffer period where
+/// it doesn't allow binding to the same port even after the socket is closed.
+/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
+/// that case.
+pub fn unused_port(transport: &str) -> Result<u16, String> {
+    let local_addr = match transport {
+        "tcp" => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
+                format!("Failed to create TCP listener to find unused port: {:?}", e)
+            })?;
+            listener.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read TCP listener local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        "udp" => {
+            let socket = UdpSocket::bind("127.0.0.1:0")
+                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
+            socket.local_addr().map_err(|e| {
+                format!(
+                    "Failed to read UDP socket local_addr to find unused port: {:?}",
+                    e
+                )
+            })?
+        }
+        _ => return Err("Invalid transport to find unused port".into()),
+    };
+    Ok(local_addr.port())
 }

@@ -151,12 +151,15 @@ fn validators_and_secrets_dir_flags() {
 #[test]
 fn beacon_nodes_flag() {
     CommandLineTest::new()
-        .flag("beacon-nodes", Some("localhost:1001,localhost:1010"))
+        .flag(
+            "beacon-nodes",
+            Some("http://localhost:1001,http://localhost:1010"),
+        )
         .run()
         .with_config(|config| {
             assert_eq!(
                 config.beacon_nodes,
-                vec!["localhost:1001", "localhost:1010"]
+                vec!["http://localhost:1001", "http://localhost:1010"]
             )
         });
 }
@@ -187,7 +190,7 @@ fn init_slashing_protections_flag() {
 
 // Tests for Graffiti flags.
 #[test]
-fn grafitti_flag() {
+fn graffiti_flag() {
     CommandLineTest::new()
         .flag("graffiti", Some("nice-graffiti"))
         .run()
@@ -199,7 +202,7 @@ fn grafitti_flag() {
         });
 }
 #[test]
-fn grafitti_file_flag() {
+fn graffiti_file_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("graffiti.txt")).expect("Unable to create file");
     let new_key = Keypair::random();
@@ -229,7 +232,7 @@ fn grafitti_file_flag() {
         });
 }
 #[test]
-fn grafitti_file_with_pk_flag() {
+fn graffiti_file_with_pk_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("graffiti.txt")).expect("Unable to create file");
     let new_key = Keypair::random();
