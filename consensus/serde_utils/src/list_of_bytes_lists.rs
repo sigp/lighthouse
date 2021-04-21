@@ -22,8 +22,8 @@ impl<'a> serde::de::Visitor<'a> for ListOfBytesListVisitor {
     {
         let mut vec = vec![];
 
-        while let Some(val) = seq.next_element()? {
-            vec.push(hex::decode(val).map_err(de::Error::custom)?);
+        while let Some(val) = seq.next_element::<String>()? {
+            vec.push(hex::decode(&val).map_err(de::Error::custom)?);
         }
 
         Ok(vec)

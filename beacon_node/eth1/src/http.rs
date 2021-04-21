@@ -214,8 +214,8 @@ struct JsonExecutionPayload {
     timestamp: u64,
     #[serde(rename = "receiptsRoot")]
     receipts_root: Hash256,
-    #[serde(rename = "logsBloom")]
-    logs_bloom: String,
+    #[serde(rename = "logsBloom", with = "serde_utils::hex_vec")]
+    logs_bloom: Vec<u8>,
     #[serde(with = "serde_utils::list_of_bytes_lists")]
     transactions: Vec<Vec<u8>>,
 }
@@ -239,9 +239,6 @@ pub async fn consensus_assemble_block(
     let response: JsonExecutionPayload = serde_json::from_value(result)
         .map_err(|e| format!("Unable to parse consensus_assembleBlock JSON: {:?}", e))?;
 
-    let logs_bloom = base64::decode(&response.logs_bloom)
-        .map_err(|e| format!("Failed to decode logs_bloom base64: {:?}", e))?;
-
     let transactions = response
         .transactions
         .into_iter()
@@ -259,7 +256,7 @@ pub async fn consensus_assemble_block(
         gas_used: response.gas_used,
         timestamp: response.timestamp,
         receipt_root: response.receipts_root,
-        logs_bloom: FixedVector::new(logs_bloom)
+        logs_bloom: FixedVector::new(response.logs_bloom)
             .map_err(|e| format!("Invalid logs_bloom in consensus_assembleBlock: {:?}", e))?,
         transactions: VariableList::new(transactions).map_err(|e| {
             format!(
@@ -290,7 +287,7 @@ pub async fn consensus_new_block(
         gas_used: execution_payload.gas_used,
         timestamp: execution_payload.timestamp,
         receipts_root: execution_payload.receipt_root,
-        logs_bloom: base64::encode(&execution_payload.logs_bloom[..]),
+        logs_bloom: execution_payload.logs_bloom[..].to_vec(),
         transactions: execution_payload
             .transactions
             .iter()
