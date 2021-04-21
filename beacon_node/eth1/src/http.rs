@@ -231,12 +231,13 @@ pub async fn consensus_assemble_block(
         timestamp,
     }]);
 
-    let response_body = send_rpc_request(endpoint, "eth2_assembleBlock", params, timeout).await?;
+    let response_body =
+        send_rpc_request(endpoint, "consensus_assembleBlock", params, timeout).await?;
     let result = response_result(&response_body)?
-        .ok_or("No result field was returned for eth2_assembleBlock")?;
+        .ok_or("No result field was returned for consensus_assembleBlock")?;
 
     let response: JsonExecutionPayload = serde_json::from_value(result)
-        .map_err(|e| format!("Unable to parse eth2_assembleBlock JSON: {:?}", e))?;
+        .map_err(|e| format!("Unable to parse consensus_assembleBlock JSON: {:?}", e))?;
 
     let logs_bloom = base64::decode(&response.logs_bloom)
         .map_err(|e| format!("Failed to decode logs_bloom base64: {:?}", e))?;
@@ -246,7 +247,7 @@ pub async fn consensus_assemble_block(
         .into_iter()
         .map(VariableList::new)
         .collect::<Result<_, _>>()
-        .map_err(|e| format!("Invalid transactions in eth2_assembleBlock: {:?}", e))?;
+        .map_err(|e| format!("Invalid transactions in consensus_assembleBlock: {:?}", e))?;
 
     Ok(ExecutionPayload {
         block_hash: response.block_hash,
@@ -259,9 +260,13 @@ pub async fn consensus_assemble_block(
         timestamp: response.timestamp,
         receipt_root: response.receipts_root,
         logs_bloom: FixedVector::new(logs_bloom)
-            .map_err(|e| format!("Invalid logs_bloom in eth2_assembleBlock: {:?}", e))?,
-        transactions: VariableList::new(transactions)
-            .map_err(|e| format!("Invalid transactions list in eth2_assembleBlock: {:?}", e))?,
+            .map_err(|e| format!("Invalid logs_bloom in consensus_assembleBlock: {:?}", e))?,
+        transactions: VariableList::new(transactions).map_err(|e| {
+            format!(
+                "Invalid transactions list in consensus_assembleBlock: {:?}",
+                e
+            )
+        })?,
     })
 }
 
@@ -295,13 +300,13 @@ pub async fn consensus_new_block(
 
     let params = json!([json_execution_payload]);
 
-    let response_body = send_rpc_request(endpoint, "eth2_newBlock", params, timeout).await?;
-    let result =
-        response_result(&response_body)?.ok_or("No result field was returned for eth2_newBlock")?;
+    let response_body = send_rpc_request(endpoint, "consensus_newBlock", params, timeout).await?;
+    let result = response_result(&response_body)?
+        .ok_or("No result field was returned for consensus_newBlock")?;
 
     serde_json::from_value::<NewBlockResponse>(result)
         .map(|response| response.valid)
-        .map_err(|e| format!("Unable to parse eth2_newBlock JSON: {:?}", e))
+        .map_err(|e| format!("Unable to parse consensus_newBlock JSON: {:?}", e))
 }
 
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
