@@ -225,6 +225,9 @@ async fn get_remote_head_and_new_block_ranges(
     SingleEndpointError,
 > {
     let remote_head_block = download_eth1_block(endpoint, service.inner.clone(), None).await?;
+
+    *service.inner.remote_head_block.write() = Some(remote_head_block.clone());
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -727,8 +730,6 @@ impl Service {
                         process_single_err(&e)
                     )
                 })?;
-
-        *self.inner.remote_head_block.write() = Some(remote_head_block);
 
         let update_deposit_cache = async {
             let outcome = self
