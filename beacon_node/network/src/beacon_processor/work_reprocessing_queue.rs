@@ -15,7 +15,7 @@ use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use slog::{crit, debug, error, Logger};
 use slot_clock::SlotClock;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::task::Context;
 use std::time::Duration;
@@ -93,10 +93,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     Msg(ReprocessQueueMessage<T>),
 }
 
-/// Combines the `DelayQueue` and `Receiver` streams into a single stream.
-/// struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
-/// control (specifically in the ordering of event processing).
-// TODO: update docs
+/// Manages scheduling works that need to be later re-processed.
 struct ReprocessQueue<T: BeaconChainTypes> {
     /// Receiver of messages relevant to schedule works for reprocessing.
     work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
@@ -117,7 +114,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
     /// Attestations (aggreated and unaggreated) per root.
-    awaiting_attestations_per_root: HashMap<Hash256, VecDeque<QueuedAttestationId>>,
+    awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
 
     /* Aux */
     /// Next attestation id, used for both aggreated and unaggreated attestations
@@ -128,7 +125,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     log: Logger,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
     Aggregate(usize),
     Unaggregate(usize),
@@ -313,7 +310,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 self.awaiting_attestations_per_root
                     .entry(*queued_aggregate.root())
                     .or_default()
-                    .push_back(att_id);
+                    .push(att_id);
 
                 // Store the attestation and its info.
                 self.queued_aggregates
@@ -344,7 +341,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 self.awaiting_attestations_per_root
                     .entry(*queued_unaggregate.root())
                     .or_default()
-                    .push_back(att_id);
+                    .push(att_id);
 
                 // Store the attestation and its info.
                 self.queued_unaggregates
@@ -418,15 +415,20 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 )
             }
             Some(InboundEvent::ReadyAttestation(queued_id)) => {
-                if let Some(work) = match queued_id {
-                    QueuedAttestationId::Aggregate(id) => self
-                        .queued_aggregates
-                        .remove(&id)
-                        .map(|(aggregate, _delay_key)| ReadyWork::Aggregate(aggregate)),
+                if let Some((root, work)) = match queued_id {
+                    QueuedAttestationId::Aggregate(id) => {
+                        self.queued_aggregates
+                            .remove(&id)
+                            .map(|(aggregate, _delay_key)| {
+                                (*aggregate.root(), ReadyWork::Aggregate(aggregate))
+                            })
+                    }
                     QueuedAttestationId::Unaggregate(id) => self
                         .queued_unaggregates
                         .remove(&id)
-                        .map(|(unaggregate, _delay_key)| ReadyWork::Unaggregate(unaggregate)),
+                        .map(|(unaggregate, _delay_key)| {
+                            (*unaggregate.root(), ReadyWork::Unaggregate(unaggregate))
+                        }),
                 } {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
@@ -434,7 +436,12 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             "Failed to send scheduled attestation";
                         );
                     }
-                    // TODO: remove from awaiting_attestations_per_root
+
+                    if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root) {
+                        if let Some(index) = queued_atts.iter().position(|&id| id == queued_id) {
+                            queued_atts.swap_remove(index);
+                        }
+                    }
                 }
             }
             None => {
