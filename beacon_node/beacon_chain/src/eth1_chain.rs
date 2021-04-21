@@ -55,6 +55,7 @@ pub enum Error {
     ShuttingDown,
     UnableToGetExecutionPayload(String),
     UnableToProcessExecutionPayload(String),
+    HeadBlockUnknown,
 }
 
 impl From<safe_arith::ArithError> for Error {
@@ -274,6 +275,12 @@ where
             current_slot,
             spec,
         )
+    }
+
+    pub fn head_block(&self) -> Result<Eth1Block, Error> {
+        self.backend
+            .head_block()
+            .ok_or_else(|| Error::HeadBlockUnknown)
     }
 
     pub fn get_execution_payload(

@@ -6,6 +6,7 @@ mod macros;
 
 pub mod common;
 pub mod genesis;
+pub mod get_execution_payload;
 pub mod per_block_processing;
 pub mod per_epoch_processing;
 pub mod per_slot_processing;

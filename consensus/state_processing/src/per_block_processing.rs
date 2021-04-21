@@ -506,14 +506,14 @@ pub fn process_execution_payload<T: EthSpec>(
     body: &BeaconBlockBody<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let transition_completed = state.latest_execution_payload_header == <_>::default();
+    let transition_completed = is_transition_completed(state);
 
     // This emulates the following line of the specification with less allocations:
     //
     // ```
     // if not is_transition_completed(state) and not is_transition_block(state, body)
     // ```
-    if transition_completed && body.execution_payload == <_>::default() {
+    if is_transition_block(body, transition_completed) {
         return Ok(());
     }
 
@@ -567,4 +567,15 @@ pub fn compute_time_at_slot<T: EthSpec>(
     slots_since_genesis
         .safe_mul(spec.seconds_per_slot)
         .and_then(|since_genesis| state.genesis_time.safe_add(since_genesis))
+}
+
+pub fn is_transition_completed<T: EthSpec>(state: &BeaconState<T>) -> bool {
+    state.latest_execution_payload_header == <_>::default()
+}
+
+pub fn is_transition_block<T: EthSpec>(
+    body: &BeaconBlockBody<T>,
+    transition_completed: bool,
+) -> bool {
+    transition_completed && body.execution_payload == <_>::default()
 }

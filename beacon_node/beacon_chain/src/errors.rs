@@ -12,6 +12,7 @@ use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
 use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
+    get_execution_payload,
     per_block_processing::errors::{
         AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
         ProposerSlashingValidationError,
@@ -153,7 +154,7 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
-    UnableToComputeTimestamp(ArithError),
+    UnableToGetExecutionPayload(get_execution_payload::Error<Eth1ChainError>),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

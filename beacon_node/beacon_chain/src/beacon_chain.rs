@@ -43,8 +43,9 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation,
+    get_execution_payload::get_execution_payload,
     per_block_processing,
-    per_block_processing::{compute_time_at_slot, errors::AttestationValidationError},
+    per_block_processing::errors::AttestationValidationError,
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
@@ -1986,28 +1987,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_chain_data(&state, &randao_reveal)
             .map_err(BlockProductionError::UnableToGetBeaconChainData)?;
 
-        let execution_timestamp = compute_time_at_slot(&state, &self.spec)
-            .map_err(BlockProductionError::UnableToComputeTimestamp)?;
-        let execution_parent_hash = state.latest_execution_payload_header.block_hash;
+        let execution_payload = if let Some(execution_params) = get_execution_payload(
+            &state,
+            || eth1_chain.head_block().map(|block| block.hash),
+            &self.spec,
+        )
+        .map_err(BlockProductionError::UnableToGetExecutionPayload)?
+        {
+            info!(
+                self.log,
+                "Requesting block from eth1 node";
+                "timestamp" => execution_params.timestamp,
+                "parent_hash" => ?execution_params.parent_hash,
+                "slot" => %beacon_chain_data.slot,
+            );
 
-        info!(
-            self.log,
-            "Requesting block from eth1 node";
-            "timestamp" => execution_timestamp,
-            "parent_hash" => ?execution_parent_hash,
-            "slot" => %beacon_chain_data.slot,
-        );
+            let execution_payload = eth1_chain
+                .get_execution_payload(execution_params.parent_hash, execution_params.timestamp)?;
 
-        let execution_payload =
-            eth1_chain.get_execution_payload(execution_parent_hash, execution_timestamp)?;
+            info!(
+                self.log,
+                "Eth1 node provided block";
+                "coinbase" => ?execution_payload.coinbase,
+                "tx_count" => execution_payload.transactions.len(),
+                "block_hash" => ?execution_payload.block_hash,
+            );
 
-        info!(
-            self.log,
-            "Eth1 node provided block";
-            "coinbase" => ?execution_payload.coinbase,
-            "tx_count" => execution_payload.transactions.len(),
-            "block_hash" => ?execution_payload.block_hash,
-        );
+            execution_payload
+        } else {
+            <_>::default()
+        };
 
         let parent_root = if state.slot > 0 {
             *state
