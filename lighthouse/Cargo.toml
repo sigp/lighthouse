@@ -6,6 +6,8 @@ edition = "2018"
 autotests = false
 
 [features]
+# This should only be present for the Rayonism testnet
+default = ["spec-minimal"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
