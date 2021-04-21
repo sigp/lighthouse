@@ -20,7 +20,6 @@ where
         raw = "0".to_string()
     };
     let hex = format!("0x{}", raw);
-    dbg!(&hex);
     serializer.serialize_str(&hex)
 }
 
