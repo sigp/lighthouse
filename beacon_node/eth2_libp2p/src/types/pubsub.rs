@@ -9,8 +9,8 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit, SignedVoluntaryExit, SubnetId,
-    SyncAggregate, SyncCommittee,
+    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit, SubnetId, SyncAggregate,
+    SyncCommittee,
 };
 
 #[derive(Debug, Clone, PartialEq)]

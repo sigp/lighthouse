@@ -60,4 +60,9 @@ impl ForkContext {
     pub fn to_context_bytes(&self, fork_name: ForkName) -> Option<[u8; 4]> {
         self.fork_to_digest.get(&fork_name).cloned()
     }
+
+    /// Returns all `fork_digest`s that are currently in the `ForkContext` object.
+    pub fn all_fork_digests(&self) -> Vec<[u8; 4]> {
+        self.digest_to_fork.keys().cloned().collect()
+    }
 }
