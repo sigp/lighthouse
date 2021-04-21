@@ -578,7 +578,7 @@ pub struct YamlConfig {
 
     // Extra fields (could be from a future hard-fork that we don't yet know).
     #[serde(flatten)]
-    pub extra_fields: HashMap<String, String>,
+    pub extra_fields: HashMap<String, serde_yaml::Value>,
 }
 
 impl Default for YamlConfig {
