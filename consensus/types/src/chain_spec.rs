@@ -10,7 +10,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use serde_utils::quoted_u64::Quoted;
+use serde_utils::quoted_u64::MaybeQuoted;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
@@ -843,7 +843,7 @@ pub struct AltairConfig {
     domain_contribution_and_proof: u32,
     #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
-    altair_fork_slot: Option<Quoted<Slot>>,
+    altair_fork_slot: Option<MaybeQuoted<Slot>>,
     // FIXME(altair): sync protocol params?
 }
 
@@ -906,7 +906,9 @@ impl AltairConfig {
             domain_sync_committee_selection_proof: spec.domain_sync_committee_selection_proof,
             domain_contribution_and_proof: spec.domain_contribution_and_proof,
             altair_fork_version: spec.altair_fork_version,
-            altair_fork_slot: spec.altair_fork_slot.map(|slot| Quoted { value: slot }),
+            altair_fork_slot: spec
+                .altair_fork_slot
+                .map(|slot| MaybeQuoted { value: slot }),
         }
     }
 }

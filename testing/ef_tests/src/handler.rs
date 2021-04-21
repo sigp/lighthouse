@@ -306,6 +306,26 @@ impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHa
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct ForkHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
+    type Case = cases::ForkTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork"
+    }
+
+    fn handler_name() -> String {
+        "fork".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct FinalityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {

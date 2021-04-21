@@ -25,7 +25,7 @@ fn config_test<E: EthSpec + TypeName>() {
     assert_eq!(phase0_from_spec, phase0_config);
 
     let altair_from_spec = AltairConfig::from_chain_spec::<E>(&spec);
-    assert_eq!(altair_from_spec, Some(altair_config));
+    assert_eq!(altair_from_spec, altair_config);
 }
 
 #[test]
@@ -338,6 +338,12 @@ fn epoch_processing_participation_record_updates() {
 fn epoch_processing_sync_committee_updates() {
     EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::default().run();
+}
+
+#[test]
+fn fork_upgrade() {
+    ForkHandler::<MinimalEthSpec>::default().run();
+    ForkHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
