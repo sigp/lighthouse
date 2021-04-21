@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
+use types::attestation::SlotData;
 
 /// As a DoS protection measure, the maximum number of distinct `Attestations` that will be
 /// recorded for each slot.
@@ -19,8 +20,8 @@ use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 /// of the number of validators.
 const MAX_OBSERVATIONS_PER_SLOT: usize = 1 << 19; // 524,288
 
-pub type ObservedSyncAggregates<E> = ObservedAggregates<SyncCommitteeContribution<T::EthSpec>, T::EthSpec>;
-pub type ObservedAggregateAttestations<E> = ObservedAggregates<Attestation<T::EthSpec>, T::EthSpec>;
+pub type ObservedSyncAggregates<E> = ObservedAggregates<SyncCommitteeContribution<E>, E>;
+pub type ObservedAggregateAttestations<E> = ObservedAggregates<Attestation<E>, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum ObserveOutcome {
@@ -62,15 +63,15 @@ impl SlotHashSet {
     }
 
     /// Store the attestation in self so future observations recognise its existence.
-    pub fn observe_attestation<E: EthSpec>(
+    pub fn observe_item<T : SlotData>(
         &mut self,
-        a: &Attestation<E>,
+        item: &T,
         root: Hash256,
     ) -> Result<ObserveOutcome, Error> {
-        if a.data.slot != self.slot {
+        if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,
-                attestation: a.data.slot,
+                attestation: item.get_slot(),
             });
         }
 
@@ -98,11 +99,11 @@ impl SlotHashSet {
     }
 
     /// Indicates if `a` has been observed before.
-    pub fn is_known<E: EthSpec>(&self, a: &Attestation<E>, root: Hash256) -> Result<bool, Error> {
-        if a.data.slot != self.slot {
+    pub fn is_known<T: SlotData>(&self, item : &T, root: Hash256) -> Result<bool, Error> {
+        if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,
-                attestation: a.data.slot,
+                attestation: item.get_slot(),
             });
         }
 
@@ -135,30 +136,29 @@ impl<T: TreeHash, E: EthSpec> Default for ObservedAggregates<T, E> {
     }
 }
 
-impl<T: TreeHash, E: EthSpec> ObservedAggregates<T, E> {
+impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
     /// Store the root of `a` in `self`.
     ///
     /// `root` must equal `a.tree_hash_root()`.
     pub fn observe_item(
         &mut self,
         item: &T,
-        item_slot: Slot,
         root_opt: Option<Hash256>,
     ) -> Result<ObserveOutcome, Error> {
-        let index = self.get_set_index(item_slot)?;
+        let index = self.get_set_index(item.get_slot())?;
         let root = root_opt.unwrap_or_else(|| item.tree_hash_root());
 
         self.sets
             .get_mut(index)
             .ok_or(Error::InvalidSetIndex(index))
-            .and_then(|set| set.observe_attestation(item, root))
+            .and_then(|set| set.observe_item(item, root))
     }
 
     /// Check to see if the `root` of `a` is in self.
     ///
     /// `root` must equal `a.tree_hash_root()`.
-    pub fn is_known(&mut self, item: &T, item_slot: Slot, root: Hash256) -> Result<bool, Error> {
-        let index = self.get_set_index(item_slot)?;
+    pub fn is_known(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
+        let index = self.get_set_index(item.get_slot())?;
 
         self.sets
             .get(index)
@@ -260,7 +260,7 @@ mod tests {
         a
     }
 
-    fn single_slot_test(store: &mut ObservedAggregates<E>, slot: Slot) {
+    fn single_slot_test(store: &mut ObservedAggregates<Attestation<E>, E>, slot: Slot) {
         let attestations = (0..NUM_ELEMENTS as u64)
             .map(|i| get_attestation(slot, i))
             .collect::<Vec<_>>();

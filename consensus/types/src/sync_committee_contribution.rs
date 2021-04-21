@@ -1,13 +1,14 @@
 use super::{
-    AggregateSignature, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
+    AggregateSignature, ChainSpec, Domain, EthSpec, Fork, SecretKey,
     SignedRoot,
 };
-use crate::{test_utils::TestRandom, Hash256, Slot};
+use crate::{test_utils::TestRandom, Hash256, Slot, BitVector};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use crate::attestation::SlotData;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -26,8 +27,7 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     pub subcommittee_index: u64,
-    //TODO: SYNC_COMMITTEE_SIZE // SYNC_COMMITTEE_SUBNET_COUNT
-    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
+    pub aggregation_bits: BitVector<T::SyncAggregateSize>,
     pub signature: AggregateSignature,
 }
 
@@ -92,6 +92,36 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
 
 //TODO: verify
 impl SignedRoot for Hash256 {}
+
+/// This is not in the spec, but useful for determining uniqueness of sync committee contributions
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+pub struct SyncContributionData {
+    slot: Slot,
+    beacon_block_root: Hash256,
+    subcommittee_index: u64,
+}
+
+impl SyncContributionData {
+    pub fn from_contribution<T: EthSpec>(signing_data: &SyncCommitteeContribution<T>) -> Self {
+        Self {
+            slot: signing_data.slot,
+            beacon_block_root: signing_data.beacon_block_root,
+            subcommittee_index: signing_data.subcommittee_index,
+        }
+    }
+}
+
+impl<T: EthSpec> SlotData for SyncCommitteeContribution<T> {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
+
+impl SlotData for SyncContributionData {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
 
 #[cfg(test)]
 mod tests {

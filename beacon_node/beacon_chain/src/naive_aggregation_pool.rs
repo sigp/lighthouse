@@ -1,8 +1,9 @@
 use crate::metrics;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeSigningData};
-use store::SyncAggregate;
+use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeSigningData, SyncAggregate, SyncCommitteeContribution};
+use types::sync_committee_contribution::SyncContributionData;
+use types::attestation::SlotData;
 
 type AttestationDataRoot = Hash256;
 type SyncDataRoot = Hash256;
@@ -55,10 +56,10 @@ pub enum Error {
     IncorrectSlot { expected: Slot, attestation: Slot },
 }
 
-trait AggregateMap {
+pub trait AggregateMap {
     type Key;
-    type Value;
-    type Data;
+    type Value: Clone + SlotData;
+    type Data: SlotData;
     fn new(initial_capacity: usize) -> Self;
     fn insert(&mut self, a: &Self::Value) -> Result<InsertOutcome, Error>;
     fn get(&self, data: &Self::Data) -> Option<Self::Value>;
@@ -88,7 +89,7 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
     /// Insert an attestation into `self`, aggregating it into the pool.
     ///
     /// The given attestation (`a`) must only have one signature.
-    fn insert(&mut self, a: &Attestation<E>) -> Result<InsertOutcome, Error> {
+    fn insert(&mut self, a: &Self::Value) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
 
         let set_bits = a
@@ -138,16 +139,16 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     ///
     /// The given `a.data.slot` must match the slot that `self` was initialized with.
-    fn get(&self, data: &AttestationData) -> Option<Attestation<E>> {
+    fn get(&self, data: &Self::Data) -> Option<Self::Value> {
         self.map.get(&data.tree_hash_root()).cloned()
     }
 
-    fn get_map(&self) -> &HashMap<AttestationDataRoot, Attestation<E>>{
+    fn get_map(&self) -> &HashMap<Self::Key, Self::Value>{
         &self.map
     }
 
     /// Returns an aggregated `Attestation` with the given `root`, if any.
-    fn get_by_root(&self, root: &AttestationDataRoot) -> Option<&Attestation<E>> {
+    fn get_by_root(&self, root: &Self::Key) -> Option<&Self::Value> {
         self.map.get(root)
     }
 
@@ -159,13 +160,13 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
 /// A collection of `Attestation` objects, keyed by their `attestation.data`. Enforces that all
 /// `attestation` are from the same slot.
 pub struct SyncAggregateMap<E: EthSpec> {
-    map: HashMap<SyncDataRoot, SyncAggregate<E>>,
+    map: HashMap<SyncDataRoot, SyncCommitteeContribution<E>>,
 }
 
 impl<E: EthSpec> AggregateMap for SyncAggregateMap<E> {
     type Key = SyncDataRoot;
-    type Value = SyncAggregate<E>;
-    type Data = SyncCommitteeSigningData;
+    type Value = SyncCommitteeContribution<E>;
+    type Data = SyncContributionData;
 
     /// Create an empty collection with the given `initial_capacity`.
     fn new(initial_capacity: usize) -> Self {
@@ -178,11 +179,11 @@ impl<E: EthSpec> AggregateMap for SyncAggregateMap<E> {
     /// Insert an attestation into `self`, aggregating it into the pool.
     ///
     /// The given attestation (`a`) must only have one signature.
-    fn insert(&mut self, a: &SyncAggregate<E>) -> Result<InsertOutcome, Error> {
+    fn insert(&mut self, a: &SyncCommitteeContribution<E>) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
 
         let set_bits = a
-            .sync_committee_bits
+            .aggregation_bits
             .iter()
             .enumerate()
             .filter(|(_i, bit)| *bit)
@@ -198,7 +199,7 @@ impl<E: EthSpec> AggregateMap for SyncAggregateMap<E> {
             return Err(Error::MoreThanOneAggregationBitSet(set_bits.len()));
         }
 
-        let attestation_data_root = a.data.tree_hash_root();
+        let attestation_data_root = SyncContributionData::from_contribution(a).tree_hash_root();
 
         if let Some(existing_attestation) = self.map.get_mut(&attestation_data_root) {
             if existing_attestation
@@ -228,16 +229,16 @@ impl<E: EthSpec> AggregateMap for SyncAggregateMap<E> {
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     ///
     /// The given `a.data.slot` must match the slot that `self` was initialized with.
-    fn get(&self, data: &SyncCommitteeSigningData) -> Option<SyncAggregate<E>> {
+    fn get(&self, data: &SyncContributionData) -> Option<SyncCommitteeContribution<E>> {
         self.map.get(&data.tree_hash_root()).cloned()
     }
 
-    fn get_map(&self) -> &HashMap<SyncDataRoot, SyncAggregate<E>>{
+    fn get_map(&self) -> &HashMap<SyncDataRoot, SyncCommitteeContribution<E>>{
         &self.map
     }
 
     /// Returns an aggregated `Attestation` with the given `root`, if any.
-    fn get_by_root(&self, root: &SyncDataRoot) -> Option<&SyncAggregate<E>> {
+    fn get_by_root(&self, root: &SyncDataRoot) -> Option<&SyncCommitteeContribution<E>> {
         self.map.get(root)
     }
 
@@ -289,9 +290,9 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
     ///
     /// The pool may be pruned if the given `attestation.data` has a slot higher than any
     /// previously seen.
-    pub fn insert(&mut self, attestation: &T::Value) -> Result<InsertOutcome, Error> {
+    pub fn insert(&mut self, item: &T::Value) -> Result<InsertOutcome, Error> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT);
-        let slot = attestation.data.slot;
+        let slot = item.get_slot();
         let lowest_permissible_slot = self.lowest_permissible_slot;
 
         // Reject any attestations that are too old.
@@ -307,7 +308,7 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
         drop(lock_timer);
 
         let outcome = if let Some(map) = self.maps.get_mut(&slot) {
-            map.insert(attestation)
+            map.insert(item)
         } else {
             let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CREATE_MAP);
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
@@ -324,9 +325,9 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
             // Use the mainnet default committee size if we can't determine an average.
             let initial_capacity = sum.checked_div(count).unwrap_or(128);
 
-            let mut item = AggregatedAttestationMap::new(initial_capacity);
-            let outcome = item.insert(attestation);
-            self.maps.insert(slot, item);
+            let mut aggregate_map = T::new(initial_capacity);
+            let outcome = aggregate_map.insert(item);
+            self.maps.insert(slot, aggregate_map);
 
             outcome
         };
@@ -343,7 +344,7 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
     pub fn get(&self, data: &T::Data) -> Option<T::Value> {
-        self.maps.get(&data.slot).and_then(|map| map.get(data))
+        self.maps.get(&data.get_slot()).and_then(|map| map.get(data))
     }
 
     /// Returns an aggregated `Attestation` with the given `data`, if any.
@@ -444,7 +445,7 @@ mod tests {
     fn single_attestation() {
         let mut a = get_attestation(Slot::new(0));
 
-        let mut pool = NaiveAggregationPool::default();
+        let mut pool: NaiveAggregationPool<AggregatedAttestationMap<E>> = NaiveAggregationPool::default();
 
         assert_eq!(
             pool.insert(&a),
@@ -491,7 +492,7 @@ mod tests {
         sign(&mut a_0, 0, genesis_validators_root);
         sign(&mut a_1, 1, genesis_validators_root);
 
-        let mut pool = NaiveAggregationPool::default();
+        let mut pool: NaiveAggregationPool<AggregatedAttestationMap<E>> = NaiveAggregationPool::default();
 
         assert_eq!(
             pool.insert(&a_0),
@@ -546,7 +547,7 @@ mod tests {
         let mut base = get_attestation(Slot::new(0));
         sign(&mut base, 0, Hash256::random());
 
-        let mut pool = NaiveAggregationPool::default();
+        let mut pool: NaiveAggregationPool<AggregatedAttestationMap<E>> = NaiveAggregationPool::default();
 
         for i in 0..SLOTS_RETAINED * 2 {
             let slot = Slot::from(i);
@@ -594,7 +595,7 @@ mod tests {
         let mut base = get_attestation(Slot::new(0));
         sign(&mut base, 0, Hash256::random());
 
-        let mut pool = NaiveAggregationPool::default();
+        let mut pool: NaiveAggregationPool<AggregatedAttestationMap<E>> = NaiveAggregationPool::default();
 
         for i in 0..=MAX_ATTESTATIONS_PER_SLOT {
             let mut a = base.clone();

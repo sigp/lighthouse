@@ -212,7 +212,6 @@ mod ssz_static {
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(beacon_state, SszStaticTHCHandler, BeaconState<_>);
     ssz_static_test!(checkpoint, Checkpoint);
-    // FIXME(altair): add ContributionAndProof
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
@@ -232,10 +231,8 @@ mod ssz_static {
         SignedBeaconBlock<_>
     );
     ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
-    // FIXME(altair): add SignedContributionAndProof
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
-    // FIXME(altair): add SyncCommitteeContribution/Signature/SigningData
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 
@@ -252,6 +249,18 @@ mod ssz_static {
 
     // Altair-only
     #[test]
+    fn contribution_and_proof() {
+        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn signed_contribution_and_proof() {
+        SszStaticHandler::<SignedContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SignedContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
     fn sync_aggregate() {
         SszStaticHandler::<SyncAggregate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncAggregate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
@@ -261,6 +270,24 @@ mod ssz_static {
     fn sync_committee() {
         SszStaticHandler::<SyncCommittee<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncCommittee<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee_contribution() {
+        SszStaticHandler::<SyncCommitteeContribution<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeContribution<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee_signature() {
+        SszStaticHandler::<SyncCommitteeSignature, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeSignature, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee_signing_data() {
+        SszStaticHandler::<SyncCommitteeSigningData, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeSigningData, MainnetEthSpec>::altair_only().run();
     }
 }
 

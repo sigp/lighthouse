@@ -4,12 +4,14 @@ mod attester_slashing;
 mod max_cover;
 mod metrics;
 mod persistence;
+mod sync_contribution_id;
 
 pub use persistence::PersistedOperationPool;
 
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
+use sync_contribution_id::SyncContributionId;
 use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;

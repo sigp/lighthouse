@@ -227,6 +227,7 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
     }
 }
 
+//TODO: implement intersection and union
 impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
     /// Instantiate a new `Bitfield` with a fixed-length of `N` bits.
     ///
@@ -265,7 +266,34 @@ impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
     ///
     /// Returns `None` if `bytes` are not a valid encoding.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Error> {
-        Self::from_raw_bytes(bytes, Self::capacity())
+        let bit_len = bytes.len() * 8;
+        Self::from_raw_bytes(bytes,  bit_len)
+    }
+
+    /// Compute the intersection of two fixed-length `Bitfield`s.
+    ///
+    /// Return a new fixed-length `Bitfield`.
+    pub fn intersection(&self, other: &Self) -> Self {
+        let mut result = Self::new();
+        // Bitwise-and the bytes together, starting from the left of each vector. This takes care
+        // of masking out any entries beyond `min_len` as well, assuming the bitfield doesn't
+        // contain any set bits beyond its length.
+        for i in 0..result.bytes.len() {
+            result.bytes[i] = self.bytes[i] & other.bytes[i];
+        }
+        result
+    }
+
+    /// Compute the union of two fixed-length `Bitfield`s..
+    ///
+    /// Return a new fixed-length `Bitfield`.
+    pub fn union(&self, other: &Self) -> Self {
+        let mut result = Self::new();
+        for i in 0..result.bytes.len() {
+            result.bytes[i] =
+                self.bytes.get(i).copied().unwrap_or(0) | other.bytes.get(i).copied().unwrap_or(0);
+        }
+        result
     }
 }
 

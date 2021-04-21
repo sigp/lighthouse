@@ -5,6 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use crate::attestation::SlotData;
 
 /// The data upon which an attestation is based.
 ///
@@ -38,6 +39,12 @@ pub struct AttestationData {
 }
 
 impl SignedRoot for AttestationData {}
+
+impl SlotData for AttestationData {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
 
 #[cfg(test)]
 mod tests {

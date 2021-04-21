@@ -11,18 +11,7 @@ use bls::Signature;
 ///
 /// Spec v1.1.0
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(
-Debug,
-Clone,
-PartialEq,
-Eq,
-Serialize,
-Deserialize,
-Encode,
-Decode,
-TreeHash,
-TestRandom,
-)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct SyncCommitteeSignature {
     pub slot: Slot,
     pub beacon_block_root: Hash256,

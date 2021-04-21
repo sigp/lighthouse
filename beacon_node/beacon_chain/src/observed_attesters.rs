@@ -294,24 +294,17 @@ mod tests {
 
                 type E = types::MainnetEthSpec;
 
-                fn get_attestation(epoch: Epoch) -> Attestation<E> {
-                    let mut a: Attestation<E> = test_random_instance();
-                    a.data.target.epoch = epoch;
-                    a
-                }
-
                 fn single_epoch_test(store: &mut $type<E>, epoch: Epoch) {
                     let attesters = [0, 1, 2, 3, 5, 6, 7, 18, 22];
-                    let a = &get_attestation(epoch);
 
                     for &i in &attesters {
                         assert_eq!(
-                            store.validator_has_been_observed(a, i),
+                            store.validator_has_been_observed(epoch, i),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
                         assert_eq!(
-                            store.observe_validator(a, i),
+                            store.observe_validator(epoch, i),
                             Ok(false),
                             "should observe new attestation"
                         );
@@ -319,12 +312,12 @@ mod tests {
 
                     for &i in &attesters {
                         assert_eq!(
-                            store.validator_has_been_observed(a, i),
+                            store.validator_has_been_observed(epoch, i),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_validator(a, i),
+                            store.observe_validator(epoch, i),
                             Ok(true),
                             "should acknowledge an existing attestation"
                         );

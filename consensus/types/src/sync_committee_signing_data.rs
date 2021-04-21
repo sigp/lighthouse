@@ -18,5 +18,5 @@ pub struct SyncCommitteeSigningData {
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(SyncCommitteeSignature);
+    ssz_and_tree_hash_tests!(SyncCommitteeSigningData);
 }
