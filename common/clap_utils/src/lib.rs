@@ -6,6 +6,11 @@ use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub const TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK: &str = "testnet-deposit-contract-deploy-block";
+pub const TESTNET_BOOT_ENR: &str = "testnet-boot-enr";
+pub const TESTNET_GENESIS_STATE: &str = "testnet-genesis-state";
+pub const TESTNET_YAML_CONFIG: &str = "testnet-yaml-config";
+
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \
                                         or when there is no default public network to connect to. \
@@ -17,10 +22,31 @@ pub fn parse_testnet_dir(
     matches: &ArgMatches,
     name: &'static str,
 ) -> Result<Option<Eth2NetworkConfig>, String> {
+    if let Some(testnet) = parse_testnet_components_group(matches)? {
+        return Ok(Some(testnet));
+    }
+
     let path = parse_required::<PathBuf>(matches, name)?;
     Eth2NetworkConfig::load(path.clone())
         .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
         .map(Some)
+}
+
+fn parse_testnet_components_group(
+    matches: &ArgMatches,
+) -> Result<Option<Eth2NetworkConfig>, String> {
+    if let Some(deploy_block) = parse_optional(matches, TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK)? {
+        Eth2NetworkConfig::load_from_components(
+            deploy_block,
+            parse_optional::<PathBuf>(matches, TESTNET_BOOT_ENR)?,
+            parse_optional::<PathBuf>(matches, TESTNET_GENESIS_STATE)?,
+            parse_optional::<PathBuf>(matches, TESTNET_YAML_CONFIG)?,
+        )
+        .map_err(|e| format!("Unable to load testnet parameters: {}", e))
+        .map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 /// Attempts to load a hardcoded network config if `name` is in `matches`, returning an error if

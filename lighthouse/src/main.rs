@@ -2,6 +2,10 @@ mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
+use clap_utils::{
+    TESTNET_BOOT_ENR, TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK, TESTNET_GENESIS_STATE,
+    TESTNET_YAML_CONFIG,
+};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
@@ -104,6 +108,54 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name(TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK)
+                .long(TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK)
+                .value_name("BLOCK_NUMBER")
+                .help(
+                    "The Eth1 block number where the deposit contract was deployed.",
+                )
+                .takes_value(true)
+                .conflicts_with_all(&["network", "testnet-dir"])
+                .requires(TESTNET_YAML_CONFIG)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name(TESTNET_BOOT_ENR)
+                .long(TESTNET_BOOT_ENR)
+                .value_name("YAML_FILE")
+                .help(
+                    "The path to a YAML file containing boot nodes.",
+                )
+                .takes_value(true)
+                .conflicts_with_all(&["network", "testnet-dir"])
+                .requires(TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name(TESTNET_GENESIS_STATE)
+                .long(TESTNET_GENESIS_STATE)
+                .value_name("SSZ_FILE")
+                .help(
+                    "The path to a SSZ file containing a genesis state.",
+                )
+                .takes_value(true)
+                .conflicts_with_all(&["network", "testnet-dir"])
+                .requires(TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name(TESTNET_YAML_CONFIG)
+                .long(TESTNET_YAML_CONFIG)
+                .value_name("YAML_FILE")
+                .help(
+                    "The path to a YAML file containing the testnet specifications.",
+                )
+                .takes_value(true)
+                .conflicts_with_all(&["network", "testnet-dir"])
+                .requires(TESTNET_DEPOSIT_CONTRACT_DEPLOY_BLOCK)
+                .global(true),
+        )
+        .arg(
             Arg::with_name("testnet-dir")
                 .short("t")
                 .long("testnet-dir")
@@ -114,6 +166,7 @@ fn main() {
                       existing database.",
                 )
                 .takes_value(true)
+                .conflicts_with("network")
                 .global(true),
         )
         .arg(
@@ -122,7 +175,6 @@ fn main() {
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo", "prater"])
-                .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
 
@@ -270,12 +322,19 @@ fn run<E: EthSpec>(
     // Print an indication of which network is currently in use.
     let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
     let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
+    let optional_testnet_params =
+        clap_utils::parse_optional::<PathBuf>(matches, TESTNET_YAML_CONFIG)?;
 
-    let network_name = match (optional_testnet, optional_testnet_dir) {
-        (Some(testnet), None) => testnet,
-        (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
-        (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
-        (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
+    let network_name = match (
+        optional_testnet,
+        optional_testnet_dir,
+        optional_testnet_params,
+    ) {
+        (Some(testnet), None, None) => testnet,
+        (None, Some(testnet_dir), None) => format!("custom ({})", testnet_dir.display()),
+        (None, None, Some(yaml_file)) => format!("custom loaded from {}", yaml_file.display()),
+        (None, None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
+        _ => return Err("Invalid combination of testnet flags".to_string()),
     };
 
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {

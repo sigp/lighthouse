@@ -632,7 +632,9 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
     let optional_network_config = if cli_args.is_present("network") {
         clap_utils::parse_hardcoded_network(cli_args, "network")?
-    } else if cli_args.is_present("testnet-dir") {
+    } else if cli_args.is_present("testnet-dir")
+        || cli_args.is_present(clap_utils::TESTNET_YAML_CONFIG)
+    {
         clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
         // if neither is present, assume the default network

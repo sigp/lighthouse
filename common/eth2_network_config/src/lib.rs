@@ -4,7 +4,7 @@ use enr::{CombinedKey, Enr};
 use ssz::Decode;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use types::{BeaconState, EthSpec, EthSpecId, YamlConfig};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
@@ -36,6 +36,17 @@ macro_rules! define_net {
             genesis_state_bytes: $include_file!("../", "genesis.ssz"),
         }
     }};
+}
+
+macro_rules! load_from_file {
+    ($file: expr) => {
+        File::open($file)
+            .map_err(|e| format!("Unable to open {:?}: {:?}", $file, e))
+            .and_then(|file| {
+                serde_yaml::from_reader(file)
+                    .map_err(|e| format!("Unable to parse {:?}: {:?}", $file, e))
+            })
+    };
 }
 
 const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
@@ -187,43 +198,47 @@ impl Eth2NetworkConfig {
     }
 
     pub fn load(base_dir: PathBuf) -> Result<Self, String> {
-        macro_rules! load_from_file {
-            ($file: ident) => {
-                File::open(base_dir.join($file))
-                    .map_err(|e| format!("Unable to open {}: {:?}", $file, e))
-                    .and_then(|file| {
-                        serde_yaml::from_reader(file)
-                            .map_err(|e| format!("Unable to parse {}: {:?}", $file, e))
-                    })?;
-            };
-        }
+        let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE)?;
 
-        macro_rules! optional_load_from_file {
-            ($file: ident) => {
-                if base_dir.join($file).exists() {
-                    Some(load_from_file!($file))
-                } else {
-                    None
-                }
-            };
-        }
+        Self::load_from_components(
+            deposit_contract_deploy_block,
+            Some(base_dir.join(BOOT_ENR_FILE)).filter(|path| path.exists()),
+            Some(base_dir.join(GENESIS_STATE_FILE)).filter(|path| path.exists()),
+            Some(base_dir.join(YAML_CONFIG_FILE)).filter(|path| path.exists()),
+        )
+    }
 
-        let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
-        let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
-        let yaml_config = optional_load_from_file!(YAML_CONFIG_FILE);
+    pub fn load_from_components<P: AsRef<Path>>(
+        deposit_contract_deploy_block: u64,
+        boot_enr_path: Option<P>,
+        genesis_state_path: Option<P>,
+        yaml_config_path: Option<P>,
+    ) -> Result<Self, String> {
+        let boot_enr = boot_enr_path
+            .map(|path| load_from_file!(path.as_ref()))
+            .transpose()?;
+        let yaml_config = yaml_config_path
+            .map(|path| load_from_file!(path.as_ref()))
+            .transpose()?;
 
         // The genesis state is a special case because it uses SSZ, not YAML.
-        let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
-        let genesis_state_bytes = if genesis_file_path.exists() {
-            let mut bytes = vec![];
-            File::open(&genesis_file_path)
-                .map_err(|e| format!("Unable to open {:?}: {:?}", genesis_file_path, e))
-                .and_then(|mut file| {
-                    file.read_to_end(&mut bytes)
-                        .map_err(|e| format!("Unable to read {:?}: {:?}", file, e))
-                })?;
+        let genesis_file_path = genesis_state_path;
+        let genesis_state_bytes = if let Some(genesis_file_path) = genesis_file_path {
+            if genesis_file_path.as_ref().exists() {
+                let mut bytes = vec![];
+                File::open(&genesis_file_path)
+                    .map_err(|e| {
+                        format!("Unable to open {:?}: {:?}", genesis_file_path.as_ref(), e)
+                    })
+                    .and_then(|mut file| {
+                        file.read_to_end(&mut bytes)
+                            .map_err(|e| format!("Unable to read {:?}: {:?}", file, e))
+                    })?;
 
-            Some(bytes).filter(|bytes| !bytes.is_empty())
+                Some(bytes).filter(|bytes| !bytes.is_empty())
+            } else {
+                None
+            }
         } else {
             None
         };
