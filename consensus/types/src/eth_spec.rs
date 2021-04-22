@@ -96,6 +96,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     ///
     /// Must be set to `SyncCommitteeSize / SyncPubkeysPerAggregate`.
     type SyncAggregateSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The size of `sync_committees`.
+    ///
+    /// Must be set to `SyncCommitteeSize / SyncCommitteeSubnetCount`.
+    type SyncCommitteeSubnetSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -210,6 +214,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxVoluntaryExits = U16;
     type SyncCommitteeSize = U1024;
     type SyncPubkeysPerAggregate = U64;
+    type SyncCommitteeSubnetSize = U128; // 1024 committee size / 8 sync committee subnet count
     type SyncAggregateSize = U16; // 1024 committee size / 64 subcommittee size
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -236,6 +241,7 @@ impl EthSpec for MinimalEthSpec {
     type EpochsPerSlashingsVector = U64;
     type SyncCommitteeSize = U32;
     type SyncPubkeysPerAggregate = U16;
+    type SyncCommitteeSubnetSize = U4; // 32 committee size / 8 sync committee subnet count
     type SyncAggregateSize = U2; // 32 committee size / 16 subcommittee size
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch

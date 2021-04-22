@@ -18,7 +18,7 @@ pub struct SyncCommitteeSignature {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     // Signature by the validator over the block root of `slot`
-    pub source: Signature,
+    pub signature: Signature,
 }
 
 impl SignedRoot for SyncCommitteeSignature {}
