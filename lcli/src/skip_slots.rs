@@ -1,5 +1,6 @@
-use crate::transition_blocks::load_from_ssz;
+use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::per_slot_processing;
 use std::fs::File;
@@ -7,7 +8,7 @@ use std::io::prelude::*;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec};
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let pre_state_path = matches
         .value_of("pre-state")
         .ok_or("No pre-state file supplied")?
@@ -30,9 +31,11 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     info!("Pre-state path: {:?}", pre_state_path);
     info!("Slots: {:?}", slots);
 
-    let mut state: BeaconState<T> = load_from_ssz(pre_state_path)?;
+    let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;
+    let spec = &eth2_network_config.chain_spec::<T>()?;
 
-    let spec = &T::default_spec();
+    let mut state: BeaconState<T> =
+        load_from_ssz_with(&pre_state_path, spec, BeaconState::from_ssz_bytes)?;
 
     state
         .build_all_caches(spec)
