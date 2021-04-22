@@ -38,7 +38,7 @@ impl SyncContributionId {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Hash256 {
-        spec.get_domain(epoch, Domain::BeaconAttester, fork, genesis_validators_root)
+        spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root)
     }
 
     pub fn domain_bytes_match(&self, domain_bytes: &Hash256) -> bool {

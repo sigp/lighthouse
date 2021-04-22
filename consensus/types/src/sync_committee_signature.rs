@@ -21,8 +21,6 @@ pub struct SyncCommitteeSignature {
     pub signature: Signature,
 }
 
-impl SignedRoot for SyncCommitteeSignature {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

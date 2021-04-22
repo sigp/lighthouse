@@ -208,15 +208,19 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
     pub naive_aggregation_pool: RwLock<NaiveAggregationPool<AggregatedAttestationMap<T::EthSpec>>>,
-    //TODO: clean up sync committee related additions
+    /// A pool of `SyncCommitteeContributions` dedicated to the "naive aggregation strategy" defined in the eth2
+    /// specs.
+    ///
+    /// This pool accepts `SyncCommitteeContribution` objects that only have one aggregation bit set and provides
+    /// a method to get an aggregated `SyncCommitteeContribution` for some `SyncCommitteeContributionData`.
     pub naive_sync_aggregation_pool: RwLock<NaiveAggregationPool<SyncAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
-    /// Contains a store of attestations which have been observed by the beacon chain.
+    /// Contains a store of sync contributions which have been observed by the beacon chain.
     pub(crate) observed_sync_contributions: RwLock<ObservedSyncAggregates<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
-    /// Maintains a record of which validators have been seen to attest in recent epochs.
+    /// Maintains a record of which validators have been seen sending sync signatures in recent epochs.
     pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.

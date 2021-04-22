@@ -3,7 +3,11 @@
 //!
 //! - `ObservedAttesters`: allows filtering unaggregated attestations from the same validator in
 //!   the same epoch.
+//! - `ObservedSyncContributors`: allows filtering sync committee signatures from the same validator in
+//!   the same epoch.
 //! - `ObservedAggregators`: allows filtering aggregated attestations from the same aggregators in
+//!   the same epoch
+//! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same epoch
 
 use bitvec::vec::BitVec;
@@ -22,7 +26,7 @@ pub enum Error {
         epoch: Epoch,
         lowest_permissible_epoch: Epoch,
     },
-    /// We have reached the maximum number of unique `Attestation` that can be observed in a slot.
+    /// We have reached the maximum number of unique items that can be observed in a slot.
     /// This is a DoS protection function.
     ReachedMaxObservationsPerSlot(usize),
     /// The function to obtain a set index failed, this is an internal error.
@@ -50,7 +54,8 @@ pub trait Item {
     fn contains(&self, validator_index: usize) -> bool;
 }
 
-/// Stores a `BitVec` that represents which validator indices have attested during an epoch.
+/// Stores a `BitVec` that represents which validator indices have attested or sent sync committee
+/// signatures during an epoch.
 pub struct EpochBitfield {
     bitfield: BitVec,
 }
@@ -101,7 +106,7 @@ impl Item for EpochBitfield {
     }
 }
 
-/// Stores a `HashSet` of which validator indices have created an aggregate attestation during an
+/// Stores a `HashSet` of which validator indices have created an aggregate during an
 /// epoch.
 pub struct EpochHashSet {
     set: HashSet<usize>,
@@ -114,6 +119,7 @@ impl Item for EpochHashSet {
         }
     }
 
+    //TODO: verify for sync contributions
     /// Defaults to the target number of aggregators per committee (16) multiplied by the expected
     /// max committee count (64).
     fn default_capacity() -> usize {

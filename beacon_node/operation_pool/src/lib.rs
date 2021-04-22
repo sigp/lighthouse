@@ -28,7 +28,7 @@ use types::{typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, Beaco
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from attestation ID (see below) to vectors of attestations.
+    /// Map from sync contribution ID (see below) to vectors of sync contributions.
     sync_contributions: RwLock<HashMap<SyncContributionId, Vec<SyncCommitteeContribution<T>>>>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
@@ -49,6 +49,8 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn new() -> Self {
         Self::default()
     }
+
+    //TODO: implement insert_sync_contribution, num_sync_contributions, etc,
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
     ///
