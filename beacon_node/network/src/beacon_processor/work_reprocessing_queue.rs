@@ -1,4 +1,4 @@
-//! Provides a mechanism which queues blocks for later processing when they arrive too early.
+//! Provides a mechanism which queues work for later processing.
 //!
 //! When the `beacon_processor::Worker` imports a block that is acceptably early (i.e., within the
 //! gossip propagation tolerance) it will send it to this queue where it will be placed in a
@@ -7,8 +7,11 @@
 //!
 //! There is the edge-case where the slot arrives before this queue manages to process it. In that
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
-use super::MAX_DELAYED_BLOCK_QUEUE_LEN;
-use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
+//!
+//! Aggregated and unaggreated attestations that failed verification due to referencing an unknown
+//! block will be delayed for ``
+use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
+use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use eth2_libp2p::{MessageId, PeerId};
 use fnv::FnvHashMap;
 use futures::task::Poll;
@@ -25,16 +28,22 @@ use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
-const TASK_NAME: &str = "beacon_processor_block_delay_queue";
+const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 
-/// Queue blocks for re-processing with an `ADDITIONAL_DELAY` after the slot starts. This is to
-/// account for any slight drift in the system clock.
-const ADDITIONAL_DELAY: Duration = Duration::from_millis(5);
+/// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
+/// This is to account for any slight drift in the system clock.
+const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
+
+/// For how long attestations will be kept before sending them back for reprocessing.
+const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(20);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
+
+/// How many attestations we keep before new ones get dropped.
+const MAXIMUM_QUEUED_ATTESTATIONS: usize = 1_024;
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
@@ -173,7 +182,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
                 )));
             }
             Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "unaggregates_queue")));
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "attestations_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -191,15 +200,17 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
 }
 
 /// Starts the job that manages scheduling works that need re-processing. The returned `Sender`
-/// gives the communicating channel to receive those works. Once a work is ready, send them back
-/// out via `ready_work_tx`.
+/// gives the communicating channel to receive those works. Once a work is ready, it is sent back
+/// via `ready_work_tx`.
 pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
     ready_work_tx: Sender<ReadyWork<T>>,
     executor: &TaskExecutor,
     slot_clock: T::SlotClock,
     log: Logger,
 ) -> Sender<ReprocessQueueMessage<T>> {
-    let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
+    let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+    // basic sanity check
+    assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < MAXIMUM_GOSSIP_CLOCK_DISPARITY);
 
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,
@@ -258,9 +269,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                     self.queued_block_roots.insert(block_root);
                     // Queue the block until the start of the appropriate slot, plus
-                    // `ADDITIONAL_DELAY`.
-                    self.block_delay_queue
-                        .insert(early_block, duration_till_slot + ADDITIONAL_DELAY);
+                    // `ADDITIONAL_QUEUED_BLOCK_DELAY`.
+                    self.block_delay_queue.insert(
+                        early_block,
+                        duration_till_slot + ADDITIONAL_QUEUED_BLOCK_DELAY,
+                    );
                 } else {
                     // If there is no duration till the next slot, check to see if the slot
                     // has already arrived. If it has already arrived, send it out for
@@ -288,11 +301,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             Some(InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate))) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
                         self.log,
                         "Attestation delay queue is full";
-                        "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                        "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
                         "msg" => "check system clock"
                     );
                     // Drop the attestation.
@@ -304,7 +317,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 // Register the delay.
                 let delay_key = self
                     .attestations_delay_queue
-                    .insert(att_id, ADDITIONAL_DELAY);
+                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
 
                 // Register this attestation for the corresponding root.
                 self.awaiting_attestations_per_root
@@ -319,11 +332,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 self.next_attestation += 1;
             }
             Some(InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate))) => {
-                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
+                if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
                         self.log,
                         "Attestation delay queue is full";
-                        "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                        "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
                         "msg" => "check system clock"
                     );
                     // Drop the attestation.
@@ -335,7 +348,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 // Register the delay.
                 let delay_key = self
                     .attestations_delay_queue
-                    .insert(att_id, ADDITIONAL_DELAY);
+                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
 
                 // Register this attestation for the corresponding root.
                 self.awaiting_attestations_per_root

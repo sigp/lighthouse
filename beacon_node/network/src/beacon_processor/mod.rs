@@ -5,6 +5,7 @@
 //!
 //! - A "manager" task, which either spawns worker tasks or enqueues work.
 //! - One or more "worker" tasks which perform time-intensive work on the `BeaconChain`.
+//! - A task managing the scheduling of work that needs to be re-processed.
 //!
 //! ## Purpose
 //!
@@ -19,10 +20,12 @@
 //!
 //! ## Detail
 //!
-//! There is a single "manager" thread who listens to two event channels. These events are either:
+//! There is a single "manager" thread who listens to three event channels. These events are
+//! either:
 //!
 //! - A new parcel of work (work event).
 //! - Indication that a worker has finished a parcel of work (worker idle).
+//! - A work ready for reprocessing (work event).
 //!
 //! Then, there is a maximum of `n` "worker" blocking threads, where `n` is the CPU count.
 //!
@@ -79,13 +82,24 @@ pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 /// set to the CPU count, but we set it high to be safe.
 const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
+/// The maximum size of the channel for re-processing work events.
+const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 16_384;
+
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
 const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 16_384;
 
+/// The maximum number of queued `Attestation` objects that will be stored before we start dropping
+/// them.
+const MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 8_192;
+
 /// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
 /// start dropping them.
 const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
+/// start dropping them.
+const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received on gossip that will be stored
 /// before we start dropping them.
@@ -129,6 +143,7 @@ const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
+
 /// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 
@@ -492,18 +507,18 @@ pub enum Work<T: BeaconChainTypes> {
         should_import: bool,
         seen_timestamp: Duration,
     },
-    GossipAggregate {
-        message_id: MessageId,
-        peer_id: PeerId,
-        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
-        seen_timestamp: Duration,
-    },
     UnknownBlockAttestation {
         message_id: MessageId,
         peer_id: PeerId,
         attestation: Box<Attestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
+        seen_timestamp: Duration,
+    },
+    GossipAggregate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     UnkonwnBlockAggregate {
@@ -609,7 +624,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     WorkerIdle,
     /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
-    /// A block that was delayed for import at a later slot has become ready.
+    /// A work that was queued for re-processing has become ready.
     ReprocessingWork(WorkEvent<T>),
 }
 
@@ -698,7 +713,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     pub fn spawn_manager(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<T>>,
-        work_journal_tx: Option<mpsc::Sender<String>>,
+        work_journal_tx: Option<mpsc::Sender<&'static str>>,
     ) {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
@@ -711,9 +726,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
         let mut unknown_block_aggregate_queue =
-            LifoQueue::new(MAX_AGGREGATED_ATTESTATION_QUEUE_LEN);
+            LifoQueue::new(MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
         let mut unknown_block_attestation_queue =
-            LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
+            LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
 
         // Using a FIFO queue for voluntary exits since it prevents exit censoring. I don't have
         // a strong feeling about queue type for exits.
@@ -736,14 +751,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
-        // The delayed block queues are used to re-queue blocks for processing at a later time if
-        // they're received early.
-        let (post_delay_block_queue_tx, post_delay_block_queue_rx) =
-            mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
-        let pre_delay_block_queue_tx = {
+        // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
+        // receive them back once they are ready (`ready_work_rx`).
+        let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+        let work_reprocessing_tx = {
             if let Some(chain) = self.beacon_chain.upgrade() {
                 spawn_reprocess_scheduler(
-                    post_delay_block_queue_tx,
+                    ready_work_tx,
                     &self.executor,
                     chain.slot_clock.clone(),
                     self.log.clone(),
@@ -763,7 +777,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             let mut inbound_events = InboundEvents {
                 idle_rx,
                 event_rx,
-                reprocess_work_rx: post_delay_block_queue_rx,
+                reprocess_work_rx: ready_work_rx,
             };
 
             loop {
@@ -803,7 +817,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
                     // We don't care if this message was successfully sent, we only use the journal
                     // during testing.
-                    let _ = work_journal_tx.try_send(id.to_string());
+                    let _ = work_journal_tx.try_send(id);
                 }
 
                 let can_spawn = self.current_workers < self.max_workers;
@@ -819,7 +833,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     None if can_spawn => {
                         let toolbox = Toolbox {
                             idle_tx: idle_tx.clone(),
-                            work_reprocessing_tx: pre_delay_block_queue_tx.clone(),
+                            work_reprocessing_tx: work_reprocessing_tx.clone(),
                         };
 
                         // Check for chain segments first, they're the most efficient way to get
@@ -844,6 +858,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         } else if let Some(item) = aggregate_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = attestation_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        // Aggregates and unaggregates queued for re-processing are older and we
+                        // care about fresher ones, so check those first.
+                        } else if let Some(item) = unknown_block_aggregate_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = unknown_block_attestation_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
@@ -873,7 +893,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             if let Some(work_journal_tx) = &work_journal_tx {
                                 // We don't care if this message was successfully sent, we only use the journal
                                 // during testing.
-                                let _ = work_journal_tx.try_send(NOTHING_TO_DO.to_string());
+                                let _ = work_journal_tx.try_send(NOTHING_TO_DO);
                             }
                         }
                     }
@@ -910,7 +930,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         let work_id = work.str_id();
                         let toolbox = Toolbox {
                             idle_tx: idle_tx.clone(),
-                            work_reprocessing_tx: pre_delay_block_queue_tx.clone(),
+                            work_reprocessing_tx: work_reprocessing_tx.clone(),
                         };
 
                         match work {
@@ -1019,7 +1039,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(&mut self, work: Work<T>, toolbox: Toolbox<T>) {
         let idle_tx = toolbox.idle_tx;
-        let reprocess_tx = toolbox.work_reprocessing_tx;
+        let work_reprocessing_tx = toolbox.work_reprocessing_tx;
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
@@ -1090,7 +1110,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         *attestation,
                         subnet_id,
                         should_import,
-                        Some(reprocess_tx),
+                        Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
                     /*
@@ -1105,7 +1125,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *aggregate,
-                        Some(reprocess_tx),
+                        Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
                     /*
@@ -1120,7 +1140,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *block,
-                        reprocess_tx,
+                        work_reprocessing_tx,
                         seen_timestamp,
                     ),
                     /*
@@ -1133,7 +1153,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     } => worker.process_gossip_verified_block(
                         peer_id,
                         *block,
-                        reprocess_tx,
+                        work_reprocessing_tx,
                         seen_timestamp,
                     ),
                     /*
