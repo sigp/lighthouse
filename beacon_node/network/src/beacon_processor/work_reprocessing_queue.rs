@@ -390,6 +390,15 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                     "Failed to send scheduled attestation";
                                 );
                             }
+                        } else {
+                            // there is a mismatch between the attestation ids registered for this
+                            // root and the queued attestations. This should never happen
+                            error!(
+                                self.log,
+                                "Unknown queued attestation for block root";
+                                "block_root" => ?root,
+                                "att_id" => ?id,
+                            );
                         }
                     }
                 }

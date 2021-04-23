@@ -301,6 +301,10 @@ lazy_static! {
         "beacon_processor_unaggregated_attestation_imported_total",
         "Total number of unaggregated attestations imported to fork choice, etc."
     );
+    pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_unaggregated_attestation_requeued_total",
+        "Total number of unaggregated attestations that referenced an unknwon block and were re-queued."
+    );
     // Aggregated attestations.
     pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_aggregated_attestation_queue_total",
@@ -313,6 +317,10 @@ lazy_static! {
     pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_aggregated_attestation_imported_total",
         "Total number of aggregated attestations imported to fork choice, etc."
+    );
+    pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_aggregated_attestation_requeued_total",
+        "Total number of aggregated attestations that referenced an unknwon block and were re-queued."
     );
 }
 

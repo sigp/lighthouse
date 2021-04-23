@@ -1233,7 +1233,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         *attestation,
                         subnet_id,
                         should_import,
-                        None, // do not allow this attestation to be re processed beyond this point
+                        None, // do not allow this attestation to be re-processed beyond this point
                         seen_timestamp,
                     ),
                     Work::UnkonwnBlockAggregate {

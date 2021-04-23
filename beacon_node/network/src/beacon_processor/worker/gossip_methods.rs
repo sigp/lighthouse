@@ -852,7 +852,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            AttnError::UnknownHeadBlock => {
+            AttnError::UnknownHeadBlock { beacon_block_root } => {
                 debug!(
                     self.log,
                     "Attestation for unknown block";
@@ -861,12 +861,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 if let Some(sender) = reprocess_tx {
                     // we don't know the block, get the sync manager to handle the block lookup, and
-                    // send the attestation to be scheduled for re-processing.                    self.sync_tx
+                    // send the attestation to be scheduled for re-processing.
                     self.sync_tx
-                        .send(SyncMessage::UnknownBlockHash(
-                            peer_id,
-                            beacon_block_root.clone(),
-                        ))
+                        .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
                         .unwrap_or_else(|_| {
                             warn!(
                                 self.log,
@@ -878,26 +875,37 @@ impl<T: BeaconChainTypes> Worker<T> {
                         FailedAtt::Aggregate {
                             attestation,
                             seen_timestamp,
-                        } => ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
-                            peer_id,
-                            attestation,
-                            message_id: message_id.clone(),
-                            seen_timestamp,
-                        }),
+                        } => {
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                            );
+                            ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
+                                peer_id,
+                                attestation,
+                                message_id: message_id.clone(),
+                                seen_timestamp,
+                            })
+                        }
                         FailedAtt::Unaggregate {
                             attestation,
                             subnet_id,
                             should_import,
                             seen_timestamp,
-                        } => ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
-                            peer_id,
-                            should_import,
-                            message_id: message_id.clone(),
-                            attestation,
-                            subnet_id,
-                            seen_timestamp,
-                        }),
+                        } => {
+                            metrics::inc_counter(
+                                &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                            );
+                            ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+                                peer_id,
+                                should_import,
+                                message_id: message_id.clone(),
+                                attestation,
+                                subnet_id,
+                                seen_timestamp,
+                            })
+                        }
                     };
+
                     if sender.try_send(msg).is_err() {
                         error!(
                             self.log,

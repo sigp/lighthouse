@@ -137,7 +137,7 @@ pub enum Error {
     ///
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
-    UnknownHeadBlock,
+    UnknownHeadBlock { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -748,7 +748,6 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         use AttestationSlashInfo::*;
 
         if let Err(e) = Self::verify_early_checks(&attestation, chain) {
-            // TODO: check how to avoid copying this
             return Err((SignatureNotChecked(attestation.clone(), e), attestation));
         }
 
@@ -854,7 +853,9 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 
         Ok(block)
     } else {
-        Err(Error::UnknownHeadBlock)
+        Err(Error::UnknownHeadBlock {
+            beacon_block_root: attestation.data.beacon_block_root,
+        })
     }
 }
 
