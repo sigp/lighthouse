@@ -7,6 +7,7 @@ use tree_hash::{TreeHash, TreeHashType};
 // FIXME(altair): implement functions on this
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
 #[serde(transparent)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct ParticipationFlags {
     bits: u8,
 }
