@@ -449,24 +449,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_state: &BeaconState<T::EthSpec>,
         new_block_root: &Hash256,
     ) -> Result<Slot, Error> {
-        process_results(self.rev_iter_block_roots()?, |iter| {
-            iter.take(T::EthSpec::slots_per_historical_root())
-                .find(|(ancestor_block_root, slot)| {
+        self.with_head(|snapshot| {
+            let slot = snapshot.beacon_block.slot();
+
+            // Check the head block
+            if &snapshot.beacon_block_root == new_block_root {
+                return Ok(slot);
+            }
+
+            let next_slot = slot - Slot::new(1);
+
+            Ok(snapshot
+                .beacon_state
+                .block_roots
+                .iter()
+                .enumerate()
+                .find_map(|(i, ancestor_block_root)| {
+                    let ancestor_slot = next_slot - Slot::new(i as u64);
+
                     // It's necessary to check the new head root separately
                     // because it's not included in `BeaconState::get_block_root`
-                    new_block_root == ancestor_block_root
+                    if new_block_root == ancestor_block_root
                         || new_state
-                            .get_block_root(*slot)
+                            .get_block_root(ancestor_slot)
                             .map_or(false, |root| root == ancestor_block_root)
+                    {
+                        Some(ancestor_slot)
+                    } else {
+                        None
+                    }
                 })
-                .map(|(_, ancestor_slot)| ancestor_slot)
                 .unwrap_or_else(|| {
                     self.fork_choice
                         .read()
                         .finalized_checkpoint()
                         .epoch
                         .start_slot(T::EthSpec::slots_per_epoch())
-                })
+                }))
         })
     }
 

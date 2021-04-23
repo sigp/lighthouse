@@ -171,6 +171,8 @@ fn find_reorgs() {
             .epoch
             .start_slot(MinimalEthSpec::slots_per_epoch())
     );
+
+    // test head
     assert_eq!(
         harness
             .chain
@@ -180,6 +182,17 @@ fn find_reorgs() {
             )
             .unwrap(),
         head_slot
+    );
+
+    // test the slot after head
+    let prev_slot = head_slot - Slot::new(1);
+    let prev_block_root = head_state.get_block_root(prev_slot).unwrap();
+    assert_eq!(
+        harness
+            .chain
+            .find_reorg_slot(&head_state, prev_block_root)
+            .unwrap(),
+        prev_slot
     );
 }
 
