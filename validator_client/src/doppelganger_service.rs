@@ -1,12 +1,11 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::initialized_validators::DOPPELGANGER_DETECTION_EPOCHS;
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
-use slog::{crit, error, info, trace, warn};
+use slog::{crit, error, info};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use tokio::time::{interval_at, sleep, Duration, Instant};
-use types::{ChainSpec, Epoch, EthSpec};
+use tokio::time::sleep;
+use types::EthSpec;
 
 #[derive(Clone)]
 pub struct DoppelgangerService<T: SlotClock, E: EthSpec> {
@@ -17,7 +16,7 @@ pub struct DoppelgangerService<T: SlotClock, E: EthSpec> {
 }
 
 impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(self) -> Result<(), String> {
         let log = self.context.log().clone();
 
         let duration_to_next_slot = self
@@ -43,19 +42,21 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .write()
             .update_all_doppelganger_detection_epochs(current_epoch, genesis_epoch);
 
+        let doppelganger_service = self.clone();
         self.context.executor.spawn(
             async move {
                 loop {
-                    if let Some(duration) = self.slot_clock.duration_to_next_slot() {
+                    if let Some(duration) = doppelganger_service.slot_clock.duration_to_next_slot()
+                    {
                         sleep(duration).await;
                     } else {
                         // Just sleep for one slot if we are unable to read the system clock, this gives
                         // us an opportunity for the clock to eventually come good.
-                        sleep(self.slot_clock.slot_duration()).await;
+                        sleep(doppelganger_service.slot_clock.slot_duration()).await;
                         continue;
                     }
 
-                    if let Err(e) = self.detect_doppelgangers().await {
+                    if let Err(e) = doppelganger_service.detect_doppelgangers().await {
                         error!(log,"Error during doppelganger detection"; "error" => ?e);
                         break;
                     }
@@ -78,6 +79,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .initialized_validators()
             .read()
             .get_doppelganger_detecting_validators(epoch);
+        let validators_slice = validators.as_slice();
 
         info!(log, "Monitoring for doppelgangers"; "epoch" => ?epoch);
 
@@ -85,7 +87,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .beacon_nodes
             .first_success(RequireSynced::Yes, |beacon_node| async move {
                 beacon_node
-                    .post_lighthouse_liveness(validators.as_slice(), epoch)
+                    .post_lighthouse_liveness(validators_slice, epoch)
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                     .map(|result| result.data)
@@ -102,7 +104,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                             log,
                             "Doppelganger detected! Shutting down. Ensure you aren't already \
                                          running a validator client with the same keys.";
-                                         "validator_liveness" => ?validator_liveness
+                                         "validator" => ?validator
                         );
 
                         let _ = self

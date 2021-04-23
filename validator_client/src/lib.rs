@@ -145,12 +145,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
-        let genesis_epoch = slot_clock.genesis_slot().epoch(T::slots_per_epoch());
-        let current_epoch = slot_clock
-            .now_or_genesis()
-            .map(|slot| slot.epoch(T::slots_per_epoch()))
-            .ok_or("Unable to read slot clock.")?;
-
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
@@ -393,7 +387,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
             doppelganger_service
                 .clone()
-                .start_update_service(&self.context.eth2_config.spec)
+                .start_update_service()
                 .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
         } else {
             info!(log, "Doppelganger detection disabled.")

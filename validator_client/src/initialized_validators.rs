@@ -518,7 +518,7 @@ impl InitializedValidators {
     /// be ignored.
     async fn update_validators(
         &mut self,
-        current_epoch: Optino<Epoch>,
+        current_epoch: Option<Epoch>,
         genesis_epoch: Option<Epoch>,
     ) -> Result<(), Error> {
         //use key cache if available
@@ -708,15 +708,16 @@ impl InitializedValidators {
             .filter_map(|(_, val)| {
                 // make sure we've determined this validator exists in the beacon chain
                 match val.index {
-                    ValidatorId::Index(index) => {
-                        val.doppelganger_detection_epoch.map(|doppelganger_epoch| {
-                            // We want to avoid checking the epoch in which doppelganger detection was started
-                            // so we don't pick up attestations from our own validator on restart.
-                            (doppelganger_epoch >= epoch
-                                && epoch
-                                    != doppelganger_detection_epoch - DOPPELGANGER_DETECTION_EPOCHS)
-                                .then(|| ValidatorId::Index(index))
-                        })
+                    Some(index) => {
+                        val.doppelganger_detection_epoch
+                            .map(|doppelganger_epoch| {
+                                // We want to avoid checking the epoch in which doppelganger detection was started
+                                // so we don't pick up attestations from our own validator on restart.
+                                (doppelganger_epoch >= epoch
+                                    && epoch != doppelganger_epoch - DOPPELGANGER_DETECTION_EPOCHS)
+                                    .then(|| ValidatorId::Index(index))
+                            })
+                            .flatten()
                     }
                     _ => None,
                 }
