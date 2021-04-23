@@ -2106,22 +2106,34 @@ impl ApiTester {
             .await
             .unwrap();
 
+        let validator_ids = self
+            .validator_keypairs
+            .iter()
+            .cloned()
+            .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
+            .collect::<Vec<ValidatorId>>();
+
         let result = self
             .client
             .get_lighthouse_seen_validators(
-                self.validator_keypairs
-                    .iter()
-                    .cloned()
-                    .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
-                    .collect::<Vec<ValidatorId>>()
-                    .as_slice(),
+                validator_ids.as_slice(),
                 &[self.chain.epoch().unwrap()],
             )
             .await
             .unwrap()
             .data;
 
-        assert!(!result.is_empty());
+        let head_state = self.chain.head_beacon_state().unwrap();
+        let committees = head_state
+            .get_beacon_committees_at_slot(self.chain.slot().unwrap())
+            .unwrap();
+        let expected_ids: Vec<usize> = committees
+            .into_iter()
+            .map(|committee| committee.committee.iter().cloned())
+            .flatten()
+            .collect();
+
+        assert_eq!(expected_ids, result);
 
         self
     }

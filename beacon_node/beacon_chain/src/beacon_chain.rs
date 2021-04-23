@@ -2833,6 +2833,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .indices_seen_at_epoch(validator_indices, epoch)
                     .into_iter(),
             )
+            .chain(
+                self.observed_block_producers
+                    .read()
+                    .indices_seen_at_epoch(validator_indices, epoch)
+                    .into_iter(),
+            )
     }
 }
 

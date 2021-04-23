@@ -1,3 +1,4 @@
+use crate::http_api::get_current_epoch;
 use crate::ValidatorStore;
 use account_utils::{
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
@@ -132,13 +133,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
         let voting_keystore_path = validator_dir.voting_keystore_path();
         drop(validator_dir);
 
-        let current_epoch = validator_store
-            .slot_clock()
-            .now()
-            .ok_or_else(|| {
-                warp_utils::reject::custom_server_error("failed to read slot clock".to_string())
-            })?
-            .epoch(E::slots_per_epoch());
+        let current_epoch = get_current_epoch::<T, E>(validator_store.slot_clock())?;
         let genesis_epoch = validator_store
             .slot_clock()
             .genesis_slot()

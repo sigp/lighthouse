@@ -61,8 +61,8 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             false,
-            Epoch::new(0),
-            Epoch::new(0),
+            Some(Epoch::new(0)),
+            Some(Epoch::new(0)),
             log.clone(),
         )
         .await

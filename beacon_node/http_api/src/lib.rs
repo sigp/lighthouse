@@ -2146,7 +2146,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 .map_err(warp_utils::reject::beacon_chain_error)?
                                 .ok_or_else(|| {
                                     warp_utils::reject::custom_not_found(format!(
-                                        "Could not find index for validator public key: {}",
+                                        "could not find index for validator public key: {}",
                                         pubkey
                                     ))
                                 }),

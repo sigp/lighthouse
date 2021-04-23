@@ -186,13 +186,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("disable-doppelganger-detection")
                 .value_name("DISABLE_DOPPELGANGER_DETECTION")
                 .help("By default, Lighthouse will delay startup for two epochs and monitor for \
-                    attestations on the network by any of the validators managed by this client. \
+                    messages on the network by any of the validators managed by this client. \
                     This will result in two (possibly three) epochs worth of missed attestations. \
                     If an attestation is detected during this period, it means it is very likely \
                     that you are running a second validator client with the same keys. This \
                     validator client will immediately shutdown if this is detected in order to \
                     avoid potentially committing a slashable offense. Use this flag in order to \
-                    DISABLE this functionality, and begin attesting immediately.")
+                    DISABLE this functionality, and begin attesting immediately. USE WITH CAUTION!")
                 .takes_value(false),
         )
 }

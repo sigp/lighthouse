@@ -110,7 +110,7 @@ pub struct DutiesService<T, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     /// Returns the total number of validators known to the duties service.
     pub fn total_validator_count(&self) -> usize {
-        self.validator_store.num_enabled_validators()
+        self.validator_store.num_voting_validators()
     }
 
     /// Returns the total number of validators that should propose in the given epoch.
@@ -138,7 +138,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys(epoch);
+        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset(epoch);
 
         self.proposers
             .read()
@@ -161,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys(epoch);
+        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset(epoch);
 
         self.attesters
             .read()

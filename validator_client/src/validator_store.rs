@@ -6,6 +6,7 @@ use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -142,7 +143,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .collect()
     }
 
-    pub fn num_enabled_validators(&self) -> usize {
+    pub fn signing_pubkeys_hashset(&self, current_epoch: Epoch) -> HashSet<PublicKeyBytes> {
+        self.validators
+            .read()
+            .iter_signing_pubkeys(current_epoch)
+            .cloned()
+            .collect()
+    }
+
+    pub fn num_voting_validators(&self) -> usize {
         self.validators.read().num_enabled()
     }
 

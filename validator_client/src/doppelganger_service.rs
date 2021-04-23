@@ -5,7 +5,7 @@ use environment::RuntimeContext;
 use slog::{crit, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::time::{interval_at, sleep, Duration, Instant};
 use types::{ChainSpec, Epoch, EthSpec};
 
 #[derive(Clone)]
@@ -20,7 +20,6 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -29,7 +28,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         info!(
             log,
             "Doppelganger detection service started";
-            "next_update_millis" => duration_to_next_slot.as_millis()
+            "next_update" => ?duration_to_next_slot
         );
 
         let current_epoch = self
@@ -44,34 +43,26 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .write()
             .update_all_doppelganger_detection_epochs(current_epoch, genesis_epoch);
 
-        let mut interval = {
-            // Note: `interval_at` panics if `slot_duration` is 0
-            interval_at(Instant::now() + duration_to_next_slot, slot_duration)
-        };
+        self.context.executor.spawn(
+            async move {
+                loop {
+                    if let Some(duration) = self.slot_clock.duration_to_next_slot() {
+                        sleep(duration).await;
+                    } else {
+                        // Just sleep for one slot if we are unable to read the system clock, this gives
+                        // us an opportunity for the clock to eventually come good.
+                        sleep(self.slot_clock.slot_duration()).await;
+                        continue;
+                    }
 
-        let executor = self.context.executor.clone();
-
-        let interval_fut = async move {
-            loop {
-                interval.tick().await;
-                let log = self.context.log();
-
-                if let Err(e) = self.detect_doppelgangers().await {
-                    error!(
-                        log,
-                        "Error during doppelganger detection"; "error" => ?e
-                    );
-                    break;
-                } else {
-                    trace!(
-                        log,
-                        "Spawned doppelganger detection tasks";
-                    );
+                    if let Err(e) = self.detect_doppelgangers().await {
+                        error!(log,"Error during doppelganger detection"; "error" => ?e);
+                        break;
+                    }
                 }
-            }
-        };
-
-        executor.spawn(interval_fut, "doppelganger_service");
+            },
+            "doppelganger_service",
+        );
         Ok(())
     }
 
@@ -81,7 +72,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         let slot = self.slot_clock.now().ok_or("Unable to read slot clock")?;
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // get all validators in the doppelganger detection epoch
+        // Get all validators requiring a check in this epoch.
         let validator_map = self
             .validator_store
             .initialized_validators()
@@ -134,9 +125,9 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     }
                 }
                 Err(e) => {
-                    warn!(
+                    crit!(
                         log,
-                        "Failed complete query for doppelganger detection... Restarting doppelganger detection process.";
+                        "Failed to complete query for doppelganger detection... Restarting doppelganger detection process.";
                         "error" => format!("{:?}", e)
                     );
 

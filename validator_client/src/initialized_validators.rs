@@ -96,7 +96,7 @@ pub struct InitializedValidator {
     signing_method: SigningMethod,
     graffiti: Option<Graffiti>,
     doppelganger_detection_epoch: Option<Epoch>,
-    /// There is a task which ensures this value is kept up-to-date.
+    /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
 
@@ -307,8 +307,8 @@ impl InitializedValidators {
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
         disable_doppelganger_detection: bool,
-        current_epoch: Epoch,
-        genesis_epoch: Epoch,
+        current_epoch: Option<Epoch>,
+        genesis_epoch: Option<Epoch>,
         log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
@@ -363,7 +363,8 @@ impl InitializedValidators {
 
         self.definitions.push(def);
 
-        self.update_validators(current_epoch, genesis_epoch).await?;
+        self.update_validators(Some(current_epoch), Some(genesis_epoch))
+            .await?;
 
         self.definitions
             .save(&self.validators_dir)
@@ -416,7 +417,8 @@ impl InitializedValidators {
             def.enabled = enabled;
         }
 
-        self.update_validators(current_epoch, genesis_epoch).await?;
+        self.update_validators(Some(current_epoch), Some(genesis_epoch))
+            .await?;
 
         self.definitions
             .save(&self.validators_dir)
@@ -516,8 +518,8 @@ impl InitializedValidators {
     /// be ignored.
     async fn update_validators(
         &mut self,
-        current_epoch: Epoch,
-        genesis_epoch: Epoch,
+        current_epoch: Optino<Epoch>,
+        genesis_epoch: Option<Epoch>,
     ) -> Result<(), Error> {
         //use key cache if available
         let mut key_stores = HashMap::new();
@@ -550,14 +552,23 @@ impl InitializedValidators {
                             disabled_uuids.remove(key_store.uuid());
                         }
 
+                        let doppelganger_detecting_epoch =
+                            if let (Some(current_epoch), Some(genesis_epoch)) =
+                                (current_epoch, genesis_epoch)
+                            {
+                                self.determine_doppelganger_detection_epoch(
+                                    current_epoch,
+                                    genesis_epoch,
+                                )
+                            } else {
+                                None
+                            };
+
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
-                            self.determine_doppelganger_detection_epoch(
-                                current_epoch,
-                                genesis_epoch,
-                            ),
+                            doppelganger_detecting_epoch,
                         )
                         .await
                         {
@@ -663,7 +674,7 @@ impl InitializedValidators {
     }
 
     /// Updates the doppelganger detection epoch of all initialized validators based on the provided
-    /// slot.
+    /// epoch.
     pub fn update_all_doppelganger_detection_epochs(
         &mut self,
         current_epoch: Epoch,
@@ -671,7 +682,6 @@ impl InitializedValidators {
     ) {
         let detection_epoch =
             self.determine_doppelganger_detection_epoch(current_epoch, genesis_epoch);
-        info!(self.log, "Monitoring for doppelgangers for all validators"; "detecting_until" => ?detection_epoch);
         for (_, val) in self.validators.iter_mut() {
             val.doppelganger_detection_epoch = detection_epoch;
         }

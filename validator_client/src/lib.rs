@@ -145,45 +145,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             );
         }
 
-        let beacon_node_urls: Vec<Url> = config
-            .beacon_nodes
-            .iter()
-            .map(|s| s.parse())
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
-        let beacon_nodes: Vec<BeaconNodeHttpClient> = beacon_node_urls
-            .into_iter()
-            .map(|url| {
-                let beacon_node_http_client = ClientBuilder::new()
-                    .timeout(HTTP_TIMEOUT)
-                    .build()
-                    .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
-                Ok(BeaconNodeHttpClient::from_components(
-                    url,
-                    beacon_node_http_client,
-                ))
-            })
-            .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
-
-        let candidates = beacon_nodes
-            .into_iter()
-            .map(CandidateBeaconNode::new)
-            .collect();
-        let mut beacon_nodes: BeaconNodeFallback<_, T> =
-            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
-
-        // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root, fork) = tokio::select! {
-            tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
-            () = context.executor.exit() => return Err("Shutting down".to_string())
-        };
-
-        let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
-            Duration::from_secs(genesis_time),
-            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
-        );
-
         let genesis_epoch = slot_clock.genesis_slot().epoch(T::slots_per_epoch());
         let current_epoch = slot_clock
             .now_or_genesis()
@@ -194,8 +155,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_defs,
             config.validator_dir.clone(),
             config.disable_doppelganger_detection,
-            current_epoch,
-            genesis_epoch,
+            None,
+            None,
             log.clone(),
         )
         .await
@@ -260,10 +221,49 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 })?;
         }
 
+        let beacon_node_urls: Vec<Url> = config
+            .beacon_nodes
+            .iter()
+            .map(|s| s.parse())
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+        let beacon_nodes: Vec<BeaconNodeHttpClient> = beacon_node_urls
+            .into_iter()
+            .map(|url| {
+                let beacon_node_http_client = ClientBuilder::new()
+                    .timeout(HTTP_TIMEOUT)
+                    .build()
+                    .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
+                Ok(BeaconNodeHttpClient::from_components(
+                    url,
+                    beacon_node_http_client,
+                ))
+            })
+            .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
+
+        let candidates = beacon_nodes
+            .into_iter()
+            .map(CandidateBeaconNode::new)
+            .collect();
+        let mut beacon_nodes: BeaconNodeFallback<_, T> =
+            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
+
+        // Perform some potentially long-running initialization tasks.
+        let (genesis_time, genesis_validators_root, fork) = tokio::select! {
+            tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
+            () = context.executor.exit() => return Err("Shutting down".to_string())
+        };
+
         // Update the metrics server.
         if let Some(ctx) = &http_metrics_ctx {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
+
+        let slot_clock = SystemTimeSlotClock::new(
+            context.eth2_config.spec.genesis_slot,
+            Duration::from_secs(genesis_time),
+            Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
+        );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
         let beacon_nodes = Arc::new(beacon_nodes);
@@ -288,7 +288,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         info!(
             log,
             "Loaded validator keypair store";
-            "voting_validators" => validator_store.num_enabled_validators()
+            "voting_validators" => validator_store.num_voting_validators()
         );
 
         // Perform pruning of the slashing protection database on start-up. In case the database is
