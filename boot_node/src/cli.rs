@@ -18,14 +18,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
                 does not auto-update based on PONG responses in discovery.")
                 .required(true)
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("network-dir")
         )
         .arg(
             Arg::with_name("port")
+                .long("port")
                 .value_name("PORT")
                 .help("The UDP port to listen on.")
                 .default_value("9000")
-                .takes_value(true),
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("listen-address")
@@ -48,7 +50,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enr-port")
                 .value_name("PORT")
                 .help("The UDP port of the boot node's ENR. This is the port that external peers will dial to reach this boot node. Set this only if the external port differs from the listening port.")
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("network-dir")
         )
         .arg(
             Arg::with_name("enable-enr-auto-update")
@@ -56,5 +59,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enable-enr-auto-update")
                 .help("Discovery can automatically update the node's local ENR with an external IP address and port as seen by other peers on the network. \
                 This enables this feature.")
+        )
+        .arg(
+            Arg::with_name("network-dir")
+            .value_name("NETWORK_DIR")
+                .long("network-dir")
+                .help("The directory which contains the enr and it's assoicated private key")
+                .takes_value(true)
         )
 }
