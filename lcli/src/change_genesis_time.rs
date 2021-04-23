@@ -19,7 +19,7 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
         .parse::<u64>()
         .map_err(|e| format!("Unable to parse genesis-time: {}", e))?;
 
-    let eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
+    let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;
     let spec = &eth2_network_config.chain_spec::<T>()?;
 
     let mut state: BeaconState<T> = {

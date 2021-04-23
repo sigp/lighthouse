@@ -16,6 +16,7 @@ struct ExitTest {
     exit_epoch: Epoch,
     state_epoch: Epoch,
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
+    #[allow(clippy::type_complexity)]
     block_modifier:
         Box<dyn FnOnce(&BeaconChainHarness<EphemeralHarnessType<E>>, &mut BeaconBlock<E>)>,
     #[allow(dead_code)]
@@ -69,7 +70,7 @@ impl ExitTest {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(debug_assertions)))]
     fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
@@ -310,7 +311,7 @@ vectors_and_tests!(
     }
 );
 
-#[cfg(test)]
+#[cfg(all(test, not(debug_assertions)))]
 mod custom_tests {
     use super::*;
 

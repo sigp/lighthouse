@@ -353,18 +353,20 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
+    #[allow(clippy::integer_arithmetic)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_offset + slot_len {
-            return Err(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_offset + slot_len,
-            });
-        }
+        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
 
-        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+        let slot_bytes = bytes
+            .get(slot_start..slot_end)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_end,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
 
         if spec
             .altair_fork_slot
@@ -753,7 +755,7 @@ impl<T: EthSpec> BeaconState<T> {
             {
                 sync_committee_indices.push(candidate_index);
             }
-            i += 1;
+            i.safe_add_assign(1)?;
         }
         Ok(sync_committee_indices)
     }
@@ -1106,7 +1108,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.validators()
             .get(validator_index)
             .map(|v| v.effective_balance)
-            .ok_or_else(|| Error::UnknownValidator(validator_index))
+            .ok_or(Error::UnknownValidator(validator_index))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -1530,32 +1532,35 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
+    /// Get the unslashed participating indices for a given `flag_index`.
+    ///
+    /// The `self` state must be Altair or later.
     pub fn get_unslashed_participating_indices(
         &self,
-        flag_index: u64,
+        flag_index: u32,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
-        match self {
-            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Altair(state) => {
-                let epoch_participation = if epoch == self.current_epoch() {
-                    Ok(&state.current_epoch_participation)
-                } else if epoch == self.previous_epoch() {
-                    Ok(&state.previous_epoch_participation)
-                } else {
-                    Err(Error::EpochOutOfBounds)
-                }?;
-                let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-                Ok(active_validator_indices
-                    .into_iter()
-                    .filter(|&val_index| {
-                        epoch_participation[val_index].has_flag(flag_index)
-                            && !self.validators()[val_index].slashed
-                    })
-                    .collect())
-            }
-        }
+        let epoch_participation = if epoch == self.current_epoch() {
+            self.current_epoch_participation()?
+        } else if epoch == self.previous_epoch() {
+            self.previous_epoch_participation()?
+        } else {
+            return Err(Error::EpochOutOfBounds);
+        };
+        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
+        itertools::process_results(
+            active_validator_indices.into_iter().map(|val_index| {
+                let has_flag = epoch_participation[val_index].has_flag(flag_index)?;
+                let not_slashed = !self.validators()[val_index].slashed;
+                Ok((val_index, has_flag && not_slashed))
+            }),
+            |iter| {
+                iter.filter(|(_, eligible)| *eligible)
+                    .map(|(validator_index, _)| validator_index)
+                    .collect()
+            },
+        )
     }
 
     pub fn get_eligible_validator_indices(&self) -> Result<Vec<usize>, Error> {

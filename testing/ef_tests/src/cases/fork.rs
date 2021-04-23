@@ -65,10 +65,10 @@ impl<E: EthSpec> Case for ForkTest<E> {
         let mut expected = Some(self.post.clone());
         let spec = &E::default_spec();
 
-        let mut result = (|| match fork_name {
+        let mut result = match fork_name {
             ForkName::Altair => result_state.upgrade_to_altair(spec).map(|_| result_state),
             _ => panic!("unknown fork: {:?}", fork_name),
-        })();
+        };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

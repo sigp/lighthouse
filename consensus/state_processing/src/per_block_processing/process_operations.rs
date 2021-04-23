@@ -124,9 +124,9 @@ pub mod altair {
                 let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
 
                 if participation_flag_indices.contains(&flag_index)
-                    && !epoch_participation[index].has_flag(flag_index)
+                    && !epoch_participation[index].has_flag(flag_index)?
                 {
-                    epoch_participation[index] = epoch_participation[index].add_flag(flag_index);
+                    epoch_participation[index] = epoch_participation[index].add_flag(flag_index)?;
                     proposer_reward_numerator.safe_add_assign(
                         get_base_reward(state, index, total_active_balance, spec)?
                             .safe_mul(weight)?,

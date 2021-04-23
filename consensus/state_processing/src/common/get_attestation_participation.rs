@@ -3,7 +3,7 @@ use integer_sqrt::IntegerSquareRoot;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use types::consts::altair::{
-    TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
+    NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
 use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 
@@ -17,7 +17,7 @@ pub fn get_attestation_participation<T: EthSpec>(
     data: &AttestationData,
     state: &BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<SmallVec<[u64; 3]>, Error> {
+) -> Result<SmallVec<[u32; NUM_FLAG_INDICES]>, Error> {
     // Matching roots.
     // Source match is checked by `verify_attestation_for_block_inclusion`.
     let is_matching_head = data.beacon_block_root == *state.get_block_root(data.slot)?;
