@@ -152,7 +152,7 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self.client.get_lighthouse_spec().await.unwrap().data;
 
-        let expected = StandardConfig::from_spec::<E>(&E::default_spec());
+        let expected = StandardConfig::from_chain_spec::<E>(&E::default_spec());
 
         assert_eq!(result, expected);
 

@@ -434,8 +434,8 @@ impl ApiTester {
 
         let state = self.chain.head().unwrap().beacon_state;
         let expected = GenesisData {
-            genesis_time: state.genesis_time,
-            genesis_validators_root: state.genesis_validators_root,
+            genesis_time: state.genesis_time(),
+            genesis_validators_root: state.genesis_validators_root(),
             genesis_fork_version: self.chain.spec.genesis_fork_version,
         };
 
@@ -497,7 +497,7 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected = self.get_state(state_id).map(|state| state.fork);
+            let expected = self.get_state(state_id).map(|state| state.fork());
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -517,9 +517,9 @@ impl ApiTester {
             let expected = self
                 .get_state(state_id)
                 .map(|state| FinalityCheckpointsData {
-                    previous_justified: state.previous_justified_checkpoint,
-                    current_justified: state.current_justified_checkpoint,
-                    finalized: state.finalized_checkpoint,
+                    previous_justified: state.previous_justified_checkpoint(),
+                    current_justified: state.current_justified_checkpoint(),
+                    finalized: state.finalized_checkpoint(),
                 });
 
             assert_eq!(result, expected, "{:?}", state_id);
@@ -533,7 +533,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = self.get_state(state_id);
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some(state) => state.validators.clone().into(),
+                    Some(state) => state.validators().clone().into(),
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -576,10 +576,10 @@ impl ApiTester {
                     let mut validators = Vec::with_capacity(validator_indices.len());
 
                     for i in validator_indices {
-                        if i < state.balances.len() as u64 {
+                        if i < state.balances().len() as u64 {
                             validators.push(ValidatorBalanceData {
                                 index: i as u64,
-                                balance: state.balances[i as usize],
+                                balance: state.balances()[i as usize],
                             });
                         }
                     }
@@ -601,7 +601,7 @@ impl ApiTester {
                 for validator_indices in self.interesting_validator_indices() {
                     let state_opt = self.get_state(state_id);
                     let validators: Vec<Validator> = match state_opt.as_ref() {
-                        Some(state) => state.validators.clone().into(),
+                        Some(state) => state.validators().clone().into(),
                         None => vec![],
                     };
                     let validator_index_ids = validator_indices
@@ -650,10 +650,10 @@ impl ApiTester {
                         let mut validators = Vec::with_capacity(validator_indices.len());
 
                         for i in validator_indices {
-                            if i >= state.validators.len() as u64 {
+                            if i >= state.validators().len() as u64 {
                                 continue;
                             }
-                            let validator = state.validators[i as usize].clone();
+                            let validator = state.validators()[i as usize].clone();
                             let status = ValidatorStatus::from_validator(
                                 &validator,
                                 epoch,
@@ -665,7 +665,7 @@ impl ApiTester {
                             {
                                 validators.push(ValidatorData {
                                     index: i as u64,
-                                    balance: state.balances[i as usize],
+                                    balance: state.balances()[i as usize],
                                     status,
                                     validator,
                                 });
@@ -688,7 +688,7 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let state_opt = self.get_state(state_id);
             let validators = match state_opt.as_ref() {
-                Some(state) => state.validators.clone().into(),
+                Some(state) => state.validators().clone().into(),
                 None => vec![],
             };
 
@@ -718,7 +718,7 @@ impl ApiTester {
 
                         ValidatorData {
                             index: i as u64,
-                            balance: state.balances[i],
+                            balance: state.balances()[i],
                             status: ValidatorStatus::from_validator(
                                 &validator,
                                 epoch,
@@ -825,8 +825,8 @@ impl ApiTester {
                 root,
                 canonical: true,
                 header: BlockHeaderAndSignature {
-                    message: block.message.block_header(),
-                    signature: block.signature.into(),
+                    message: block.message().block_header(),
+                    signature: block.signature().clone().into(),
                 },
             };
             let expected = vec![header];
@@ -901,13 +901,13 @@ impl ApiTester {
             assert_eq!(result.root, block_root, "{:?}", block_id);
             assert_eq!(
                 result.header.message,
-                block.message.block_header(),
+                block.message().block_header(),
                 "{:?}",
                 block_id
             );
             assert_eq!(
                 result.header.signature,
-                block.signature.into(),
+                block.signature().clone().into(),
                 "{:?}",
                 block_id
             );
@@ -948,7 +948,7 @@ impl ApiTester {
 
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
         let mut next_block = self.next_block.clone();
-        next_block.message.proposer_index += 1;
+        *next_block.message_mut().proposer_index_mut() += 1;
 
         assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
 
@@ -974,7 +974,7 @@ impl ApiTester {
 
             let ssz_result = self
                 .client
-                .get_beacon_blocks_ssz(block_id, &harness.chain.spec)
+                .get_beacon_blocks_ssz(block_id, &self.chain.spec)
                 .await
                 .unwrap();
             assert_eq!(ssz_result, expected, "{:?}", block_id);
@@ -994,7 +994,7 @@ impl ApiTester {
 
             let expected = self
                 .get_block(block_id)
-                .map(|block| block.message.body.attestations.into());
+                .map(|block| block.message().body().attestations().clone().into());
 
             assert_eq!(result, expected, "{:?}", block_id);
         }
@@ -1220,7 +1220,7 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self.client.get_config_spec().await.unwrap().data;
 
-        let expected = StandardConfig::from_spec::<E>(&self.chain.spec);
+        let expected = StandardConfig::from_chain_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 
@@ -1388,7 +1388,7 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result_ssz = self
                 .client
-                .get_debug_beacon_states_ssz(state_id)
+                .get_debug_beacon_states_ssz(state_id, &self.chain.spec)
                 .await
                 .unwrap();
             let result_json = self
@@ -1427,7 +1427,7 @@ impl ApiTester {
     }
 
     fn validator_count(&self) -> usize {
-        self.chain.head().unwrap().beacon_state.validators.len()
+        self.chain.head().unwrap().beacon_state.validators().len()
     }
 
     fn interesting_validator_indices(&self) -> Vec<Vec<u64>> {
@@ -1528,7 +1528,7 @@ impl ApiTester {
 
                 let expected_len = indices
                     .iter()
-                    .filter(|i| **i < state.validators.len() as u64)
+                    .filter(|i| **i < state.validators().len() as u64)
                     .count();
 
                 assert_eq!(result_duties.len(), expected_len);
@@ -1539,7 +1539,7 @@ impl ApiTester {
                         .unwrap()
                     {
                         let expected = AttesterData {
-                            pubkey: state.validators[i as usize].pubkey.clone().into(),
+                            pubkey: state.validators()[i as usize].pubkey.clone().into(),
                             validator_index: i,
                             committees_at_slot: duty.committees_at_slot,
                             committee_index: duty.index,
@@ -1641,7 +1641,7 @@ impl ApiTester {
                     let index = state
                         .get_beacon_proposer_index(slot, &self.chain.spec)
                         .unwrap();
-                    let pubkey = state.validators[index].pubkey.clone().into();
+                    let pubkey = state.validators()[index].pubkey.clone().into();
 
                     ProposerData {
                         pubkey,
@@ -1799,7 +1799,7 @@ impl ApiTester {
 
     pub async fn test_get_validator_attestation_data(self) -> Self {
         let mut state = self.chain.head_beacon_state().unwrap();
-        let slot = state.slot;
+        let slot = state.slot();
         state
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
             .unwrap();
@@ -1829,9 +1829,9 @@ impl ApiTester {
             .chain
             .head_beacon_block()
             .unwrap()
-            .message
-            .body
-            .attestations[0]
+            .message()
+            .body()
+            .attestations()[0]
             .clone();
 
         let result = self
@@ -1865,7 +1865,7 @@ impl ApiTester {
             .unwrap();
 
         let committee_len = head.beacon_state.get_committee_count_at_slot(slot).unwrap();
-        let fork = head.beacon_state.fork;
+        let fork = head.beacon_state.fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         let duties = self
@@ -2068,7 +2068,7 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result = self
                 .client
-                .get_lighthouse_beacon_states_ssz(&state_id)
+                .get_lighthouse_beacon_states_ssz(&state_id, &self.chain.spec)
                 .await
                 .unwrap();
 

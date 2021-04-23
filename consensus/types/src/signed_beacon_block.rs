@@ -1,6 +1,7 @@
 use crate::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockRef, ChainSpec, Domain, EthSpec,
-    Fork, Hash256, PublicKey, SignedBeaconBlockHeader, SignedRoot, SigningData, Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockRef, BeaconBlockRefMut, ChainSpec,
+    Domain, EthSpec, Fork, Hash256, PublicKey, SignedBeaconBlockHeader, SignedRoot, SigningData,
+    Slot,
 };
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
@@ -119,6 +120,14 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRef::Base(&inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRef::Altair(&inner.message),
+        }
+    }
+
+    /// Accessor for the block's `message` as a mutable reference (for testing only).
+    pub fn message_mut(&mut self) -> BeaconBlockRefMut<'_, E> {
+        match self {
+            SignedBeaconBlock::Base(inner) => BeaconBlockRefMut::Base(&mut inner.message),
+            SignedBeaconBlock::Altair(inner) => BeaconBlockRefMut::Altair(&mut inner.message),
         }
     }
 
