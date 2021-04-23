@@ -3,6 +3,7 @@ use state_processing::per_block_processing::get_slashable_indices_modular;
 use std::collections::{HashMap, HashSet};
 use types::{AttesterSlashing, BeaconState, ChainSpec, EthSpec};
 
+#[derive(Debug, Clone)]
 pub struct AttesterSlashingMaxCover<'a, T: EthSpec> {
     slashing: &'a AttesterSlashing<T>,
     effective_balances: HashMap<u64, u64>,
@@ -46,8 +47,8 @@ impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
     type Set = HashMap<u64, u64>;
 
     /// Extract an object for inclusion in a solution.
-    fn object(&self) -> AttesterSlashing<T> {
-        self.slashing.clone()
+    fn object(&self) -> &AttesterSlashing<T> {
+        self.slashing
     }
 
     /// Get the set of elements covered.

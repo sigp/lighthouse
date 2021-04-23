@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 /// Trait for types that we can compute a maximum cover for.
 ///
 /// Terminology:
@@ -5,14 +7,14 @@
 /// * `element`: something contained in a set, and covered by the covering set of an item
 /// * `object`: something extracted from an item in order to comprise a solution
 /// See: https://en.wikipedia.org/wiki/Maximum_coverage_problem
-pub trait MaxCover {
+pub trait MaxCover: Clone {
     /// The result type, of which we would eventually like a collection of maximal quality.
-    type Object;
+    type Object: Clone;
     /// The type used to represent sets.
     type Set: Clone;
 
     /// Extract an object for inclusion in a solution.
-    fn object(&self) -> Self::Object;
+    fn object(&self) -> &Self::Object;
 
     /// Get the set of elements covered.
     fn covering_set(&self) -> &Self::Set;
@@ -42,7 +44,7 @@ impl<T> MaxCoverItem<T> {
 ///
 /// * Time complexity: `O(limit * items_iter.len())`
 /// * Space complexity: `O(item_iter.len())`
-pub fn maximum_cover<I, T>(items_iter: I, limit: usize) -> Vec<T::Object>
+pub fn maximum_cover<I, T>(items_iter: I, limit: usize) -> Vec<T>
 where
     I: IntoIterator<Item = T>,
     T: MaxCover,
@@ -58,14 +60,14 @@ where
 
     for _ in 0..limit {
         // Select the item with the maximum score.
-        let (best_item, best_cover) = match all_items
+        let best = match all_items
             .iter_mut()
             .filter(|x| x.available && x.item.score() != 0)
             .max_by_key(|x| x.item.score())
         {
             Some(x) => {
                 x.available = false;
-                (x.item.object(), x.item.covering_set().clone())
+                x.item.clone()
             }
             None => return result,
         };
@@ -75,12 +77,30 @@ where
         all_items
             .iter_mut()
             .filter(|x| x.available && x.item.score() != 0)
-            .for_each(|x| x.item.update_covering_set(&best_item, &best_cover));
+            .for_each(|x| {
+                x.item
+                    .update_covering_set(best.object(), best.covering_set())
+            });
 
-        result.push(best_item);
+        result.push(best);
     }
 
     result
+}
+
+/// Perform a greedy merge of two max cover solutions, preferring higher-score values.
+pub fn merge_solutions<I1, I2, T>(cover1: I1, cover2: I2, limit: usize) -> Vec<T::Object>
+where
+    I1: IntoIterator<Item = T>,
+    I2: IntoIterator<Item = T>,
+    T: MaxCover,
+{
+    cover1
+        .into_iter()
+        .merge_by(cover2, |item1, item2| item1.score() >= item2.score())
+        .take(limit)
+        .map(|item| item.object().clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -96,8 +116,8 @@ mod test {
         type Object = Self;
         type Set = Self;
 
-        fn object(&self) -> Self {
-            self.clone()
+        fn object(&self) -> &Self {
+            self
         }
 
         fn covering_set(&self) -> &Self {
