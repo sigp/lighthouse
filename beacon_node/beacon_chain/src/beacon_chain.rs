@@ -466,14 +466,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // because it's not included in `BeaconState::get_block_root`
                 if new_block_root == ancestor_block_root
                     || new_state
-                    .get_block_root(ancestor_slot)
-                    .map_or(false, |root| root == ancestor_block_root)
+                        .get_block_root(ancestor_slot)
+                        .map_or(false, |root| root == ancestor_block_root)
                 {
-                    return Ok(ancestor_slot)
+                    return Ok(ancestor_slot);
                 }
             }
 
-            Ok(self.fork_choice
+            Ok(self
+                .fork_choice
                 .read()
                 .finalized_checkpoint()
                 .epoch
