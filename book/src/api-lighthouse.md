@@ -311,23 +311,27 @@ curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
 
 *Example omitted for brevity, the body simply contains SSZ bytes.*
 
-### `/lighthouse/seen_validators?ids={ids}&epochs={epochs}`
+### `/lighthouse/liveness`
 
-Checks if any of the given validators have attested in the given epochs. Returns a list
-of the validators that have attested.
+POST request that checks if any of the given validators have attested in the given epoch. Returns a list
+of objects, each including the validator index, epoch, and `is_live` status of a requested validator.
 
-The `ids` parameter is a list of validator ids that are each identical to what is used in the
-[Standard Eth2.0 API `/eth/v1/beacon/states/{state_id}/validators/{validator_id}` route](https://ethereum.github.io/eth2.0-APIs/#/Beacon/getStateValidator).
 This endpoint is used in doppelganger detection, and will only provide accurate information for the
 current, previous, or next epoch.
 
 
 ```bash
-curl -X GET "http://localhost:5052/lighthouse/seen_validators?ids=0xb0127e191555550fae82788061320428d2cef31b0807aa33b88f48c53682baddce6398bb737b1ba5c503ca696d0cab4a,0xa1c80aabbcdf40976fcc86b69598439c850426d81a773aaad2c1cc737343c31b4ac1e3384bbeaad6ad7d19d64f57701e&epochs=1,2" | jq
+curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":[0,1],"epoch":1}" -H  "accept: application/json" | jq
 ```
 
 ```json
 {
-  "data": [0,1]
+    "data": [
+        {
+            "index": 0,
+            "epoch": 1,
+            "is_live": true
+        }
+    ]
 }
 ```

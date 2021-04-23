@@ -2083,24 +2083,39 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_seen_validators(self) -> Self {
+    pub async fn test_post_lighthouse_liveness(self) -> Self {
+        let epoch = self.chain.epoch().unwrap();
+        let head_state = self.chain.head_beacon_state().unwrap();
+
+        let validators = self
+            .validator_keypairs
+            .iter()
+            .cloned()
+            .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
+            .collect::<Vec<ValidatorId>>();
+
+        // Construct the expected response
+        let expected: Vec<LivenessResponseData> = head_state
+            .validators
+            .iter()
+            .enumerate()
+            .map(|(index, _)| LivenessResponseData {
+                index: index as u64,
+                is_live: false,
+                epoch,
+            })
+            .collect();
+
         let result = self
             .client
-            .get_lighthouse_seen_validators(
-                self.validator_keypairs
-                    .iter()
-                    .cloned()
-                    .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
-                    .collect::<Vec<ValidatorId>>()
-                    .as_slice(),
-                &[self.chain.epoch().unwrap()],
-            )
+            .post_lighthouse_liveness(validators.as_slice(), epoch)
             .await
             .unwrap()
             .data;
 
-        assert!(result.is_empty());
+        assert_eq!(result, expected);
 
+        // Attest to the current slot
         self.client
             .post_beacon_pool_attestations(self.attestations.as_slice())
             .await
@@ -2115,25 +2130,31 @@ impl ApiTester {
 
         let result = self
             .client
-            .get_lighthouse_seen_validators(
-                validator_ids.as_slice(),
-                &[self.chain.epoch().unwrap()],
-            )
+            .post_lighthouse_liveness(validator_ids.as_slice(), epoch)
             .await
             .unwrap()
             .data;
 
-        let head_state = self.chain.head_beacon_state().unwrap();
         let committees = head_state
             .get_beacon_committees_at_slot(self.chain.slot().unwrap())
             .unwrap();
-        let expected_ids: Vec<usize> = committees
+        let attesting_validators: Vec<usize> = committees
             .into_iter()
             .map(|committee| committee.committee.iter().cloned())
             .flatten()
             .collect();
+        // All attesters should now be considered live
+        let expected = expected
+            .into_iter()
+            .map(|mut a| {
+                if attesting_validators.contains(&(a.index as usize)) {
+                    a.is_live = true;
+                }
+                a
+            })
+            .collect::<Vec<_>>();
 
-        assert_eq!(expected_ids, result);
+        assert_eq!(result, expected);
 
         self
     }
@@ -2595,6 +2616,6 @@ async fn lighthouse_endpoints() {
         .await
         .test_get_lighthouse_staking()
         .await
-        .test_get_lighthouse_seen_validators()
+        .test_post_lighthouse_liveness()
         .await;
 }

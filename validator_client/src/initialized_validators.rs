@@ -30,7 +30,7 @@ use eth2::types::ValidatorId;
 const USE_STDIN: bool = false;
 
 /// The amount of time we will spend scanning the network for doppelgangers before attesting.
-pub const DOPPELGANGER_DETECTION_EPOCHS: u64 = 2;
+pub const DOPPELGANGER_DETECTION_EPOCHS: Epoch = Epoch::new(2);
 
 #[derive(Debug)]
 pub enum Error {
@@ -670,7 +670,7 @@ impl InitializedValidators {
         genesis_epoch: Epoch,
     ) -> Option<Epoch> {
         (current_epoch > genesis_epoch && !self.disable_doppelganger_detection)
-            .then(|| current_epoch + Epoch::new(DOPPELGANGER_DETECTION_EPOCHS))
+            .then(|| current_epoch + DOPPELGANGER_DETECTION_EPOCHS)
     }
 
     /// Updates the doppelganger detection epoch of all initialized validators based on the provided
@@ -701,31 +701,27 @@ impl InitializedValidators {
         })
     }
 
-    /// Gets all validators doppelganger detection epochs of all initialized validators based on
-    /// the provided slot.
-    pub fn get_doppelganger_detecting_validators_by_epoch(
-        &self,
-        current_epoch: Epoch,
-    ) -> HashMap<Epoch, Vec<ValidatorId>> {
+    /// Gets all validators that are in the doppelganger detection period in the given epoch.
+    pub fn get_doppelganger_detecting_validators(&self, epoch: Epoch) -> Vec<ValidatorId> {
         self.validators
             .iter()
-            .filter(|(_, val)| {
+            .filter_map(|(_, val)| {
                 // make sure we've determined this validator exists in the beacon chain
-                val.index.is_some()
-                    && val
-                        .doppelganger_detection_epoch
-                        .map_or(false, |doppelganger_epoch| {
-                            doppelganger_epoch >= current_epoch
+                match val.index {
+                    ValidatorId::Index(index) => {
+                        val.doppelganger_detection_epoch.map(|doppelganger_epoch| {
+                            // We want to avoid checking the epoch in which doppelganger detection was started
+                            // so we don't pick up attestations from our own validator on restart.
+                            (doppelganger_epoch >= epoch
+                                && epoch
+                                    != doppelganger_detection_epoch - DOPPELGANGER_DETECTION_EPOCHS)
+                                .then(|| ValidatorId::Index(index))
                         })
-            })
-            .fold(HashMap::new(), |mut map, (pubkey, val)| {
-                if let Some(epoch) = val.doppelganger_detection_epoch {
-                    map.entry(epoch)
-                        .or_insert_with(Vec::new)
-                        .push(ValidatorId::PublicKey(*pubkey));
+                    }
+                    _ => None,
                 }
-                map
             })
+            .collect()
     }
 
     pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {

@@ -115,23 +115,13 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
         self.items.retain(|slot, _set| *slot > finalized_slot);
     }
 
-    /// Returns `true` if any of the given `validator_indices` has been stored in `self` at `epoch`.
+    /// Returns `true` if the given `validator_index` has been stored in `self` at `epoch`.
     ///
     /// This is useful for doppelganger detection.
-    pub fn indices_seen_at_epoch(&self, validator_indices: &[usize], epoch: &Epoch) -> Vec<usize> {
-        self.items
-            .iter()
-            .filter_map(|(slot, producers)| {
-                if slot.epoch(E::slots_per_epoch()) == *epoch {
-                    Some(validator_indices.iter().filter_map(move |&index| {
-                        producers.contains(&(index as u64)).then(|| index)
-                    }))
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect()
+    pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: &Epoch) -> bool {
+        self.items.iter().any(|(slot, producers)| {
+            slot.epoch(E::slots_per_epoch()) == *epoch && producers.contains(&validator_index)
+        })
     }
 }
 

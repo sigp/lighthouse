@@ -1905,6 +1905,45 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/liveness
+    let post_lighthouse_liveness = warp::path("lighthouse")
+        .and(warp::path("liveness"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: api_types::LivenessRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let liveness: Vec<api_types::LivenessResponseData> = request_data
+                        .indices
+                        .iter()
+                        .map(|id| {
+                            let index = match id {
+                                ValidatorId::PublicKey(pubkey) => chain
+                                    .validator_index(&pubkey)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .ok_or_else(|| {
+                                        warp_utils::reject::custom_not_found(format!(
+                                            "could not find index for validator public key: {}",
+                                            pubkey
+                                        ))
+                                    }),
+                                ValidatorId::Index(index) => Ok(*index as usize),
+                            }?;
+                            let is_live = chain.validator_seen_at_epoch(index, &request_data.epoch);
+                            Ok::<_, warp::Rejection>(api_types::LivenessResponseData {
+                                index: index as u64,
+                                epoch: request_data.epoch,
+                                is_live,
+                            })
+                        })
+                        .collect::<Result<_, _>>()?;
+
+                    Ok(api_types::GenericResponse::from(liveness))
+                })
+            },
+        );
+
     // GET lighthouse/health
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
@@ -2127,45 +2166,6 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET lighthouse/seen_validators?ids,epochs
-    let get_lighthouse_seen_validators = warp::path("lighthouse")
-        .and(warp::path("seen_validators"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::SeenValidatorQuery>())
-        .and(chain_filter.clone())
-        .and_then(
-            |query: api_types::SeenValidatorQuery, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let indices: Vec<usize> = query
-                        .ids
-                        .0
-                        .iter()
-                        .map(|id| match id {
-                            ValidatorId::PublicKey(pubkey) => chain
-                                .validator_index(pubkey)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .ok_or_else(|| {
-                                    warp_utils::reject::custom_not_found(format!(
-                                        "could not find index for validator public key: {}",
-                                        pubkey
-                                    ))
-                                }),
-                            ValidatorId::Index(index) => Ok(*index as usize),
-                        })
-                        .collect::<Result<_, _>>()?;
-
-                    let seen_validators: std::collections::HashSet<usize> = query
-                        .epochs
-                        .0
-                        .iter()
-                        .map(|epoch| chain.validators_seen_at_epoch(indices.as_slice(), epoch))
-                        .flatten()
-                        .collect();
-                    Ok(api_types::GenericResponse::from(seen_validators))
-                })
-            },
-        );
-
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2272,7 +2272,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
-                .or(get_lighthouse_seen_validators.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
@@ -2284,6 +2283,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
+                .or(post_lighthouse_liveness.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)

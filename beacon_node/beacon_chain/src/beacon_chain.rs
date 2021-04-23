@@ -2816,29 +2816,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.dump_as_dot(&mut file);
     }
 
-    /// Checks if attestations have been seen from any of the given `validator_indices` at the
-    /// given `epoch`. Returns an iterator over indices we have seen.
-    pub fn validators_seen_at_epoch(
-        &self,
-        validator_indices: &[usize],
-        epoch: &Epoch,
-    ) -> impl Iterator<Item = usize> + '_ {
+    /// Checks if attestations have been seen from the given `validator_index` at the
+    /// given `epoch`.
+    pub fn validator_seen_at_epoch(&self, validator_index: usize, epoch: &Epoch) -> bool {
         self.observed_attesters
             .read()
-            .indices_seen_at_epoch(validator_indices, epoch)
-            .into_iter()
-            .chain(
-                self.observed_aggregators
-                    .read()
-                    .indices_seen_at_epoch(validator_indices, epoch)
-                    .into_iter(),
-            )
-            .chain(
-                self.observed_block_producers
-                    .read()
-                    .indices_seen_at_epoch(validator_indices, epoch)
-                    .into_iter(),
-            )
+            .index_seen_at_epoch(validator_index, epoch)
+            || self
+                .observed_aggregators
+                .read()
+                .index_seen_at_epoch(validator_index, epoch)
+            || self
+                .observed_block_producers
+                .read()
+                .index_seen_at_epoch(validator_index as u64, epoch)
     }
 }
 

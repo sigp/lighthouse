@@ -827,10 +827,17 @@ impl FromStr for Accept {
     }
 }
 
-#[derive(Deserialize)]
-pub struct SeenValidatorQuery {
-    pub ids: QueryVec<ValidatorId>,
-    pub epochs: QueryVec<Epoch>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LivenessRequestData {
+    pub epoch: Epoch,
+    pub indices: Vec<ValidatorId>,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub struct LivenessResponseData {
+    pub index: u64,
+    pub epoch: Epoch,
+    pub is_live: bool,
 }
 
 #[cfg(test)]
