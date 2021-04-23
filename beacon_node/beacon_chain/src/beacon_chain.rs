@@ -458,34 +458,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             let next_slot = slot - Slot::new(1);
+            for (i, _) in snapshot.beacon_state.block_roots.iter().enumerate() {
+                let ancestor_slot = next_slot - Slot::new(i as u64);
+                let ancestor_block_root = snapshot.beacon_state.get_block_root(ancestor_slot)?;
 
-            Ok(snapshot
-                .beacon_state
-                .block_roots
-                .iter()
-                .enumerate()
-                .find_map(|(i, ancestor_block_root)| {
-                    let ancestor_slot = next_slot - Slot::new(i as u64);
+                // It's necessary to check the new head root separately
+                // because it's not included in `BeaconState::get_block_root`
+                if new_block_root == ancestor_block_root
+                    || new_state
+                    .get_block_root(ancestor_slot)
+                    .map_or(false, |root| root == ancestor_block_root)
+                {
+                    return Ok(ancestor_slot)
+                }
+            }
 
-                    // It's necessary to check the new head root separately
-                    // because it's not included in `BeaconState::get_block_root`
-                    if new_block_root == ancestor_block_root
-                        || new_state
-                            .get_block_root(ancestor_slot)
-                            .map_or(false, |root| root == ancestor_block_root)
-                    {
-                        Some(ancestor_slot)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| {
-                    self.fork_choice
-                        .read()
-                        .finalized_checkpoint()
-                        .epoch
-                        .start_slot(T::EthSpec::slots_per_epoch())
-                }))
+            Ok(self.fork_choice
+                .read()
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()))
         })
     }
 
