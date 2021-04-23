@@ -1,6 +1,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -449,10 +450,8 @@ mod tests {
 }
 
 /// YAML config file as defined by the spec.
-///
-/// Spec v0.12.3
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "UPPERCASE", deny_unknown_fields)]
+#[serde(rename_all = "UPPERCASE")]
 pub struct YamlConfig {
     pub config_name: String,
     // ChainSpec
@@ -576,6 +575,10 @@ pub struct YamlConfig {
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+
+    // Extra fields (could be from a future hard-fork that we don't yet know).
+    #[serde(flatten)]
+    pub extra_fields: HashMap<String, String>,
 }
 
 impl Default for YamlConfig {
@@ -671,6 +674,8 @@ impl YamlConfig {
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
+
+            extra_fields: HashMap::new(),
         }
     }
 
@@ -838,6 +843,31 @@ mod yaml_tests {
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
         let yamlconfig = YamlConfig::from_spec::<MainnetEthSpec>(&mainnet_spec);
+        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
+
+        let reader = OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(tmp_file.as_ref())
+            .expect("error while opening the file");
+        let from: YamlConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn extra_fields_round_trip() {
+        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
+        let writer = OpenOptions::new()
+            .read(false)
+            .write(true)
+            .open(tmp_file.as_ref())
+            .expect("error opening file");
+        let mainnet_spec = ChainSpec::mainnet();
+        let mut yamlconfig = YamlConfig::from_spec::<MainnetEthSpec>(&mainnet_spec);
+        let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
+        let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
+        yamlconfig.extra_fields.insert(k1.into(), v1.into());
+        yamlconfig.extra_fields.insert(k2.into(), v2.into());
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()

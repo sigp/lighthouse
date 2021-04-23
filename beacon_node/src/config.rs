@@ -10,7 +10,7 @@ use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
@@ -422,7 +422,7 @@ pub fn get_config<E: EthSpec>(
 pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     log: &Logger,
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {

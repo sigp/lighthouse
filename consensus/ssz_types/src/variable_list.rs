@@ -120,9 +120,9 @@ impl<T, N: Unsigned> From<Vec<T>> for VariableList<T, N> {
     }
 }
 
-impl<T, N: Unsigned> Into<Vec<T>> for VariableList<T, N> {
-    fn into(self) -> Vec<T> {
-        self.vec
+impl<T, N: Unsigned> From<VariableList<T, N>> for Vec<T> {
+    fn from(list: VariableList<T, N>) -> Vec<T> {
+        list.vec
     }
 }
 

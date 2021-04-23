@@ -19,35 +19,35 @@ where
     aggregate: Cow<'a, GenericAggregateSignature<Pub, AggPub, Sig, AggSig>>,
 }
 
-impl<'a, Pub, AggPub, Sig, AggSig> Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>
-    for &'a GenericSignature<Pub, Sig>
+impl<'a, Pub, AggPub, Sig, AggSig> From<&'a GenericSignature<Pub, Sig>>
+    for WrappedSignature<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: Clone,
     Sig: TSignature<Pub> + Clone,
     AggSig: TAggregateSignature<Pub, AggPub, Sig> + Clone,
 {
-    fn into(self) -> WrappedSignature<'a, Pub, AggPub, Sig, AggSig> {
+    fn from(sig: &'a GenericSignature<Pub, Sig>) -> Self {
         let mut aggregate: GenericAggregateSignature<Pub, AggPub, Sig, AggSig> =
             GenericAggregateSignature::infinity();
-        aggregate.add_assign(self);
+        aggregate.add_assign(sig);
         WrappedSignature {
             aggregate: Cow::Owned(aggregate),
         }
     }
 }
 
-impl<'a, Pub, AggPub, Sig, AggSig> Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>
-    for &'a GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
+impl<'a, Pub, AggPub, Sig, AggSig> From<&'a GenericAggregateSignature<Pub, AggPub, Sig, AggSig>>
+    for WrappedSignature<'a, Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
     AggPub: Clone,
     Sig: Clone,
     AggSig: Clone,
 {
-    fn into(self) -> WrappedSignature<'a, Pub, AggPub, Sig, AggSig> {
+    fn from(aggregate: &'a GenericAggregateSignature<Pub, AggPub, Sig, AggSig>) -> Self {
         WrappedSignature {
-            aggregate: Cow::Borrowed(self),
+            aggregate: Cow::Borrowed(aggregate),
         }
     }
 }
