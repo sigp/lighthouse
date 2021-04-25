@@ -447,36 +447,66 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn find_reorg_slot(
         &self,
         new_state: &BeaconState<T::EthSpec>,
-        new_block_root: &Hash256,
+        new_block_root: Hash256,
     ) -> Result<Slot, Error> {
         self.with_head(|snapshot| {
-            let slot = snapshot.beacon_block.slot();
+            let old_state = &snapshot.beacon_state;
+            let old_block_root = snapshot.beacon_block_root;
 
-            // Check the head block
-            if &snapshot.beacon_block_root == new_block_root {
-                return Ok(slot);
+            // The earliest slot for which the two chains may have a common history.
+            let lowest_slot = std::cmp::min(new_state.slot, old_state.slot);
+
+            // Create an iterator across `$state`, assuming that the block at `$state.slot` has the
+            // block root of `$block_root`.
+            //
+            // The iterator will be skipped until the next value returns `lowest_slot`.
+            //
+            // This is a macro instead of a function or closure due to the complex types invloved
+            // in all the iterator wrapping.
+            macro_rules! aligned_roots_iter {
+                ($state: ident, $block_root: ident) => {
+                    std::iter::once(Ok(($state.slot, $block_root)))
+                        .chain($state.rev_iter_block_roots(&self.spec))
+                        .skip_while(|result| {
+                            result
+                                .as_ref()
+                                .map_or(false, |(slot, _)| *slot > lowest_slot)
+                        })
+                };
             }
 
-            let next_slot = slot - Slot::new(1);
-            for (i, _) in snapshot.beacon_state.block_roots.iter().enumerate() {
-                let ancestor_slot = next_slot - Slot::new(i as u64);
-                let ancestor_block_root = snapshot.beacon_state.get_block_root(ancestor_slot)?;
+            // Create iterators across old/new roots where iterators both start at the same slot.
+            let mut new_roots = aligned_roots_iter!(new_state, new_block_root);
+            let mut old_roots = aligned_roots_iter!(old_state, old_block_root);
 
-                // It's necessary to check the new head root separately
-                // because it's not included in `BeaconState::get_block_root`
-                if new_block_root == ancestor_block_root
-                    || new_state
-                        .get_block_root(ancestor_slot)
-                        .map_or(false, |root| root == ancestor_block_root)
-                {
-                    return Ok(ancestor_slot);
+            // Whilst *both* of the iterators are still returning values, try and find a common
+            // ancestor between them.
+            while let (Some(old), Some(new)) = (old_roots.next(), new_roots.next()) {
+                let (old_slot, old_root) = old?;
+                let (new_slot, new_root) = new?;
+
+                // Sanity check to detect programming errors.
+                if old_slot != new_slot {
+                    return Err(Error::InvalidReorgSlotIter { new_slot, old_slot });
+                }
+
+                if old_root == new_root {
+                    // A common ancestor has been found.
+                    return Ok(old_slot);
                 }
             }
 
-            Ok(self
-                .fork_choice
-                .read()
-                .finalized_checkpoint()
+            // If no common ancestor is found, declare that the re-org happened at the previous
+            // finalized slot.
+            //
+            // Sometimes this will result in the return slot being *lower* than the actual reorg
+            // slot. However, assuming we don't re-org through a finalized slot, it will never be
+            // *higher*.
+            //
+            // We provide this potentially-inaccurate-but-safe information to avoid onerous
+            // database reads during times of deep reorgs.
+            Ok(old_state
+                .finalized_checkpoint
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()))
         })
@@ -2207,7 +2237,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut reorg_distance = Slot::new(0);
 
         if is_reorg {
-            match self.find_reorg_slot(&new_head.beacon_state, &new_head.beacon_block_root) {
+            match self.find_reorg_slot(&new_head.beacon_state, new_head.beacon_block_root) {
                 Ok(slot) => reorg_distance = current_head.slot - slot,
                 Err(e) => {
                     warn!(

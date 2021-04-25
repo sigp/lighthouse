@@ -23,12 +23,14 @@ use tree_hash_derive::TreeHash;
 pub use self::committee_cache::CommitteeCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
+pub use iter::BlockRootsIter;
 pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
 mod clone_config;
 mod exit_cache;
+mod iter;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
@@ -638,6 +640,13 @@ impl<T: EthSpec> BeaconState<T> {
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
+    }
+
+    /// Returns an iterator across the past block roots of `state` in descending slot-order.
+    ///
+    /// See the docs for `BlockRootsIter` for more detail.
+    pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a, T> {
+        BlockRootsIter::new(self, spec.genesis_slot)
     }
 
     /// Return the block root at a recent `slot`.

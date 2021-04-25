@@ -112,6 +112,10 @@ pub enum BeaconChainError {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
     },
+    InvalidReorgSlotIter {
+        old_slot: Slot,
+        new_slot: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

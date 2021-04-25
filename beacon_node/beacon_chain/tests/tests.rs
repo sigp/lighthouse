@@ -164,7 +164,7 @@ fn find_reorgs() {
     assert_eq!(
         harness
             .chain
-            .find_reorg_slot(&genesis_state, &harness.chain.genesis_block_root)
+            .find_reorg_slot(&genesis_state, harness.chain.genesis_block_root)
             .unwrap(),
         head_state
             .finalized_checkpoint
@@ -178,19 +178,27 @@ fn find_reorgs() {
             .chain
             .find_reorg_slot(
                 &head_state,
-                &harness.chain.head_beacon_block().unwrap().canonical_root()
+                harness.chain.head_beacon_block().unwrap().canonical_root()
             )
             .unwrap(),
         head_slot
     );
 
-    // test the slot after head
+    // Re-org back to the slot prior to the head.
     let prev_slot = head_slot - Slot::new(1);
-    let prev_block_root = head_state.get_block_root(prev_slot).unwrap();
+    let prev_state = harness
+        .chain
+        .state_at_slot(prev_slot, StateSkipConfig::WithStateRoots)
+        .unwrap();
+    let prev_block_root = harness
+        .chain
+        .block_root_at_slot(prev_slot)
+        .unwrap()
+        .unwrap();
     assert_eq!(
         harness
             .chain
-            .find_reorg_slot(&head_state, prev_block_root)
+            .find_reorg_slot(&prev_state, prev_block_root)
             .unwrap(),
         prev_slot
     );
