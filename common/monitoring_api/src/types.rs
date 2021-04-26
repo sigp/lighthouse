@@ -1,10 +1,10 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eth2::lighthouse::{ProcessHealth, SystemHealth};
-use lighthouse_version::VERSION_NUMBER;
 use serde_derive::{Deserialize, Serialize};
 
 pub const VERSION: u64 = 1;
+pub const CLIENT_NAME: &str = "lighthouse";
 
 /// An API error serializable to JSON.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -63,14 +63,10 @@ pub enum Process {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessMetrics {
     cpu_process_seconds_total: u64,
-    #[serde(rename(deserialize = "process_virtual_memory_bytes"))]
     memory_process_bytes: u64,
 
-    #[serde(default = "client_name")]
     client_name: String,
-    #[serde(default = "client_version")]
     client_version: String,
-    #[serde(default = "client_build")]
     client_build: u64,
 }
 
@@ -79,8 +75,8 @@ impl From<ProcessHealth> for ProcessMetrics {
         Self {
             cpu_process_seconds_total: health.cpu_process_seconds_total,
             memory_process_bytes: health.pid_mem_virtual_memory_size,
-            client_name: client_name(),
-            client_version: client_version(),
+            client_name: CLIENT_NAME.to_string(),
+            client_version: client_version().unwrap_or_default(),
             client_build: client_build(),
         }
     }
@@ -167,18 +163,15 @@ pub struct ValidatorProcessMetrics {
     pub validator: serde_json::Value,
 }
 
-/// Returns the client name string
-fn client_name() -> String {
-    "lighthouse".to_string()
-}
-
 /// Returns the client version
-fn client_version() -> String {
-    VERSION_NUMBER.to_string()
+fn client_version() -> Option<String> {
+    let re = regex::Regex::new(r"\d+\.\d+\.\d+").expect("Regex is valid");
+    re.find(lighthouse_version::VERSION)
+        .map(|m| m.as_str().to_string())
 }
 
 /// Returns the client build
-/// TODO: placeholder
+/// Note: Lighthouse does not support build numbers, this is effectively a null-value.
 fn client_build() -> u64 {
-    42
+    0
 }

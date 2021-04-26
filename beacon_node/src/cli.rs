@@ -242,7 +242,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("ADDRESS")
                 .help("Enables the monitoring service for sending system metrics to a remote endpoint. \
                 This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
-                This flag sets the endpoint where the beacon node metrics will be sent")
+                This flag sets the endpoint where the beacon node metrics will be sent. \
+                Note: This will send information to a remote sever which may identify and associate your \
+                validators, IP address and other personal information. Always use a HTTPS connection \
+                and never provide an untrusted URL.")
                 .takes_value(true),
         )
 
