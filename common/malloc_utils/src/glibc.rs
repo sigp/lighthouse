@@ -32,7 +32,10 @@ const OPTIMAL_TRIM_INTERVAL: Duration = Duration::from_secs(60 * 5);
 const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 
 /// The maximum number of arenas allowed to be created by malloc.
-const OPTIMAL_ARENA_MAX: c_int = 4;
+///
+/// When set to `0`, the limit on the number of arenas is determined by the number of CPU cores
+/// online.
+const OPTIMAL_ARENA_MAX: c_int = 0;
 
 /// Constants used to configure malloc internals.
 ///
