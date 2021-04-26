@@ -227,7 +227,6 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
     }
 }
 
-//TODO: implement intersection and union
 impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
     /// Instantiate a new `Bitfield` with a fixed-length of `N` bits.
     ///
@@ -676,6 +675,7 @@ mod bitvector {
     pub type BitVector4 = BitVector<typenum::U4>;
     pub type BitVector8 = BitVector<typenum::U8>;
     pub type BitVector16 = BitVector<typenum::U16>;
+    pub type BitVector32 = BitVector<typenum::U32>;
     pub type BitVector64 = BitVector<typenum::U64>;
 
     #[test]
@@ -726,6 +726,59 @@ mod bitvector {
         assert!(BitVector16::from_ssz_bytes(&[0b0000_0000, 0b0000_0000]).is_ok());
         assert!(BitVector16::from_ssz_bytes(&[1, 0b0000_0000, 0b0000_0000]).is_err());
     }
+
+    #[test]
+    fn intersection() {
+        let a = BitVector16::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = BitVector16::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let c = BitVector16::from_raw_bytes(vec![0b1000, 0b0001], 16).unwrap();
+
+        assert_eq!(a.intersection(&b), c);
+        assert_eq!(b.intersection(&a), c);
+        assert_eq!(a.intersection(&c), c);
+        assert_eq!(b.intersection(&c), c);
+        assert_eq!(a.intersection(&a), a);
+        assert_eq!(b.intersection(&b), b);
+        assert_eq!(c.intersection(&c), c);
+    }
+
+    #[test]
+    fn intersection_diff_length() {
+        let a = BitVector16::from_bytes(vec![0b0010_1110, 0b0010_1011]).unwrap();
+        let b = BitVector16::from_bytes(vec![0b0010_1101, 0b0000_0001]).unwrap();
+        let c = BitVector16::from_bytes(vec![0b0010_1100, 0b0000_0001]).unwrap();
+
+        assert_eq!(a.len(), 16);
+        assert_eq!(b.len(), 16);
+        assert_eq!(c.len(), 16);
+        assert_eq!(a.intersection(&b), c);
+        assert_eq!(b.intersection(&a), c);
+    }
+
+    #[test]
+    fn union() {
+        let a = BitVector16::from_raw_bytes(vec![0b1100, 0b0001], 16).unwrap();
+        let b = BitVector16::from_raw_bytes(vec![0b1011, 0b1001], 16).unwrap();
+        let c = BitVector16::from_raw_bytes(vec![0b1111, 0b1001], 16).unwrap();
+
+        assert_eq!(a.union(&b), c);
+        assert_eq!(b.union(&a), c);
+        assert_eq!(a.union(&a), a);
+        assert_eq!(b.union(&b), b);
+        assert_eq!(c.union(&c), c);
+    }
+
+    #[test]
+    fn union_diff_length() {
+        let a = BitVector16::from_bytes(vec![0b0010_1011, 0b0010_1110]).unwrap();
+        let b = BitVector16::from_bytes(vec![0b0000_0001, 0b0010_1101]).unwrap();
+        let c = BitVector16::from_bytes(vec![0b0010_1011, 0b0010_1111]).unwrap();
+
+        assert_eq!(a.len(), c.len());
+        assert_eq!(a.union(&b), c);
+        assert_eq!(b.union(&a), c);
+    }
+
 
     #[test]
     fn ssz_round_trip() {
