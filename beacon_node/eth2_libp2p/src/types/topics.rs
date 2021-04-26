@@ -3,6 +3,8 @@ use serde_derive::{Deserialize, Serialize};
 use strum::AsRefStr;
 use types::SubnetId;
 
+use crate::Subnet;
+
 /// The gossipsub topic names.
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
 // For example /eth2/beacon_block/ssz
@@ -138,7 +140,10 @@ impl GossipTopic {
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
                 topic => match committee_topic_index(topic) {
-                    Some(subnet_id) => GossipKind::Attestation(subnet_id),
+                    Some(subnet_id) => match subnet_id {
+                        Subnet::Attestation(s) => GossipKind::Attestation(s),
+                        Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeSignature(s),
+                    },
                     None => return Err(format!("Unknown topic: {}", topic)),
                 },
             };
@@ -188,29 +193,40 @@ impl Into<String> for GossipTopic {
     }
 }
 
-impl From<SubnetId> for GossipKind {
-    fn from(subnet_id: SubnetId) -> Self {
-        GossipKind::Attestation(subnet_id)
+impl From<Subnet> for GossipKind {
+    fn from(subnet_id: Subnet) -> Self {
+        match subnet_id {
+            Subnet::Attestation(s) => GossipKind::Attestation(s),
+            Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeSignature(s),
+        }
     }
 }
 
 // helper functions
 
 /// Get subnet id from an attestation subnet topic hash.
-pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
+pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
     let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
-    if let GossipKind::Attestation(subnet_id) = gossip_topic.kind() {
-        return Some(*subnet_id);
+    match gossip_topic.kind() {
+        GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
+        GossipKind::SyncCommitteeSignature(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
+        _ => None,
     }
-    None
 }
 
 // Determines if a string is a committee topic.
-fn committee_topic_index(topic: &str) -> Option<SubnetId> {
+fn committee_topic_index(topic: &str) -> Option<Subnet> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
         return Some(SubnetId::new(
             topic
                 .trim_start_matches(BEACON_ATTESTATION_PREFIX)
+                .parse::<u64>()
+                .ok()?,
+        ));
+    } else if topic.starts_with(SYNC_COMMITTEE_PREFIX) {
+        return Some(SubnetId::new(
+            topic
+                .trim_start_matches(SYNC_COMMITTEE_PREFIX)
                 .parse::<u64>()
                 .ok()?,
         ));
@@ -313,7 +329,7 @@ mod tests {
         let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_attestation_42/ssz_snappy");
         assert_eq!(
             subnet_id_from_topic_hash(&topic_hash),
-            Some(SubnetId::new(42))
+            Some(Subnet::Attestation(SubnetId::new(42)))
         );
     }
 

@@ -1,4 +1,3 @@
-use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
 use crate::peer_manager::{
     score::{PeerAction, ReportSource},
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -10,6 +9,7 @@ use crate::types::{
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
+use crate::{behaviour::gossipsub_scoring_parameters::PeerScoreSettings, Subnet};
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
@@ -323,7 +323,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Subscribes to a specific subnet id;
-    pub fn subscribe_to_subnet(&mut self, subnet_id: SubnetId) -> bool {
+    pub fn subscribe_to_subnet(&mut self, subnet_id: Subnet) -> bool {
         let topic = GossipTopic::new(
             subnet_id.into(),
             GossipEncoding::default(),
@@ -333,7 +333,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Un-Subscribes from a specific subnet id;
-    pub fn unsubscribe_from_subnet(&mut self, subnet_id: SubnetId) -> bool {
+    pub fn unsubscribe_from_subnet(&mut self, subnet_id: Subnet) -> bool {
         let topic = GossipTopic::new(
             subnet_id.into(),
             GossipEncoding::default(),

@@ -1,9 +1,12 @@
 //! Implementation of a Lighthouse's peer management system.
 
 pub use self::peerdb::*;
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
+use crate::{
+    discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS},
+    Subnet,
+};
 use crate::{error, metrics, Gossipsub};
 use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
@@ -20,7 +23,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -241,14 +244,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     self.network_globals
                         .peers
                         .write()
-                        .extend_peers_on_subnet(s.subnet_id, min_ttl);
+                        .extend_peers_on_subnet(&s.subnet_id, min_ttl);
                 }
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals
                     .peers
                     .read()
-                    .good_peers_on_subnet(s.subnet_id)
+                    .good_peers_on_subnet(s.subnet_id.clone())
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     trace!(
@@ -282,14 +285,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
-    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             info.subnets.insert(subnet_id);
         }
     }
 
     /// Removes a gossipsub subscription to a peer in the peerdb.
-    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             info.subnets.remove(&subnet_id);
         }
@@ -661,7 +664,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
-    fn dial_cached_enrs_in_subnet(&mut self, subnet_id: SubnetId) {
+    fn dial_cached_enrs_in_subnet(&mut self, subnet_id: Subnet) {
         let predicate = subnet_predicate::<TSpec>(vec![subnet_id], &self.log);
         let peers_to_dial: Vec<PeerId> = self
             .discovery()
