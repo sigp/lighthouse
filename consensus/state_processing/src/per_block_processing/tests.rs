@@ -359,7 +359,7 @@ fn invalid_attestation_wrong_justified_checkpoint() {
 
     let mut state = harness.get_current_state();
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
-    let old_justified_checkpoint = head_block.body().attestations()[0].data.source.clone();
+    let old_justified_checkpoint = head_block.body().attestations()[0].data.source;
     let mut new_justified_checkpoint = old_justified_checkpoint;
     new_justified_checkpoint.epoch += Epoch::new(1);
     head_block.to_mut().body_mut().attestations_mut()[0]

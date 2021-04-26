@@ -2,7 +2,6 @@ use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-use cached_tree_hash::{CacheArena, CachedTreeHash};
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
@@ -164,6 +163,7 @@ impl From<BeaconStateHash> for Hash256 {
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         derivative(Clone),
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -171,6 +171,7 @@ impl From<BeaconStateHash> for Hash256 {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct BeaconState<T>
 where
     T: EthSpec,
@@ -282,7 +283,7 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
-    pub tree_hash_cache: Option<BeaconTreeHashCache<T>>,
+    pub tree_hash_cache: BeaconTreeHashCache<T>,
 }
 
 impl<T: EthSpec> Clone for BeaconState<T> {
@@ -347,23 +348,25 @@ impl<T: EthSpec> BeaconState<T> {
             current_sync_committee_cache: SyncCommitteeCache::default(),
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
-            tree_hash_cache: None,
+            tree_hash_cache: <_>::default(),
         })
     }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
+    #[allow(clippy::integer_arithmetic)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_offset + slot_len {
-            return Err(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_offset + slot_len,
-            });
-        }
+        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
 
-        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+        let slot_bytes = bytes
+            .get(slot_start..slot_end)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_end,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
 
         if spec
             .altair_fork_slot
@@ -752,7 +755,7 @@ impl<T: EthSpec> BeaconState<T> {
             {
                 sync_committee_indices.push(candidate_index);
             }
-            i += 1;
+            i.safe_add_assign(1)?;
         }
         Ok(sync_committee_indices)
     }
@@ -1105,7 +1108,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.validators()
             .get(validator_index)
             .map(|v| v.effective_balance)
-            .ok_or_else(|| Error::UnknownValidator(validator_index))
+            .ok_or(Error::UnknownValidator(validator_index))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.
@@ -1373,8 +1376,8 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
-        if self.tree_hash_cache().is_none() {
-            *self.tree_hash_cache_mut() = Some(BeaconTreeHashCache::new(self))
+        if !self.tree_hash_cache().is_initialized() {
+            *self.tree_hash_cache_mut() = BeaconTreeHashCache::new(self)
         }
     }
 
@@ -1390,7 +1393,7 @@ impl<T: EthSpec> BeaconState<T> {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
             let root = cache.recalculate_tree_hash_root(&self)?;
-            *self.tree_hash_cache_mut() = Some(cache);
+            self.tree_hash_cache_mut().restore(cache);
             Ok(root)
         } else {
             Err(Error::TreeHashCacheNotInitialized)
@@ -1409,7 +1412,7 @@ impl<T: EthSpec> BeaconState<T> {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
             let root = cache.recalculate_validators_tree_hash_root(self.validators())?;
-            *self.tree_hash_cache_mut() = Some(cache);
+            self.tree_hash_cache_mut().restore(cache);
             Ok(root)
         } else {
             Err(Error::TreeHashCacheNotInitialized)
@@ -1418,7 +1421,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
-        *self.tree_hash_cache_mut() = None;
+        self.tree_hash_cache_mut().uninitialize();
     }
 
     /// Clone the state whilst preserving only the selected caches.
@@ -1529,32 +1532,35 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
+    /// Get the unslashed participating indices for a given `flag_index`.
+    ///
+    /// The `self` state must be Altair or later.
     pub fn get_unslashed_participating_indices(
         &self,
-        flag_index: u64,
+        flag_index: u32,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
-        match self {
-            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Altair(state) => {
-                let epoch_participation = if epoch == self.current_epoch() {
-                    Ok(&state.current_epoch_participation)
-                } else if epoch == self.previous_epoch() {
-                    Ok(&state.previous_epoch_participation)
-                } else {
-                    Err(Error::EpochOutOfBounds)
-                }?;
-                let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-                Ok(active_validator_indices
-                    .into_iter()
-                    .filter(|&val_index| {
-                        epoch_participation[val_index].has_flag(flag_index)
-                            && !self.validators()[val_index].slashed
-                    })
-                    .collect())
-            }
-        }
+        let epoch_participation = if epoch == self.current_epoch() {
+            self.current_epoch_participation()?
+        } else if epoch == self.previous_epoch() {
+            self.previous_epoch_participation()?
+        } else {
+            return Err(Error::EpochOutOfBounds);
+        };
+        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
+        itertools::process_results(
+            active_validator_indices.into_iter().map(|val_index| {
+                let has_flag = epoch_participation[val_index].has_flag(flag_index)?;
+                let not_slashed = !self.validators()[val_index].slashed;
+                Ok((val_index, has_flag && not_slashed))
+            }),
+            |iter| {
+                iter.filter(|(_, eligible)| *eligible)
+                    .map(|(validator_index, _)| validator_index)
+                    .collect()
+            },
+        )
     }
 
     pub fn get_eligible_validator_indices(&self) -> Result<Vec<usize>, Error> {
@@ -1584,24 +1590,6 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
         (self.previous_epoch() - self.finalized_checkpoint().epoch)
             > spec.min_epochs_to_inactivity_penalty
-    }
-}
-
-/// This implementation primarily exists to satisfy some testing requirements (ef_tests). It is
-/// recommended to use the methods directly on the beacon state instead.
-impl<T: EthSpec> CachedTreeHash<BeaconTreeHashCache<T>> for BeaconState<T> {
-    fn new_tree_hash_cache(&self, _arena: &mut CacheArena) -> BeaconTreeHashCache<T> {
-        BeaconTreeHashCache::new(self)
-    }
-
-    fn recalculate_tree_hash_root(
-        &self,
-        _arena: &mut CacheArena,
-        cache: &mut BeaconTreeHashCache<T>,
-    ) -> Result<Hash256, cached_tree_hash::Error> {
-        cache
-            .recalculate_tree_hash_root(self)
-            .map_err(|_| cached_tree_hash::Error::CacheInconsistent)
     }
 }
 
@@ -1638,49 +1626,6 @@ impl From<tree_hash::Error> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Error {
         Error::ArithError(e)
-    }
-}
-
-#[cfg(feature = "arbitrary-fuzz")]
-impl<T: EthSpec> arbitrary::Arbitrary for BeaconState<T> {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
-        Ok(Self {
-            genesis_time: u64::arbitrary(u)?,
-            genesis_validators_root: Hash256::arbitrary(u)?,
-            slot: Slot::arbitrary(u)?,
-            fork: Fork::arbitrary(u)?,
-            latest_block_header: BeaconBlockHeader::arbitrary(u)?,
-            block_roots: <FixedVector<Hash256, T::SlotsPerHistoricalRoot>>::arbitrary(u)?,
-            state_roots: <FixedVector<Hash256, T::SlotsPerHistoricalRoot>>::arbitrary(u)?,
-            historical_roots: <VariableList<Hash256, T::HistoricalRootsLimit>>::arbitrary(u)?,
-            eth1_data: Eth1Data::arbitrary(u)?,
-            eth1_data_votes: <VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>>::arbitrary(u)?,
-            eth1_deposit_index: u64::arbitrary(u)?,
-            validators: <VariableList<Validator, T::ValidatorRegistryLimit>>::arbitrary(u)?,
-            balances: <VariableList<u64, T::ValidatorRegistryLimit>>::arbitrary(u)?,
-            randao_mixes: <FixedVector<Hash256, T::EpochsPerHistoricalVector>>::arbitrary(u)?,
-            slashings: <FixedVector<u64, T::EpochsPerSlashingsVector>>::arbitrary(u)?,
-            previous_epoch_attestations: <VariableList<
-                PendingAttestation<T>,
-                T::MaxPendingAttestations,
-            >>::arbitrary(u)?,
-            current_epoch_attestations: <VariableList<
-                PendingAttestation<T>,
-                T::MaxPendingAttestations,
-            >>::arbitrary(u)?,
-            justification_bits: <BitVector<T::JustificationBitsLength>>::arbitrary(u)?,
-            previous_justified_checkpoint: Checkpoint::arbitrary(u)?,
-            current_justified_checkpoint: Checkpoint::arbitrary(u)?,
-            finalized_checkpoint: Checkpoint::arbitrary(u)?,
-            committee_caches: [
-                CommitteeCache::arbitrary(u)?,
-                CommitteeCache::arbitrary(u)?,
-                CommitteeCache::arbitrary(u)?,
-            ],
-            pubkey_cache: PubkeyCache::arbitrary(u)?,
-            exit_cache: ExitCache::arbitrary(u)?,
-            tree_hash_cache: None,
-        })
     }
 }
 

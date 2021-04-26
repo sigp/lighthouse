@@ -342,7 +342,7 @@ mod test {
     use crate::HotColdDB;
     use crate::StoreConfig as Config;
     use beacon_chain::store::StoreConfig;
-    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, Keypair, MainnetEthSpec};
     use sloggers::{null::NullLoggerBuilder, Build};
 

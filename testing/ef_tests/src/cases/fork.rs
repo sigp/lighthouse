@@ -56,7 +56,8 @@ impl<E: EthSpec> LoadCase for ForkTest<E> {
 impl<E: EthSpec> Case for ForkTest<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
-        fork_name != ForkName::Base
+        // Fork tests also need BLS.
+        cfg!(not(feature = "fake_crypto")) && fork_name != ForkName::Base
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
@@ -64,10 +65,10 @@ impl<E: EthSpec> Case for ForkTest<E> {
         let mut expected = Some(self.post.clone());
         let spec = &E::default_spec();
 
-        let mut result = (|| match fork_name {
+        let mut result = match fork_name {
             ForkName::Altair => result_state.upgrade_to_altair(spec).map(|_| result_state),
             _ => panic!("unknown fork: {:?}", fork_name),
-        })();
+        };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

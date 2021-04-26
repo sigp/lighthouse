@@ -326,7 +326,7 @@ where
                 .store
                 .get_state(&justified_block.state_root(), Some(justified_block.slot()))
                 .map_err(Error::FailedToReadState)?
-                .ok_or(Error::MissingState(justified_block.state_root()))?
+                .ok_or_else(|| Error::MissingState(justified_block.state_root()))?
                 .balances()
                 .clone()
                 .into();

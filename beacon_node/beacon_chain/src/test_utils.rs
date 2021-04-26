@@ -874,7 +874,7 @@ where
 
             data.signature = data.create_signature(&keypair.sk, &E::default_spec());
 
-            if let Some(invalid_pubkey) = invalid_pubkey.clone() {
+            if let Some(invalid_pubkey) = invalid_pubkey {
                 data.pubkey = invalid_pubkey;
             }
             if let Some(invalid_signature) = invalid_signature.clone() {

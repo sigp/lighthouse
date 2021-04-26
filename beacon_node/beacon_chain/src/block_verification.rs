@@ -617,9 +617,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
-                .ok_or(BlockError::UnknownValidator(
-                    block.message().proposer_index(),
-                ))?;
+                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,

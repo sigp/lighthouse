@@ -1,17 +1,10 @@
 use clap::ArgMatches;
-use clap_utils::{
-    parse_optional, parse_path_with_default_in_home_dir, parse_required, parse_ssz_optional,
-};
+use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
-use types::{Address, EthSpec, StandardConfig};
+use types::{Address, AltairConfig, BaseConfig, EthSpec};
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let testnet_dir_path = parse_path_with_default_in_home_dir(
-        matches,
-        "testnet-dir",
-        PathBuf::from(directory::DEFAULT_ROOT_DIR).join("testnet"),
-    )?;
+pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
     let deposit_contract_deploy_block = parse_required(matches, "deposit-contract-deploy-block")?;
 
@@ -56,11 +49,16 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         spec.genesis_fork_version = v;
     }
 
+    if let Some(fork_slot) = parse_optional(matches, "altair-fork-slot")? {
+        spec.altair_fork_slot = Some(fork_slot);
+    }
+
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state_bytes: None,
-        yaml_config: Some(StandardConfig::from_spec::<T>(&spec)),
+        base_config: BaseConfig::from_chain_spec::<T>(&spec),
+        altair_config: AltairConfig::from_chain_spec::<T>(&spec),
     };
 
     testnet.write_to_file(testnet_dir_path, overwrite_files)

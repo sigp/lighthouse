@@ -24,11 +24,14 @@ use tree_hash_derive::TreeHash;
             TreeHash,
             TestRandom
         ),
-        serde(bound = "T: EthSpec", deny_unknown_fields)
+        serde(bound = "T: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     )
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct BeaconBlockBody<T: EthSpec> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,

@@ -13,8 +13,10 @@ pub struct ExitCache {
 impl ExitCache {
     /// Initialize a new cache for the given list of validators.
     pub fn new(validators: &[Validator], spec: &ChainSpec) -> Result<Self, BeaconStateError> {
-        let mut exit_cache = ExitCache::default();
-        exit_cache.initialized = true;
+        let mut exit_cache = ExitCache {
+            initialized: true,
+            ..ExitCache::default()
+        };
         // Add all validators with a non-default exit epoch to the cache.
         validators
             .iter()

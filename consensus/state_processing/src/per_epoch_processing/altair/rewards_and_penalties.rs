@@ -79,7 +79,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 fn get_flag_index_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &mut BeaconState<T>,
-    flag_index: u64,
+    flag_index: u32,
     weight: u64,
     total_active_balance: u64,
     spec: &ChainSpec,

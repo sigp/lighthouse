@@ -1,11 +1,12 @@
 use clap::ArgMatches;
-use ssz::{Decode, Encode};
+use eth2_network_config::Eth2NetworkConfig;
+use ssz::Encode;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec};
 
-pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let path = matches
         .value_of("ssz-state")
         .ok_or("ssz-state not specified")?
@@ -18,6 +19,9 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         .parse::<u64>()
         .map_err(|e| format!("Unable to parse genesis-time: {}", e))?;
 
+    let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;
+    let spec = &eth2_network_config.chain_spec::<T>()?;
+
     let mut state: BeaconState<T> = {
         let mut file = File::open(&path).map_err(|e| format!("Unable to open file: {}", e))?;
 
@@ -26,10 +30,11 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         file.read_to_end(&mut ssz)
             .map_err(|e| format!("Unable to read file: {}", e))?;
 
-        BeaconState::from_ssz_bytes(&ssz).map_err(|e| format!("Unable to decode SSZ: {:?}", e))?
+        BeaconState::from_ssz_bytes(&ssz, spec)
+            .map_err(|e| format!("Unable to decode SSZ: {:?}", e))?
     };
 
-    state.genesis_time = genesis_time;
+    *state.genesis_time_mut() = genesis_time;
 
     let mut file = File::create(path).map_err(|e| format!("Unable to create file: {}", e))?;
 

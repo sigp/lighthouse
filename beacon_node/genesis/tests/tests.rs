@@ -96,7 +96,7 @@ fn basic() {
                 "should have expected validator count"
             );
 
-            assert!(state.genesis_time > 0, "should have some genesis time");
+            assert!(state.genesis_time() > 0, "should have some genesis time");
 
             assert!(
                 is_valid_genesis_state(&state, &spec),

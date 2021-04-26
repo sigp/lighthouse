@@ -1,31 +1,32 @@
-use crate::{test_utils::TestRandom, Hash256};
+use crate::{consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom, Hash256};
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::{TreeHash, TreeHashType};
 
-// FIXME(altair): implement functions on this
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
 #[serde(transparent)]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct ParticipationFlags {
     bits: u8,
 }
 
-//TODO: add constraints
 impl ParticipationFlags {
-    pub fn add_flag(mut self, flag_index: u64) -> Self {
-        self.bits = self.bits | (1 << flag_index);
-        self
+    pub fn add_flag(mut self, flag_index: u32) -> Result<Self, ArithError> {
+        if flag_index > NUM_FLAG_INDICES as u32 {
+            return Err(ArithError::Overflow);
+        }
+        self.bits |= 1u8.safe_shl(flag_index)?;
+        Ok(self)
     }
 
-    pub fn has_flag(&self, flag_index: u64) -> bool {
-        self.bits & (1 << flag_index) == (1 << flag_index)
-    }
-}
-
-impl Default for ParticipationFlags {
-    fn default() -> Self {
-        Self { bits: 0 }
+    pub fn has_flag(&self, flag_index: u32) -> Result<bool, ArithError> {
+        if flag_index > NUM_FLAG_INDICES as u32 {
+            return Err(ArithError::Overflow);
+        }
+        let mask = 1u8.safe_shl(flag_index)?;
+        Ok(self.bits & mask == mask)
     }
 }
 

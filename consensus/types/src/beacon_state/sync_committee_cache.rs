@@ -43,3 +43,10 @@ impl SyncCommitteeCache {
             .map(|cache| cache.sync_committee_indices.as_slice())
     }
 }
+
+#[cfg(feature = "arbitrary-fuzz")]
+impl arbitrary::Arbitrary for SyncCommitteeCache {
+    fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self::default())
+    }
+}

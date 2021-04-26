@@ -57,23 +57,23 @@ mod sign_block {
 
         testcase(
             "\"data\":{\"slot\":\"\",\"proposer_index\":\"0\"",
-            "Unable to parse block from JSON: Error(\"cannot parse integer from empty string\", line: 0, column: 0)"
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)"
         );
         testcase(
             "\"data\":{\"slot\":\"-1\",\"proposer_index\":\"0\"",
-            "Unable to parse block from JSON: Error(\"invalid digit found in string\", line: 0, column: 0)"
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)"
         );
         testcase(
             "\"data\":{\"proposer_index\":\"0\"",
-            "Unable to parse block from JSON: Error(\"missing field `slot`\", line: 0, column: 0)",
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)"
         );
         testcase(
             "\"data\":{\"slot\":\"49463\"",
-            "Unable to parse block from JSON: Error(\"missing field `proposer_index`\", line: 0, column: 0)"
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)"
         );
         testcase(
             "\"data\":{\"slot\":\"49463\",\"proposer_index\":\"\"",
-            "Unable to parse block from JSON: Error(\"cannot parse integer from empty string\", line: 0, column: 0)",
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)"
         );
 
         test_signer.shutdown();

@@ -99,7 +99,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
 
                 for (flag_index, weight) in &FLAG_INDICES_AND_WEIGHTS {
                     if att_participation_flags.contains(flag_index)
-                        && !participation.has_flag(*flag_index)
+                        && !participation.has_flag(*flag_index).ok()?
                     {
                         proposer_reward_numerator += base_reward.checked_mul(*weight)?;
                     }

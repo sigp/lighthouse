@@ -6166,7 +6166,6 @@ name = "store"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
- "criterion",
  "db-key",
  "directory",
  "eth2_ssz",
@@ -6177,7 +6176,6 @@ dependencies = [
  "lighthouse_metrics",
  "lru",
  "parking_lot",
- "rayon",
  "serde",
  "serde_derive",
  "slog",
@@ -6958,6 +6956,7 @@ dependencies = [
  "ethereum-types",
  "hex",
  "int_to_bytes",
+ "itertools 0.10.0",
  "lazy_static",
  "log",
  "merkle_proof",

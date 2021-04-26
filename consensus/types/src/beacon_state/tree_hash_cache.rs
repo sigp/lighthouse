@@ -80,8 +80,42 @@ impl<T: EthSpec> Eth1DataVotesTreeHashCache<T> {
 }
 
 /// A cache that performs a caching tree hash of the entire `BeaconState` struct.
-#[derive(Debug, PartialEq, Clone, Encode, Decode)]
+///
+/// This type is a wrapper around the inner cache, which does all the work.
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct BeaconTreeHashCache<T: EthSpec> {
+    inner: Option<BeaconTreeHashCacheInner<T>>,
+}
+
+impl<T: EthSpec> BeaconTreeHashCache<T> {
+    pub fn new(state: &BeaconState<T>) -> Self {
+        Self {
+            inner: Some(BeaconTreeHashCacheInner::new(state)),
+        }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        self.inner.is_some()
+    }
+
+    /// Move the inner cache out so that the containing `BeaconState` can be borrowed.
+    pub fn take(&mut self) -> Option<BeaconTreeHashCacheInner<T>> {
+        self.inner.take()
+    }
+
+    /// Restore the inner cache after using `take`.
+    pub fn restore(&mut self, inner: BeaconTreeHashCacheInner<T>) {
+        self.inner = Some(inner);
+    }
+
+    /// Make the cache empty.
+    pub fn uninitialize(&mut self) {
+        self.inner = None;
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     /// Tracks the previously generated state root to ensure the next state root provided descends
     /// directly from this state.
     previous_state: Option<(Hash256, Slot)>,
@@ -101,7 +135,7 @@ pub struct BeaconTreeHashCache<T: EthSpec> {
     eth1_data_votes: Eth1DataVotesTreeHashCache<T>,
 }
 
-impl<T: EthSpec> BeaconTreeHashCache<T> {
+impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
     /// Instantiates a new cache.
     ///
     /// Allocates the necessary memory to store all of the cached Merkle trees. Only the leaves are
@@ -463,6 +497,13 @@ impl ParallelValidatorTreeHash {
                     .collect()
             })
             .collect()
+    }
+}
+
+#[cfg(feature = "arbitrary-fuzz")]
+impl<T: EthSpec> arbitrary::Arbitrary for BeaconTreeHashCache<T> {
+    fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self::default())
     }
 }
 
