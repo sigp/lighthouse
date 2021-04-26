@@ -63,3 +63,4 @@ scrypt = { version = "0.5.0", default-features = false }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 fallback = { path = "../common/fallback" }
+sensitive_url = { path = "../common/sensitive_url" }

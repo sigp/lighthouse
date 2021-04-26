@@ -12,6 +12,7 @@
 
 use futures::future::TryFutureExt;
 use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
+use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::ops::Range;
@@ -78,8 +79,9 @@ impl FromStr for Eth1Id {
     }
 }
 
+// HERE
 /// Get the eth1 network id of the given endpoint.
-pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
+pub async fn get_network_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
     Eth1Id::from_str(
         response_result(&response_body)?
@@ -89,8 +91,9 @@ pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id,
     )
 }
 
+// HERE
 /// Get the eth1 chain id of the given endpoint.
-pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
+pub async fn get_chain_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
     hex_to_u64_be(
         response_result(&response_body)?
@@ -111,7 +114,7 @@ pub struct Block {
 /// Returns the current block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
-pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, String> {
+pub async fn get_block_number(endpoint: &SensitiveUrl, timeout: Duration) -> Result<u64, String> {
     let response_body = send_rpc_request(endpoint, "eth_blockNumber", json!([]), timeout).await?;
     hex_to_u64_be(
         response_result(&response_body)?
@@ -126,7 +129,7 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_block(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     query: BlockQuery,
     timeout: Duration,
 ) -> Result<Block, String> {
@@ -191,7 +194,7 @@ pub async fn get_block(
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_deposit_count(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     block_number: u64,
     timeout: Duration,
@@ -229,7 +232,7 @@ pub async fn get_deposit_count(
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_deposit_root(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     block_number: u64,
     timeout: Duration,
@@ -266,7 +269,7 @@ pub async fn get_deposit_root(
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 async fn call(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     hex_data: &str,
     block_number: u64,
@@ -308,7 +311,7 @@ pub struct Log {
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_deposit_logs_in_range(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     block_height_range: Range<u64>,
     timeout: Duration,
@@ -353,7 +356,7 @@ pub async fn get_deposit_logs_in_range(
 ///
 /// Tries to receive the response and parse the body as a `String`.
 pub async fn send_rpc_request(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     method: &str,
     params: Value,
     timeout: Duration,
@@ -374,7 +377,7 @@ pub async fn send_rpc_request(
         .timeout(timeout)
         .build()
         .expect("The builder should always build a client")
-        .post(endpoint)
+        .post(endpoint.full.clone())
         .header(CONTENT_TYPE, "application/json")
         .body(body)
         .send()

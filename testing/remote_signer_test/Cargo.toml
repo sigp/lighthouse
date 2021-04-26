@@ -17,3 +17,4 @@ serde_json = "1.0.58"
 tempfile = "3.1.0"
 tokio = { version = "1.1.0", features = ["time"] }
 types = { path = "../../consensus/types" }
+sensitive_url = { path = "../../common/sensitive_url" }

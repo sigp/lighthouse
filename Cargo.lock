@@ -27,6 +27,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "safe_arith",
+ "sensitive_url",
  "slashing_protection",
  "slog",
  "slog-async",
@@ -651,6 +652,7 @@ dependencies = [
  "logging",
  "node_test_rig",
  "rand 0.7.3",
+ "sensitive_url",
  "serde",
  "slasher",
  "slog",
@@ -1891,6 +1893,7 @@ dependencies = [
  "merkle_proof",
  "parking_lot",
  "reqwest",
+ "sensitive_url",
  "serde",
  "serde_json",
  "slog",
@@ -1937,6 +1940,7 @@ dependencies = [
  "psutil",
  "reqwest",
  "ring",
+ "sensitive_url",
  "serde",
  "serde_json",
  "serde_utils",
@@ -2533,6 +2537,7 @@ dependencies = [
  "merkle_proof",
  "parking_lot",
  "rayon",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "slog",
@@ -2862,6 +2867,7 @@ dependencies = [
  "lighthouse_version",
  "network",
  "parking_lot",
+ "sensitive_url",
  "serde",
  "slog",
  "slot_clock",
@@ -3358,6 +3364,7 @@ dependencies = [
  "log",
  "rand 0.7.3",
  "regex",
+ "sensitive_url",
  "serde",
  "serde_yaml",
  "simple_logger",
@@ -4218,6 +4225,7 @@ dependencies = [
  "futures 0.3.13",
  "genesis",
  "reqwest",
+ "sensitive_url",
  "serde",
  "tempfile",
  "types",
@@ -5185,6 +5193,7 @@ dependencies = [
  "rand 0.7.3",
  "remote_signer_test",
  "reqwest",
+ "sensitive_url",
  "serde",
  "tokio 1.2.0",
  "types",
@@ -5201,6 +5210,7 @@ dependencies = [
  "remote_signer_client",
  "remote_signer_consumer",
  "reqwest",
+ "sensitive_url",
  "serde",
  "serde_json",
  "tempfile",
@@ -5530,6 +5540,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
+name = "sensitive_url"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "url",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.124"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5744,6 +5763,7 @@ dependencies = [
  "node_test_rig",
  "parking_lot",
  "rayon",
+ "sensitive_url",
  "tokio 1.2.0",
  "types",
  "validator_client",
@@ -7081,6 +7101,7 @@ dependencies = [
  "ring",
  "safe_arith",
  "scrypt",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "serde_json",

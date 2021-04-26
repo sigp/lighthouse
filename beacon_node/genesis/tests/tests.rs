@@ -7,6 +7,7 @@ use environment::{Environment, EnvironmentBuilder};
 use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
 use genesis::{Eth1Config, Eth1GenesisService};
+use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
 use tokio_compat_02::FutureExt;
@@ -46,7 +47,7 @@ fn basic() {
 
             let service = Eth1GenesisService::new(
                 Eth1Config {
-                    endpoints: vec![eth1.endpoint()],
+                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
                     deposit_contract_address: deposit_contract.address(),
                     deposit_contract_deploy_block: now,
                     lowest_cached_block_number: now,

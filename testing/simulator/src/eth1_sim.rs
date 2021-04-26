@@ -10,6 +10,7 @@ use node_test_rig::{
     ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
+use sensitive_url::SensitiveUrl;
 use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
@@ -84,7 +85,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let network_id = ganache_eth1_instance.ganache.network_id();
         let chain_id = ganache_eth1_instance.ganache.chain_id();
         let ganache = ganache_eth1_instance.ganache;
-        let eth1_endpoint = ganache.endpoint();
+        let eth1_endpoint = SensitiveUrl::parse(ganache.endpoint().as_str())
+            .expect("Unable to parse ganache endpoint.");
         let deposit_contract_address = deposit_contract.address();
 
         // Start a timer that produces eth1 blocks on an interval.
@@ -133,7 +135,10 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         for i in 0..node_count - 1 {
             let mut config = beacon_config.clone();
             if i % 2 == 0 {
-                config.eth1.endpoints.insert(0, INVALID_ADDRESS.to_string());
+                config.eth1.endpoints.insert(
+                    0,
+                    SensitiveUrl::parse(INVALID_ADDRESS).expect("Unable to parse invalid address"),
+                );
             }
             network.add_beacon_node(config).await?;
         }

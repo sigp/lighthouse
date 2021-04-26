@@ -17,6 +17,7 @@ use eth2::{
 };
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
+use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::TestingSlotClock;
 use std::marker::PhantomData;
@@ -33,7 +34,7 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    url: Url,
+    url: SensitiveUrl,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
 }
@@ -117,7 +118,7 @@ impl ApiTester {
 
         tokio::spawn(async { server.await });
 
-        let url = Url::parse(&format!(
+        let url = SensitiveUrl::parse(&format!(
             "http://{}:{}",
             listening_socket.ip(),
             listening_socket.port()

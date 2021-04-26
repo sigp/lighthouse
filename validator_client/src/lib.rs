@@ -28,7 +28,7 @@ use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::types::StateId;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode};
 use fork_service::{ForkService, ForkServiceBuilder};
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
@@ -209,13 +209,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 })?;
         }
 
-        let beacon_node_urls: Vec<Url> = config
+        let beacon_nodes: Vec<BeaconNodeHttpClient> = config
             .beacon_nodes
-            .iter()
-            .map(|s| s.parse())
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
-        let beacon_nodes: Vec<BeaconNodeHttpClient> = beacon_node_urls
+            .clone()
             .into_iter()
             .map(|url| {
                 let beacon_node_http_client = ClientBuilder::new()

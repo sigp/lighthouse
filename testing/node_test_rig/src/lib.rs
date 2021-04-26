@@ -4,10 +4,8 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{
-    reqwest::{ClientBuilder, Url},
-    BeaconNodeHttpClient,
-};
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient};
+use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -68,9 +66,10 @@ impl<E: EthSpec> LocalBeaconNode<E> {
             .http_api_listen_addr()
             .ok_or("A remote beacon node must have a http server")?;
 
-        let beacon_node_url: Url = format!("http://{}:{}", listen_addr.ip(), listen_addr.port())
-            .parse()
-            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+        let beacon_node_url: SensitiveUrl = SensitiveUrl::parse(
+            format!("http://{}:{}", listen_addr.ip(), listen_addr.port()).as_str(),
+        )
+        .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         let beacon_node_http_client = ClientBuilder::new()
             .timeout(HTTP_TIMEOUT)
             .build()

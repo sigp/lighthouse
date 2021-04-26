@@ -8,6 +8,7 @@ use reqwest::{
 };
 use ring::digest::{digest, SHA256};
 use secp256k1::{Message, PublicKey, Signature};
+use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
 
 pub use reqwest;
@@ -18,7 +19,7 @@ pub use reqwest::{Response, StatusCode, Url};
 #[derive(Clone)]
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
-    server: Url,
+    server: SensitiveUrl,
     secret: ZeroizeString,
     server_pubkey: PublicKey,
 }
@@ -53,7 +54,7 @@ pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
 }
 
 impl ValidatorClientHttpClient {
-    pub fn new(server: Url, secret: String) -> Result<Self, Error> {
+    pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
@@ -63,7 +64,7 @@ impl ValidatorClientHttpClient {
     }
 
     pub fn from_components(
-        server: Url,
+        server: SensitiveUrl,
         client: reqwest::Client,
         secret: String,
     ) -> Result<Self, Error> {
@@ -187,7 +188,7 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/version`
     pub async fn get_lighthouse_version(&self) -> Result<GenericResponse<VersionData>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -199,7 +200,7 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -211,7 +212,7 @@ impl ValidatorClientHttpClient {
 
     /// `GET lighthouse/spec`
     pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<YamlConfig>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -225,7 +226,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_lighthouse_validators(
         &self,
     ) -> Result<GenericResponse<Vec<ValidatorData>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -240,7 +241,7 @@ impl ValidatorClientHttpClient {
         &self,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<Option<GenericResponse<ValidatorData>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -256,7 +257,7 @@ impl ValidatorClientHttpClient {
         &self,
         validators: Vec<ValidatorRequest>,
     ) -> Result<GenericResponse<PostValidatorsResponseData>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -271,7 +272,7 @@ impl ValidatorClientHttpClient {
         &self,
         request: &CreateValidatorsMnemonicRequest,
     ) -> Result<GenericResponse<Vec<CreatedValidator>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -287,7 +288,7 @@ impl ValidatorClientHttpClient {
         &self,
         request: &KeystoreValidatorsPostRequest,
     ) -> Result<GenericResponse<ValidatorData>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -304,7 +305,7 @@ impl ValidatorClientHttpClient {
         voting_pubkey: &PublicKeyBytes,
         enabled: bool,
     ) -> Result<(), Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

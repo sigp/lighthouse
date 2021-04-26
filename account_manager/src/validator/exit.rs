@@ -4,11 +4,12 @@ use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
-    BeaconNodeHttpClient, Url,
+    BeaconNodeHttpClient,
 };
 use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
+use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -75,7 +76,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let spec = env.eth2_config().spec.clone();
     let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;
     let client = BeaconNodeHttpClient::new(
-        Url::parse(&server_url)
+        SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
     );
 

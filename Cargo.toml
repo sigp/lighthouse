@@ -33,6 +33,7 @@ members = [
     "common/logging",
     "common/lru_cache",
     "common/remote_signer_consumer",
+    "common/sensitive_url",
     "common/slot_clock",
     "common/task_executor",
     "common/test_random_derive",

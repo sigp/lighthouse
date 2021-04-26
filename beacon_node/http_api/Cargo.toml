@@ -35,3 +35,4 @@ store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
 discv5 = { git = "https://github.com/sigp/discv5 ", rev = "02d2c896c66f8dc2b848c3996fedcd98e1dfec69", features = ["libp2p"] }
+sensitive_url = { path = "../../common/sensitive_url" }
