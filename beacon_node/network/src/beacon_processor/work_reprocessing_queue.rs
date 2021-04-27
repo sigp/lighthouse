@@ -34,9 +34,6 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 /// This is to account for any slight drift in the system clock.
 const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 
-/// For how long attestations will be kept before sending them back for reprocessing.
-const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(20);
-
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
@@ -312,12 +309,16 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     return;
                 }
 
+                // Check for how long can we keep this attestation before it is too late.
+                let delay = self
+                    .slot_clock
+                    .duration_to_next_slot()
+                    .unwrap_or(self.slot_clock.slot_duration());
+
                 let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
 
                 // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
+                let delay_key = self.attestations_delay_queue.insert(att_id, delay);
 
                 // Register this attestation for the corresponding root.
                 self.awaiting_attestations_per_root
@@ -343,12 +344,16 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     return;
                 }
 
+                // Check for how long can we keep this attestation before it is too late.
+                let delay = self
+                    .slot_clock
+                    .duration_to_next_slot()
+                    .unwrap_or(self.slot_clock.slot_duration());
+
                 let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
 
                 // Register the delay.
-                let delay_key = self
-                    .attestations_delay_queue
-                    .insert(att_id, QUEUED_ATTESTATION_DELAY);
+                let delay_key = self.attestations_delay_queue.insert(att_id, delay);
 
                 // Register this attestation for the corresponding root.
                 self.awaiting_attestations_per_root
