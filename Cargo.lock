@@ -2088,7 +2088,6 @@ dependencies = [
  "snap",
  "strum",
  "task_executor",
- "tempfile",
  "tiny-keccak 2.0.2",
  "tokio 1.2.0",
  "tokio-io-timeout",
@@ -6864,7 +6863,6 @@ name = "tree_hash"
 version = "0.1.1"
 dependencies = [
  "beacon_chain",
- "criterion",
  "eth2_hashing",
  "ethereum-types",
  "lazy_static",
