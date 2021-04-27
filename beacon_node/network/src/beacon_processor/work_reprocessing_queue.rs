@@ -333,6 +333,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 self.next_attestation += 1;
             }
             Some(InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate))) => {
+                println!(
+                    "received unaggreated attestation for root {:?}",
+                    queued_unaggregate.root()
+                );
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
                         self.log,
@@ -361,6 +365,13 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .or_default()
                     .push(att_id);
 
+                println!(
+                    "added attestation for root {:?} with id {:?}. Number of queued attestations: {}",
+                    queued_unaggregate.root(),
+                    att_id,
+                    self.awaiting_attestations_per_root.len(),
+                );
+
                 // Store the attestation and its info.
                 self.queued_unaggregates
                     .insert(self.next_attestation, (queued_unaggregate, delay_key));
@@ -370,6 +381,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             Some(InboundEvent::Msg(BlockImported(root))) => {
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
+                    println!(
+                        "There are attestations queued for this root {:?}: [{}]",
+                        root,
+                        queued_ids.len()
+                    );
                     for id in queued_ids {
                         if let Some((work, delay_key)) = match id {
                             QueuedAttestationId::Aggregate(id) => self
@@ -406,6 +422,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             );
                         }
                     }
+                } else {
+                    println!("no attestations queued for this root {:?}", root);
                 }
             }
             // A block that was queued for later processing is now ready to be processed.
@@ -442,6 +460,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 )
             }
             Some(InboundEvent::ReadyAttestation(queued_id)) => {
+                println!("attestation with id became ready {:?}", queued_id);
                 if let Some((root, work)) = match queued_id {
                     QueuedAttestationId::Aggregate(id) => {
                         self.queued_aggregates
@@ -457,6 +476,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             (*unaggregate.root(), ReadyWork::Unaggregate(unaggregate))
                         }),
                 } {
+                    println!("ready for root {:?}", root);
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
                             self.log,

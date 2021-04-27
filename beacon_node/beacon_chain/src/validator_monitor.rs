@@ -540,6 +540,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         indexed_attestation: &IndexedAttestation<T>,
         slot_clock: &S,
     ) {
+        println!("attestation registered");
         self.register_unaggregated_attestation(
             "gossip",
             seen_timestamp,

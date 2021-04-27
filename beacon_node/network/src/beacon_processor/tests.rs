@@ -116,7 +116,7 @@ impl TestRig {
                 &AttestationStrategy::AllValidators,
                 &next_state,
                 next_block.state_root(),
-                next_state.canonical_root(),
+                next_block.canonical_root(),
                 next_block.slot(),
             )
             .into_iter()
@@ -203,6 +203,10 @@ impl TestRig {
         }
     }
 
+    pub fn head_root(&self) -> Hash256 {
+        self.chain.head().unwrap().beacon_block_root
+    }
+
     pub fn enqueue_gossip_block(&self) {
         self.beacon_processor_tx
             .try_send(WorkEvent::gossip_beacon_block(
@@ -258,6 +262,20 @@ impl TestRig {
             .unwrap();
     }
 
+    pub fn enqueue_next_block_unaggregated_attestation(&self) {
+        let (attestation, subnet_id) = self.next_block_attestations.first().unwrap().clone();
+        self.beacon_processor_tx
+            .try_send(WorkEvent::unaggregated_attestation(
+                junk_message_id(),
+                junk_peer_id(),
+                attestation,
+                subnet_id,
+                true,
+                Duration::from_secs(0),
+            ))
+            .unwrap();
+    }
+
     fn runtime(&mut self) -> Arc<Runtime> {
         self.environment
             .as_mut()
@@ -281,6 +299,61 @@ impl TestRig {
                 ),
             }
         })
+    }
+
+    /// Checks that the `BeaconProcessor` event journal contains the `expected` events in the given
+    /// order with a matching number of `WORKER_FREED` events in between. `NOTHING_TO_DO` events
+    /// are ignored.
+    ///
+    /// Given the described logic, `expected` must not contain `WORKER_FREED` or `NOTHING_TO_DO`
+    /// events.
+    pub fn assert_event_journal_contains_ordered(&mut self, expected: &[&str]) {
+        assert!(expected
+            .iter()
+            .all(|ev| ev != &WORKER_FREED && ev != &NOTHING_TO_DO));
+
+        let (events, worker_freed_remaining) = self.runtime().block_on(async {
+            let mut events = Vec::with_capacity(expected.len());
+            let mut worker_freed_remaining = expected.len();
+
+            let drain_future = async {
+                loop {
+                    match self.work_journal_rx.recv().await {
+                        Some(event) if event == WORKER_FREED => {
+                            worker_freed_remaining -= 1;
+                            if worker_freed_remaining == 0 {
+                                // Break when all expected events are finished.
+                                break;
+                            }
+                        }
+                        Some(event) if event == NOTHING_TO_DO => {
+                            // Ignore these.
+                        }
+                        Some(event) => {
+                            events.push(event);
+                        }
+                        None => break,
+                    }
+                }
+            };
+
+            // Drain the expected number of events from the channel, or time out and give up.
+            tokio::select! {
+                _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
+                    "timeout ({:?}) expired waiting for events. expected {:?} but got {:?} waiting for {} `WORKER_FREED` events",
+                    STANDARD_TIMEOUT,
+                    expected,
+                    events,
+                    worker_freed_remaining,
+                ),
+                _ = drain_future => {},
+            }
+
+            (events, worker_freed_remaining)
+        });
+
+        assert_eq!(events, expected);
+        assert_eq!(worker_freed_remaining, 0);
     }
 
     /// Assert that the `BeaconProcessor` event journal is as `expected`.
@@ -365,18 +438,18 @@ fn import_gossip_block_acceptably_early() {
     // processing.
     //
     // If this causes issues we might be able to make the block delay queue add a longer delay for
-    // processing, instead of just MAXIMUM_GOSSIP_CLOCK_DISPARITY. Speak to @paulhauner if this test
+    // processing, instead of just ADDITIONAL_QUEUED_BLOCK_DELAY. Speak to @paulhauner if this test
     // starts failing.
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
     assert!(
-        rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
+        rig.head_root() != rig.next_block.canonical_root(),
         "block not yet imported"
     );
 
     rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.head().unwrap().beacon_block_root,
+        rig.head_root(),
         rig.next_block.canonical_root(),
         "block should be imported and become head"
     );
@@ -412,7 +485,7 @@ fn import_gossip_block_unacceptably_early() {
     rig.assert_no_events_for(Duration::from_secs(5));
 
     assert!(
-        rig.chain.head().unwrap().beacon_block_root != rig.next_block.canonical_root(),
+        rig.head_root() != rig.next_block.canonical_root(),
         "block should not be imported"
     );
 }
@@ -433,7 +506,7 @@ fn import_gossip_block_at_current_slot() {
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.head().unwrap().beacon_block_root,
+        rig.head_root(),
         rig.next_block.canonical_root(),
         "block should be imported and become head"
     );
@@ -458,31 +531,41 @@ fn import_gossip_attestation() {
 }
 
 /// Ensure that attestations that reference an unkown block get properly re-queued and
-/// re-processed.
+/// re-processed upon seeing the block.
 #[test]
 fn import_unknown_block_gossip_attestation() {
     let mut rig = TestRig::new(SMALL_CHAIN);
 
+    // Send the attestation but not the block, and check that it was not imported.
+
     let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
 
-    let (attestation, subnet_id) = rig.next_block_attestations.first().unwrap().clone();
-    rig.beacon_processor_tx
-        .try_send(WorkEvent::unaggregated_attestation(
-            junk_message_id(),
-            junk_peer_id(),
-            attestation,
-            subnet_id,
-            true,
-            Duration::from_secs(0),
-        ))
-        .unwrap();
+    rig.enqueue_next_block_unaggregated_attestation();
 
     rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_attestations(),
         initial_attns,
-        "op pool should not have been included"
+        "Attestation should not have been included."
+    );
+
+    // Send the block and ensure that the attestation is received back and imported.
+
+    rig.enqueue_gossip_block();
+
+    rig.assert_event_journal_contains_ordered(&[GOSSIP_BLOCK, UNKNOWN_BLOCK_ATTESTATION]);
+
+    assert_eq!(
+        rig.head_root(),
+        rig.next_block.canonical_root(),
+        "Block should be imported and become head."
+    );
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns + 1,
+        "Attestation should have been included."
     );
 }
 
