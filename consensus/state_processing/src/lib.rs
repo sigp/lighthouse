@@ -1,10 +1,16 @@
-#![deny(clippy::integer_arithmetic)]
-#![deny(clippy::disallowed_method)]
-#![deny(clippy::indexing_slicing)]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
-#![deny(clippy::let_underscore_must_use)]
+// Clippy lint set-up (disabled in tests)
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::integer_arithmetic,
+        clippy::disallowed_method,
+        clippy::indexing_slicing,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::let_underscore_must_use
+    )
+)]
 
 #[macro_use]
 mod macros;

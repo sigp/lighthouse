@@ -3,9 +3,14 @@
 // Required for big type-level numbers
 #![recursion_limit = "128"]
 // Clippy lint set up
-#![deny(clippy::integer_arithmetic)]
-#![deny(clippy::disallowed_method)]
-#![deny(clippy::indexing_slicing)]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::integer_arithmetic,
+        clippy::disallowed_method,
+        clippy::indexing_slicing
+    )
+)]
 
 #[macro_use]
 extern crate lazy_static;
