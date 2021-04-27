@@ -6073,7 +6073,6 @@ dependencies = [
  "arbitrary",
  "beacon_chain",
  "bls",
- "criterion",
  "env_logger 0.8.3",
  "eth2_hashing",
  "eth2_ssz",
