@@ -523,33 +523,20 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.peer_manager.discovery_mut().add_enr(enr);
     }
 
-    /// Updates a subnet value to the ENR attestation bitfield.
+    /// Updates a subnet value to the ENR attnets/syncnets bitfield.
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
-    pub fn update_enr_attestation_subnet(&mut self, subnet_id: SubnetId, value: bool) {
+    pub fn update_enr_subnet(&mut self, subnet_id: Subnet, value: bool) {
         if let Err(e) = self
             .peer_manager
             .discovery_mut()
-            .update_enr_attnets_bitfield(subnet_id, value)
+            .update_enr_bitfield(subnet_id, value)
         {
             crit!(self.log, "Could not update ENR bitfield"; "error" => e);
         }
         // update the local meta data which informs our peers of the update during PINGS
         self.update_metadata_attnets();
-    }
-
-    /// Updates a subnet value to the ENR sync committee bitfield.
-    ///
-    /// The `value` is `true` if a subnet is being added and false otherwise.
-    pub fn update_enr_sync_subnet(&mut self, subnet_id: SubnetId, value: bool) {
-        if let Err(e) = self
-            .peer_manager
-            .discovery_mut()
-            .update_enr_syncnets_bitfield(subnet_id, value)
-        {
-            crit!(self.log, "Could not update ENR bitfield"; "error" => e);
-        }
-        // TODO(pawan): have a update_metadata_syncnets method
+        //TODO(pawan): also update syncnets
     }
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
