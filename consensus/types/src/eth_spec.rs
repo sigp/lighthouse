@@ -6,8 +6,11 @@ use ssz_types::typenum::{
     Unsigned, U0, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U64,
     U65536, U8, U8192,
 };
-use std::{fmt::{self, Debug}, marker::Unpin};
 use std::str::FromStr;
+use std::{
+    fmt::{self, Debug},
+    marker::Unpin,
+};
 
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
@@ -51,7 +54,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      * Constants
      */
     type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default + Unpin;
+    type JustificationBitsLength: Unsigned
+        + Clone
+        + Sync
+        + Send
+        + Debug
+        + PartialEq
+        + Default
+        + Unpin;
     type SubnetBitfieldLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default + Unpin;
     /*
      * Misc
@@ -73,7 +83,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /*
      * Max operations per block
      */
-    type MaxProposerSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq  + Unpin;
+    type MaxProposerSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxAttesterSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxDeposits: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;

@@ -1017,7 +1017,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
-    ) -> Result<VerifiedUnaggregatedAttestation<T>, (AttestationError, Attestation<T::EthSpec>)> {
+    ) -> Result<VerifiedUnaggregatedAttestation<T>, (AttestationError, Attestation<T::EthSpec>)>
+    {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -1041,7 +1042,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_aggregated_attestation_for_gossip(
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Result<VerifiedAggregatedAttestation<T>, (AttestationError, SignedAggregateAndProof<T::EthSpec>)> {
+    ) -> Result<
+        VerifiedAggregatedAttestation<T>,
+        (AttestationError, SignedAggregateAndProof<T::EthSpec>),
+    > {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);

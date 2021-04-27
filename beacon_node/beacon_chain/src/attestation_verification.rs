@@ -383,7 +383,9 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                 }
                 verified_aggregate
             })
-            .map_err(|(slash_info, original_aggregate)| (process_slash_info(slash_info, chain), original_aggregate))
+            .map_err(|(slash_info, original_aggregate)| {
+                (process_slash_info(slash_info, chain), original_aggregate)
+            })
     }
 
     /// Run the checks that happen before an indexed attestation is constructed.
@@ -557,7 +559,12 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                     .map_err(|e| BeaconChainError::from(e).into())
             }) {
                 Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => return Err((SignatureNotChecked(signed_aggregate.message.aggregate.clone(), e), signed_aggregate)),
+                Err(e) => {
+                    return Err((
+                        SignatureNotChecked(signed_aggregate.message.aggregate.clone(), e),
+                        signed_aggregate,
+                    ))
+                }
             };
 
         // Ensure that all signatures are valid.

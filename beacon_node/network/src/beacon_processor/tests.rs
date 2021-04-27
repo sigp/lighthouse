@@ -42,12 +42,12 @@ struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: SignedBeaconBlock<E>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
+    next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     beacon_processor_tx: mpsc::Sender<WorkEvent<T>>,
-    /// TODO: document this guy
-    work_journal_rx: mpsc::Receiver<String>,
+    work_journal_rx: mpsc::Receiver<&'static str>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     environment: Option<Environment<E>>,
@@ -90,7 +90,7 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, _next_state) =
+        let (next_block, next_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
         let head_state_root = head.beacon_state_root();
@@ -109,6 +109,23 @@ impl TestRig {
         assert!(
             !attestations.is_empty(),
             "precondition: attestations for testing"
+        );
+
+        let next_block_attestations = harness
+            .get_unaggregated_attestations(
+                &AttestationStrategy::AllValidators,
+                &next_state,
+                next_block.state_root(),
+                next_state.canonical_root(),
+                next_block.slot(),
+            )
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        assert!(
+            !next_block_attestations.is_empty(),
+            "precondition: attestation for next block are not empty"
         );
 
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
@@ -174,6 +191,7 @@ impl TestRig {
             chain,
             next_block,
             attestations,
+            next_block_attestations,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -305,13 +323,7 @@ impl TestRig {
             events
         });
 
-        assert_eq!(
-            events,
-            expected
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(events, expected);
     }
 }
 
@@ -442,6 +454,35 @@ fn import_gossip_attestation() {
         rig.chain.naive_aggregation_pool.read().num_attestations(),
         initial_attns + 1,
         "op pool should have one more attestation"
+    );
+}
+
+/// Ensure that attestations that reference an unkown block get properly re-queued and
+/// re-processed.
+#[test]
+fn import_unknown_block_gossip_attestation() {
+    let mut rig = TestRig::new(SMALL_CHAIN);
+
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+
+    let (attestation, subnet_id) = rig.next_block_attestations.first().unwrap().clone();
+    rig.beacon_processor_tx
+        .try_send(WorkEvent::unaggregated_attestation(
+            junk_message_id(),
+            junk_peer_id(),
+            attestation,
+            subnet_id,
+            true,
+            Duration::from_secs(0),
+        ))
+        .unwrap();
+
+    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns,
+        "op pool should not have been included"
     );
 }
 
