@@ -569,6 +569,37 @@ fn import_unknown_block_gossip_attestation() {
     );
 }
 
+/// Ensure that attestations that reference an unkown block get properly re-queued and re-processed
+/// when the block is not seen.
+#[test]
+fn requeue_unknown_block_gossip_attestation_without_import() {
+    let mut rig = TestRig::new(SMALL_CHAIN);
+
+    // Send the attestation but not the block, and check that it was not imported.
+
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+
+    rig.enqueue_next_block_unaggregated_attestation();
+
+    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns,
+        "Attestation should not have been included."
+    );
+
+    // Ensure that the attestation is received back but not imported.
+
+    rig.assert_event_journal(&[UNKNOWN_BLOCK_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns,
+        "Attestation should have been included."
+    );
+}
+
 /// Ensure a bunch of valid operations can be imported.
 #[test]
 fn import_misc_gossip_ops() {

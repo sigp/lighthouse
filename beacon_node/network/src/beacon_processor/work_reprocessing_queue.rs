@@ -356,6 +356,13 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
 
+                println!(
+                    "added attestation for root {:?} with id {:?}. Number of queued attestations: {} for {:?}",
+                    queued_unaggregate.root(),
+                    att_id,
+                    self.awaiting_attestations_per_root.len(),
+                    delay
+                );
                 // Register the delay.
                 let delay_key = self.attestations_delay_queue.insert(att_id, delay);
 
@@ -364,13 +371,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .entry(*queued_unaggregate.root())
                     .or_default()
                     .push(att_id);
-
-                println!(
-                    "added attestation for root {:?} with id {:?}. Number of queued attestations: {}",
-                    queued_unaggregate.root(),
-                    att_id,
-                    self.awaiting_attestations_per_root.len(),
-                );
 
                 // Store the attestation and its info.
                 self.queued_unaggregates
