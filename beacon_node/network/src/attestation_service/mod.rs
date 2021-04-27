@@ -13,7 +13,7 @@ use rand::seq::SliceRandom;
 use slog::{debug, error, o, trace, warn};
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{NetworkConfig, SubnetDiscovery};
+use eth2_libp2p::{NetworkConfig, Subnet, SubnetDiscovery};
 use hashset_delay::HashSetDelay;
 use slot_clock::SlotClock;
 use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
@@ -332,7 +332,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         .duration_to_slot(exact_subnet.slot + 1)
                         .map(|duration| std::time::Instant::now() + duration);
                     Some(SubnetDiscovery {
-                        subnet_id: exact_subnet.subnet_id,
+                        subnet_id: Subnet::Attestation(exact_subnet.subnet_id),
                         min_ttl,
                     })
                 } else {
@@ -475,7 +475,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // this makes it easier to deterministically test the attestations service.
             self.events
                 .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                    subnet_id,
+                    subnet_id: Subnet::Attestation(subnet_id),
                     min_ttl: None,
                 }]));
 

@@ -991,7 +991,7 @@ mod tests {
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use std::net::UdpSocket;
-    use types::{BitVector, MinimalEthSpec};
+    use types::{BitVector, MinimalEthSpec, SubnetId};
 
     type E = MinimalEthSpec;
 

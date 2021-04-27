@@ -247,6 +247,8 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_attester_slashing_gossip(id, peer_id, attester_slashing);
             }
+            PubsubMessage::SignedContributionAndProof(_contribution_and_proof) => unimplemented!(),
+            PubsubMessage::SyncCommitteeSignature(_sync_committtee) => unimplemented!(),
         }
     }
 }
