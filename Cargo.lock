@@ -2088,6 +2088,7 @@ dependencies = [
  "snap",
  "strum",
  "task_executor",
+ "tempfile",
  "tiny-keccak 2.0.2",
  "tokio 1.2.0",
  "tokio-io-timeout",

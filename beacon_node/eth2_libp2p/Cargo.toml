@@ -50,8 +50,7 @@ features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dn
 tokio = { version = "1.1.0", features = ["full"] }
 slog-term = "2.6.0"
 slog-async = "2.5.0"
-# FIXME(altair): re-enable when enabling RPC tests
-# tempfile = "3.1.0"
+tempfile = "3.1.0"
 exit-future = "0.2.0"
 
 [features]
