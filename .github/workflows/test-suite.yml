@@ -28,8 +28,6 @@ jobs:
     - uses: actions/checkout@v1
     - name: Get latest version of stable Rust
       run: rustup update stable
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
   release-tests-ubuntu:
