@@ -29,7 +29,7 @@ pub fn process_epoch<T: EthSpec>(
     //
     // E.g., attestation in the previous epoch, attested to the head, etc.
     let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-    validator_statuses.process_attestations(&state, spec)?;
+    validator_statuses.process_attestations(&state)?;
 
     // Justification and finalization.
     process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
@@ -67,7 +67,7 @@ pub fn process_epoch<T: EthSpec>(
     process_participation_record_updates(state)?;
 
     // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches();
+    state.advance_caches()?;
 
     Ok(EpochProcessingSummary {
         total_balances: validator_statuses.total_balances,

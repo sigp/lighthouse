@@ -163,14 +163,14 @@ impl<T: EthSpec> BeaconBlock<T> {
     /// Custom SSZ decoder that takes a `ChainSpec` as context.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_len {
-            return Err(DecodeError::InvalidByteLength {
+        let slot_bytes = bytes
+            .get(0..slot_len)
+            .ok_or(DecodeError::InvalidByteLength {
                 len: bytes.len(),
                 expected: slot_len,
-            });
-        }
+            })?;
 
-        let slot = Slot::from_ssz_bytes(&bytes[0..slot_len])?;
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
 
         if spec
             .altair_fork_slot

@@ -37,8 +37,8 @@ pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
     expected: &mut Option<BeaconState<T>>,
 ) -> Result<(), Error> {
     if let (Ok(ref mut result), Some(ref mut expected)) = (result.as_mut(), expected.as_mut()) {
-        result.drop_all_caches();
-        expected.drop_all_caches();
+        result.drop_all_caches().unwrap();
+        expected.drop_all_caches().unwrap();
     }
 
     compare_result_detailed(&result, &expected)

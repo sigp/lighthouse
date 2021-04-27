@@ -82,7 +82,7 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
         match state {
             BeaconState::Base(_) => {
                 let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-                validator_statuses.process_attestations(state, spec)?;
+                validator_statuses.process_attestations(state)?;
                 base::process_justification_and_finalization(
                     state,
                     &validator_statuses.total_balances,
@@ -99,7 +99,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
         match state {
             BeaconState::Base(_) => {
                 let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-                validator_statuses.process_attestations(state, spec)?;
+                validator_statuses.process_attestations(state)?;
                 base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
             }
             BeaconState::Altair(_) => altair::process_rewards_and_penalties(state, spec),
@@ -118,7 +118,7 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
         match state {
             BeaconState::Base(_) => {
                 let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
-                validator_statuses.process_attestations(&state, spec)?;
+                validator_statuses.process_attestations(&state)?;
                 process_slashings(
                     state,
                     validator_statuses.total_balances.current_epoch(),

@@ -81,7 +81,10 @@ impl Into<Graffiti> for GraffitiString {
         // Copy the provided bytes over.
         //
         // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-        graffiti[..graffiti_len].copy_from_slice(&graffiti_bytes);
+        graffiti
+            .get_mut(..graffiti_len)
+            .expect("graffiti_len <= 32")
+            .copy_from_slice(&graffiti_bytes);
         graffiti.into()
     }
 }

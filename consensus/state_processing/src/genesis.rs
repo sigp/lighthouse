@@ -78,7 +78,10 @@ pub fn process_activations<T: EthSpec>(
 ) -> Result<(), Error> {
     let (validators, balances) = state.validators_and_balances_mut();
     for (index, validator) in validators.iter_mut().enumerate() {
-        let balance = balances[index];
+        let balance = balances
+            .get(index)
+            .copied()
+            .ok_or(Error::BalancesOutOfBounds(index))?;
         validator.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
             spec.max_effective_balance,

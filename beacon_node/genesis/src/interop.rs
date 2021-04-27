@@ -50,8 +50,10 @@ pub fn interop_genesis_state<T: EthSpec>(
 
     *state.genesis_time_mut() = genesis_time;
 
-    // Invalid all the caches after all the manual state surgery.
-    state.drop_all_caches();
+    // Invalidate all the caches after all the manual state surgery.
+    state
+        .drop_all_caches()
+        .map_err(|e| format!("Unable to drop caches: {:?}", e))?;
 
     Ok(state)
 }

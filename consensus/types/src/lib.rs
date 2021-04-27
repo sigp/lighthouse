@@ -5,6 +5,7 @@
 // Clippy lint set up
 #![deny(clippy::integer_arithmetic)]
 #![deny(clippy::disallowed_method)]
+#![deny(clippy::indexing_slicing)]
 
 #[macro_use]
 extern crate lazy_static;

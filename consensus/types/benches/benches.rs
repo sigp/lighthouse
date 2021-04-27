@@ -20,10 +20,13 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     let mut state = BeaconState::new(0, eth1_data, spec);
 
     for i in 0..validator_count {
-        state.balances.push(i as u64).expect("should add balance");
+        state
+            .balances_mut()
+            .push(i as u64)
+            .expect("should add balance");
     }
 
-    state.validators = (0..validator_count)
+    *state.validators_mut() = (0..validator_count)
         .collect::<Vec<_>>()
         .par_iter()
         .map(|&i| Validator {

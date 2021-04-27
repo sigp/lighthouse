@@ -7,7 +7,7 @@ use types::chain_spec::ChainSpec;
 use types::consts::altair::{INACTIVITY_SCORE_BIAS, TIMELY_TARGET_FLAG_INDEX};
 use types::eth_spec::EthSpec;
 
-//TODO: there's no EF test for this one
+// FIXME(altair): there's no EF test for this one (yet)
 pub fn process_inactivity_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -19,11 +19,14 @@ pub fn process_inactivity_updates<T: EthSpec>(
             spec,
         )?;
         if unslashed_indices.contains(&index) {
-            if state.inactivity_scores()?[index] > 0 {
-                state.inactivity_scores_mut()?[index].safe_sub_assign(1)?;
+            let inactivity_score = state.get_inactivity_score_mut(index)?;
+            if *inactivity_score > 0 {
+                inactivity_score.safe_sub_assign(1)?;
             }
         } else if state.is_in_inactivity_leak(spec) {
-            state.inactivity_scores_mut()?[index].safe_add_assign(INACTIVITY_SCORE_BIAS)?;
+            state
+                .get_inactivity_score_mut(index)?
+                .safe_add_assign(INACTIVITY_SCORE_BIAS)?;
         }
     }
     Ok(())

@@ -125,7 +125,7 @@ fn test_cache_initialization<T: EthSpec>(
     state.get_beacon_committee(slot, 0).unwrap();
 
     // Drop the cache.
-    state.drop_committee_cache(relative_epoch);
+    state.drop_committee_cache(relative_epoch).unwrap();
 
     // Assert a call to a cache-using function fail.
     assert_eq!(

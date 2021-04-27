@@ -2,7 +2,7 @@ use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-use std::ops::{Deref, Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice::SliceIndex;
 use tree_hash::Hash256;
 use typenum::Unsigned;
@@ -144,6 +144,16 @@ impl<T, N: Unsigned> Deref for FixedVector<T, N> {
 
     fn deref(&self) -> &[T] {
         &self.vec[..]
+    }
+}
+
+// This implementation is required to use `get_mut` to access elements.
+//
+// It's safe because none of the methods on mutable slices allow changing the length
+// of the backing vec.
+impl<T, N: Unsigned> DerefMut for FixedVector<T, N> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.vec[..]
     }
 }
 

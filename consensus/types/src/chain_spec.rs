@@ -245,13 +245,15 @@ impl ChainSpec {
     ) -> [u8; 4] {
         let mut result = [0; 4];
         let root = Self::compute_fork_data_root(current_version, genesis_validators_root);
-        result.copy_from_slice(&root.as_bytes()[0..4]);
+        result.copy_from_slice(
+            root.as_bytes()
+                .get(0..4)
+                .expect("root hash is at least 4 bytes"),
+        );
         result
     }
 
     /// Compute a domain by applying the given `fork_version`.
-    ///
-    /// Spec v0.12.1
     pub fn compute_domain(
         &self,
         domain: Domain,
@@ -263,7 +265,10 @@ impl ChainSpec {
         let mut domain = [0; 32];
         domain[0..4].copy_from_slice(&int_to_bytes4(domain_constant));
         domain[4..].copy_from_slice(
-            &Self::compute_fork_data_root(fork_version, genesis_validators_root)[..28],
+            Self::compute_fork_data_root(fork_version, genesis_validators_root)
+                .as_bytes()
+                .get(..28)
+                .expect("fork has is 32 bytes so first 28 bytes should exist"),
         );
 
         Hash256::from(domain)

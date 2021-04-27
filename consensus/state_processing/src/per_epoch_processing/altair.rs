@@ -67,7 +67,7 @@ pub fn process_epoch<T: EthSpec>(
     process_sync_committee_updates(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches();
+    state.advance_caches()?;
 
     // FIXME(altair): this is an incorrect dummy value, we should think harder
     // about how we want to unify validator statuses between phase0 & altair.

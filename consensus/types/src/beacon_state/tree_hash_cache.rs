@@ -1,5 +1,6 @@
 #![allow(clippy::integer_arithmetic)]
 #![allow(clippy::disallowed_method)]
+#![allow(clippy::indexing_slicing)]
 
 use super::Error;
 use crate::{BeaconState, EthSpec, Hash256, Slot, Unsigned, Validator};
