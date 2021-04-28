@@ -259,8 +259,14 @@ impl ProtocolId {
                     RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
                 }
                 Version::V2 => RpcLimits::new(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                    std::cmp::min(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                        *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    ),
+                    std::cmp::max(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                        *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    ),
                 ),
             },
             Protocol::BlocksByRoot => match self.version {
@@ -268,8 +274,14 @@ impl ProtocolId {
                     RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
                 }
                 Version::V2 => RpcLimits::new(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                    std::cmp::min(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                        *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    ),
+                    std::cmp::max(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                        *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    ),
                 ),
             },
             Protocol::Ping => RpcLimits::new(
