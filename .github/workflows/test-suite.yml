@@ -36,12 +36,19 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
-    - name: Get latest version of stable Rust
-      run: rustup update stable
+    - name: Get latest version of crazy Rust
+      run: rustup toolchain install nightly-2021-01-18
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
       run: make test-release
+    - name: Upload timing data
+      uses: actions/upload-artifact@v2
+      with:
+        name: cargo-timing-data
+        path: |
+          cargo-timing.html
+          cargo-timing-*.html
   beacon-chain-tests:
     name: beacon-chain-tests
     runs-on: ubuntu-latest

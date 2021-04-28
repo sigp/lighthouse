@@ -80,12 +80,12 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release \
+	cargo +nightly-2021-01-18 test --no-run --workspace --release \
         --exclude ef_tests \
         --exclude beacon_chain \
         --exclude remote_signer \
         --exclude remote_signer_consumer \
-        --exclude beacon_node # TODO: work out where to put this
+        --exclude beacon_node -Ztimings # TODO: work out where to put this
 
 # Run the tests in the `beacon_chain` crate.
 test-beacon-chain:
