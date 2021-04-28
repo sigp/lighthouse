@@ -96,6 +96,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// - Attempt to add it to the naive aggregation pool.
     ///
     /// Raises a log if there are errors.
+    #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_attestation(
         self,
         message_id: MessageId,
@@ -882,7 +883,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
                                 peer_id,
                                 attestation,
-                                message_id: message_id.clone(),
+                                message_id,
                                 seen_timestamp,
                             })
                         }
@@ -898,7 +899,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
                                 peer_id,
                                 should_import,
-                                message_id: message_id.clone(),
+                                message_id,
                                 attestation,
                                 subnet_id,
                                 seen_timestamp,

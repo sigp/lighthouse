@@ -372,17 +372,12 @@ impl TestRig {
             let mut events = Vec::with_capacity(expected.len());
 
             let drain_future = async {
-                loop {
-                    match self.work_journal_rx.recv().await {
-                        Some(event) => {
-                            events.push(event);
+                while let Some(event) = self.work_journal_rx.recv().await {
+                    events.push(event);
 
-                            // Break as soon as we collect the desired number of events.
-                            if events.len() >= expected.len() {
-                                break;
-                            }
-                        }
-                        None => break,
+                    // Break as soon as we collect the desired number of events.
+                    if events.len() >= expected.len() {
+                        break;
                     }
                 }
             };
