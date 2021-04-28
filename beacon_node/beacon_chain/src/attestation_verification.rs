@@ -511,7 +511,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
-    // NOTE: clippy considers the return too complex. This tuple is not used elsewhere so it is not
+    // NOTE: Clippy considers the return too complex. This tuple is not used elsewhere so it is not
     // worth creating an alias.
     #[allow(clippy::type_complexity)]
     pub fn verify_slashable(
@@ -750,7 +750,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
-    // NOTE: clippy considers the return too complex. This tuple is not used elsewhere so it is not
+    // NOTE: Clippy considers the return too complex. This tuple is not used elsewhere so it is not
     // worth creating an alias.
     #[allow(clippy::type_complexity)]
     pub fn verify_slashable(
