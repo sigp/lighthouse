@@ -25,20 +25,34 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, EthSpec, ForkContext, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, EthSpec, ForkContext, Hash256, MainnetEthSpec,
+    Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
     // same across different `EthSpec` implementations.
-    pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec()),
+    pub static ref SIGNED_BEACON_BLOCK_BASE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
-    pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::full(&MainnetEthSpec::default_spec()),
+    pub static ref SIGNED_BEACON_BLOCK_BASE_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Base(BeaconBlockBase::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
+    pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Altair(BeaconBlockAltair::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+    pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Altair(BeaconBlockAltair::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
@@ -241,14 +255,22 @@ impl ProtocolId {
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => match self.version {
-                // TODO: use correct altair and base limits
-                Version::V1 => RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
-                Version::V2 => RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
+                Version::V1 => {
+                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
+                }
+                Version::V2 => RpcLimits::new(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                ),
             },
             Protocol::BlocksByRoot => match self.version {
-                // TODO: use correct altair and base limits
-                Version::V1 => RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
-                Version::V2 => RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX),
+                Version::V1 => {
+                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
+                }
+                Version::V2 => RpcLimits::new(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                ),
             },
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
