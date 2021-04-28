@@ -916,9 +916,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     // We shouldn't make any further attempts to process this attestation.
                     // Downscore the peer.
                     self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
                 }
 
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
             AttnError::UnknownTargetRoot(_) => {
@@ -978,7 +982,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-
             AttnError::InvalidSubnetId { received, expected } => {
                 /*
                  * The attestation was received on an incorrect subnet id.
