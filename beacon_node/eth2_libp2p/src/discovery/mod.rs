@@ -514,6 +514,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
     }
 
+    // mark node as disconnected in DHT, freeing up space for other nodes
+    pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            self.discv5.disconnect_node(&node_id);
+        }
+    }
+
     /* Internal Functions */
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
