@@ -1,6 +1,7 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+//#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
+use crate::beacon_processor::work_reprocessing_queue::QUEUED_ATTESTATION_DELAY;
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
@@ -356,13 +357,17 @@ impl TestRig {
         assert_eq!(worker_freed_remaining, 0);
     }
 
+    pub fn assert_event_journal(&mut self, expected: &[&str]) {
+        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT);
+    }
+
     /// Assert that the `BeaconProcessor` event journal is as `expected`.
     ///
     /// ## Note
     ///
     /// We won't attempt to listen for any more than `expected.len()` events. As such, it makes sense
     /// to use the `NOTHING_TO_DO` event to ensure that execution has completed.
-    pub fn assert_event_journal(&mut self, expected: &[&str]) {
+    pub fn assert_event_journal_with_timeout(&mut self, expected: &[&str], timeout: Duration) {
         let events = self.runtime().block_on(async {
             let mut events = Vec::with_capacity(expected.len());
 
@@ -384,9 +389,9 @@ impl TestRig {
 
             // Drain the expected number of events from the channel, or time out and give up.
             tokio::select! {
-                _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
+                _ = tokio::time::sleep(timeout) => panic!(
                     "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?}",
-                    STANDARD_TIMEOUT,
+                    timeout,
                     expected,
                     events
                 ),
@@ -591,7 +596,10 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
 
     // Ensure that the attestation is received back but not imported.
 
-    rig.assert_event_journal(&[UNKNOWN_BLOCK_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal_with_timeout(
+        &[UNKNOWN_BLOCK_ATTESTATION, WORKER_FREED, NOTHING_TO_DO],
+        Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+    );
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_attestations(),

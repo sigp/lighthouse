@@ -35,7 +35,7 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
-const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(30);
+pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(30);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -133,6 +133,9 @@ struct ReprocessQueue<T: BeaconChainTypes> {
 
     slot_clock: T::SlotClock,
 
+    /// The waker for the current thread.
+    waker: Option<std::task::Waker>,
+
     log: Logger,
 }
 
@@ -160,6 +163,15 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // NOTE: implementing `Stream` is not necessary but allows to maintain the future selection
         // order fine-grained and separate from the logic of handling each message, which is nice.
+
+        // update the waker if needed
+        if let Some(waker) = &self.waker {
+            if waker.will_wake(cx.waker()) {
+                self.waker = Some(cx.waker().clone());
+            }
+        } else {
+            self.waker = Some(cx.waker().clone());
+        }
 
         // Poll for expired blocks *before* we try to process new blocks.
         //
@@ -225,6 +237,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         awaiting_attestations_per_root: HashMap::new(),
         next_attestation: 0,
         slot_clock,
+        waker: None,
         log,
     };
 
@@ -233,6 +246,10 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
             loop {
                 let msg = queue.next().await;
                 queue.handle_message(msg);
+                // pre-emptively wake the thread to check for new events
+                if let Some(ref waker) = queue.waker {
+                    waker.wake_by_ref();
+                }
             }
         },
         TASK_NAME,
