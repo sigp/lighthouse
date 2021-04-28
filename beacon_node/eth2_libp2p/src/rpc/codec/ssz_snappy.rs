@@ -295,11 +295,14 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Read the context bytes if required
         if self.protocol.version == Version::V2 && self.context_bytes.is_none() {
-            let context_bytes = src.split_to(4);
-            let mut result = [0; 4];
-            result.copy_from_slice(&context_bytes.as_ref());
-
-            self.context_bytes = Some(result);
+            if src.len() >= 4 {
+                let context_bytes = src.split_to(4);
+                let mut result = [0; 4];
+                result.copy_from_slice(&context_bytes.as_ref());
+                self.context_bytes = Some(result);
+            } else {
+                return Ok(None);
+            }
         }
         let length = if let Some(length) = self.len {
             length
