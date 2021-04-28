@@ -89,7 +89,7 @@ test-debug:
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
-	cargo fmt --workspace -- --check
+	cargo fmt --all -- --check
 
 # Typechecks benchmark code
 check-benches:
