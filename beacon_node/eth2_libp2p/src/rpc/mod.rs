@@ -44,7 +44,7 @@ pub enum RPCSend<T: EthSpec> {
     ///
     /// The `RequestId` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(RequestId, RpcRequestContainer<T>),
+    Request(RequestId, RPCRequest<T>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
@@ -74,7 +74,7 @@ pub enum RPCReceived<T: EthSpec> {
 impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req.req),
+            RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
             RPCSend::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
         }
     }
@@ -158,13 +158,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
-            event: RPCSend::Request(
-                request_id,
-                RpcRequestContainer {
-                    req: event,
-                    fork_context: self.fork_context.clone(),
-                },
-            ),
+            event: RPCSend::Request(request_id, event),
         });
     }
 }
@@ -185,6 +179,7 @@ where
                 },
                 (),
             ),
+            self.fork_context.clone(),
             &self.log,
         )
     }
@@ -198,13 +193,7 @@ where
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
-        let rpc_event = RPCSend::Request(
-            RequestId::Behaviour,
-            RpcRequestContainer {
-                req: RPCRequest::MetaData(PhantomData),
-                fork_context: self.fork_context.clone(),
-            },
-        );
+        let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: *peer_id,
             handler: NotifyHandler::Any,

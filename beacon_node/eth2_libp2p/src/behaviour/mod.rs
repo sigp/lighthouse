@@ -136,9 +136,6 @@ pub struct Behaviour<TSpec: EthSpec> {
 
     score_settings: PeerScoreSettings<TSpec>,
 
-    /// Fork specific info
-    fork_context: Arc<ForkContext>,
-
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
 }
@@ -237,7 +234,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             log: behaviour_log,
             score_settings,
             update_gossipsub_scores,
-            fork_context,
         })
     }
 
@@ -838,15 +834,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             return Poll::Ready(NBAction::NotifyHandler {
                 peer_id,
                 handler: NotifyHandler::Any,
-                event: BehaviourHandlerIn::Shutdown(reason.map(|reason| {
-                    (
-                        RequestId::Behaviour,
-                        RpcRequestContainer {
-                            req: RPCRequest::Goodbye(reason),
-                            fork_context: self.fork_context.clone(),
-                        },
-                    )
-                })),
+                event: BehaviourHandlerIn::Shutdown(
+                    reason.map(|reason| (RequestId::Behaviour, RPCRequest::Goodbye(reason))),
+                ),
             });
         }
 
@@ -889,10 +879,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             handler: NotifyHandler::Any,
                             event: BehaviourHandlerIn::Shutdown(Some((
                                 RequestId::Behaviour,
-                                RpcRequestContainer {
-                                    req: RPCRequest::Goodbye(reason),
-                                    fork_context: self.fork_context.clone(),
-                                },
+                                RPCRequest::Goodbye(reason),
                             ))),
                         });
                     }

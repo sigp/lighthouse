@@ -1,8 +1,11 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination};
 use super::protocol::{Protocol, RPCError, RPCProtocol, RpcRequestContainer};
+use super::{
+    methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination},
+    RPCRequest,
+};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::protocol::{InboundFramed, OutboundFramed};
 use fnv::FnvHashMap;
@@ -20,12 +23,13 @@ use smallvec::SmallVec;
 use std::{
     collections::hash_map::Entry,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
@@ -123,6 +127,9 @@ where
     /// This keeps track of the number of attempts.
     outbound_io_error_retries: u8,
 
+    /// Fork specific info.
+    fork_context: Arc<ForkContext>,
+
     /// Logger for handling RPC streams
     log: slog::Logger,
 }
@@ -200,6 +207,7 @@ where
 {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+        fork_context: Arc<ForkContext>,
         log: &slog::Logger,
     ) -> Self {
         RPCHandler {
@@ -216,12 +224,13 @@ where
             state: HandlerState::Active,
             max_dial_negotiated: 8,
             outbound_io_error_retries: 0,
+            fork_context,
             log: log.clone(),
         }
     }
 
     /// Initiates the handler's shutdown process, sending an optional last message to the peer.
-    pub fn shutdown(&mut self, final_msg: Option<(RequestId, RpcRequestContainer<TSpec>)>) {
+    pub fn shutdown(&mut self, final_msg: Option<(RequestId, RPCRequest<TSpec>)>) {
         if matches!(self.state, HandlerState::Active) {
             if !self.dial_queue.is_empty() {
                 debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
@@ -237,7 +246,13 @@ where
 
             // Queue our final message, if any
             if let Some((id, req)) = final_msg {
-                self.dial_queue.push((id, req));
+                self.dial_queue.push((
+                    id,
+                    RpcRequestContainer {
+                        req,
+                        fork_context: self.fork_context.clone(),
+                    },
+                ));
             }
 
             self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
@@ -409,7 +424,13 @@ where
 
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
-            RPCSend::Request(id, req) => self.send_request(id, req),
+            RPCSend::Request(id, req) => self.send_request(
+                id,
+                RpcRequestContainer {
+                    req: req,
+                    fork_context: self.fork_context.clone(),
+                },
+            ),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
         }
     }
