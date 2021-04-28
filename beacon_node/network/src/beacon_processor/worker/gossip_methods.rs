@@ -130,8 +130,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        println!("Attestation was verified for root {:?}", beacon_block_root);
-
         // Register the attestation with any monitored validators.
         self.chain
             .validator_monitor
@@ -150,11 +148,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             return;
         }
 
-        println!("importing thing");
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL);
 
         if let Err(e) = self.chain.apply_attestation_to_fork_choice(&attestation) {
-            println!("apply to fork choice failed with error {:?}", e);
             match e {
                 BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
                     debug!(
@@ -176,7 +172,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
 
         if let Err(e) = self.chain.add_to_naive_aggregation_pool(attestation) {
-            println!("attestation was invalid for aggregation pool {:?}", e);
             debug!(
                 self.log,
                 "Attestation invalid for agg pool";
@@ -185,7 +180,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "beacon_block_root" => ?beacon_block_root
             )
         }
-        println!("attestation was added to aggregation pool");
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL);
     }
@@ -701,7 +695,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         error: AttnError,
     ) {
-        println!("error {:?}", error);
         let beacon_block_root = failed_att.root();
         let attestation_type = failed_att.kind();
         metrics::register_attestation_error(&error);
