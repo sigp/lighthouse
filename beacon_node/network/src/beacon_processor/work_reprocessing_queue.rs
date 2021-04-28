@@ -8,8 +8,8 @@
 //! There is the edge-case where the slot arrives before this queue manages to process it. In that
 //! case, the block will be sent off for immediate processing (skipping the `DelayQueue`).
 //!
-//! Aggregated and unaggreated attestations that failed verification due to referencing an unknown
-//! block will be delayed for ``
+//! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
+//! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use eth2_libp2p::{MessageId, PeerId};
@@ -46,10 +46,12 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 1_024;
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedBlock<T>),
-    /// A block that was succesfully processed. We use this to handle attestations for unknown
+    /// A block that was successfully processed. We use this to handle attestations for unknown
     /// blocks.
     BlockImported(Hash256),
+    /// An unaggregated attestation that references an unknown block.
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
+    /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
 }
 
@@ -91,7 +93,7 @@ pub struct QueuedBlock<T: BeaconChainTypes> {
 enum InboundEvent<T: BeaconChainTypes> {
     /// A block that was queued for later processing and is ready for import.
     ReadyBlock(QueuedBlock<T>),
-    /// An aggregated or unaggreated attestation is ready for re-processing.
+    /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
@@ -115,15 +117,15 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Queued items */
     /// Queued blocks.
     queued_block_roots: HashSet<Hash256>,
-    /// Queued aggreated attestations.
+    /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
-    /// Attestations (aggreated and unaggreated) per root.
+    /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
 
     /* Aux */
-    /// Next attestation id, used for both aggreated and unaggreated attestations
+    /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
 
     slot_clock: T::SlotClock,

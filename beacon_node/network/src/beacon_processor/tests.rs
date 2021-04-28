@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))] // Tests are too slow in debug.
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::beacon_processor::*;
@@ -340,7 +340,7 @@ impl TestRig {
             // Drain the expected number of events from the channel, or time out and give up.
             tokio::select! {
                 _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
-                    "timeout ({:?}) expired waiting for events. expected {:?} but got {:?} waiting for {} `WORKER_FREED` events",
+                    "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?} waiting for {} `WORKER_FREED` events.",
                     STANDARD_TIMEOUT,
                     expected,
                     events,
@@ -385,7 +385,7 @@ impl TestRig {
             // Drain the expected number of events from the channel, or time out and give up.
             tokio::select! {
                 _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
-                    "timeout ({:?}) expired waiting for events. expected {:?} but got {:?}",
+                    "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?}",
                     STANDARD_TIMEOUT,
                     expected,
                     events
@@ -480,7 +480,7 @@ fn import_gossip_block_unacceptably_early() {
 
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
 
-    // Waiting for 5 seconds is a bit arbtirary, however it *should* be long enough to ensure the
+    // Waiting for 5 seconds is a bit arbitrary, however it *should* be long enough to ensure the
     // block isn't imported.
     rig.assert_no_events_for(Duration::from_secs(5));
 
@@ -530,8 +530,8 @@ fn import_gossip_attestation() {
     );
 }
 
-/// Ensure that attestations that reference an unkown block get properly re-queued and
-/// re-processed upon seeing the block.
+/// Ensure that attestations that reference an unknown block get properly re-queued and
+/// re-processed upon importing the block.
 #[test]
 fn import_unknown_block_gossip_attestation() {
     let mut rig = TestRig::new(SMALL_CHAIN);
@@ -569,7 +569,7 @@ fn import_unknown_block_gossip_attestation() {
     );
 }
 
-/// Ensure that attestations that reference an unkown block get properly re-queued and re-processed
+/// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[test]
 fn requeue_unknown_block_gossip_attestation_without_import() {
@@ -596,7 +596,7 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_attestations(),
         initial_attns,
-        "Attestation should have been included."
+        "Attestation should not have been included."
     );
 }
 

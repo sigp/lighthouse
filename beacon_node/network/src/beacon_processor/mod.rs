@@ -637,7 +637,7 @@ struct InboundEvents<T: BeaconChainTypes> {
     idle_rx: mpsc::Receiver<()>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<T>>,
-    /// Used internally for queuing work ready to be reprocessed.
+    /// Used internally for queuing work ready to be re-processed.
     reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
 }
 
@@ -1233,7 +1233,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         *attestation,
                         subnet_id,
                         should_import,
-                        None, // do not allow this attestation to be re-processed beyond this point
+                        None, // Do not allow this attestation to be re-processed beyond this point.
                         seen_timestamp,
                     ),
                     Work::UnkonwnBlockAggregate {

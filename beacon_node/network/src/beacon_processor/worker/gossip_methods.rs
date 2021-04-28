@@ -860,7 +860,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block" => %beacon_block_root
                 );
                 if let Some(sender) = reprocess_tx {
-                    // we don't know the block, get the sync manager to handle the block lookup, and
+                    // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
                     self.sync_tx
                         .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))

@@ -6,11 +6,9 @@ use ssz_types::typenum::{
     Unsigned, U0, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U64,
     U65536, U8, U8192,
 };
+use std::fmt::{self, Debug};
+use std::marker::Unpin;
 use std::str::FromStr;
-use std::{
-    fmt::{self, Debug},
-    marker::Unpin,
-};
 
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
