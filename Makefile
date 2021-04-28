@@ -80,7 +80,21 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain
+	cargo test --workspace --release \
+        --exclude ef_tests \
+        --exclude beacon_chain \
+        --exclude remote_signer \
+        --exclude remote_signer_consumer \
+        --exclude beacon_node # TODO: work out where to put this
+
+# Run the tests in the `beacon_chain` crate.
+test-beacon-chain:
+	cargo test --release --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
+
+# All remote signer related tests.
+test-remote-signer:
+	cargo test --release --manifest-path=remote_signer/Cargo.toml
+	cargo test --release --manifest-path=common/remote_signer_consumer/Cargo.toml
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
@@ -104,10 +118,6 @@ run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
-
-# Run the tests in the `beacon_chain` crate.
-test-beacon-chain:
-	cargo test --release --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
