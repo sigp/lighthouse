@@ -65,7 +65,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
 pub struct QueuedUnaggregate<T: EthSpec> {
     pub peer_id: PeerId,
     pub message_id: MessageId,
-    pub attestation: Attestation<T>,
+    pub attestation: Box<Attestation<T>>,
     pub subnet_id: SubnetId,
     pub should_import: bool,
     pub seen_timestamp: Duration,
@@ -76,7 +76,7 @@ pub struct QueuedUnaggregate<T: EthSpec> {
 pub struct QueuedAggregate<T: EthSpec> {
     pub peer_id: PeerId,
     pub message_id: MessageId,
-    pub attestation: SignedAggregateAndProof<T>,
+    pub attestation: Box<SignedAggregateAndProof<T>>,
     pub seen_timestamp: Duration,
 }
 
@@ -313,7 +313,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 let delay = self
                     .slot_clock
                     .duration_to_next_slot()
-                    .unwrap_or(self.slot_clock.slot_duration());
+                    .unwrap_or_else(|| self.slot_clock.slot_duration());
 
                 let att_id = QueuedAttestationId::Aggregate(self.next_attestation);
 
@@ -352,7 +352,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 let delay = self
                     .slot_clock
                     .duration_to_next_slot()
-                    .unwrap_or(self.slot_clock.slot_duration());
+                    .unwrap_or_else(|| self.slot_clock.slot_duration());
 
                 let att_id = QueuedAttestationId::Unaggregate(self.next_attestation);
 
@@ -497,7 +497,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     "Block delay queue stopped";
                     "msg" => "shutting down"
                 );
-                return;
             }
         }
     }

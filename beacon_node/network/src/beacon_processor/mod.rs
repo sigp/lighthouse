@@ -472,7 +472,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 work: Work::UnknownBlockAttestation {
                     message_id,
                     peer_id,
-                    attestation: Box::new(attestation),
+                    attestation,
                     subnet_id,
                     should_import,
                     seen_timestamp,
@@ -488,7 +488,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 work: Work::UnkonwnBlockAggregate {
                     message_id,
                     peer_id,
-                    aggregate: Box::new(attestation),
+                    aggregate: attestation,
                     seen_timestamp,
                 },
             },

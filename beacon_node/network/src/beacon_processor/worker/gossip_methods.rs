@@ -27,13 +27,13 @@ use super::{
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<T: EthSpec> {
     Unaggregate {
-        attestation: Attestation<T>,
+        attestation: Box<Attestation<T>>,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
     },
     Aggregate {
-        attestation: SignedAggregateAndProof<T>,
+        attestation: Box<SignedAggregateAndProof<T>>,
         seen_timestamp: Duration,
     },
 }
@@ -118,7 +118,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id,
                     message_id,
                     FailedAtt::Unaggregate {
-                        attestation,
+                        attestation: Box::new(attestation),
                         subnet_id,
                         should_import,
                         seen_timestamp,
@@ -218,7 +218,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id,
                     message_id,
                     FailedAtt::Aggregate {
-                        attestation,
+                        attestation: Box::new(attestation),
                         seen_timestamp,
                     },
                     reprocess_tx,
