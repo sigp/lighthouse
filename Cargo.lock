@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3379,7 +3379,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -3753,7 +3753,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "account_manager",
  "account_utils",
