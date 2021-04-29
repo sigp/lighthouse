@@ -76,6 +76,13 @@ build-release-tarballs:
 	$(MAKE) build-aarch64-portable
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"-portable")
 
+# Build a cross-compiled `lighthouse` binary and then copy that into a Docker image.
+#
+# This is generally much faster for development purposes than the typical Docker build since
+# compilation will utilize the local cargo cache.
+docker-build-local: build-x86_64-portable
+	docker build --file Dockerfile.local .
+
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
