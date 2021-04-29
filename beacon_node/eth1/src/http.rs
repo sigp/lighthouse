@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Address, ExecutionPayload, FixedVector, Hash256, Transaction, Uint256, VariableList};
+use types::{Address, ExecutionPayload, FixedVector, Hash256, VariableList};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
