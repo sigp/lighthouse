@@ -1,4 +1,4 @@
-//#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::beacon_processor::work_reprocessing_queue::QUEUED_ATTESTATION_DELAY;

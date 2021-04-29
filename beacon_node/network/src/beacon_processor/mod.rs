@@ -485,7 +485,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 seen_timestamp,
             }) => Self {
                 drop_during_sync: true,
-                work: Work::UnkonwnBlockAggregate {
+                work: Work::UnknownBlockAggregate {
                     message_id,
                     peer_id,
                     aggregate: attestation,
@@ -521,7 +521,7 @@ pub enum Work<T: BeaconChainTypes> {
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         seen_timestamp: Duration,
     },
-    UnkonwnBlockAggregate {
+    UnknownBlockAggregate {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
@@ -594,7 +594,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
-            Work::UnkonwnBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
     }
 }
@@ -966,7 +966,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
                             }
-                            Work::UnkonwnBlockAggregate { .. } => {
+                            Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
                             }
                         }
@@ -1236,7 +1236,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None, // Do not allow this attestation to be re-processed beyond this point.
                         seen_timestamp,
                     ),
-                    Work::UnkonwnBlockAggregate {
+                    Work::UnknownBlockAggregate {
                         message_id,
                         peer_id,
                         aggregate,
