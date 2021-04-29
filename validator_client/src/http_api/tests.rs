@@ -11,10 +11,7 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
-use eth2::{
-    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
-    Url,
-};
+use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*};
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
