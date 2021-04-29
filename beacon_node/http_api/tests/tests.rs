@@ -880,6 +880,14 @@ impl ApiTester {
 
             let block_root_opt = self.get_block_root(block_id);
 
+            if let BlockId::Slot(slot) = block_id {
+                if block_root_opt.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
+
             let block_opt = block_root_opt.and_then(|root| self.chain.get_block(&root).unwrap());
 
             if block_opt.is_none() && result.is_none() {
@@ -924,7 +932,13 @@ impl ApiTester {
                 .map(|res| res.data.root);
 
             let expected = self.get_block_root(block_id);
-
+            if let BlockId::Slot(slot) = block_id {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
             assert_eq!(result, expected, "{:?}", block_id);
         }
 
@@ -962,6 +976,14 @@ impl ApiTester {
         for block_id in self.interesting_block_ids() {
             let expected = self.get_block(block_id);
 
+            if let BlockId::Slot(slot) = block_id {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
+
             let json_result = self
                 .client
                 .get_beacon_blocks(block_id)
@@ -989,6 +1011,14 @@ impl ApiTester {
             let expected = self
                 .get_block(block_id)
                 .map(|block| block.message.body.attestations.into());
+
+            if let BlockId::Slot(slot) = block_id {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
 
             assert_eq!(result, expected, "{:?}", block_id);
         }
