@@ -10,7 +10,7 @@ where
     S: Serializer,
 {
     let mut hex_string: String = "0x".to_string();
-    hex_string.push_str(hex::encode(&bytes).trim_start_matches('0'));
+    hex_string.push_str(&hex::encode(&bytes));
 
     serializer.serialize_str(&hex_string)
 }
