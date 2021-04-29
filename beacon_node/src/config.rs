@@ -172,13 +172,13 @@ pub fn get_config<E: EthSpec>(
         );
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = vec![SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("Unable to parse eth1 endpoint URL: {:?}", e))?];
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
     } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
         client_config.eth1.endpoints = endpoints
             .split(',')
             .map(|s| SensitiveUrl::parse(s))
             .collect::<Result<_, _>>()
-            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
+            .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {

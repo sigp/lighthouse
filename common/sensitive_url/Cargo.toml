@@ -8,5 +8,4 @@ edition = "2018"
 
 [dependencies]
 url = "2.2.1"
-serde = { version = "1.0.116", features = ["derive"] }
-reqwest = "0.11.0"
+serde = "1.0.116"

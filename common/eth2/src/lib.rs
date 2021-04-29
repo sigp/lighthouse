@@ -123,7 +123,7 @@ impl BeaconNodeHttpClient {
 
     /// Perform a HTTP GET request.
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?; //PROBLEM
+        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
         ok_or_error(response)
             .await?
             .json()

@@ -4,9 +4,7 @@ use url::Url;
 
 #[derive(Debug)]
 pub enum SensitiveError {
-    // Unused, but may be required in order to redact reqwest failures
-    SensitiveReqwest(reqwest::Error),
-    InvalidUrl(Url),
+    InvalidUrl(String),
     ParseError(url::ParseError),
     RedactError(String),
 }
@@ -66,7 +64,7 @@ impl SensitiveUrl {
         let mut redacted = full.clone();
         redacted
             .path_segments_mut()
-            .map_err(|_| SensitiveError::InvalidUrl(full.clone()))?
+            .map_err(|_| SensitiveError::InvalidUrl("URL cannot be a base.".to_string()))?
             .clear();
         redacted.set_query(None);
 
@@ -92,7 +90,7 @@ mod tests {
 
     #[test]
     fn redact_remote_url() {
-        let full = "https://project:secret@example.com/example?nice";
+        let full = "https://project:secret@example.com/example?somequery";
         let surl = SensitiveUrl::parse(full).unwrap();
         assert_eq!(surl.to_string(), "https://example.com/");
         assert_eq!(surl.full.to_string(), full);

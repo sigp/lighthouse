@@ -99,11 +99,8 @@ mod post {
 
         // `Error::InvalidUrl`.
         // The RemoteSignerHttpConsumer is created, but fails at `path_segments_mut()`.
-        testcase(
-            "localhost:abcd",
-            "InvalidUrl(Url { scheme: \"localhost\", username: \"\", password: None, host: None, port: None, path: \"abcd\", query: None, fragment: None })",
-        );
-        testcase("localhost:", "InvalidUrl(Url { scheme: \"localhost\", username: \"\", password: None, host: None, port: None, path: \"\", query: None, fragment: None })");
+        testcase("localhost:abcd", "InvalidUrl(\"URL cannot be a base.\")");
+        testcase("localhost:", "InvalidUrl(\"URL cannot be a base.\")");
 
         // `Reqwest::Error` of the `Builder` kind.
         // POST is not made.

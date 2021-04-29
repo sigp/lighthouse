@@ -79,7 +79,6 @@ impl FromStr for Eth1Id {
     }
 }
 
-// HERE
 /// Get the eth1 network id of the given endpoint.
 pub async fn get_network_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
@@ -91,7 +90,6 @@ pub async fn get_network_id(endpoint: &SensitiveUrl, timeout: Duration) -> Resul
     )
 }
 
-// HERE
 /// Get the eth1 chain id of the given endpoint.
 pub async fn get_chain_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
