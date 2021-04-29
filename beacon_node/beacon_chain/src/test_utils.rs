@@ -117,10 +117,12 @@ pub fn test_logger() -> Logger {
 /// variable. Otherwise use the default spec.
 pub fn test_spec<E: EthSpec>() -> ChainSpec {
     if cfg!(feature = "fork_from_env") {
-        let fork_name = std::env::var(FORK_NAME_ENV_VAR).expect(&format!(
-            "{} env var must be defined when using fork_from_env",
-            FORK_NAME_ENV_VAR
-        ));
+        let fork_name = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
+            panic!(
+                "{} env var must be defined when using fork_from_env: {:?}",
+                FORK_NAME_ENV_VAR, e
+            )
+        });
         let fork = match fork_name.as_str() {
             "base" => ForkName::Base,
             "altair" => ForkName::Altair,
