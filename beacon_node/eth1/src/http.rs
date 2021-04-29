@@ -572,56 +572,6 @@ fn strip_prefix(hex: &str) -> Result<&str, String> {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct JsonTransaction {
-    #[serde(with = "serde_utils::u64_hex_be")]
-    pub nonce: u64,
-    #[serde(rename = "gasPrice")]
-    pub gas_price: Uint256,
-    #[serde(rename = "gas", with = "serde_utils::u64_hex_be")]
-    pub gas_limit: u64,
-    pub to: Option<Address>,
-    pub value: Uint256,
-    #[serde(with = "serde_utils::hex_vec")]
-    pub input: Vec<u8>,
-    pub v: Uint256,
-    pub r: Uint256,
-    pub s: Uint256,
-}
-
-impl Into<Result<Transaction, String>> for JsonTransaction {
-    fn into(self) -> Result<Transaction, String> {
-        Ok(Transaction {
-            nonce: self.nonce,
-            gas_price: self.gas_price,
-            gas_limit: self.gas_limit,
-            recipient: self.to,
-            value: self.value,
-            input: VariableList::new(self.input)
-                .map_err(|e| format!("Invalid transaction input field: {:?}", e))?,
-            v: self.v,
-            r: self.r,
-            s: self.s,
-        })
-    }
-}
-
-impl From<Transaction> for JsonTransaction {
-    fn from(t: Transaction) -> JsonTransaction {
-        Self {
-            nonce: t.nonce,
-            gas_price: t.gas_price,
-            gas_limit: t.gas_limit,
-            to: t.recipient,
-            value: t.value,
-            input: t.input.to_vec(),
-            v: t.v,
-            r: t.r,
-            s: t.s,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
