@@ -7,7 +7,6 @@ use ssz_types::typenum::{
     U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
-use std::marker::Unpin;
 use std::str::FromStr;
 
 const MAINNET: &str = "mainnet";
@@ -51,41 +50,34 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /*
      * Constants
      */
-    type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type JustificationBitsLength: Unsigned
-        + Clone
-        + Sync
-        + Send
-        + Debug
-        + PartialEq
-        + Default
-        + Unpin;
-    type SubnetBitfieldLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default + Unpin;
+    type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
+    type SubnetBitfieldLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     /*
      * Misc
      */
-    type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq + Unpin;
+    type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
     /*
      * Time parameters
      */
-    type SlotsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type EpochsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+    type SlotsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type EpochsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type SlotsPerHistoricalRoot: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * State list lengths
      */
-    type EpochsPerHistoricalVector: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type EpochsPerSlashingsVector: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type HistoricalRootsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type ValidatorRegistryLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+    type EpochsPerHistoricalVector: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type EpochsPerSlashingsVector: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type HistoricalRootsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type ValidatorRegistryLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Max operations per block
      */
-    type MaxProposerSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type MaxAttesterSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type MaxAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type MaxDeposits: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
-    type MaxVoluntaryExits: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+    type MaxProposerSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxAttesterSlashings: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxDeposits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxVoluntaryExits: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -94,11 +86,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Must be set to `MaxAttestations * SlotsPerEpoch`
     // NOTE: we could safely instantiate these by using type-level arithmetic, but doing
     // so adds ~25s to the time required to type-check this crate
-    type MaxPendingAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+    type MaxPendingAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /// The length of `eth1_data_votes`.
     ///
     /// Must be set to `EpochsPerEth1VotingPeriod * SlotsPerEpoch`
-    type SlotsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+    type SlotsPerEth1VotingPeriod: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 

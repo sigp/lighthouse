@@ -130,10 +130,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
-
-    slot_clock: T::SlotClock,
-
-    log: Logger,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,7 +207,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
     log: Logger,
 ) -> Sender<ReprocessQueueMessage<T>> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
-    // basic sanity check
+    // Basic sanity check.
     assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < MAXIMUM_GOSSIP_CLOCK_DISPARITY);
 
     let mut queue = ReprocessQueue {
@@ -224,16 +220,19 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         next_attestation: 0,
-        slot_clock,
-        log,
     };
 
     executor.spawn(
         async move {
-            loop {
-                let msg = queue.next().await;
-                queue.handle_message(msg);
+            while let Some(msg) = queue.next().await {
+                queue.handle_message(msg, &slot_clock, &log);
             }
+
+            debug!(
+                log,
+                "Re-process queue stopped";
+                "msg" => "shutting down"
+            );
         },
         TASK_NAME,
     );
@@ -242,12 +241,12 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
 }
 
 impl<T: BeaconChainTypes> ReprocessQueue<T> {
-    fn handle_message(&mut self, msg: Option<InboundEvent<T>>) {
+    fn handle_message(&mut self, msg: InboundEvent<T>, slot_clock: &T::SlotClock, log: &Logger) {
         use ReprocessQueueMessage::*;
         match msg {
             // Some block has been indicated as "early" and should be processed when the
             // appropriate slot arrives.
-            Some(InboundEvent::Msg(EarlyBlock(early_block))) => {
+            InboundEvent::Msg(EarlyBlock(early_block)) => {
                 let block_slot = early_block.block.block.slot();
                 let block_root = early_block.block.block_root;
 
@@ -256,11 +255,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     return;
                 }
 
-                if let Some(duration_till_slot) = self.slot_clock.duration_to_slot(block_slot) {
+                if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
                     // Check to ensure this won't over-fill the queue.
                     if self.queued_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
                         error!(
-                            self.log,
+                            log,
                             "Early blocks queue is full";
                             "queue_size" => MAXIMUM_QUEUED_BLOCKS,
                             "msg" => "check system clock"
@@ -287,7 +286,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     // This logic is slightly awkward since `SlotClock::duration_to_slot`
                     // doesn't distinguish between a slot that has already arrived and an
                     // error reading the slot clock.
-                    if let Some(now) = self.slot_clock.now() {
+                    if let Some(now) = slot_clock.now() {
                         if block_slot <= now
                             && self
                                 .ready_work_tx
@@ -295,17 +294,17 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 .is_err()
                         {
                             error!(
-                                self.log,
+                                log,
                                 "Failed to send block";
                             );
                         }
                     }
                 }
             }
-            Some(InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate))) => {
+            InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
-                        self.log,
+                        log,
                         "Attestation delay queue is full";
                         "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
                         "msg" => "check system clock"
@@ -333,10 +332,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            Some(InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate))) => {
+            InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
-                        self.log,
+                        log,
                         "Attestation delay queue is full";
                         "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
                         "msg" => "check system clock"
@@ -364,7 +363,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            Some(InboundEvent::Msg(BlockImported(root))) => {
+            InboundEvent::Msg(BlockImported(root)) => {
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
                     for id in queued_ids {
@@ -388,7 +387,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             // send the work
                             if self.ready_work_tx.try_send(work).is_err() {
                                 error!(
-                                    self.log,
+                                    log,
                                     "Failed to send scheduled attestation";
                                 );
                             }
@@ -396,7 +395,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             // there is a mismatch between the attestation ids registered for this
                             // root and the queued attestations. This should never happen
                             error!(
-                                self.log,
+                                log,
                                 "Unknown queued attestation for block root";
                                 "block_root" => ?root,
                                 "att_id" => ?id,
@@ -406,14 +405,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             // A block that was queued for later processing is now ready to be processed.
-            Some(InboundEvent::ReadyBlock(ready_block)) => {
+            InboundEvent::ReadyBlock(ready_block) => {
                 let block_root = ready_block.block.block_root;
 
                 if !self.queued_block_roots.remove(&block_root) {
                     // Log an error to alert that we've made a bad assumption about how this
                     // program works, but still process the block anyway.
                     error!(
-                        self.log,
+                        log,
                         "Unknown block in delay queue";
                         "block_root" => ?block_root
                     );
@@ -425,20 +424,20 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .is_err()
                 {
                     error!(
-                        self.log,
+                        log,
                         "Failed to pop queued block";
                     );
                 }
             }
-            Some(InboundEvent::DelayQueueError(e, queue_name)) => {
+            InboundEvent::DelayQueueError(e, queue_name) => {
                 crit!(
-                    self.log,
+                    log,
                     "Failed to poll queue";
                     "queue" => queue_name,
                     "e" => ?e
                 )
             }
-            Some(InboundEvent::ReadyAttestation(queued_id)) => {
+            InboundEvent::ReadyAttestation(queued_id) => {
                 if let Some((root, work)) = match queued_id {
                     QueuedAttestationId::Aggregate(id) => {
                         self.queued_aggregates
@@ -456,7 +455,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 } {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
-                            self.log,
+                            log,
                             "Failed to send scheduled attestation";
                         );
                     }
@@ -467,13 +466,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         }
                     }
                 }
-            }
-            None => {
-                debug!(
-                    self.log,
-                    "Block delay queue stopped";
-                    "msg" => "shutting down"
-                );
             }
         }
     }
