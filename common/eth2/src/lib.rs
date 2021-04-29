@@ -1002,7 +1002,7 @@ impl BeaconNodeHttpClient {
     /// `POST lighthouse/liveness`
     pub async fn post_lighthouse_liveness(
         &self,
-        ids: &[ValidatorId],
+        ids: &[u64],
         epoch: Epoch,
     ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
         let mut path = self.server.clone();

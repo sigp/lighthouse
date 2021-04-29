@@ -377,13 +377,11 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 
     let local_indices = {
         let mut local_indices = Vec::with_capacity(local_pubkeys.len());
+
+        let vals_ref = duties_service.validator_store.initialized_validators();
+        let vals = vals_ref.read();
         for &pubkey in &local_pubkeys {
-            if let Some(validator_index) = duties_service
-                .validator_store
-                .initialized_validators()
-                .read()
-                .get_index(&pubkey)
-            {
+            if let Some(validator_index) = vals.get_index(&pubkey) {
                 local_indices.push(validator_index)
             }
         }

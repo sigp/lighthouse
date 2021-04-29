@@ -127,6 +127,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(validator_def)
     }
 
+    /// Returns all public keys that are required for duties collection. This includes all initialized
+    /// validators regardless of doppelganger detection status. We want to continue to collect duties
+    /// during doppelganger detection periods because we want to continue to subscribe to the correct
+    /// subnets.
     pub fn duties_collection_pubkeys(&self) -> Vec<PublicKeyBytes> {
         self.validators
             .read()
@@ -135,6 +139,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .collect()
     }
 
+    /// Returns all public keys that are required for signing attestations and blocks. This will
+    /// exclude initialized validators that are currently in a doppelganger detection period.
     pub fn signing_pubkeys(&self, current_epoch: Epoch) -> Vec<PublicKeyBytes> {
         self.validators
             .read()

@@ -24,7 +24,6 @@ use types::{Epoch, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
-use eth2::types::ValidatorId;
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
@@ -332,7 +331,7 @@ impl InitializedValidators {
         self.definitions.as_slice().len()
     }
 
-    /// Iterate through all **enabled** voting public keys in `self`.
+    /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_duties_collection_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
@@ -702,25 +701,26 @@ impl InitializedValidators {
     }
 
     /// Gets all validators that are in the doppelganger detection period in the given epoch.
-    pub fn get_doppelganger_detecting_validators(&self, epoch: Epoch) -> Vec<ValidatorId> {
+    pub fn get_doppelganger_detecting_validators(&self, epoch: Epoch) -> Vec<u64> {
         self.validators
             .iter()
             .filter_map(|(_, val)| {
                 // make sure we've determined this validator exists in the beacon chain
-                match val.index {
-                    Some(index) => {
+                val.index
+                    .map(|index| {
                         val.doppelganger_detection_epoch
                             .map(|doppelganger_epoch| {
                                 // We want to avoid checking the epoch in which doppelganger detection was started
                                 // so we don't pick up attestations from our own validator on restart.
                                 (doppelganger_epoch >= epoch
-                                    && epoch != doppelganger_epoch - DOPPELGANGER_DETECTION_EPOCHS)
-                                    .then(|| ValidatorId::Index(index))
+                                    && epoch
+                                        != doppelganger_epoch
+                                            .saturating_sub(DOPPELGANGER_DETECTION_EPOCHS))
+                                .then(|| index)
                             })
                             .flatten()
-                    }
-                    _ => None,
-                }
+                    })
+                    .flatten()
             })
             .collect()
     }

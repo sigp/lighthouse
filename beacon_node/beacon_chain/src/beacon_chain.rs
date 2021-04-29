@@ -2825,17 +2825,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if attestations have been seen from the given `validator_index` at the
     /// given `epoch`.
     pub fn validator_seen_at_epoch(&self, validator_index: usize, epoch: &Epoch) -> bool {
-        self.observed_attesters
+        // It's necessary to assign these checks to intermediate variables to avoid a deadlock.
+        //
+        // See: https://github.com/sigp/lighthouse/pull/2230#discussion_r620013993
+        let attested = self
+            .observed_attesters
             .read()
-            .index_seen_at_epoch(validator_index, epoch)
-            || self
-                .observed_aggregators
-                .read()
-                .index_seen_at_epoch(validator_index, epoch)
-            || self
-                .observed_block_producers
-                .read()
-                .index_seen_at_epoch(validator_index as u64, epoch)
+            .index_seen_at_epoch(validator_index, epoch);
+        let aggregated = self
+            .observed_aggregators
+            .read()
+            .index_seen_at_epoch(validator_index, epoch);
+        let produced_block = self
+            .observed_block_producers
+            .read()
+            .index_seen_at_epoch(validator_index as u64, epoch);
+
+        attested || aggregated || produced_block
     }
 }
 

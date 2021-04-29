@@ -58,7 +58,6 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
                     if let Err(e) = doppelganger_service.detect_doppelgangers().await {
                         error!(log,"Error during doppelganger detection"; "error" => ?e);
-                        break;
                     }
                 }
             },
@@ -81,6 +80,11 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .get_doppelganger_detecting_validators(epoch);
         let validators_slice = validators.as_slice();
 
+        // Ensure we don't send empty requests.
+        if validators_slice.is_empty() {
+            return Ok(());
+        };
+
         info!(log, "Monitoring for doppelgangers"; "epoch" => ?epoch);
 
         let liveness_response = self
@@ -95,7 +99,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .await
             .map_err(|e| format!("Failed query for validator liveness: {}", e));
 
-        // Send shutdown signal if necessary
+        // Send a shutdown signal if necessary.
         match liveness_response {
             Ok(validator_liveness) => {
                 for validator in validator_liveness {

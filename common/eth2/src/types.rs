@@ -830,7 +830,7 @@ impl FromStr for Accept {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
-    pub indices: Vec<ValidatorId>,
+    pub indices: Vec<u64>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]

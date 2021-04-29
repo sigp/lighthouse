@@ -1914,23 +1914,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |request_data: api_types::LivenessRequestData, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
+                    // Ensure the request is for either the current, previous or next epoch.
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
+
+                    if request_data.epoch < prev_epoch || request_data.epoch > next_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is more than one epoch from the current slot {}",
+                            request_data.epoch, current_epoch
+                        )));
+                    }
+
                     let liveness: Vec<api_types::LivenessResponseData> = request_data
                         .indices
                         .iter()
-                        .map(|id| {
-                            let index = match id {
-                                ValidatorId::PublicKey(pubkey) => chain
-                                    .validator_index(&pubkey)
-                                    .map_err(warp_utils::reject::beacon_chain_error)?
-                                    .ok_or_else(|| {
-                                        warp_utils::reject::custom_not_found(format!(
-                                            "could not find index for validator public key: {}",
-                                            pubkey
-                                        ))
-                                    }),
-                                ValidatorId::Index(index) => Ok(*index as usize),
-                            }?;
-                            let is_live = chain.validator_seen_at_epoch(index, &request_data.epoch);
+                        .cloned()
+                        .map(|index| {
+                            let is_live =
+                                chain.validator_seen_at_epoch(index as usize, &request_data.epoch);
                             Ok::<_, warp::Rejection>(api_types::LivenessResponseData {
                                 index: index as u64,
                                 epoch: request_data.epoch,

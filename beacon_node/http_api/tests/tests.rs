@@ -2116,13 +2116,9 @@ impl ApiTester {
     pub async fn test_post_lighthouse_liveness(self) -> Self {
         let epoch = self.chain.epoch().unwrap();
         let head_state = self.chain.head_beacon_state().unwrap();
-
-        let validators = self
-            .validator_keypairs
-            .iter()
-            .cloned()
-            .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
-            .collect::<Vec<ValidatorId>>();
+        let indices = (0..head_state.validators.len())
+            .map(|i| i as u64)
+            .collect::<Vec<_>>();
 
         // Construct the expected response
         let expected: Vec<LivenessResponseData> = head_state
@@ -2138,7 +2134,7 @@ impl ApiTester {
 
         let result = self
             .client
-            .post_lighthouse_liveness(validators.as_slice(), epoch)
+            .post_lighthouse_liveness(indices.as_slice(), epoch)
             .await
             .unwrap()
             .data;
@@ -2151,16 +2147,9 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let validator_ids = self
-            .validator_keypairs
-            .iter()
-            .cloned()
-            .map(|keypair| ValidatorId::PublicKey(keypair.pk.compress()))
-            .collect::<Vec<ValidatorId>>();
-
         let result = self
             .client
-            .post_lighthouse_liveness(validator_ids.as_slice(), epoch)
+            .post_lighthouse_liveness(indices.as_slice(), epoch)
             .await
             .unwrap()
             .data;
