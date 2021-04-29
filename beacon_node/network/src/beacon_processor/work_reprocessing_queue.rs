@@ -381,10 +381,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                     (ReadyWork::Unaggregate(unaggregate), delay_key)
                                 }),
                         } {
-                            // remove the delay
+                            // Remove the delay.
                             self.attestations_delay_queue.remove(&delay_key);
 
-                            // send the work
+                            // Send the work.
                             if self.ready_work_tx.try_send(work).is_err() {
                                 error!(
                                     log,
@@ -392,8 +392,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 );
                             }
                         } else {
-                            // there is a mismatch between the attestation ids registered for this
-                            // root and the queued attestations. This should never happen
+                            // There is a mismatch between the attestation ids registered for this
+                            // root and the queued attestations. This should never happen.
                             error!(
                                 log,
                                 "Unknown queued attestation for block root";
