@@ -3,8 +3,8 @@ use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
     http::{
-        consensus_assemble_block, consensus_new_block, get_block, get_block_number,
-        get_deposit_logs_in_range, BlockQuery, Eth1Id,
+        consensus_assemble_block, consensus_new_block, consensus_set_head, get_block,
+        get_block_number, get_deposit_logs_in_range, BlockQuery, Eth1Id,
     },
     inner::{DepositUpdater, Inner},
 };
@@ -302,10 +302,12 @@ pub enum SingleEndpointError {
     GetDepositCountFailed(String),
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
-    /// Failed to get an application payload for a new block.
+    /// Failed to get an an execution payload for a new block.
     GetExecutionPayloadFailed(String),
-    /// Failed to process an application payload for a new block.
+    /// Failed to process an execution payload for a new block.
     ProcessExecutionPayloadFailed(String),
+    /// Failed to set the head of the execution node..
+    SetHeadFailed(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -632,6 +634,23 @@ impl Service {
             config_chain_id,
             log: self.log.clone(),
         }
+    }
+
+    pub async fn set_head(&self, block_hash: Hash256) -> Result<bool, Error> {
+        let endpoints = self.init_endpoints();
+
+        endpoints
+            .first_success(|e| async move {
+                consensus_set_head(
+                    e,
+                    block_hash,
+                    Duration::from_millis(GET_EXEUCTION_PAYLOAD_TIMEOUT_MILLIS),
+                )
+                .await
+                .map_err(SingleEndpointError::SetHeadFailed)
+            })
+            .await
+            .map_err(Error::FallbackError)
     }
 
     pub async fn produce_execution_payload(

@@ -54,6 +54,7 @@ pub enum Error {
     ArithError(safe_arith::ArithError),
     ShuttingDown,
     UnableToGetExecutionPayload(String),
+    UnableToSetHead(String),
     UnableToProcessExecutionPayload(String),
     HeadBlockUnknown,
 }
@@ -283,6 +284,15 @@ where
             .ok_or_else(|| Error::HeadBlockUnknown)
     }
 
+    pub fn set_head(&self, block_hash: Hash256) -> Result<bool, Error> {
+        if self.use_dummy_backend {
+            let dummy_backend: DummyEth1ChainBackend<E> = DummyEth1ChainBackend::default();
+            dummy_backend.set_head(block_hash)
+        } else {
+            self.backend.set_head(block_hash)
+        }
+    }
+
     pub fn get_execution_payload(
         &self,
         parent_hash: Hash256,
@@ -374,6 +384,8 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     /// an idea of how up-to-date the remote eth1 node is.
     fn head_block(&self) -> Option<Eth1Block>;
 
+    fn set_head(&self, block_hash: Hash256) -> Result<bool, Error>;
+
     fn get_execution_payload(
         &self,
         parent_hash: Hash256,
@@ -438,6 +450,10 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
 
     fn head_block(&self) -> Option<Eth1Block> {
         None
+    }
+
+    fn set_head(&self, block_hash: Hash256) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn get_execution_payload(
@@ -645,6 +661,19 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn head_block(&self) -> Option<Eth1Block> {
         self.core.head_block()
+    }
+
+    fn set_head(&self, block_hash: Hash256) -> Result<bool, Error> {
+        self.executor
+            .runtime()
+            .upgrade()
+            .ok_or(Error::ShuttingDown)?
+            .block_on(async {
+                self.core
+                    .set_head(block_hash)
+                    .await
+                    .map_err(|e| Error::UnableToSetHead(format!("{:?}", e)))
+            })
     }
 
     fn get_execution_payload(

@@ -115,6 +115,7 @@ pub enum BeaconChainError {
         shuffling_epoch: Epoch,
     },
     PriorToGenesis,
+    NoEth1ChainConnection,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

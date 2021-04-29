@@ -306,6 +306,27 @@ pub async fn consensus_new_block(
         .map_err(|e| format!("Unable to parse consensus_newBlock JSON: {:?}", e))
 }
 
+#[derive(Debug, PartialEq, Deserialize)]
+struct SetHeadResponse {
+    success: bool,
+}
+
+pub async fn consensus_set_head(
+    endpoint: &str,
+    block_hash: Hash256,
+    timeout: Duration,
+) -> Result<bool, String> {
+    let params = json!([block_hash]);
+
+    let response_body = send_rpc_request(endpoint, "consensus_setHead", params, timeout).await?;
+    let result = response_result(&response_body)?
+        .ok_or("No result field was returned for consensus_setHead")?;
+
+    serde_json::from_value::<SetHeadResponse>(result)
+        .map(|response| response.success)
+        .map_err(|e| format!("Unable to parse consensus_setHead JSON: {:?}", e))
+}
+
 /// Returns the value of the `get_deposit_count()` call at the given `address` for the given
 /// `block_number`.
 ///

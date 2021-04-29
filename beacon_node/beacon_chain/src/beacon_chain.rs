@@ -2271,6 +2271,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .previous_epoch()
             .start_slot(T::EthSpec::slots_per_epoch());
+        let execution_block_hash = new_head
+            .beacon_state
+            .latest_execution_payload_header
+            .block_hash;
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -2278,6 +2282,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .canonical_head
             .try_write_for(HEAD_LOCK_TIMEOUT)
             .ok_or(Error::CanonicalHeadLockTimeout)? = new_head;
+
+        // Update the execution node.
+        //
+        // Returns early with an error if there is no `self.eth1_chain`. It's invalid to run without
+        // any possibility of contacting an execution node.
+        //
+        // However, don't return early if there is a failure during the `set_head` call. It might
+        // just be a spurious failure that will self-heal in the future.
+        match self
+            .eth1_chain
+            .as_ref()
+            .ok_or(Error::NoEth1ChainConnection)?
+            .set_head(execution_block_hash)
+        {
+            Ok(true) => {}
+            Ok(false) => crit!(
+                self.log,
+                "Execution node rejected new head";
+                "block_hash" => ?execution_block_hash,
+            ),
+            Err(e) => crit!(
+                self.log,
+                "Error setting execution node head";
+                "error" => ?e,
+                "block_hash" => ?execution_block_hash,
+            ),
+        }
 
         metrics::stop_timer(update_head_timer);
 
