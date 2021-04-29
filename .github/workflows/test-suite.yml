@@ -50,8 +50,10 @@ jobs:
     - uses: actions/checkout@v1
     - name: Get latest version of stable Rust
       run: rustup update stable
-    - name: Run beacon_chain tests
-      run: make test-beacon-chain
+    - name: Run beacon_chain tests for base hard fork
+      run: make test-beacon-chain-base
+    - name: Run beacon_chain tests for Altair hard fork
+      run: make test-beacon-chain-altair
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     runs-on: ubuntu-latest

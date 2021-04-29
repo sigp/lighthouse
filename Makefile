@@ -106,8 +106,10 @@ run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
 
 # Run the tests in the `beacon_chain` crate.
-test-beacon-chain:
-	cargo test --release --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
+test-beacon-chain: test-beacon-chain-base test-beacon-chain-altair
+
+test-beacon-chain-%:
+	env FORK_NAME=$* cargo test --release --features fork_from_env --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:

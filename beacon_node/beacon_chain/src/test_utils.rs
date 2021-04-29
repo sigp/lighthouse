@@ -33,7 +33,7 @@ use tree_hash::TreeHash;
 use types::{
     typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
-    Epoch, EthSpec, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
+    Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, VariableList,
     VoluntaryExit,
@@ -45,6 +45,8 @@ pub use types::test_utils::generate_deterministic_keypairs;
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
+// Environment variable to read if `fork_from_env` feature is enabled.
+const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
 pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
@@ -106,6 +108,27 @@ pub fn test_logger() -> Logger {
             .unwrap()
     } else {
         sloggers::null::NullLoggerBuilder.build().unwrap()
+    }
+}
+
+/// Return a `ChainSpec` suitable for test usage.
+///
+/// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
+/// variable. Otherwise use the default spec.
+pub fn test_spec<E: EthSpec>() -> ChainSpec {
+    if cfg!(feature = "fork_from_env") {
+        let fork_name = std::env::var(FORK_NAME_ENV_VAR).expect(&format!(
+            "{} env var must be defined when using fork_from_env",
+            FORK_NAME_ENV_VAR
+        ));
+        let fork = match fork_name.as_str() {
+            "base" => ForkName::Base,
+            "altair" => ForkName::Altair,
+            other => panic!("unknown FORK_NAME: {}", other),
+        };
+        fork.make_genesis_spec(E::default_spec())
+    } else {
+        E::default_spec()
     }
 }
 
@@ -176,7 +199,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         chain_config: ChainConfig,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let mut spec = E::default_spec();
+        let mut spec = test_spec::<E>();
 
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
@@ -228,7 +251,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let spec = E::default_spec();
+        let spec = test_spec::<E>();
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
@@ -272,7 +295,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         validator_keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
-        let spec = E::default_spec();
+        let spec = test_spec::<E>();
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
@@ -863,16 +886,14 @@ where
             let mut data = DepositData {
                 pubkey: pubkeybytes,
                 withdrawal_credentials: Hash256::from_slice(
-                    &get_withdrawal_credentials(
-                        &keypair.pk,
-                        E::default_spec().bls_withdrawal_prefix_byte,
-                    )[..],
+                    &get_withdrawal_credentials(&keypair.pk, self.spec.bls_withdrawal_prefix_byte)
+                        [..],
                 ),
-                amount: E::default_spec().min_deposit_amount,
+                amount: self.spec.min_deposit_amount,
                 signature: SignatureBytes::empty(),
             };
 
-            data.signature = data.create_signature(&keypair.sk, &E::default_spec());
+            data.signature = data.create_signature(&keypair.sk, &self.spec);
 
             if let Some(invalid_pubkey) = invalid_pubkey {
                 data.pubkey = invalid_pubkey;
@@ -898,16 +919,13 @@ where
         *state.eth1_deposit_index_mut() = 0;
 
         // Building the merkle tree used for generating proofs
-        let tree = MerkleTree::create(
-            &leaves[..],
-            E::default_spec().deposit_contract_tree_depth as usize,
-        );
+        let tree = MerkleTree::create(&leaves[..], self.spec.deposit_contract_tree_depth as usize);
 
         // Building proofs
         let mut proofs = vec![];
         for i in 0..leaves.len() {
             let (_, mut proof) =
-                tree.generate_proof(i, E::default_spec().deposit_contract_tree_depth as usize);
+                tree.generate_proof(i, self.spec.deposit_contract_tree_depth as usize);
             proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
             proofs.push(proof);
         }
