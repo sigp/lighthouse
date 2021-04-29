@@ -320,7 +320,7 @@ lazy_static! {
     );
     pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_aggregated_attestation_requeued_total",
-        "Total number of aggregated attestations that referenced an unknwon block and were re-queued."
+        "Total number of aggregated attestations that referenced an unknown block and were re-queued."
     );
 }
 
