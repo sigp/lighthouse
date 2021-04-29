@@ -624,7 +624,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     WorkerIdle,
     /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
-    /// A work that was queued for re-processing has become ready.
+    /// A work event that was queued for re-processing has become ready.
     ReprocessingWork(WorkEvent<T>),
 }
 
