@@ -173,7 +173,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
-            filter: Self::create_whitelist_filter(possible_fork_digests, 64), //TODO change this to a constant
+            filter: Self::create_whitelist_filter(possible_fork_digests, 64, 8), //TODO change this to a constant
             max_subscribed_topics: 200, //TODO change this to a constant
             max_subscriptions_per_request: 100, //this is according to the current go implementation
         };
@@ -365,8 +365,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let topic: Topic = topic.into();
 
         match self.gossipsub.subscribe(&topic) {
-            Err(_) => {
-                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic);
+            Err(e) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic, "error" => ?e);
                 false
             }
             Ok(v) => {
@@ -947,6 +947,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     fn create_whitelist_filter(
         possible_fork_digests: Vec<[u8; 4]>,
         attestation_subnet_count: u64,
+        sync_committee_subnet_count: u64,
     ) -> WhitelistSubscriptionFilter {
         let mut possible_hashes = HashSet::new();
         for fork_digest in possible_fork_digests {
@@ -962,8 +963,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             add(VoluntaryExit);
             add(ProposerSlashing);
             add(AttesterSlashing);
+            add(SignedContributionAndProof);
             for id in 0..attestation_subnet_count {
                 add(Attestation(SubnetId::new(id)));
+            }
+            for id in 0..sync_committee_subnet_count {
+                add(SyncCommitteeSignature(SubnetId::new(id)));
             }
         }
         WhitelistSubscriptionFilter(possible_hashes)
