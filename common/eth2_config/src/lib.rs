@@ -125,3 +125,5 @@ define_net!(mainnet, include_mainnet_file, "mainnet", true);
 define_net!(toledo, include_toledo_file, "toledo", true);
 
 define_net!(prater, include_prater_file, "prater", true);
+
+define_net!(steklo, include_steklo_file, "steklo", true);

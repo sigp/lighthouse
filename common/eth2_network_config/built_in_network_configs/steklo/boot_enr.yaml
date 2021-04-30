@@ -1,0 +1,9 @@
+# Steklo testnet bootnodes
+# ---------------------------------------
+# 1. Tag nodes with maintainer
+# 2. Keep nodes updated
+# 3. Review PRs: check ENR duplicates, fork-digest, connection.
+
+# proto bootnode0 (discv5, no full beacon node)
+- enr:-Ku4QFrzIH_DETC3gh3Dhl_rMzNOdlUH427ef3lbtArKVvbaX_YVs6_zEB0Z5Q72a6ZKlgvXJjS-yt20UXhftrFS2EoCh2F0dG5ldHOIAAAAAAAAAACEZXRoMpB5-A5dAAAHAf__________gmlkgnY0gmlwhANDKQyJc2VjcDI1NmsxoQIOfbH-pbhkBiSvD0wJxyjm8vA4DROacA7uT4Nfdc5QDYN1ZHCCIyg
+
