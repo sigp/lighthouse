@@ -41,7 +41,7 @@ tree_hash = "0.1.1"
 types = { path = "../../consensus/types" }
 tokio = "1.1.0"
 eth1 = { path = "../eth1" }
-futures = "0.3.7"
+futures = { version = "0.3.7", features = ["executor"] }
 genesis = { path = "../genesis" }
 integer-sqrt = "0.1.5"
 rand = "0.7.3"

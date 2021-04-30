@@ -664,16 +664,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
     }
 
     fn set_head(&self, block_hash: Hash256) -> Result<bool, Error> {
-        self.executor
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?
-            .block_on(async {
-                self.core
-                    .set_head(block_hash)
-                    .await
-                    .map_err(|e| Error::UnableToSetHead(format!("{:?}", e)))
-            })
+        futures::executor::block_on(async {
+            self.core
+                .set_head(block_hash)
+                .await
+                .map_err(|e| Error::UnableToSetHead(format!("{:?}", e)))
+        })
     }
 
     fn get_execution_payload(
@@ -681,32 +677,24 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
         parent_hash: Hash256,
         timestamp: u64,
     ) -> Result<ExecutionPayload, Error> {
-        self.executor
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?
-            .block_on(async {
-                self.core
-                    .produce_execution_payload(parent_hash, timestamp)
-                    .await
-                    .map_err(|e| Error::UnableToGetExecutionPayload(format!("{:?}", e)))
-            })
+        futures::executor::block_on(async {
+            self.core
+                .produce_execution_payload(parent_hash, timestamp)
+                .await
+                .map_err(|e| Error::UnableToGetExecutionPayload(format!("{:?}", e)))
+        })
     }
 
     fn process_execution_payload(
         &self,
         execution_payload: &ExecutionPayload,
     ) -> Result<bool, Error> {
-        self.executor
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?
-            .block_on(async {
-                self.core
-                    .process_execution_payload(execution_payload)
-                    .await
-                    .map_err(|e| Error::UnableToGetExecutionPayload(format!("{:?}", e)))
-            })
+        futures::executor::block_on(async {
+            self.core
+                .process_execution_payload(execution_payload)
+                .await
+                .map_err(|e| Error::UnableToGetExecutionPayload(format!("{:?}", e)))
+        })
     }
 
     /// Return encoded byte representation of the block and deposit caches.
