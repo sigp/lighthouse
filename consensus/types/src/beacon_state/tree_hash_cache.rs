@@ -12,7 +12,7 @@ use std::iter::ExactSizeIterator;
 use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
 /// The number of fields on a beacon state.
-const NUM_BEACON_STATE_HASHING_FIELDS: usize = 20;
+const NUM_BEACON_STATE_HASHING_FIELDS: usize = 22;
 
 /// The number of nodes in the Merkle tree of a validator record.
 const NODES_PER_VALIDATOR: usize = 15;
