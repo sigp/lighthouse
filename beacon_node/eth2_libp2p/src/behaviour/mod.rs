@@ -535,8 +535,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             crit!(self.log, "Could not update ENR bitfield"; "error" => e);
         }
         // update the local meta data which informs our peers of the update during PINGS
-        self.update_metadata_attnets();
-        //TODO(pawan): also update syncnets
+        self.update_metadata_bitfields();
     }
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
@@ -559,20 +558,30 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Private internal functions */
 
     /// Updates the current meta data of the node to match the local ENR.
-    /// TODO(pawan): separate function for updating syncnets metadata.
-    fn update_metadata_attnets(&mut self) {
+    fn update_metadata_bitfields(&mut self) {
         let local_attnets = self
             .peer_manager
             .discovery()
             .local_enr()
             .attestation_bitfield::<TSpec>()
-            .expect("Local discovery must have bitfield");
+            .expect("Local discovery must have attestation bitfield");
+
+        let local_syncnets = self
+            .peer_manager
+            .discovery()
+            .local_enr()
+            .sync_committee_bitfield::<TSpec>()
+            .expect("Local discovery must have sync committee bitfield");
 
         {
             // write lock scope
             let mut meta_data = self.network_globals.local_metadata.write();
-            meta_data.seq_number += 1;
-            meta_data.attnets = local_attnets;
+
+            *meta_data.seq_number_mut() += 1;
+            *meta_data.attnets_mut() = local_attnets;
+            if let Ok(syncnets) = meta_data.syncnets_mut() {
+                *syncnets = local_syncnets;
+            }
         }
         // Save the updated metadata to disk
         save_metadata_to_disk(
@@ -585,7 +594,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Ping request to the peer.
     fn ping(&mut self, id: RequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: self.network_globals.local_metadata.read().seq_number,
+            data: *self.network_globals.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => %peer_id);
 
@@ -596,7 +605,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Pong response to the peer.
     fn pong(&mut self, id: PeerRequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: self.network_globals.local_metadata.read().seq_number,
+            data: *self.network_globals.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => %peer_id);
         let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));

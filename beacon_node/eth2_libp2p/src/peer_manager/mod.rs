@@ -509,9 +509,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // if the sequence number is unknown send an update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
+                if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "ping_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
@@ -533,9 +533,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // if the sequence number is unknown send update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
+                if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "pong_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
@@ -553,13 +553,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data {
-                if known_meta_data.seq_number < meta_data.seq_number {
+                if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
-                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                     peer_info.meta_data = Some(meta_data);
                 } else {
                     debug!(self.log, "Received old metadata";
-                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                     // Updating metadata even in this case to prevent storing
                     // incorrect  `metadata.attnets` for a peer
                     peer_info.meta_data = Some(meta_data);
@@ -567,7 +567,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             } else {
                 // we have no meta-data for this peer, update
                 debug!(self.log, "Obtained peer's metadata";
-                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number);
+                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
                 peer_info.meta_data = Some(meta_data);
             }
         } else {

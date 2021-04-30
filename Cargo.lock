@@ -2100,6 +2100,7 @@ dependencies = [
  "smallvec",
  "snap",
  "strum",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tiny-keccak 2.0.2",

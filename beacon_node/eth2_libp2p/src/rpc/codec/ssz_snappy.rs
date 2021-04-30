@@ -69,7 +69,18 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
-                RPCResponse::MetaData(res) => res.as_ssz_bytes(),
+                RPCResponse::MetaData(res) =>
+                // Encode the correct version of the MetaData response based on the negotiated version.
+                {
+                    match self.protocol.version {
+                        Version::V1 => MetaData::<TSpec>::V1(MetaDataV1 {
+                            seq_number: *res.seq_number(),
+                            attnets: res.attnets().clone(),
+                        })
+                        .as_ssz_bytes(),
+                        Version::V2 => res.as_ssz_bytes(),
+                    }
+                }
             },
             RPCCodedResponse::Error(_, err) => err.as_ssz_bytes(),
             RPCCodedResponse::StreamTermination(_) => {
@@ -380,9 +391,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
                         }))),
-                        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(
-                            MetaData::from_ssz_bytes(&decoded_buffer)?,
-                        ))),
+                        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V1(
+                            MetaDataV1::from_ssz_bytes(&decoded_buffer)?,
+                        )))),
                     },
                     Version::V2 => match self.protocol.message_name {
                         Protocol::BlocksByRange => {

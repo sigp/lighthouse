@@ -987,7 +987,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::methods::MetaData;
+    use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use std::net::UdpSocket;
@@ -1026,10 +1026,11 @@ mod tests {
             enr,
             9000,
             9000,
-            MetaData {
+            MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
-            },
+                syncnets: Default::default(),
+            }),
             vec![],
             &log,
         );

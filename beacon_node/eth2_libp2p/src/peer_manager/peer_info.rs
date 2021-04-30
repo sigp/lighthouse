@@ -89,10 +89,13 @@ impl<T: EthSpec> PeerInfo<T> {
         if let Some(meta_data) = &self.meta_data {
             match subnet_id {
                 Subnet::Attestation(id) => {
-                    return meta_data.attnets.get(**id as usize).unwrap_or(false)
+                    return meta_data.attnets().get(**id as usize).unwrap_or(false)
                 }
-                // TODO(pawan): add syncnets to metadata
-                Subnet::SyncCommittee(_id) => unimplemented!(),
+                Subnet::SyncCommittee(id) => {
+                    return meta_data
+                        .syncnets()
+                        .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
+                }
             }
         }
         false
