@@ -570,12 +570,12 @@ pub fn compute_time_at_slot<T: EthSpec>(
 }
 
 pub fn is_transition_completed<T: EthSpec>(state: &BeaconState<T>) -> bool {
-    state.latest_execution_payload_header == <_>::default()
+    state.latest_execution_payload_header != <_>::default()
 }
 
 pub fn is_transition_block<T: EthSpec>(
     body: &BeaconBlockBody<T>,
     transition_completed: bool,
 ) -> bool {
-    transition_completed && body.execution_payload == <_>::default()
+    !transition_completed && body.execution_payload != <_>::default()
 }
