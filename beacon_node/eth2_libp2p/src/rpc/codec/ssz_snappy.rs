@@ -439,6 +439,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                                 )?),
                             )))),
                         },
+                        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V2(
+                            MetaDataV2::from_ssz_bytes(&decoded_buffer)?,
+                        )))),
+
                         _ => Err(RPCError::ErrorResponse(
                             RPCResponseErrorCode::InvalidRequest,
                             "Invalid v2 request".to_string(),
@@ -543,7 +547,7 @@ mod tests {
     use crate::rpc::{protocol::*, MetaData};
     use crate::{
         rpc::{methods::StatusMessage, Ping, RPCResponseErrorCode},
-        types::EnrBitfield,
+        types::EnrAttestationBitfield,
     };
     use std::sync::Arc;
     use types::{
@@ -587,10 +591,10 @@ mod tests {
     }
 
     fn metadata() -> MetaData<Spec> {
-        MetaData {
+        MetaData::V1(MetaDataV1 {
             seq_number: 1,
-            attnets: EnrBitfield::<Spec>::default(),
-        }
+            attnets: EnrAttestationBitfield::<Spec>::default(),
+        })
     }
 
     /// Encodes the given protocol response as bytes.
