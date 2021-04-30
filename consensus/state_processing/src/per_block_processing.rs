@@ -513,7 +513,7 @@ pub fn process_execution_payload<T: EthSpec>(
     // ```
     // if not is_transition_completed(state) and not is_transition_block(state, body)
     // ```
-    if is_transition_block(body, transition_completed) {
+    if !transition_completed && !is_transition_block(body, transition_completed) {
         return Ok(());
     }
 
