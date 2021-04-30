@@ -9,6 +9,7 @@ mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
 mod parse_hex;
+mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
 mod transition_blocks;
@@ -154,6 +155,25 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("SSZ encoded as 0x-prefixed hex"),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("pretty-ssz")
+                .about("Parses a SSZ file (formatted as raw bytes)")
+                .arg(
+                    Arg::with_name("type")
+                        .value_name("TYPE")
+                        .takes_value(true)
+                        .required(true)
+                        .possible_values(&["block", "state"])
+                        .help("The schema of the supplied SSZ."),
+                )
+                .arg(
+                    Arg::with_name("path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Path to .ssz file"),
                 ),
         )
         .subcommand(
@@ -600,6 +620,9 @@ fn run<T: EthSpec>(
         }
         ("pretty-hex", Some(matches)) => {
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+        }
+        ("pretty-ssz", Some(matches)) => {
+            parse_ssz::run::<T>(matches).map_err(|e| format!("Failed to pretty print ssz: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
             deploy_deposit_contract::run::<T>(env, matches)
