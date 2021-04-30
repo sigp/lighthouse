@@ -145,14 +145,14 @@ pub struct ChainSpec {
 }
 
 impl ChainSpec {
-    /// Construct a `ChainSpec` from several standard config files.
-    pub fn from_standard_config<T: EthSpec>(
-        base: &BaseConfig,
-        altair: &AltairConfig,
-    ) -> Option<Self> {
+    /// Construct a `ChainSpec` from a standard config.
+    pub fn from_standard_config<T: EthSpec>(standard_config: &StandardConfig) -> Option<Self> {
         let mut spec = T::default_spec();
-        spec = base.apply_to_chain_spec::<T>(&spec)?;
-        spec = altair.apply_to_chain_spec::<T>(&spec)?;
+        spec = standard_config.base().apply_to_chain_spec::<T>(&spec)?;
+
+        if let Ok(altair) = standard_config.altair() {
+            spec = altair.apply_to_chain_spec::<T>(&spec)?;
+        }
         Some(spec)
     }
 
@@ -436,15 +436,25 @@ impl Default for ChainSpec {
 }
 
 /// Configuration struct for compatibility with the spec's .yaml configuration
+///
+/// Ordering of these enum variants is significant because it determines serde's deserialisation
+/// priority. I.e. Altair before Base.
+///
+#[superstruct(
+    variants(Altair, Base),
+    variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
+)]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(untagged)]
 pub struct StandardConfig {
     #[serde(flatten)]
     pub base: BaseConfig,
     /// Configuration related to the Altair hard fork.
+    #[superstruct(only(Altair))]
     #[serde(flatten)]
     pub altair: AltairConfig,
 
-    // Extra fields (could be from a future hard-fork that we don't yet know).
+    /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, String>,
 }
@@ -453,12 +463,16 @@ impl StandardConfig {
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         let base = BaseConfig::from_chain_spec::<T>(spec);
         let altair = AltairConfig::from_chain_spec::<T>(spec);
+        Self::from_parts(base, altair)
+    }
+
+    pub fn from_parts(base: BaseConfig, altair: AltairConfig) -> Self {
         let extra_fields = HashMap::new();
-        Self {
+        StandardConfig::Altair(StandardConfigAltair {
             base,
             altair,
             extra_fields,
-        }
+        })
     }
 }
 
@@ -919,6 +933,7 @@ impl AltairConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {
@@ -966,6 +981,23 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+    }
+
+    #[test]
+    fn decode_no_altair() {
+        let spec = MainnetEthSpec::default_spec();
+        let base_config = BaseConfig::from_chain_spec::<MainnetEthSpec>(&spec);
+
+        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
+        let f = File::create(tmp_file.as_ref()).unwrap();
+        serde_yaml::to_writer(f, &base_config).expect("failed to write or serialize");
+
+        let f = File::open(tmp_file.as_ref()).unwrap();
+        let standard_config: StandardConfig = serde_yaml::from_reader(f).unwrap();
+
+        let standard_base = standard_config.as_base().unwrap();
+        assert_eq!(standard_base.base, base_config);
+        assert!(standard_base.extra_fields.is_empty());
     }
 }
 
@@ -1033,8 +1065,8 @@ mod yaml_tests {
         let mut yamlconfig = StandardConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
-        yamlconfig.extra_fields.insert(k1.into(), v1.into());
-        yamlconfig.extra_fields.insert(k2.into(), v2.into());
+        yamlconfig.extra_fields_mut().insert(k1.into(), v1.into());
+        yamlconfig.extra_fields_mut().insert(k2.into(), v2.into());
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()
