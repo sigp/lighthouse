@@ -5,7 +5,7 @@ use slog::{crit, error, info};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::time::sleep;
-use types::EthSpec;
+use types::{Epoch, EthSpec};
 
 #[derive(Clone)]
 pub struct DoppelgangerService<T: SlotClock, E: EthSpec> {
@@ -40,7 +40,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         self.validator_store
             .initialized_validators()
             .write()
-            .update_all_doppelganger_detection_epochs(current_epoch, genesis_epoch);
+            .update_all_initialization_epochs(current_epoch, genesis_epoch);
 
         let doppelganger_service = self.clone();
         self.context.executor.spawn(
@@ -72,73 +72,88 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         let slot = self.slot_clock.now().ok_or("Unable to read slot clock")?;
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // Get all validators requiring a check in this epoch.
-        let validators = self
+        // Get all validators requiring a doppelganger detection check.
+        let validators_by_epoch = self
             .validator_store
             .initialized_validators()
             .read()
             .get_doppelganger_detecting_validators(epoch);
-        let validators_slice = validators.as_slice();
 
-        // Ensure we don't send empty requests.
-        if validators_slice.is_empty() {
+        // Avoid any unnecessary processing.
+        if validators_by_epoch.is_empty() {
             return Ok(());
-        };
+        }
 
-        info!(log, "Monitoring for doppelgangers"; "epoch" => ?epoch);
+        for (epoch, vals) in validators_by_epoch.iter() {
+            // Ensure we don't send empty requests.
+            if vals.is_empty() {
+                break;
+            }
 
-        let liveness_response = self
-            .beacon_nodes
-            .first_success(RequireSynced::Yes, |beacon_node| async move {
-                beacon_node
-                    .post_lighthouse_liveness(validators_slice, epoch)
-                    .await
-                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                    .map(|result| result.data)
-            })
-            .await
-            .map_err(|e| format!("Failed query for validator liveness: {}", e));
+            info!(log, "Monitoring for doppelgangers"; "epoch" => ?epoch);
 
-        // Send a shutdown signal if necessary.
-        match liveness_response {
-            Ok(validator_liveness) => {
-                for validator in validator_liveness {
-                    if validator.is_live {
-                        crit!(
-                            log,
-                            "Doppelganger detected! Shutting down. Ensure you aren't already \
-                                         running a validator client with the same keys.";
-                                         "validator" => ?validator
-                        );
+            let vals_slice = vals.as_slice();
+            let liveness_response = self
+                .beacon_nodes
+                .first_success(RequireSynced::Yes, |beacon_node| async move {
+                    beacon_node
+                        .post_lighthouse_liveness(vals_slice, *epoch)
+                        .await
+                        .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
+                        .map(|result| result.data)
+                })
+                .await
+                .map_err(|e| format!("Failed query for validator liveness: {}", e));
 
-                        let _ = self
-                            .context
-                            .executor
-                            .shutdown_sender()
-                            .try_send("Doppelganger detected.")
-                            .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
+            // Send a shutdown signal if necessary.
+            match liveness_response {
+                Ok(validator_liveness) => {
+                    for validator in validator_liveness {
+                        if validator.is_live {
+                            crit!(
+                                log,
+                                "Doppelganger detected! Shutting down. Ensure you aren't already \
+                                             running a validator client with the same keys.";
+                                             "validator" => ?validator
+                            );
+
+                            let _ = self
+                                .context
+                                .executor
+                                .shutdown_sender()
+                                .try_send("Doppelganger detected.")
+                                .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
+                        }
                     }
                 }
-            }
-            Err(e) => {
-                crit!(
-                    log,
-                    "Failed to complete query for doppelganger detection... Restarting doppelganger detection process.";
-                    "error" => format!("{:?}", e)
-                );
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Failed to complete query for doppelganger detection... Restarting doppelganger detection process.";
+                        "error" => format!("{:?}", e)
+                    );
 
-                let current_epoch = self
-                    .slot_clock
-                    .now_or_genesis()
-                    .ok_or("Unable to read slot")?
-                    .epoch(E::slots_per_epoch());
-                let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
+                    let current_epoch = self
+                        .slot_clock
+                        .now_or_genesis()
+                        .ok_or("Unable to read slot")?
+                        .epoch(E::slots_per_epoch());
+                    let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
 
-                self.validator_store
-                    .initialized_validators()
-                    .write()
-                    .update_all_doppelganger_detection_epochs(current_epoch, genesis_epoch);
-            }
+                    self.validator_store
+                        .initialized_validators()
+                        .write()
+                        .update_all_initialization_epochs(current_epoch, genesis_epoch);
+                }
+            };
+        }
+
+        // If we are in the first slot of epoch N, consider checks in epoch N-1 completed.
+        if slot == epoch.start_slot(E::slots_per_epoch()) {
+            self.validator_store
+                .initialized_validators()
+                .write()
+                .complete_doppelganger_detection_in_epoch(epoch.saturating_sub(Epoch::new(1)));
         }
         Ok(())
     }

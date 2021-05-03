@@ -138,7 +138,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset(epoch);
+        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset();
 
         self.proposers
             .read()
@@ -161,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset(epoch);
+        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset();
 
         self.attesters
             .read()

@@ -139,20 +139,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .collect()
     }
 
-    /// Returns all public keys that are required for signing attestations and blocks. This will
-    /// exclude initialized validators that are currently in a doppelganger detection period.
-    pub fn signing_pubkeys(&self, current_epoch: Epoch) -> Vec<PublicKeyBytes> {
+    /// Returns a `Vec` of all public keys that are required for signing attestations and blocks.
+    /// This will exclude initialized validators that are currently in a doppelganger detection period.
+    pub fn signing_pubkeys(&self) -> Vec<PublicKeyBytes> {
         self.validators
             .read()
-            .iter_signing_pubkeys(current_epoch)
+            .iter_signing_pubkeys()
             .cloned()
             .collect()
     }
 
-    pub fn signing_pubkeys_hashset(&self, current_epoch: Epoch) -> HashSet<PublicKeyBytes> {
+    /// Returns a `HashSet` of all public keys that are required for signing attestations and blocks.
+    /// This will exclude initialized validators that are currently in a doppelganger detection period.
+    pub fn signing_pubkeys_hashset(&self) -> HashSet<PublicKeyBytes> {
         self.validators
             .read()
-            .iter_signing_pubkeys(current_epoch)
+            .iter_signing_pubkeys()
             .cloned()
             .collect()
     }

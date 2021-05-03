@@ -28,8 +28,8 @@ use crate::key_cache::KeyCache;
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
 
-/// The amount of time we will spend scanning the network for doppelgangers before attesting.
-pub const DOPPELGANGER_DETECTION_EPOCHS: Epoch = Epoch::new(2);
+/// The default number of epochs we will spend scanning the network for doppelgangers before attesting.
+pub const DEFAULT_REMAINING_DETECTION_EPOCHS: usize = 2;
 
 #[derive(Debug)]
 pub enum Error {
@@ -94,7 +94,8 @@ pub enum SigningMethod {
 pub struct InitializedValidator {
     signing_method: SigningMethod,
     graffiti: Option<Graffiti>,
-    doppelganger_detection_epoch: Option<Epoch>,
+    initialization_epoch: Option<Epoch>,
+    num_remaining_detection_epochs: usize,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -136,7 +137,7 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
-        doppelganger_detection_epoch: Option<Epoch>,
+        initialization_epoch: Option<Epoch>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -222,7 +223,8 @@ impl InitializedValidator {
                         voting_keypair,
                     },
                     graffiti: def.graffiti.map(Into::into),
-                    doppelganger_detection_epoch,
+                    initialization_epoch,
+                    num_remaining_detection_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
                     index: None,
                 })
             }
@@ -551,11 +553,11 @@ impl InitializedValidators {
                             disabled_uuids.remove(key_store.uuid());
                         }
 
-                        let doppelganger_detecting_epoch =
+                        let doppelganger_initialization_epoch =
                             if let (Some(current_epoch), Some(genesis_epoch)) =
                                 (current_epoch, genesis_epoch)
                             {
-                                self.determine_doppelganger_detection_epoch(
+                                self.determine_doppelganger_initialization_epoch(
                                     current_epoch,
                                     genesis_epoch,
                                 )
@@ -567,7 +569,7 @@ impl InitializedValidators {
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
-                            doppelganger_detecting_epoch,
+                            doppelganger_initialization_epoch,
                         )
                         .await
                         {
@@ -657,72 +659,87 @@ impl InitializedValidators {
         Ok(())
     }
 
-    /// Returns the epoch a validator should perform doppelganger detection until, starting
-    /// from when this method is called.
+    /// Returns the epoch from which a validator should begin doppelganger detection.
     ///
     /// This will return `None` if the current epoch is the genesis epoch or if we are prior to genesis.
     /// This is because we cannot perform doppelganger detection in the first epoch after genesis
     /// or we risk having no validators to propose blocks.
-    fn determine_doppelganger_detection_epoch(
+    fn determine_doppelganger_initialization_epoch(
         &self,
         current_epoch: Epoch,
         genesis_epoch: Epoch,
     ) -> Option<Epoch> {
         (current_epoch > genesis_epoch && !self.disable_doppelganger_detection)
-            .then(|| current_epoch + DOPPELGANGER_DETECTION_EPOCHS)
+            .then(|| current_epoch)
     }
 
-    /// Updates the doppelganger detection epoch of all initialized validators based on the provided
-    /// epoch.
-    pub fn update_all_doppelganger_detection_epochs(
-        &mut self,
-        current_epoch: Epoch,
-        genesis_epoch: Epoch,
-    ) {
-        let detection_epoch =
-            self.determine_doppelganger_detection_epoch(current_epoch, genesis_epoch);
+    /// Updates the doppelganger detection initialization epoch of all validators and resets the
+    /// `num_remaining_detection_epochs`.
+    pub fn update_all_initialization_epochs(&mut self, current_epoch: Epoch, genesis_epoch: Epoch) {
+        let initialization_epoch =
+            self.determine_doppelganger_initialization_epoch(current_epoch, genesis_epoch);
         for (_, val) in self.validators.iter_mut() {
-            val.doppelganger_detection_epoch = detection_epoch;
+            val.initialization_epoch = initialization_epoch;
+            val.num_remaining_detection_epochs = DEFAULT_REMAINING_DETECTION_EPOCHS;
         }
     }
 
     /// Gets the public key of all validators who are not in the doppelganger detection period.
-    pub fn iter_signing_pubkeys(
-        &self,
-        current_epoch: Epoch,
-    ) -> impl Iterator<Item = &PublicKeyBytes> {
+    pub fn iter_signing_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
         self.validators.iter().filter_map(move |(pubkey, val)| {
-            val.doppelganger_detection_epoch
-                .map_or(true, |doppelganger_epoch| {
-                    doppelganger_epoch < current_epoch
-                })
+            val.initialization_epoch
+                .map_or(true, |_| val.num_remaining_detection_epochs == 0)
                 .then(|| pubkey)
         })
     }
 
-    /// Gets all validators that are in the doppelganger detection period in the given epoch.
-    pub fn get_doppelganger_detecting_validators(&self, epoch: Epoch) -> Vec<u64> {
+    /// Gets all validators that may require doppelganger detection checks given current epoch.
+    pub fn get_doppelganger_detecting_validators(
+        &self,
+        current_epoch: Epoch,
+    ) -> HashMap<Epoch, Vec<u64>> {
         self.validators
             .iter()
-            .filter_map(|(_, val)| {
-                // make sure we've determined this validator exists in the beacon chain
-                val.index
-                    .map(|index| {
-                        val.doppelganger_detection_epoch
-                            .map(|doppelganger_epoch| {
-                                // We want to avoid checking the epoch in which doppelganger detection was started
-                                // so we don't pick up attestations from our own validator on restart.
-                                (doppelganger_epoch >= epoch
-                                    && epoch
-                                        != doppelganger_epoch
-                                            .saturating_sub(DOPPELGANGER_DETECTION_EPOCHS))
-                                .then(|| index)
-                            })
-                            .flatten()
-                    })
-                    .flatten()
+            .fold(HashMap::new(), |mut map, (_, val)| {
+                // Make sure we've determined this validator exists in the beacon chain.
+                if let Some(index) = val.index {
+                    if let Some(initialization_epoch) = val.initialization_epoch {
+                        if val.num_remaining_detection_epochs > 0 {
+                            // We want to avoid checking the epoch in which doppelganger detection was started
+                            // so we don't pick up attestations from our own validator on restart.
+                            if current_epoch > initialization_epoch {
+                                map.entry(current_epoch)
+                                    .or_insert_with(Vec::new)
+                                    .push(index);
+                            }
+
+                            let previous_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                            if previous_epoch > initialization_epoch {
+                                map.entry(previous_epoch)
+                                    .or_insert_with(Vec::new)
+                                    .push(index);
+                            }
+                        }
+                    }
+                }
+                map
             })
-            .collect()
+    }
+
+    /// Updates the `num_remaining_detection_epochs` of all validators detecting in `epoch`.
+    pub fn complete_doppelganger_detection_in_epoch(&mut self, epoch: Epoch) {
+        for (_, val) in self.validators.iter_mut() {
+            if let Some(initialization_epoch) = val.initialization_epoch {
+                if epoch > initialization_epoch
+                    && epoch
+                        <= initialization_epoch
+                            .saturating_add(Epoch::new(DEFAULT_REMAINING_DETECTION_EPOCHS as u64))
+                {
+                    val.num_remaining_detection_epochs =
+                        val.num_remaining_detection_epochs.saturating_sub(1);
+                }
+            }
+        }
     }
 
     pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
