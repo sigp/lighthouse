@@ -2,6 +2,7 @@
 extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
+mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod insecure_validators;
@@ -154,6 +155,38 @@ fn main() {
                         .required(true)
                         .help("SSZ encoded as 0x-prefixed hex"),
                 ),
+        )
+        .subcommand(
+            SubCommand::with_name("deploy-deposit-contract")
+                .about(
+                    "Deploy a testing eth1 deposit contract.",
+                )
+                .arg(
+                    Arg::with_name("eth1-http")
+                        .long("eth1-http")
+                        .short("e")
+                        .value_name("ETH1_HTTP_PATH")
+                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
+                        .takes_value(true)
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("confirmations")
+                        .value_name("INTEGER")
+                        .long("confirmations")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help("The number of block confirmations before declaring the contract deployed."),
+                )
+                .arg(
+                    Arg::with_name("validator-count")
+                        .value_name("VALIDATOR_COUNT")
+                        .long("validator-count")
+                        .takes_value(true)
+                        .help("If present, makes `validator_count` number of INSECURE deterministic deposits after \
+                                deploying the deposit contract."
+                        ),
+                )
         )
         .subcommand(
             SubCommand::with_name("eth1-genesis")
@@ -344,6 +377,20 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("seconds-per-eth1-block")
+                        .long("seconds-per-eth1-block")
+                        .value_name("SECONDS")
+                        .takes_value(true)
+                        .help("Eth1 block time"),
+                )
+                .arg(
+                    Arg::with_name("eth1-id")
+                        .long("eth1-id")
+                        .value_name("ETH1_ID")
+                        .takes_value(true)
+                        .help("The chain id and network id for the eth1 testnet."),
+                )
+                .arg(
                     Arg::with_name("deposit-contract-address")
                         .long("deposit-contract-address")
                         .value_name("ETH1_ADDRESS")
@@ -446,19 +493,19 @@ fn main() {
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
-                    Arg::with_name("validators-dir")
-                        .long("validators-dir")
-                        .value_name("VALIDATOR_DIR")
+                    Arg::with_name("base-dir")
+                        .long("base-dir")
+                        .value_name("BASE_DIR")
                         .takes_value(true)
-                        .help("The directory for storing validators."),
+                        .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
-                    Arg::with_name("secrets-dir")
-                        .long("secrets-dir")
-                        .value_name("SECRETS_DIR")
+                    Arg::with_name("node-count")
+                        .long("node-count")
+                        .value_name("NODE_COUNT")
                         .takes_value(true)
-                        .help("The directory for storing secrets."),
-                ),
+                        .help("The number of nodes to divide the validator keys to"),
+                )
         )
         .get_matches();
 
@@ -539,6 +586,10 @@ fn run<T: EthSpec>(
         }
         ("pretty-hex", Some(matches)) => {
             run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+        }
+        ("deploy-deposit-contract", Some(matches)) => {
+            deploy_deposit_contract::run::<T>(env, matches)
+                .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),

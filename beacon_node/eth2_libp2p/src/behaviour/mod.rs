@@ -36,7 +36,7 @@ use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -1336,7 +1336,7 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
 }
 
 /// Persist metadata to disk
-pub fn save_metadata_to_disk<E: EthSpec>(dir: &PathBuf, metadata: MetaData<E>, log: &slog::Logger) {
+pub fn save_metadata_to_disk<E: EthSpec>(dir: &Path, metadata: MetaData<E>, log: &slog::Logger) {
     let _ = std::fs::create_dir_all(&dir);
     match File::create(dir.join(METADATA_FILENAME))
         .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))

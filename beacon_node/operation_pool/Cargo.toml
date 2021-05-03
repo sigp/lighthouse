@@ -5,12 +5,16 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
+itertools = "0.10.0"
 int_to_bytes = { path = "../../consensus/int_to_bytes" }
+lazy_static = "1.4.0"
+lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 state_processing = { path = "../../consensus/state_processing" }
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
+rayon = "1.5.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 store = { path = "../store" }

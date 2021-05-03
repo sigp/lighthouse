@@ -5,7 +5,7 @@ use crate::{
 };
 use serde_derive::{Deserialize, Serialize};
 use tempfile::tempdir;
-use types::{Epoch, Hash256, PublicKey, Slot};
+use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MultiTestCase {
@@ -25,7 +25,7 @@ pub struct TestCase {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TestBlock {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub slot: Slot,
     pub signing_root: Hash256,
     pub should_succeed: bool,
@@ -33,7 +33,7 @@ pub struct TestBlock {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TestAttestation {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub source_epoch: Epoch,
     pub target_epoch: Epoch,
     pub signing_root: Hash256,

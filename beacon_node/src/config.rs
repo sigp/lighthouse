@@ -10,7 +10,7 @@ use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
@@ -259,8 +259,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
-        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+    // Only append network config bootnodes if discovery is not disabled
+    if !client_config.network.disable_discovery {
+        if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
+            client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+        }
     }
 
     client_config.genesis =
@@ -273,7 +276,6 @@ pub fn get_config<E: EthSpec>(
                 let read = |path: &str| {
                     use std::fs::File;
                     use std::io::Read;
-                    use std::path::Path;
                     File::open(Path::new(path))
                         .and_then(|mut f| {
                             let mut buffer = vec![];
@@ -454,7 +456,7 @@ pub fn get_config<E: EthSpec>(
 pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     log: &Logger,
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {

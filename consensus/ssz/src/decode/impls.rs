@@ -353,7 +353,7 @@ macro_rules! impl_decodable_for_u8_array {
                     Err(DecodeError::InvalidByteLength { len, expected })
                 } else {
                     let mut array: [u8; $len] = [0; $len];
-                    array.copy_from_slice(&bytes[..]);
+                    array.copy_from_slice(bytes);
 
                     Ok(array)
                 }

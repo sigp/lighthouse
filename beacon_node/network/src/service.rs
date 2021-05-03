@@ -169,14 +169,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )
         .await?;
 
-        // Repopulate the DHT with stored ENR's.
-        let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
-        debug!(
-            network_log,
-            "Loading peers into the routing table"; "peers" => enrs_to_load.len()
-        );
-        for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone());
+        // Repopulate the DHT with stored ENR's if discovery is not disabled.
+        if !config.disable_discovery {
+            let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
+            debug!(
+                network_log,
+                "Loading peers into the routing table"; "peers" => enrs_to_load.len()
+            );
+            for enr in enrs_to_load {
+                libp2p.swarm.add_enr(enr.clone());
+            }
         }
 
         // launch derived network services

@@ -3,6 +3,7 @@ use state_processing::common::{get_attesting_indices, get_base_reward};
 use std::collections::HashMap;
 use types::{Attestation, BeaconState, BitList, ChainSpec, EthSpec};
 
+#[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, T: EthSpec> {
     /// Underlying attestation.
     att: &'a Attestation<T>,
@@ -44,8 +45,8 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     type Object = Attestation<T>;
     type Set = HashMap<u64, u64>;
 
-    fn object(&self) -> Attestation<T> {
-        self.att.clone()
+    fn object(&self) -> &Attestation<T> {
+        self.att
     }
 
     fn covering_set(&self) -> &HashMap<u64, u64> {
@@ -100,8 +101,6 @@ pub fn earliest_attestation_validators<T: EthSpec>(
     state_attestations
         .iter()
         // In a single epoch, an attester should only be attesting for one slot and index.
-        // TODO: we avoid including slashable attestations in the state here,
-        // but maybe we should do something else with them (like construct slashings).
         .filter(|existing_attestation| {
             existing_attestation.data.slot == attestation.data.slot
                 && existing_attestation.data.index == attestation.data.index

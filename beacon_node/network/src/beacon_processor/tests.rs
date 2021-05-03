@@ -92,15 +92,16 @@ impl TestRig {
         let (next_block, _next_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
+        let head_state_root = head.beacon_state_root();
         let attestations = harness
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
+                head_state_root,
                 head.beacon_block_root,
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
-            // .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
             .flatten()
             .collect::<Vec<_>>();
 

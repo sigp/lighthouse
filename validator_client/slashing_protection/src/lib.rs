@@ -17,7 +17,7 @@ pub use crate::slashing_database::{
 use rusqlite::Error as SQLError;
 use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
-use types::{Hash256, PublicKey};
+use types::{Hash256, PublicKeyBytes};
 
 /// The filename within the `validators` directory that contains the slashing protection DB.
 pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
@@ -27,7 +27,7 @@ pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 /// This could be because it's slashable, or because an error occurred.
 #[derive(PartialEq, Debug)]
 pub enum NotSafe {
-    UnregisteredValidator(PublicKey),
+    UnregisteredValidator(PublicKeyBytes),
     InvalidBlock(InvalidBlock),
     InvalidAttestation(InvalidAttestation),
     IOError(ErrorKind),

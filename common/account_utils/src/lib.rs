@@ -188,6 +188,12 @@ impl ZeroizeString {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Remove any number of newline or carriage returns from the end of a vector of bytes.
+    pub fn without_newlines(&self) -> ZeroizeString {
+        let stripped_string = self.0.trim_end_matches(|c| c == '\r' || c == '\n').into();
+        Self(stripped_string)
+    }
 }
 
 impl AsRef<[u8]> for ZeroizeString {
@@ -199,6 +205,54 @@ impl AsRef<[u8]> for ZeroizeString {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_zeroize_strip_off() {
+        let expected = "hello world";
+
+        assert_eq!(
+            ZeroizeString::from("hello world\n".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+        assert_eq!(
+            ZeroizeString::from("hello world\n\n\n\n".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+        assert_eq!(
+            ZeroizeString::from("hello world\r".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+        assert_eq!(
+            ZeroizeString::from("hello world\r\r\r\r\r".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+        assert_eq!(
+            ZeroizeString::from("hello world\r\n".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+        assert_eq!(
+            ZeroizeString::from("hello world\r\n\r\n".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+        assert_eq!(
+            ZeroizeString::from("hello world".to_string())
+                .without_newlines()
+                .as_str(),
+            expected
+        );
+    }
 
     #[test]
     fn test_strip_off() {

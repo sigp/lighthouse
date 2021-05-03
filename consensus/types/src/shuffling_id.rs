@@ -35,16 +35,8 @@ impl AttestationShufflingId {
     ) -> Result<Self, BeaconStateError> {
         let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
 
-        let shuffling_decision_slot = shuffling_epoch
-            .saturating_sub(1_u64)
-            .start_slot(E::slots_per_epoch())
-            .saturating_sub(1_u64);
-
-        let shuffling_decision_block = if state.slot == shuffling_decision_slot {
-            block_root
-        } else {
-            *state.get_block_root(shuffling_decision_slot)?
-        };
+        let shuffling_decision_block =
+            state.attester_shuffling_decision_root(block_root, relative_epoch)?;
 
         Ok(Self {
             shuffling_epoch,

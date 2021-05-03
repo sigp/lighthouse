@@ -55,8 +55,8 @@ impl<'de> Visitor<'de> for HexVisitor {
     where
         E: de::Error,
     {
-        Ok(hex::decode(value.trim_start_matches("0x"))
-            .map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))?)
+        hex::decode(value.trim_start_matches("0x"))
+            .map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))
     }
 }
 

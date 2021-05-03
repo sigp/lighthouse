@@ -53,7 +53,7 @@ impl Inner {
     pub fn from_bytes(bytes: &[u8], config: Config, spec: ChainSpec) -> Result<Self, String> {
         let ssz_cache = SszEth1Cache::from_ssz_bytes(bytes)
             .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
-        Ok(ssz_cache.to_inner(config, spec)?)
+        ssz_cache.to_inner(config, spec)
     }
 
     /// Returns a reference to the specification.

@@ -252,11 +252,18 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
 
     /// The maximum number of epochs stored in `self`.
     fn max_capacity(&self) -> u64 {
-        // The current epoch and the previous epoch. This is sufficient whilst
-        // GOSSIP_CLOCK_DISPARITY is 1/2 a slot or less:
+        // The next, current and previous epochs. We require the next epoch due to the
+        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the
+        // specification delcares:
         //
-        // https://github.com/ethereum/eth2.0-specs/pull/1706#issuecomment-610151808
-        2
+        // ```
+        // aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
+        //      >= current_slot >= aggregate.data.slot
+        // ```
+        //
+        // This means that during the current epoch we will always accept an attestation
+        // from at least one slot in the previous epoch.
+        3
     }
 
     /// Updates `self` with the current epoch, removing all attestations that become expired

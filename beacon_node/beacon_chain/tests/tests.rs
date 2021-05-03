@@ -436,23 +436,16 @@ fn attestations_with_increasing_slots() {
             AttestationStrategy::SomeValidators(vec![]),
         );
 
-        attestations.extend(
-            harness.get_unaggregated_attestations(
-                &AttestationStrategy::AllValidators,
-                &harness.chain.head().expect("should get head").beacon_state,
-                harness
-                    .chain
-                    .head()
-                    .expect("should get head")
-                    .beacon_block_root,
-                harness
-                    .chain
-                    .head()
-                    .expect("should get head")
-                    .beacon_block
-                    .slot(),
-            ),
-        );
+        let head = harness.chain.head().unwrap();
+        let head_state_root = head.beacon_state_root();
+
+        attestations.extend(harness.get_unaggregated_attestations(
+            &AttestationStrategy::AllValidators,
+            &head.beacon_state,
+            head_state_root,
+            head.beacon_block_root,
+            head.beacon_block.slot(),
+        ));
 
         harness.advance_slot();
     }

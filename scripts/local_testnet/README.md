@@ -1,58 +1,67 @@
 # Simple Local Testnet
 
-These scripts allow for running a small local testnet with two beacon nodes and
-one validator client. This setup can be useful for testing and development.
+These scripts allow for running a small local testnet with multiple beacon nodes and validator clients.
+This setup can be useful for testing and development.
 
 ## Requirements
 
-The scripts require `lci` and `lighthouse` to be installed on `PATH`. From the
+The scripts require `lcli` and `lighthouse` to be installed on `PATH`. From the
 root of this repository, run:
 
 ```bash
-cargo install --path lighthouse --force --locked
-cargo install --path lcli --force --locked
+make
+make install-lcli
 ```
 
 ## Starting the testnet
 
-Assuming you are happy with the configuration in `var.env`, create the testnet
-directory, genesis state and validator keys with:
+Start a local eth1 ganache server
+```bash
+./ganache_test_node.sh
+```
+
+Assuming you are happy with the configuration in `var.env`, deploy the deposit contract, make deposits, 
+create the testnet directory, genesis state and validator keys with:
 
 ```bash
 ./setup.sh
 ```
 
-Start the first beacon node:
+Generate bootnode enr and start a discv5 bootnode so that multiple beacon nodes can find each other
+```bash
+./bootnode.sh
+```
+
+Start a beacon node:
 
 ```bash
-./beacon_node.sh
+./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <OPTIONAL-DEBUG-LEVEL>
+```
+e.g.
+```bash
+./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000
 ```
 
 In a new terminal, start the validator client which will attach to the first
 beacon node:
 
 ```bash
-./validator_client.sh
+./validator_client.sh <DATADIR> <BEACON-NODE-HTTP> <OPTIONAL-DEBUG-LEVEL>
 ```
-
-In a new terminal, start the second beacon node which will peer with the first:
-
+e.g. to attach to the above created beacon node
 ```bash
-./second_beacon_node.sh
+./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000
 ```
+
+You can create additional beacon node and validator client instances with appropriate parameters.
 
 ## Additional Info
 
-### Debug level
-
-The beacon nodes and validator client have their `--debug-level` set to `info`.
-Specify a different debug level like this:
-
-```bash
-./validator_client.sh debug
-./beacon_node.sh trace
-./second_beacon_node.sh warn
-```
+### Adjusting number and distribution of validators
+The `VALIDATOR_COUNT` parameter is used to specify the number of insecure validator keystores to generate and make deposits for.
+The `NODE_COUNT` parameter is used to adjust the division of these generated keys among separate validator client instances.
+For e.g. for `VALIDATOR_COUNT=80` and `NODE_COUNT=4`, the validator keys are distributed over 4 datadirs with 20 keystores per datadir. The datadirs are located in `$DATADIR/node_{i}` which can be passed to separate validator client
+instances using the `--datadir` parameter.
 
 ### Starting fresh
 
@@ -61,7 +70,6 @@ Delete the current testnet and all related files using:
 ```bash
 ./clean.sh
 ```
-
 
 ### Updating the genesis time of the beacon state
 

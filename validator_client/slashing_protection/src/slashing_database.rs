@@ -10,7 +10,7 @@ use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::time::Duration;
-use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKey, SignedRoot, Slot};
+use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 
@@ -147,14 +147,14 @@ impl SlashingDatabase {
     ///
     /// This allows the validator to record their signatures in the database, and check
     /// for slashings.
-    pub fn register_validator(&self, validator_pk: &PublicKey) -> Result<(), NotSafe> {
-        self.register_validators(std::iter::once(validator_pk))
+    pub fn register_validator(&self, validator_pk: PublicKeyBytes) -> Result<(), NotSafe> {
+        self.register_validators(std::iter::once(&validator_pk))
     }
 
     /// Register multiple validators with the slashing protection database.
     pub fn register_validators<'a>(
         &self,
-        public_keys: impl Iterator<Item = &'a PublicKey>,
+        public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
@@ -168,7 +168,7 @@ impl SlashingDatabase {
     /// The caller must commit the transaction for the changes to be persisted.
     pub fn register_validators_in_txn<'a>(
         &self,
-        public_keys: impl Iterator<Item = &'a PublicKey>,
+        public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
@@ -183,7 +183,7 @@ impl SlashingDatabase {
     /// Check that all of the given validators are registered.
     pub fn check_validator_registrations<'a>(
         &self,
-        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+        mut public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
@@ -195,7 +195,7 @@ impl SlashingDatabase {
     ///
     /// This is NOT the same as a validator index, and depends on the ordering that validators
     /// are registered with the slashing protection database (and may vary between machines).
-    pub fn get_validator_id(&self, public_key: &PublicKey) -> Result<i64, NotSafe> {
+    pub fn get_validator_id(&self, public_key: &PublicKeyBytes) -> Result<i64, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
         self.get_validator_id_in_txn(&txn, public_key)
@@ -204,17 +204,17 @@ impl SlashingDatabase {
     fn get_validator_id_in_txn(
         &self,
         txn: &Transaction,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
     ) -> Result<i64, NotSafe> {
         self.get_validator_id_opt(txn, public_key)?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
+            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))
     }
 
     /// Optional version of `get_validator_id`.
     fn get_validator_id_opt(
         &self,
         txn: &Transaction,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
     ) -> Result<Option<i64>, NotSafe> {
         Ok(txn
             .query_row(
@@ -229,7 +229,7 @@ impl SlashingDatabase {
     fn check_block_proposal(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
@@ -278,7 +278,7 @@ impl SlashingDatabase {
     fn check_attestation(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -408,7 +408,7 @@ impl SlashingDatabase {
     fn insert_block_proposal(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
     ) -> Result<(), NotSafe> {
@@ -429,7 +429,7 @@ impl SlashingDatabase {
     fn insert_attestation(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -457,7 +457,7 @@ impl SlashingDatabase {
     /// This is the safe, externally-callable interface for checking block proposals.
     pub fn check_and_insert_block_proposal(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         block_header: &BeaconBlockHeader,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
@@ -471,7 +471,7 @@ impl SlashingDatabase {
     /// As for `check_and_insert_block_proposal` but without requiring the whole `BeaconBlockHeader`.
     pub fn check_and_insert_block_signing_root(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
@@ -490,7 +490,7 @@ impl SlashingDatabase {
     /// Transactional variant of `check_and_insert_block_signing_root`.
     pub fn check_and_insert_block_signing_root_txn(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
         txn: &Transaction,
@@ -511,7 +511,7 @@ impl SlashingDatabase {
     /// This is the safe, externally-callable interface for checking attestations.
     pub fn check_and_insert_attestation(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         attestation: &AttestationData,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
@@ -527,7 +527,7 @@ impl SlashingDatabase {
     /// As for `check_and_insert_attestation` but without requiring the whole `AttestationData`.
     pub fn check_and_insert_attestation_signing_root(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -548,7 +548,7 @@ impl SlashingDatabase {
     /// Transactional variant of `check_and_insert_attestation_signing_root`.
     fn check_and_insert_attestation_signing_root_txn(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -600,7 +600,7 @@ impl SlashingDatabase {
         let mut import_outcomes = vec![];
 
         for record in interchange.data {
-            let pubkey = record.pubkey.clone();
+            let pubkey = record.pubkey;
             let txn = conn.transaction()?;
             match self.import_interchange_record(record, &txn) {
                 Ok(summary) => {
@@ -757,7 +757,7 @@ impl SlashingDatabase {
     /// Remove all blocks for `public_key` with slots less than `new_min_slot`.
     fn prune_signed_blocks(
         &self,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
         new_min_slot: Slot,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
@@ -780,7 +780,7 @@ impl SlashingDatabase {
     /// Prune the signed blocks table for the given public keys.
     pub fn prune_all_signed_blocks<'a>(
         &self,
-        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+        mut public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
         new_min_slot: Slot,
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
@@ -803,7 +803,7 @@ impl SlashingDatabase {
     /// attestations in the database.
     fn prune_signed_attestations(
         &self,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
         new_min_target: Epoch,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
@@ -830,7 +830,7 @@ impl SlashingDatabase {
     /// Prune the signed attestations table for the given validator keys.
     pub fn prune_all_signed_attestations<'a>(
         &self,
-        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+        mut public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
         new_min_target: Epoch,
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
@@ -853,7 +853,7 @@ impl SlashingDatabase {
     /// Get a summary of a validator's slashing protection data for consumption by the user.
     pub fn validator_summary(
         &self,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
         txn: &Transaction,
     ) -> Result<ValidatorSummary, NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
@@ -906,11 +906,11 @@ pub struct ValidatorSummary {
 #[derive(Debug)]
 pub enum InterchangeImportOutcome {
     Success {
-        pubkey: PublicKey,
+        pubkey: PublicKeyBytes,
         summary: ValidatorSummary,
     },
     Failure {
-        pubkey: PublicKey,
+        pubkey: PublicKeyBytes,
         error: NotSafe,
     },
 }
@@ -981,7 +981,7 @@ mod tests {
         let _db1 = SlashingDatabase::create(&file).unwrap();
 
         let db2 = SlashingDatabase::open(&file).unwrap();
-        db2.register_validator(&pubkey(0)).unwrap_err();
+        db2.register_validator(pubkey(0)).unwrap_err();
     }
 
     // Attempting to create the same database twice should error.

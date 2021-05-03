@@ -2,6 +2,7 @@ mod attestation;
 mod attestation_id;
 mod attester_slashing;
 mod max_cover;
+mod metrics;
 mod persistence;
 
 pub use persistence::PersistedOperationPool;
@@ -9,7 +10,7 @@ pub use persistence::PersistedOperationPool;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
-use max_cover::maximum_cover;
+use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
@@ -96,49 +97,29 @@ impl<T: EthSpec> OperationPool<T> {
         self.attestations.read().values().map(Vec::len).sum()
     }
 
-    /// Get a list of attestations for inclusion in a block.
-    ///
-    /// The `validity_filter` is a closure that provides extra filtering of the attestations
-    /// before an approximately optimal bundle is constructed. We use it to provide access
-    /// to the fork choice data from the `BeaconChain` struct that doesn't logically belong
-    /// in the operation pool.
-    pub fn get_attestations(
-        &self,
-        state: &BeaconState<T>,
-        validity_filter: impl FnMut(&&Attestation<T>) -> bool,
-        spec: &ChainSpec,
-    ) -> Result<Vec<Attestation<T>>, OpPoolError> {
-        // Attestations for the current fork, which may be from the current or previous epoch.
-        let prev_epoch = state.previous_epoch();
-        let current_epoch = state.current_epoch();
-        let prev_domain_bytes = AttestationId::compute_domain_bytes(
-            prev_epoch,
+    /// Return all valid attestations for the given epoch, for use in max cover.
+    fn get_valid_attestations_for_epoch<'a>(
+        &'a self,
+        epoch: Epoch,
+        all_attestations: &'a HashMap<AttestationId, Vec<Attestation<T>>>,
+        state: &'a BeaconState<T>,
+        total_active_balance: u64,
+        validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        spec: &'a ChainSpec,
+    ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
+        let domain_bytes = AttestationId::compute_domain_bytes(
+            epoch,
             &state.fork,
             state.genesis_validators_root,
             spec,
         );
-        let curr_domain_bytes = AttestationId::compute_domain_bytes(
-            current_epoch,
-            &state.fork,
-            state.genesis_validators_root,
-            spec,
-        );
-        let reader = self.attestations.read();
-        let active_indices = state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
-        let total_active_balance = state
-            .get_total_balance(&active_indices, spec)
-            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
-        let valid_attestations = reader
+        all_attestations
             .iter()
-            .filter(|(key, _)| {
-                key.domain_bytes_match(&prev_domain_bytes)
-                    || key.domain_bytes_match(&curr_domain_bytes)
-            })
+            .filter(move |(key, _)| key.domain_bytes_match(&domain_bytes))
             .flat_map(|(_, attestations)| attestations)
-            // That are valid...
-            .filter(|attestation| {
+            .filter(move |attestation| attestation.data.target.epoch == epoch)
+            .filter(move |attestation| {
+                // Ensure attestations are valid for block inclusion
                 verify_attestation_for_block_inclusion(
                     state,
                     attestation,
@@ -148,10 +129,77 @@ impl<T: EthSpec> OperationPool<T> {
                 .is_ok()
             })
             .filter(validity_filter)
-            .flat_map(|att| AttMaxCover::new(att, state, total_active_balance, spec));
+            .filter_map(move |att| AttMaxCover::new(att, state, total_active_balance, spec))
+    }
 
-        Ok(maximum_cover(
-            valid_attestations,
+    /// Get a list of attestations for inclusion in a block.
+    ///
+    /// The `validity_filter` is a closure that provides extra filtering of the attestations
+    /// before an approximately optimal bundle is constructed. We use it to provide access
+    /// to the fork choice data from the `BeaconChain` struct that doesn't logically belong
+    /// in the operation pool.
+    pub fn get_attestations(
+        &self,
+        state: &BeaconState<T>,
+        prev_epoch_validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        curr_epoch_validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Attestation<T>>, OpPoolError> {
+        // Attestations for the current fork, which may be from the current or previous epoch.
+        let prev_epoch = state.previous_epoch();
+        let current_epoch = state.current_epoch();
+        let all_attestations = self.attestations.read();
+        let active_indices = state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
+        let total_active_balance = state
+            .get_total_balance(&active_indices, spec)
+            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
+
+        // Split attestations for the previous & current epochs, so that we
+        // can optimise them individually in parallel.
+        let prev_epoch_att = self.get_valid_attestations_for_epoch(
+            prev_epoch,
+            &*all_attestations,
+            state,
+            total_active_balance,
+            prev_epoch_validity_filter,
+            spec,
+        );
+        let curr_epoch_att = self.get_valid_attestations_for_epoch(
+            current_epoch,
+            &*all_attestations,
+            state,
+            total_active_balance,
+            curr_epoch_validity_filter,
+            spec,
+        );
+
+        let prev_epoch_limit = std::cmp::min(
+            T::MaxPendingAttestations::to_usize()
+                .saturating_sub(state.previous_epoch_attestations.len()),
+            T::MaxAttestations::to_usize(),
+        );
+
+        let (prev_cover, curr_cover) = rayon::join(
+            move || {
+                let _timer = metrics::start_timer(&metrics::ATTESTATION_PREV_EPOCH_PACKING_TIME);
+                // If we're in the genesis epoch, just use the current epoch attestations.
+                if prev_epoch == current_epoch {
+                    vec![]
+                } else {
+                    maximum_cover(prev_epoch_att, prev_epoch_limit)
+                }
+            },
+            move || {
+                let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
+                maximum_cover(curr_epoch_att, T::MaxAttestations::to_usize())
+            },
+        );
+
+        Ok(max_cover::merge_solutions(
+            curr_cover,
+            prev_cover,
             T::MaxAttestations::to_usize(),
         ))
     }
@@ -231,7 +279,10 @@ impl<T: EthSpec> OperationPool<T> {
         let attester_slashings = maximum_cover(
             relevant_attester_slashings,
             T::MaxAttesterSlashings::to_usize(),
-        );
+        )
+        .into_iter()
+        .map(|cover| cover.object().clone())
+        .collect();
 
         (proposer_slashings, attester_slashings)
     }
@@ -619,7 +670,7 @@ mod release_tests {
         state.slot -= 1;
         assert_eq!(
             op_pool
-                .get_attestations(state, |_| true, spec)
+                .get_attestations(state, |_| true, |_| true, spec)
                 .expect("should have attestations")
                 .len(),
             0
@@ -629,7 +680,7 @@ mod release_tests {
         state.slot += spec.min_attestation_inclusion_delay;
 
         let block_attestations = op_pool
-            .get_attestations(state, |_| true, spec)
+            .get_attestations(state, |_| true, |_| true, spec)
             .expect("Should have block attestations");
         assert_eq!(block_attestations.len(), committees.len());
 
@@ -799,7 +850,7 @@ mod release_tests {
 
         state.slot += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, |_| true, spec)
+            .get_attestations(state, |_| true, |_| true, spec)
             .expect("should have best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
@@ -874,7 +925,7 @@ mod release_tests {
 
         state.slot += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
-            .get_attestations(state, |_| true, spec)
+            .get_attestations(state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 

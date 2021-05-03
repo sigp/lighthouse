@@ -7,7 +7,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -235,6 +235,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 );
                 CandidateError::Incompatible
             })?;
+
+        if !yaml_config.extra_fields.is_empty() {
+            debug!(
+                log,
+                "Beacon spec includes unknown fields";
+                "fields" => ?yaml_config.extra_fields
+            );
+        }
 
         if *spec == beacon_node_spec {
             Ok(())

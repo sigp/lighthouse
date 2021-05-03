@@ -528,8 +528,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .start_of(data.slot)
             .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
             .and_then(|gross_delay| {
-                let production_delay = slot_clock.slot_duration() / 3;
-                gross_delay.checked_sub(production_delay)
+                gross_delay.checked_sub(slot_clock.unagg_attestation_production_delay())
             })
             .unwrap_or_else(|| Duration::from_secs(0))
     }
@@ -619,8 +618,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .start_of(data.slot)
             .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
             .and_then(|gross_delay| {
-                let production_delay = slot_clock.slot_duration() / 2;
-                gross_delay.checked_sub(production_delay)
+                gross_delay.checked_sub(slot_clock.agg_attestation_production_delay())
             })
             .unwrap_or_else(|| Duration::from_secs(0))
     }

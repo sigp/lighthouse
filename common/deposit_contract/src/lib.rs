@@ -68,7 +68,7 @@ pub fn decode_eth1_tx_data(
             )
             .map_err(DecodeError::SszDecodeError)?
         };
-    };
+    }
 
     let root = decode_token!(Hash256, to_fixed_bytes);
 
