@@ -149,7 +149,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Error connecting to eth1 node endpoint";
-            "endpoint" => endpoint.to_string(),
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks"
         );
         EndpointError::NotReachable
@@ -161,7 +161,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Invalid eth1 network id on endpoint. Please switch to correct network id";
-            "endpoint" => endpoint.to_string(),
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_network_id),
             "received" => format!("{:?}",network_id),
@@ -177,7 +177,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Remote eth1 node is not synced";
-            "endpoint" => endpoint.to_string(),
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks"
         );
         return Err(EndpointError::FarBehind);
@@ -186,7 +186,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Invalid eth1 chain id. Please switch to correct chain id on endpoint";
-            "endpoint" => endpoint.to_string(),
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_chain_id),
             "received" => format!("{:?}", chain_id),
@@ -227,7 +227,7 @@ async fn get_remote_head_and_new_block_ranges(
         warn!(
             service.log,
             "Eth1 endpoint is not synced";
-            "endpoint" => endpoint.to_string(),
+            "endpoint" => %endpoint,
             "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
             "action" => "trying fallback"
         );
@@ -239,7 +239,7 @@ async fn get_remote_head_and_new_block_ranges(
             warn!(
                 service.log,
                 "Eth1 endpoint is not synced";
-                "endpoint" => endpoint.to_string(),
+                "endpoint" => %endpoint,
                 "action" => "trying fallbacks"
             );
         }
