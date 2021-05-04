@@ -1,5 +1,3 @@
-#![cfg(not(debug_assertions))]
-
 use account_manager::{
     validator::{
         create::*,
