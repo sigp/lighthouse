@@ -39,3 +39,4 @@ account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 web3 = "0.14.0"
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
+sensitive_url = { path = "../common/sensitive_url" }

@@ -342,7 +342,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -354,7 +354,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET lighthouse/syncing`
     pub async fn get_lighthouse_syncing(&self) -> Result<GenericResponse<SyncState>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -374,7 +374,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET lighthouse/proto_array`
     pub async fn get_lighthouse_proto_array(&self) -> Result<GenericResponse<ProtoArray>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -389,7 +389,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
     ) -> Result<GenericResponse<GlobalValidatorInclusionData>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -407,7 +407,7 @@ impl BeaconNodeHttpClient {
         epoch: Epoch,
         validator_id: ValidatorId,
     ) -> Result<GenericResponse<Option<ValidatorInclusionData>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -423,7 +423,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_lighthouse_eth1_syncing(
         &self,
     ) -> Result<GenericResponse<Eth1SyncStatusData>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -438,7 +438,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_lighthouse_eth1_block_cache(
         &self,
     ) -> Result<GenericResponse<Vec<Eth1Block>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -453,7 +453,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_lighthouse_eth1_deposit_cache(
         &self,
     ) -> Result<GenericResponse<Vec<DepositLog>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -469,7 +469,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: &StateId,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -487,7 +487,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET lighthouse/staking`
     pub async fn get_lighthouse_staking(&self) -> Result<bool, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

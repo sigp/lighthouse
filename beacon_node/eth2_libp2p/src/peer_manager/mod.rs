@@ -327,6 +327,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn notify_dial_failure(&mut self, peer_id: &PeerId) {
         if !self.network_globals.peers.read().is_connected(peer_id) {
             self.notify_disconnect(peer_id);
+            // set peer as disconnected in discovery DHT
+            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+            self.discovery.disconnect_peer(peer_id);
         }
     }
 
