@@ -37,7 +37,7 @@ const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 /// online.
 ///
 /// When set to `None`, the parameter is not set using this program (i.e., it is left as default).
-const OPTIMAL_ARENA_MAX: Option<c_int> = None;
+const OPTIMAL_ARENA_MAX: Option<c_int> = Some(1);
 
 /// Constants used to configure malloc internals.
 ///
