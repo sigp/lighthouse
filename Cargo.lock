@@ -4020,19 +4020,20 @@ name = "monitoring_api"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "futures 0.3.13",
+ "futures 0.3.14",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "regex",
  "reqwest",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "serde_json",
  "slog",
  "store",
  "task_executor",
- "tokio 1.2.0",
+ "tokio 1.5.0",
 ]
 
 [[package]]

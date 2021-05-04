@@ -6,6 +6,7 @@ use eth2::lighthouse::SystemHealth;
 use gather::{gather_beacon_metrics, gather_validator_metrics};
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
+use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info};
 use task_executor::TaskExecutor;
@@ -24,12 +25,10 @@ pub enum Error {
     /// The `reqwest` client raised an error.
     Reqwest(reqwest::Error),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
-    InvalidUrl(Url),
+    InvalidUrl(SensitiveUrl),
     SystemMetricsFailed(String),
     BeaconMetricsFailed(String),
     ValidatorMetricsFailed(String),
-    /// The server returned an invalid JSON response.
-    InvalidJson(serde_json::Error),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message where the body was unable to be parsed.
@@ -38,7 +37,11 @@ pub enum Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match &self {
+            Error::Reqwest(e) => write!(f, "Reqwest error: {}", e),
+            // Print the debug value
+            e => write!(f, "{:?}", e),
+        }
     }
 }
 
@@ -61,7 +64,7 @@ pub struct MonitoringHttpClient {
     db_path: Option<PathBuf>,
     /// Path to the freezer database.
     freezer_db_path: Option<PathBuf>,
-    monitoring_endpoint: Url,
+    monitoring_endpoint: SensitiveUrl,
     log: slog::Logger,
 }
 
@@ -71,8 +74,8 @@ impl MonitoringHttpClient {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
-            monitoring_endpoint: Url::parse(&config.monitoring_endpoint)
-                .map_err(|e| format!("Invalid explorer endpoint: {}", e))?,
+            monitoring_endpoint: SensitiveUrl::parse(&config.monitoring_endpoint)
+                .map_err(|e| format!("Invalid monitoring endpoint: {:?}", e))?,
             log,
         })
     }
@@ -100,14 +103,14 @@ impl MonitoringHttpClient {
             Duration::from_secs(UPDATE_DURATION),
         );
 
-        info!(self.log, "Starting monitoring api");
+        info!(self.log, "Starting monitoring api"; "endpoint" => %self.monitoring_endpoint);
 
         let update_future = async move {
             loop {
                 interval.tick().await;
                 match self.send_metrics(&processes).await {
                     Ok(()) => {
-                        debug!(self.log, "Sent metrics to remote server"; "endpoint" => %self.monitoring_endpoint);
+                        debug!(self.log, "Metrics sent to remote server"; "endpoint" => %self.monitoring_endpoint);
                     }
                     Err(e) => {
                         error!(self.log, "Failed to send metrics to remote endpoint"; "error" => %e)
@@ -154,7 +157,7 @@ impl MonitoringHttpClient {
         })
     }
 
-    /// Return explorer metric based on process type.
+    /// Return metric based on process type.
     pub async fn get_metrics(
         &self,
         process_type: &ProcessType,
@@ -185,7 +188,8 @@ impl MonitoringHttpClient {
             "Sending metrics to remote endpoint";
             "endpoint" => %self.monitoring_endpoint
         );
-        self.post(self.monitoring_endpoint.clone(), &metrics).await
+        self.post(self.monitoring_endpoint.full.clone(), &metrics)
+            .await
     }
 }
 
