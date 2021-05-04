@@ -17,7 +17,7 @@ const BEACON_CMD: &str = "beacon_node";
 const CONFIG_NAME: &str = "bn_dump.json";
 const DUMP_CONFIG_CMD: &str = "dump-config";
 const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
-const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545";
+const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
 /// Returns the `lighthouse beacon_node --immediate-shutdown` command.
 fn base_cmd() -> Command {
@@ -150,7 +150,7 @@ fn staking_flag() {
         .with_config(|config| {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
-            assert_eq!(config.eth1.endpoints[0], DEFAULT_ETH1_ENDPOINT);
+            assert_eq!(config.eth1.endpoints[0].to_string(), DEFAULT_ETH1_ENDPOINT);
         });
 }
 
@@ -240,17 +240,23 @@ fn eth1_endpoints_flag() {
     CommandLineTest::new()
         .flag(
             "eth1-endpoints",
-            Some("https://infura.io/v3/abc,http://localhost:8545"),
+            Some("http://localhost:9545,https://infura.io/secret"),
         )
         .run()
         .with_config(|config| {
             assert_eq!(
-                config.eth1.endpoints,
-                vec![
-                    "https://infura.io/v3/abc".to_string(),
-                    "http://localhost:8545".to_string()
-                ]
-            )
+                config.eth1.endpoints[0].full.to_string(),
+                "http://localhost:9545/"
+            );
+            assert_eq!(
+                config.eth1.endpoints[0].to_string(),
+                "http://localhost:9545/"
+            );
+            assert_eq!(
+                config.eth1.endpoints[1].full.to_string(),
+                "https://infura.io/secret"
+            );
+            assert_eq!(config.eth1.endpoints[1].to_string(), "https://infura.io/");
         });
 }
 #[test]

@@ -153,14 +153,20 @@ fn beacon_nodes_flag() {
     CommandLineTest::new()
         .flag(
             "beacon-nodes",
-            Some("http://localhost:1001,http://localhost:1010"),
+            Some("http://localhost:1001,https://project:secret@infura.io/"),
         )
         .run()
         .with_config(|config| {
             assert_eq!(
-                config.beacon_nodes,
-                vec!["http://localhost:1001", "http://localhost:1010"]
-            )
+                config.beacon_nodes[0].full.to_string(),
+                "http://localhost:1001/"
+            );
+            assert_eq!(config.beacon_nodes[0].to_string(), "http://localhost:1001/");
+            assert_eq!(
+                config.beacon_nodes[1].full.to_string(),
+                "https://project:secret@infura.io/"
+            );
+            assert_eq!(config.beacon_nodes[1].to_string(), "https://infura.io/");
         });
 }
 
