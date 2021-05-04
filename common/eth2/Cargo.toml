@@ -21,6 +21,7 @@ libsecp256k1 = "0.3.5"
 ring = "0.16.19"
 bytes = "1.0.1"
 account_utils = { path = "../../common/account_utils" }
+sensitive_url = { path = "../../common/sensitive_url" }
 eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 futures-util = "0.3.8"
