@@ -510,3 +510,241 @@ fn context_bytes_to_fork_name(
             )
         })
 }
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::rpc::{protocol::*, MetaData};
+    use crate::{
+        rpc::{methods::StatusMessage, Ping, RPCResponseErrorCode},
+        types::EnrBitfield,
+    };
+    use std::sync::Arc;
+    use types::{
+        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, Epoch, ForkContext, Hash256, Signature,
+        SignedBeaconBlock, Slot,
+    };
+
+    type Spec = types::MainnetEthSpec;
+
+    fn fork_context() -> ForkContext {
+        ForkContext::new(Hash256::zero(), &Spec::default_spec())
+    }
+
+    fn base_block() -> SignedBeaconBlock<Spec> {
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::full(&Spec::default_spec()));
+        SignedBeaconBlock::from_block(full_block, Signature::empty())
+    }
+
+    fn altair_block() -> SignedBeaconBlock<Spec> {
+        let full_block =
+            BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(&Spec::default_spec()));
+        SignedBeaconBlock::from_block(full_block, Signature::empty())
+    }
+
+    fn status_message() -> StatusMessage {
+        StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        }
+    }
+
+    fn ping_message() -> Ping {
+        Ping { data: 1 }
+    }
+
+    fn metadata() -> MetaData<Spec> {
+        MetaData {
+            seq_number: 1,
+            attnets: EnrBitfield::<Spec>::default(),
+        }
+    }
+
+    fn encode_then_decode(
+        protocol: Protocol,
+        version: Version,
+        message: RPCCodedResponse<Spec>,
+    ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
+        let max_packet_size = 1_048_576;
+        let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
+        let fork_context = Arc::new(fork_context());
+
+        let mut buf = BytesMut::new();
+        let mut snappy_inbound_codec = SSZSnappyInboundCodec::<Spec>::new(
+            snappy_protocol_id.clone(),
+            max_packet_size,
+            fork_context.clone(),
+        );
+
+        snappy_inbound_codec
+            .encode(message, &mut buf)
+            .expect("should encode rpc message");
+        let mut snappy_outbound_codec =
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576, fork_context);
+        // decode message just as snappy message
+        snappy_outbound_codec.decode(&mut buf)
+    }
+
+    // Test RPCResponse encoding/decoding for V1 messages
+    #[test]
+    fn test_encode_then_decode_v1() {
+        assert_eq!(
+            encode_then_decode(
+                Protocol::Status,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::Status(status_message()))
+            ),
+            Ok(Some(RPCResponse::Status(status_message())))
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::Ping,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::Pong(ping_message()))
+            ),
+            Ok(Some(RPCResponse::Pong(ping_message())))
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRange,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block())))
+            ),
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(base_block()))))
+        );
+
+        assert!(
+            matches!(
+                encode_then_decode(
+                    Protocol::BlocksByRange,
+                    Version::V1,
+                    RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(altair_block()))),
+                )
+                .unwrap_err(),
+                RPCError::SSZDecodeError(_)
+            ),
+            "altair block cannot be decoded with blocks by range V1 version"
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRoot,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block())))
+            ),
+            Ok(Some(RPCResponse::BlocksByRoot(Box::new(base_block()))))
+        );
+
+        assert!(
+            matches!(
+                encode_then_decode(
+                    Protocol::BlocksByRoot,
+                    Version::V1,
+                    RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block()))),
+                )
+                .unwrap_err(),
+                RPCError::SSZDecodeError(_)
+            ),
+            "altair block cannot be decoded with blocks by range V1 version"
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::MetaData,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
+
+        // TODO: add metadataV2 response failure case
+    }
+
+    #[test]
+    fn test_encode_then_decode_v2() {
+        println!(
+            "{:?}",
+            encode_then_decode(
+                Protocol::Status,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::Status(status_message())),
+            )
+        );
+        assert!(
+            matches!(
+                encode_then_decode(
+                    Protocol::Status,
+                    Version::V2,
+                    RPCCodedResponse::Success(RPCResponse::Status(status_message())),
+                )
+                .unwrap_err(),
+                RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
+            ),
+            "status does not have V2 message"
+        );
+
+        assert!(
+            matches!(
+                encode_then_decode(
+                    Protocol::Ping,
+                    Version::V2,
+                    RPCCodedResponse::Success(RPCResponse::Pong(ping_message())),
+                )
+                .unwrap_err(),
+                RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
+            ),
+            "ping does not have V2 message"
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRange,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block())))
+            ),
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(base_block()))))
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRange,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(altair_block())))
+            ),
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(altair_block()))))
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRoot,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block())))
+            ),
+            Ok(Some(RPCResponse::BlocksByRoot(Box::new(base_block()))))
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRoot,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block())))
+            ),
+            Ok(Some(RPCResponse::BlocksByRoot(Box::new(altair_block()))))
+        );
+
+        // TODO: add metadata both variants
+        // assert_eq!(
+        //     encode_then_decode(
+        //         Protocol::MetaData,
+        //         Version::V2,
+        //         RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
+        //     ),
+        //     Ok(Some(RPCResponse::MetaData(metadata()))),
+        // );
+    }
+}
