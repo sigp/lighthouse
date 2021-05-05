@@ -64,5 +64,9 @@ Enter the exit phrase from the above URL to confirm the voluntary exit:
 Exit my validator
 
 Successfully published voluntary exit for validator 0xabcd
+Voluntary exit has been accepted into the beacon chain, but not yet finalized. Finalization may take several minutes or longer. Before finalization there is a low probability that the exit may be reverted.
+Current epoch: 29946, Exit epoch: 29951, Withdrawable epoch: 30207
+Please keep your validator running till exit epoch
+Exit epoch in approximately 1920 secs
 ```
 
