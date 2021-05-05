@@ -21,8 +21,8 @@ const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
 /// Returns the `lighthouse beacon_node --immediate-shutdown` command.
 fn base_cmd() -> Command {
-    let target_dir = env!("CARGO_BIN_EXE_lighthouse");
-    let path = target_dir
+    let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
+    let path = lighthouse_bin
         .parse::<PathBuf>()
         .expect("should parse CARGO_TARGET_DIR");
 
@@ -810,17 +810,8 @@ fn ensure_panic_on_failed_launch() {
 
 /// A bit of hack to find an unused port.
 ///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// Does not guarantee that the given port is unused after the function exits, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
-///
-/// Used for passing unused ports to libp2 so that lighthouse won't have to update
-/// its own ENR.
-///
-/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
-/// ports returned by this function as the OS has a buffer period where
-/// it doesn't allow binding to the same port even after the socket is closed.
-/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
-/// that case.
 pub fn unused_port(transport: &str) -> Result<u16, String> {
     let local_addr = match transport {
         "tcp" => {

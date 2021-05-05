@@ -18,8 +18,8 @@ const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
 
 /// Returns the `lighthouse validator_client --immediate-shutdown` command.
 fn base_cmd() -> Command {
-    let target_dir = env!("CARGO_BIN_EXE_lighthouse");
-    let path = target_dir
+    let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
+    let path = lighthouse_bin
         .parse::<PathBuf>()
         .expect("should parse CARGO_TARGET_DIR");
 
