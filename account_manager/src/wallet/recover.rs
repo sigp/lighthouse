@@ -8,6 +8,11 @@ pub const CMD: &str = "recover";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+    #[cfg(unix)]
+    let windows = false;
+    #[cfg(windows)]
+    let windows = true;
+
     App::new(CMD)
         .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(
@@ -54,6 +59,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(windows)
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
@@ -61,7 +68,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+    #[cfg(unix)]
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    #[cfg(windows)]
+    let stdin_inputs = true;
 
     eprintln!();
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");

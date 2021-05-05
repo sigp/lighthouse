@@ -27,6 +27,11 @@ pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-e
 pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+    #[cfg(unix)]
+    let windows = false;
+    #[cfg(windows)]
+    let windows = true;
+
     App::new("exit")
         .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
         .arg(
@@ -54,6 +59,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(windows)
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
@@ -63,7 +70,10 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
+    #[cfg(unix)]
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    #[cfg(windows)]
+    let stdin_inputs = true;
 
     let spec = env.eth2_config().spec.clone();
     let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;

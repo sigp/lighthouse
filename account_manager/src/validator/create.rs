@@ -1,5 +1,4 @@
 use crate::common::read_wallet_name_from_cli;
-#[cfg(unix)]
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
@@ -28,7 +27,12 @@ pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    let mut cli = App::new(CMD)
+    #[cfg(unix)]
+    let windows = false;
+    #[cfg(windows)]
+    let windows = true;
+
+    App::new(CMD)
         .about(
             "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
             derivation scheme.",
@@ -103,17 +107,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .conflicts_with("count")
                 .takes_value(true),
-        );
-
-    #[cfg(unix)]
-    {
-        cli = cli.arg(
+        )
+        .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(windows)
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
-            );
-    }
-    cli
+        )
 }
 
 pub fn cli_run<T: EthSpec>(

@@ -34,7 +34,12 @@ pub const NEW_WALLET_PASSWORD_PROMPT: &str =
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    let mut cli = App::new(CMD)
+    #[cfg(unix)]
+    let windows = false;
+    #[cfg(windows)]
+    let windows = true;
+
+    App::new(CMD)
         .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
         .arg(
             Arg::with_name(NAME_FLAG)
@@ -80,6 +85,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(windows)
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
+        )
+        .arg(
             Arg::with_name(MNEMONIC_LENGTH_FLAG)
                 .long(MNEMONIC_LENGTH_FLAG)
                 .value_name("MNEMONIC_LENGTH")
@@ -92,16 +104,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     }
                 })
                 .default_value("24"),
-        );
-    #[cfg(unix)]
-    {
-        cli = cli.arg(
-                Arg::with_name(STDIN_INPUTS_FLAG)
-                    .long(STDIN_INPUTS_FLAG)
-                    .help("If present, read all user inputs from stdin instead of tty."),
-            );
-    }
-    cli
+        )
 }
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {

@@ -25,6 +25,11 @@ pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO V
                                           ANOTHER CLIENT, OR YOU WILL GET SLASHED.";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+    #[cfg(unix)]
+    let windows = false;
+    #[cfg(windows)]
+    let windows = true;
+
     App::new(CMD)
         .about(
             "Imports one or more EIP-2335 passwords into a Lighthouse VC directory, \
@@ -57,6 +62,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(windows)
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
@@ -83,7 +90,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
+    #[cfg(unix)]
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    #[cfg(windows)]
+    let stdin_inputs = true;
     let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
     let keystore_password_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
