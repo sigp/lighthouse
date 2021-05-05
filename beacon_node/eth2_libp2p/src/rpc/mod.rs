@@ -22,7 +22,7 @@ use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
-pub(crate) use protocol::{RPCProtocol, RPCRequest, RpcRequestContainer};
+pub(crate) use protocol::{RPCProtocol, RPCRequest};
 
 pub use handler::SubstreamId;
 pub use methods::{
@@ -60,7 +60,7 @@ pub enum RPCReceived<T: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(SubstreamId, RpcRequestContainer<T>),
+    Request(SubstreamId, RPCRequest<T>),
     /// A response received from the outside.
     ///
     /// The `RequestId` corresponds to the application given ID of the original request sent to the

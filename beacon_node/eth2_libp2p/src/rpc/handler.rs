@@ -94,7 +94,7 @@ where
     events_out: SmallVec<[HandlerEvent<TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(RequestId, RpcRequestContainer<TSpec>); 4]>,
+    dial_queue: SmallVec<[(RequestId, RPCRequest<TSpec>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
@@ -193,7 +193,7 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
         /// The framed negotiated substream.
         substream: Box<OutboundFramed<NegotiatedSubstream, TSpec>>,
         /// Keeps track of the actual request sent.
-        request: RpcRequestContainer<TSpec>,
+        request: RPCRequest<TSpec>,
     },
     /// Closing an outbound substream>
     Closing(Box<OutboundFramed<NegotiatedSubstream, TSpec>>),
@@ -246,13 +246,7 @@ where
 
             // Queue our final message, if any
             if let Some((id, req)) = final_msg {
-                self.dial_queue.push((
-                    id,
-                    RpcRequestContainer {
-                        req,
-                        fork_context: self.fork_context.clone(),
-                    },
-                ));
+                self.dial_queue.push((id, req));
             }
 
             self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
@@ -262,7 +256,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: RequestId, req: RpcRequestContainer<TSpec>) {
+    fn send_request(&mut self, id: RequestId, req: RPCRequest<TSpec>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -319,7 +313,7 @@ where
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = RpcRequestContainer<TSpec>;
-    type OutboundOpenInfo = (RequestId, RpcRequestContainer<TSpec>); // Keep track of the id and the request
+    type OutboundOpenInfo = (RequestId, RPCRequest<TSpec>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -424,13 +418,7 @@ where
 
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
-            RPCSend::Request(id, req) => self.send_request(
-                id,
-                RpcRequestContainer {
-                    req: req,
-                    fork_context: self.fork_context.clone(),
-                },
-            ),
+            RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
         }
     }
@@ -882,7 +870,14 @@ where
             let (id, req) = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
             return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(req.clone(), ()).map_info(|()| (id, req)),
+                protocol: SubstreamProtocol::new(
+                    RpcRequestContainer {
+                        req: req.clone(),
+                        fork_context: self.fork_context.clone(),
+                    },
+                    (),
+                )
+                .map_info(|()| (id, req)),
             });
         }
         Poll::Pending

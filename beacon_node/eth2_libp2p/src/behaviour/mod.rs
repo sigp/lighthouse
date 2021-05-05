@@ -220,7 +220,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
+            eth2_rpc: RPC::new(fork_context, log.clone()),
             gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
@@ -748,7 +748,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             }
             Ok(RPCReceived::Request(id, request)) => {
                 let peer_request_id = (handler_id, id);
-                match request.req {
+                match request {
                     /* Behaviour managed protocols: Ping and Metadata */
                     RPCRequest::Ping(ping) => {
                         // inform the peer manager and send the response

@@ -324,8 +324,7 @@ impl ProtocolName for ProtocolId {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, TSpec> =
-    (RpcRequestContainer<TSpec>, InboundFramed<TSocket, TSpec>);
+pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
 
@@ -360,13 +359,7 @@ where
 
             // MetaData requests should be empty, return the stream
             match protocol_name {
-                Protocol::MetaData => Ok((
-                    RpcRequestContainer {
-                        req: RPCRequest::MetaData(PhantomData),
-                        fork_context: self.fork_context.clone(),
-                    },
-                    socket,
-                )),
+                Protocol::MetaData => Ok((RPCRequest::MetaData(PhantomData), socket)),
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -375,13 +368,7 @@ where
                     .await
                     {
                         Err(e) => Err(RPCError::from(e)),
-                        Ok((Some(Ok(request)), stream)) => Ok((
-                            RpcRequestContainer {
-                                req: request,
-                                fork_context: self.fork_context.clone(),
-                            },
-                            stream,
-                        )),
+                        Ok((Some(Ok(request)), stream)) => Ok((request, stream)),
                         Ok((Some(Err(e)), _)) => Err(e),
                         Ok((None, _)) => Err(RPCError::IncompleteStream),
                     }
@@ -403,20 +390,6 @@ pub struct RpcRequestContainer<TSpec: EthSpec> {
     pub fork_context: Arc<ForkContext>,
 }
 
-impl<T: EthSpec> std::ops::Deref for RpcRequestContainer<T> {
-    type Target = RPCRequest<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.req
-    }
-}
-
-impl<T: EthSpec> PartialEq for RpcRequestContainer<T> {
-    fn eq(&self, other: &RpcRequestContainer<T>) -> bool {
-        self.req.eq(&other.req)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum RPCRequest<TSpec: EthSpec> {
     Status(StatusMessage),
@@ -433,14 +406,14 @@ impl<TSpec: EthSpec> UpgradeInfo for RpcRequestContainer<TSpec> {
 
     // add further protocols as we support more encodings/versions
     fn protocol_info(&self) -> Self::InfoIter {
-        self.supported_protocols()
+        self.req.supported_protocols()
     }
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
+impl<TSpec: EthSpec> RPCRequest<TSpec> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match self.req {
+        match &self {
             // add more protocols when versions/encodings are supported
             RPCRequest::Status(_) => vec![ProtocolId::new(
                 Protocol::Status,
@@ -479,7 +452,7 @@ impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
 
     /// Number of responses expected for this request.
     pub fn expected_responses(&self) -> u64 {
-        match &self.req {
+        match &self {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
             RPCRequest::BlocksByRange(req) => req.count,
@@ -491,7 +464,7 @@ impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
 
     /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
-        match &self.req {
+        match &self {
             RPCRequest::Status(_) => Protocol::Status,
             RPCRequest::Goodbye(_) => Protocol::Goodbye,
             RPCRequest::BlocksByRange(_) => Protocol::BlocksByRange,
@@ -504,7 +477,7 @@ impl<TSpec: EthSpec> RpcRequestContainer<TSpec> {
     /// Returns the `ResponseTermination` type associated with the request if a stream gets
     /// terminated.
     pub fn stream_termination(&self) -> ResponseTermination {
-        match self.req {
+        match &self {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
             RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
@@ -653,12 +626,6 @@ impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
             RPCRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             RPCRequest::MetaData(_) => write!(f, "MetaData request"),
         }
-    }
-}
-
-impl<TSpec: EthSpec> std::fmt::Display for RpcRequestContainer<TSpec> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.req)
     }
 }
 
