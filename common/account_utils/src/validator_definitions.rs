@@ -263,7 +263,7 @@ impl ValidatorDefinitions {
         if config_path.exists() {
             fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
         } else {
-            create_with_600_perms(&config_path, &bytes).map_err(|e| Error::UnableToCreateFile(e))
+            create_with_600_perms(&config_path, &bytes).map_err(Error::UnableToCreateFile)
         }
     }
 
