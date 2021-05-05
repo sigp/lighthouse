@@ -10,6 +10,8 @@ use std::io::Write;
 use std::net::IpAddr::{V4, V6};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::path::Path;
 use tempfile::TempDir;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconBlock,
@@ -31,7 +33,6 @@ pub fn get_address(client: &Client) -> String {
 #[cfg(unix)]
 pub fn set_permissions(path: &Path, perm_octal: u32) {
     use std::fs;
-    use std::path::Path;
 
     let metadata = fs::metadata(path).unwrap();
     let mut permissions = metadata.permissions();
