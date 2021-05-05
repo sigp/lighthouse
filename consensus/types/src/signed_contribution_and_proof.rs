@@ -1,6 +1,6 @@
 use super::{
-    ContributionAndProof, Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey,
-    SecretKey, SelectionProof, Signature, SignedRoot, SyncCommitteeContribution
+    Attestation, ChainSpec, ContributionAndProof, Domain, EthSpec, Fork, Hash256, PublicKey,
+    SecretKey, SelectionProof, Signature, SignedRoot, SyncCommitteeContribution,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -91,10 +91,10 @@ impl<T: EthSpec> SignedContributionAndProof<T> {
     ) -> bool {
         self.is_valid_signature(validator_pubkey, fork, genesis_validators_root, spec)
             && self.message.is_valid_selection_proof(
-            validator_pubkey,
-            fork,
-            genesis_validators_root,
-            spec,
-        )
+                validator_pubkey,
+                fork,
+                genesis_validators_root,
+                spec,
+            )
     }
 }

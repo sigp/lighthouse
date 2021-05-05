@@ -1,6 +1,6 @@
 use super::{
     Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof,
-    Signature, SignedRoot, SyncCommitteeContribution
+    Signature, SignedRoot, SyncCommitteeContribution,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -8,14 +8,14 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-/// A Validators aggregate attestation and selection proof.
+/// A Validators aggregate sync committee contribution and selection proof.
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "T: EthSpec")]
 pub struct ContributionAndProof<T: EthSpec> {
-    /// The index of the validator that created the attestation.
+    /// The index of the validator that created the aggregate contribution.
     #[serde(with = "serde_utils::quoted_u64")]
     pub aggregator_index: u64,
     /// The aggregate attestation.

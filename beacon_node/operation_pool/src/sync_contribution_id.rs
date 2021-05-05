@@ -1,13 +1,16 @@
 use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
-use types::{AttestationData, ChainSpec, Domain, Epoch, Fork, Hash256, SyncCommitteeSigningData, EthSpec, Slot};
 use store::SyncCommitteeContribution;
 use types::sync_committee_contribution::SyncContributionData;
+use types::{
+    AttestationData, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Slot,
+    SyncAggregatorSelectionData,
+};
 
 /// Serialized `SynCommitteeSigningData` augmented with a domain to encode the fork info.
 #[derive(
-PartialEq, Eq, Clone, Hash, Debug, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize,
+    PartialEq, Eq, Clone, Hash, Debug, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize,
 )]
 pub struct SyncContributionId {
     v: Vec<u8>,

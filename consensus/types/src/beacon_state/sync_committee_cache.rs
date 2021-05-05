@@ -1,4 +1,4 @@
-use crate::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
+use crate::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, sync_committee_base_epoch};
 
 /// Cache the sync committee indices, as an accelerator for `get_sync_committee_indices`.
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -9,6 +9,7 @@ pub struct SyncCommitteeCache {
 #[derive(Debug, PartialEq, Clone)]
 struct Cache {
     base_epoch: Epoch,
+    //TODO: make this ordered so it can be relied on in `compute_subnets_for_sync_committee`
     sync_committee_indices: Vec<usize>,
 }
 
@@ -17,7 +18,7 @@ impl SyncCommitteeCache {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
-        let base_epoch = state.sync_committee_base_epoch(state.current_epoch(), spec)?;
+        let base_epoch = sync_committee_base_epoch(state.current_epoch(), spec)?;
         let sync_committee_indices =
             state.compute_sync_committee_indices(state.current_epoch(), spec)?;
         Ok(SyncCommitteeCache {

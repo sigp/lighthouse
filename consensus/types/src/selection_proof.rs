@@ -1,9 +1,13 @@
+use crate::consts::altair::{
+    SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
+};
 use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
 };
 use eth2_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
+use ssz_types::typenum::Unsigned;
 use std::cmp;
 use std::convert::TryInto;
 
@@ -38,12 +42,26 @@ impl SelectionProof {
         ))
     }
 
+    /// Returns the "modulo" used for determining if a `SelectionProof` elects an aggregator.
+    pub fn sync_committee_modulo<T: EthSpec>() -> Result<u64, ArithError> {
+        Ok(cmp::max(
+            1,
+            (T::SyncCommitteeSize::to_u64())
+                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT)?
+                .safe_div(TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE)?,
+        ))
+    }
+
     pub fn is_aggregator(
         &self,
         committee_len: usize,
         spec: &ChainSpec,
     ) -> Result<bool, ArithError> {
         self.is_aggregator_from_modulo(Self::modulo(committee_len, spec)?)
+    }
+
+    pub fn is_sync_committee_aggregator<T: EthSpec>(&self) -> Result<bool, ArithError> {
+        self.is_aggregator_from_modulo(Self::sync_committee_modulo::<T>()?)
     }
 
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {

@@ -701,7 +701,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Will error if the cache isn't initialised at the correct base epoch.
     pub fn get_current_sync_committee_indices(&self, spec: &ChainSpec) -> Result<&[usize], Error> {
-        let base_epoch = self.sync_committee_base_epoch(self.current_epoch(), spec)?;
+        let base_epoch = sync_committee_base_epoch(self.current_epoch(), spec)?;
         self.current_sync_committee_cache()
             .get_sync_committee_indices(base_epoch)
             .ok_or(Error::SyncCommitteeCacheUninitialized)
@@ -713,7 +713,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
-        let base_epoch = self.sync_committee_base_epoch(epoch, spec)?;
+        let base_epoch = sync_committee_base_epoch(epoch, spec)?;
 
         // Allow calculation of any sync committee with base epoch less than or equal to the
         // next epoch. This allows calculating the sync committee for *two* periods after the
@@ -768,8 +768,8 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<SyncCommittee<T>, Error> {
-        let base_epoch = self.sync_committee_base_epoch(epoch, spec)?;
-        let current_base_epoch = self.sync_committee_base_epoch(self.current_epoch(), spec)?;
+        let base_epoch = sync_committee_base_epoch(epoch, spec)?;
+        let current_base_epoch = sync_committee_base_epoch(self.current_epoch(), spec)?;
 
         let sync_committee_indices = if base_epoch == current_base_epoch {
             Cow::Borrowed(self.get_current_sync_committee_indices(spec)?)
@@ -815,20 +815,6 @@ impl<T: EthSpec> BeaconState<T> {
             pubkeys: FixedVector::new(pubkeys)?,
             pubkey_aggregates: FixedVector::new(pubkey_aggregates)?,
         })
-    }
-
-    /// Compute the `base_epoch` used by sync committees.
-    pub fn sync_committee_base_epoch(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Epoch, Error> {
-        Ok(std::cmp::max(
-            epoch.safe_div(spec.epochs_per_sync_committee_period)?,
-            Epoch::new(1),
-        )
-        .safe_sub(1)?
-        .safe_mul(spec.epochs_per_sync_committee_period)?)
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
@@ -1243,7 +1229,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn build_current_sync_committee_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if !self
             .current_sync_committee_cache()
-            .is_initialized_for(self.sync_committee_base_epoch(self.current_epoch(), spec)?)
+            .is_initialized_for(sync_committee_base_epoch(self.current_epoch(), spec)?)
         {
             *self.current_sync_committee_cache_mut() = SyncCommitteeCache::new(self, spec)?;
         }
@@ -1642,4 +1628,17 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             _ => panic!("compare_fields: mismatched state variants"),
         }
     }
+}
+
+/// Compute the `base_epoch` used by sync committees.
+pub fn sync_committee_base_epoch(
+    epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<Epoch, Error> {
+    Ok(std::cmp::max(
+        epoch.safe_div(spec.epochs_per_sync_committee_period)?,
+        Epoch::new(1),
+    )
+        .safe_sub(1)?
+        .safe_mul(spec.epochs_per_sync_committee_period)?)
 }

@@ -4,27 +4,33 @@
 //! - `ObservedAttesters`: allows filtering unaggregated attestations from the same validator in
 //!   the same epoch.
 //! - `ObservedSyncContributors`: allows filtering sync committee signatures from the same validator in
-//!   the same epoch.
+//!   the same slot.
 //! - `ObservedAggregators`: allows filtering aggregated attestations from the same aggregators in
 //!   the same epoch
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
-//!   the same epoch
+//!   the same slot
 
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{Attestation, Epoch, EthSpec, Unsigned};
+use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use types::{Attestation, Epoch, EthSpec, Slot, Unsigned};
+use std::hash::Hash;
 
-pub type ObservedAttesters<E> = AutoPruningContainer<EpochBitfield, E>;
-pub type ObservedSyncContributors<E> = AutoPruningContainer<EpochBitfield, E>;
-pub type ObservedAggregators<E> = AutoPruningContainer<EpochHashSet, E>;
-pub type ObservedSyncAggregators<E> = AutoPruningContainer<EpochHashSet, E>;
+pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
+pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<SlotHashSet, E>;
+pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
+pub type ObservedSyncAggregators<E> = AutoPruningSlotContainer<SlotHashSet, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     EpochTooLow {
         epoch: Epoch,
         lowest_permissible_epoch: Epoch,
+    },
+    SlotTooLow {
+        slot: Slot,
+        lowest_permissible_slot: Slot,
     },
     /// We have reached the maximum number of unique items that can be observed in a slot.
     /// This is a DoS protection function.
@@ -119,11 +125,48 @@ impl Item for EpochHashSet {
         }
     }
 
-    //TODO: verify for sync contributions
     /// Defaults to the target number of aggregators per committee (16) multiplied by the expected
     /// max committee count (64).
     fn default_capacity() -> usize {
         16 * 64
+    }
+
+    fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    fn validator_count(&self) -> usize {
+        self.set.len()
+    }
+
+    /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
+    /// already in the set.
+    fn insert(&mut self, validator_index: usize) -> bool {
+        !self.set.insert(validator_index)
+    }
+
+    /// Returns `true` if the `validator_index` is in the set.
+    fn contains(&self, validator_index: usize) -> bool {
+        self.set.contains(&validator_index)
+    }
+}
+
+/// Stores a `HashSet` of which validator indices have created a sync aggregate during a
+/// slot.
+pub struct SlotHashSet {
+    set: HashSet<usize>,
+}
+
+impl Item for SlotHashSet {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(capacity),
+        }
+    }
+
+    /// Defaults to the `SYNC_COMMITTEE_SUBNET_COUNT`.
+    fn default_capacity() -> usize {
+        8
     }
 
     fn len(&self) -> usize {
@@ -154,13 +197,13 @@ impl Item for EpochHashSet {
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
-pub struct AutoPruningContainer<T, E: EthSpec> {
+pub struct AutoPruningEpochContainer<T, E: EthSpec> {
     lowest_permissible_epoch: Epoch,
     items: HashMap<Epoch, T>,
     _phantom: PhantomData<E>,
 }
 
-impl<T, E: EthSpec> Default for AutoPruningContainer<T, E> {
+impl<T, E: EthSpec> Default for AutoPruningEpochContainer<T, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_epoch: Epoch::new(0),
@@ -170,7 +213,7 @@ impl<T, E: EthSpec> Default for AutoPruningContainer<T, E> {
     }
 }
 
-impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
+impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
     /// previously been observed for `validator_index`.
     ///
@@ -277,13 +320,152 @@ impl<T: Item, E: EthSpec> AutoPruningContainer<T, E> {
     /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
     /// `Self::max_capacity`.
     pub fn prune(&mut self, current_epoch: Epoch) {
-        // Taking advantage of saturating subtraction on `Slot`.
-        let lowest_permissible_epoch = current_epoch - (self.max_capacity().saturating_sub(1));
+        let lowest_permissible_epoch = current_epoch.saturating_sub(self.max_capacity().saturating_sub(1));
 
         self.lowest_permissible_epoch = lowest_permissible_epoch;
 
         self.items
             .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
+    }
+}
+
+/// A container that stores some number of `T` items.
+///
+/// This container is "auto-pruning" since it gets an idea of the current slot by which
+/// attestations are provided to it and prunes old entries based upon that. For example, if
+/// `Self::max_capacity == 32` and an attestation with `a.data.target.epoch` is supplied, then all
+/// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
+///
+/// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
+pub struct AutoPruningSlotContainer<T, E: EthSpec> {
+    lowest_permissible_slot: Slot,
+    items: HashMap<Slot, T>,
+    _phantom: PhantomData<E>,
+}
+
+impl<T, E: EthSpec> Default for AutoPruningSlotContainer<T, E> {
+    fn default() -> Self {
+        Self {
+            lowest_permissible_slot: Slot::new(0),
+            items: HashMap::new(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
+    /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
+    /// previously been observed for `validator_index`.
+    ///
+    /// ## Errors
+    ///
+    /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
+    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
+    pub fn observe_validator(
+        &mut self,
+        slot: Slot,
+        validator_index: usize,
+    ) -> Result<bool, Error> {
+        self.sanitize_request(slot, validator_index)?;
+
+        self.prune(slot);
+
+        if let Some(item) = self.items.get_mut(&slot) {
+            Ok(item.insert(validator_index))
+        } else {
+            // To avoid re-allocations, try and determine a rough initial capacity for the new item
+            // by obtaining the mean size of all items in earlier epoch.
+            let (count, sum) = self
+                .items
+                .iter()
+                // Only include epochs that are less than the given slot in the average. This should
+                // generally avoid including recent epochs that are still "filling up".
+                .filter(|(item_epoch, _item)| **item_epoch < slot)
+                .map(|(_epoch, item)| item.len())
+                .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
+
+            let initial_capacity = sum.checked_div(count).unwrap_or_else(T::default_capacity);
+
+            let mut item = T::with_capacity(initial_capacity);
+            item.insert(validator_index);
+            self.items.insert(slot, item);
+
+            Ok(false)
+        }
+    }
+
+    /// Returns `Ok(true)` if the `validator_index` has produced an attestation conflicting with
+    /// `a`.
+    ///
+    /// ## Errors
+    ///
+    /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
+    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
+    pub fn validator_has_been_observed(
+        &self,
+        slot: Slot,
+        validator_index: usize,
+    ) -> Result<bool, Error> {
+        self.sanitize_request(slot, validator_index)?;
+
+        let exists = self
+            .items
+            .get(&slot)
+            .map_or(false, |item| item.contains(validator_index));
+
+        Ok(exists)
+    }
+
+    /// Returns the number of validators that have been observed at the given `epoch`. Returns
+    /// `None` if `self` does not have a cache for that epoch.
+    pub fn observed_validator_count(&self, slot: Slot) -> Option<usize> {
+        self.items.get(&slot).map(|item| item.validator_count())
+    }
+
+    fn sanitize_request(&self, slot: Slot, validator_index: usize) -> Result<(), Error> {
+        if validator_index > E::ValidatorRegistryLimit::to_usize() {
+            return Err(Error::ValidatorIndexTooHigh(validator_index));
+        }
+
+        let lowest_permissible_slot = self.lowest_permissible_slot;
+        if slot < lowest_permissible_slot {
+            return Err(Error::SlotTooLow {
+                slot,
+                lowest_permissible_slot,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// The maximum number of epochs stored in `self`.
+    fn max_capacity(&self) -> u64 {
+        // The next, current and previous epochs. We require the next epoch due to the
+        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the
+        // specification delcares:
+        //
+        // ```
+        // aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
+        //      >= current_slot >= aggregate.data.slot
+        // ```
+        //
+        // This means that during the current epoch we will always accept an attestation
+        // from at least one slot in the previous epoch.
+        3
+    }
+
+    /// Updates `self` with the current epoch, removing all attestations that become expired
+    /// relative to `Self::max_capacity`.
+    ///
+    /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
+    /// `Self::max_capacity`.
+    pub fn prune(&mut self, current_slot: Slot) {
+        let lowest_permissible_slot = current_slot.saturating_sub(self.max_capacity().saturating_sub(1));
+
+        self.lowest_permissible_slot = lowest_permissible_slot;
+
+        self.items
+            .retain(|slot, _item| *slot >= lowest_permissible_slot);
     }
 }
 

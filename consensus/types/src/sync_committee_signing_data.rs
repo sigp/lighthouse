@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Hash256, SyncCommitteeSignature, SignedRoot, Slot};
+use crate::{Hash256, SignedRoot, Slot, SyncCommitteeSignature};
 
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -8,8 +8,20 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Hash, Encode, Decode, TreeHash, TestRandom, Default)]
-pub struct SyncCommitteeSigningData {
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Hash,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    Default,
+)]
+pub struct SyncAggregatorSelectionData {
     pub slot: Slot,
     pub subcommittee_index: u64,
 }
@@ -18,5 +30,7 @@ pub struct SyncCommitteeSigningData {
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(SyncCommitteeSigningData);
+    ssz_and_tree_hash_tests!(SyncAggregatorSelectionData);
 }
+//TODO: verify
+impl SignedRoot for SyncAggregatorSelectionData {}

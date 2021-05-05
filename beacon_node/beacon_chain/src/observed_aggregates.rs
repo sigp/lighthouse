@@ -4,8 +4,8 @@
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 use types::attestation::SlotData;
+use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
 /// As a DoS protection measure, the maximum number of distinct `Attestations` or
 /// `SyncCommitteeContributions` that will be recorded for each slot.
@@ -63,7 +63,7 @@ impl SlotHashSet {
     }
 
     /// Store the attestation in self so future observations recognise its existence.
-    pub fn observe_item<T : SlotData>(
+    pub fn observe_item<T: SlotData>(
         &mut self,
         item: &T,
         root: Hash256,
@@ -99,7 +99,7 @@ impl SlotHashSet {
     }
 
     /// Indicates if `a` has been observed before.
-    pub fn is_known<T: SlotData>(&self, item : &T, root: Hash256) -> Result<bool, Error> {
+    pub fn is_known<T: SlotData>(&self, item: &T, root: Hash256) -> Result<bool, Error> {
         if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,

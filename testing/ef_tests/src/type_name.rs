@@ -70,7 +70,7 @@ type_name!(SignedVoluntaryExit);
 type_name!(SigningData);
 type_name_generic!(SyncCommitteeContribution);
 type_name!(SyncCommitteeSignature);
-type_name!(SyncCommitteeSigningData);
+type_name!(SyncAggregatorSelectionData);
 type_name_generic!(SyncAggregate);
 type_name_generic!(SyncCommittee);
 type_name!(Validator);

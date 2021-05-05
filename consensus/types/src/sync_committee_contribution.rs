@@ -1,14 +1,11 @@
-use super::{
-    AggregateSignature, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    SignedRoot,
-};
-use crate::{test_utils::TestRandom, Hash256, Slot, BitVector};
+use super::{AggregateSignature, ChainSpec, Domain, EthSpec, Fork, SecretKey, SignedRoot};
+use crate::attestation::SlotData;
+use crate::{test_utils::TestRandom, BitVector, Hash256, Slot};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use crate::attestation::SlotData;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

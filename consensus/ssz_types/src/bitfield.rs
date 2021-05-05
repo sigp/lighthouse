@@ -779,7 +779,6 @@ mod bitvector {
         assert_eq!(b.union(&a), c);
     }
 
-
     #[test]
     fn ssz_round_trip() {
         assert_round_trip(BitVector0::new());

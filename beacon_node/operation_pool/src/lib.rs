@@ -11,10 +11,9 @@ pub use persistence::PersistedOperationPool;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
-use sync_contribution_id::SyncContributionId;
 use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
-use state_processing::per_block_processing::errors::AttestationValidationError;
+use state_processing::per_block_processing::errors::{AttestationValidationError, SyncSignatureValidationError};
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
     VerifySignatures,
@@ -23,7 +22,12 @@ use state_processing::SigVerifiedOp;
 use std::collections::{hash_map, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
-use types::{typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Validator, SyncCommitteeContribution};
+use sync_contribution_id::SyncContributionId;
+use types::{
+    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
+    Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch,
+    SignedVoluntaryExit, SyncCommitteeContribution, Validator,
+};
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
@@ -51,6 +55,47 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     //TODO: implement insert_sync_contribution, num_sync_contributions, etc,
+    /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
+    ///
+    /// ## Note
+    ///
+    /// This function assumes the given `attestation` is valid.
+    pub fn insert_sync_contribution(
+        &self,
+        contribution: SyncCommitteeContribution<T>,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<(), SyncSignatureValidationError> {
+        let id = SyncContributionId::from_data(&contribution, fork, genesis_validators_root, spec);
+
+        // Take a write lock on the attestations map.
+        let mut contributions = self.sync_contributions.write();
+
+        let existing_contributions = match contributions.entry(id) {
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(vec![contribution]);
+                return Ok(());
+            }
+            hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        };
+
+        let mut aggregated = false;
+        for existing_attestation in existing_contributions.iter_mut() {
+            if existing_attestation.signers_disjoint_from(&contribution) {
+                existing_attestation.aggregate(&contribution);
+                aggregated = true;
+            } else if *existing_attestation == contribution {
+                aggregated = true;
+            }
+        }
+
+        if !aggregated {
+            existing_contributions.push(contribution);
+        }
+
+        Ok(())
+    }
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
     ///

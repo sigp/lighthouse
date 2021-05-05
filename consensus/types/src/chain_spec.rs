@@ -28,6 +28,7 @@ pub enum Domain {
     AggregateAndProof,
     SyncCommittee,
     ContributionAndProof,
+    SyncCommitteeSelectionProof,
 }
 
 /// Holds all the "constants" for a BeaconChain.
@@ -194,6 +195,7 @@ impl ChainSpec {
             Domain::AggregateAndProof => self.domain_aggregate_and_proof,
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
+            Domain::SyncCommitteeSelectionProof=>self.domain_sync_committee_selection_proof,
         }
     }
 

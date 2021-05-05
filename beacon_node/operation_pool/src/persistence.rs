@@ -1,4 +1,5 @@
 use crate::attestation_id::AttestationId;
+use crate::sync_contribution_id::SyncContributionId;
 use crate::OperationPool;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
@@ -6,7 +7,6 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
-use crate::sync_contribution_id::SyncContributionId;
 
 /// SSZ-serializable version of `OperationPool`.
 ///

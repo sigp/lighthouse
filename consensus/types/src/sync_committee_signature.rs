@@ -1,11 +1,12 @@
 use crate::test_utils::TestRandom;
-use crate::{Checkpoint, Hash256, SignedRoot, Slot};
+use crate::{AggregateSignature, Checkpoint, Hash256, SignedRoot, Slot, SyncCommitteeContribution, EthSpec};
 
+use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use bls::Signature;
+use crate::attestation::SlotData;
 
 /// The data upon which a `SyncCommitteeContribution` is based.
 ///
@@ -18,7 +19,13 @@ pub struct SyncCommitteeSignature {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     // Signature by the validator over the block root of `slot`
-    pub signature: Signature,
+    pub signature: AggregateSignature,
+}
+
+impl SlotData for SyncCommitteeSignature {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
 }
 
 #[cfg(test)]

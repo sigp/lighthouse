@@ -29,6 +29,13 @@ impl CloneConfig {
             ..Self::none()
         }
     }
+
+    pub fn sync_committee_caches_only() -> Self {
+        Self {
+            current_sync_committee_cache: true,
+            ..Self::none()
+        }
+    }
 }
 
 #[cfg(test)]
