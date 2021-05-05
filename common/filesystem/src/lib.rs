@@ -30,7 +30,7 @@ pub enum Error {
 /// Creates a file with `600 (-rw-------)` permissions.
 pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), Error> {
     let path = path.as_ref();
-    let mut file = File::create(&path).map_err(|e| Error::UnableToCreateFile(e))?;
+    let mut file = File::create(&path).map_err(Error::UnableToCreateFile)?;
 
     #[cfg(unix)]
     {
@@ -41,11 +41,11 @@ pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()
             .permissions();
         perm.set_mode(0o600);
         file.set_permissions(perm)
-            .map_err(|e| Error::UnableToSetPermissions(e))?;
+            .map_err(Error::UnableToSetPermissions)?;
     }
 
     file.write_all(bytes)
-        .map_err(|e| Error::UnableToWriteFile(e))?;
+        .map_err(Error::UnableToWriteFile)?;
     #[cfg(windows)]
     {
         restrict_file_permissions(path)?;
@@ -65,7 +65,7 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
             .permissions();
         perm.set_mode(0o600);
         file.set_permissions(perm)
-            .map_err(|e| Error::UnableToSetPermissions(e))?;
+            .map_err(Error::UnableToSetPermissions)?;
     }
 
     #[cfg(windows)]
