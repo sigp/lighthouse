@@ -283,7 +283,7 @@ pub fn write_password_to_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(
         return Err(Error::PasswordAlreadyExists(path.into()));
     }
 
-    create_with_600_perms(path, bytes).map_err(|e| Error::UnableToSavePassword(e))?;
+    create_with_600_perms(path, bytes).map_err(Error::UnableToSavePassword)?;
 
     Ok(())
 }
