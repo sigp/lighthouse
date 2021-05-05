@@ -87,7 +87,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         for (epoch, vals) in validators_by_epoch.iter() {
             // Ensure we don't send empty requests.
             if vals.is_empty() {
-                break;
+                continue;
             }
 
             info!(log, "Monitoring for doppelgangers"; "epoch" => ?epoch);
