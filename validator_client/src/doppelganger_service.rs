@@ -112,9 +112,11 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                         if validator.is_live {
                             crit!(
                                 log,
-                                "Doppelganger detected! Shutting down. Ensure you aren't already \
-                                             running a validator client with the same keys.";
-                                             "validator" => ?validator
+                                "Doppelganger detected, shutting down";
+                                "msg" => "another instance of a local validator has been detected \
+                                    by the beacon node. Ensure that there are no duplicate instances \
+                                    of the same validator running.",
+                                "validator" => ?validator
                             );
 
                             let _ = self
@@ -129,8 +131,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 Err(e) => {
                     crit!(
                         log,
-                        "Failed to complete query for doppelganger detection... Restarting doppelganger detection process.";
-                        "error" => format!("{:?}", e)
+                        "Doppleganger update failed";
+                        "error" => format!("{:?}", e),
+                        "msg" => "continued failure may prevent validators from starting, ensure \
+                        the beacon node is available and supports liveness detection.",
                     );
 
                     let current_epoch = self
