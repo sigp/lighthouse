@@ -148,9 +148,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
-            config.disable_doppelganger_detection,
-            None,
-            None,
             log.clone(),
         )
         .await
@@ -333,6 +330,19 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
+        let doppelganger_service_opt = if config.disable_doppelganger_detection {
+            None
+        } else {
+            let service = DoppelgangerService {
+                slot_clock: slot_clock.clone(),
+                validator_store: validator_store.clone(),
+                beacon_nodes: beacon_nodes.clone(),
+                context: context.service_context("doppelganger".into()),
+                doppelganger_states: <_>::default()
+            };
+
+            Some(service)
+        }
         let doppelganger_service =
             (!config.disable_doppelganger_detection).then(|| DoppelgangerService {
                 slot_clock: slot_clock.clone(),

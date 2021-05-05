@@ -1,5 +1,6 @@
 use crate::{
-    fork_service::ForkService, http_metrics::metrics, initialized_validators::InitializedValidators,
+    doppelganger_service::DoppelgangerService, fork_service::ForkService, http_metrics::metrics,
+    initialized_validators::InitializedValidators,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -56,6 +57,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
+    doppelganger_service: Option<DoppelgangerService<T, E>>,
     fork_service: ForkService<T, E>,
 }
 
@@ -76,8 +78,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             spec: Arc::new(spec),
             log,
             temp_dir: None,
+            doppelganger_service: None,
             fork_service,
         }
+    }
+
+    pub fn attach_doppelganger_service(
+        &mut self,
+        service: DoppelgangerService<T, E>,
+    ) -> Result<(), String> {
+        // Ensure all existing validators are registered with the service.
+        for pubkey in self.validators.read().iter_voting_pubkeys() {
+            service.register_new_validator(*pubkey)?
+        }
+
+        self.doppelganger_service = Some(service);
+
+        Ok(())
     }
 
     pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
@@ -112,41 +129,89 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
+        let validator_pubkey = validator_def.voting_public_key.compress();
+
         self.slashing_protection
-            .register_validator(validator_def.voting_public_key.compress())
+            .register_validator(validator_pubkey)
             .map_err(|e| format!("failed to register validator: {:?}", e))?;
 
         validator_def.enabled = enable;
 
+        if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
+            doppelganger_service.register_new_validator(validator_pubkey)?;
+        }
+
         self.validators
             .write()
-            .add_definition(validator_def.clone(), current_epoch, genesis_epoch)
+            .add_definition(validator_def.clone())
             .await
             .map_err(|e| format!("Unable to add definition: {:?}", e))?;
 
         Ok(validator_def)
     }
 
+    /// Attempts to resolve the pubkey to a validator index.
+    ///
+    /// It may return `None` if the `pubkey` is:
+    ///
+    /// - Unknown.
+    /// - Known, but with an unknown index.
+    pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators.read().get_index(pubkey)
+    }
+
     /// Returns all public keys that are required for duties collection. This includes all initialized
     /// validators regardless of doppelganger detection status. We want to continue to collect duties
     /// during doppelganger detection periods because we want to continue to subscribe to the correct
     /// subnets.
-    pub fn duties_collection_pubkeys(&self) -> Vec<PublicKeyBytes> {
+    pub fn all_pubkeys(&self) -> Vec<PublicKeyBytes> {
         self.validators
             .read()
-            .iter_duties_collection_pubkeys()
+            .iter_voting_pubkeys()
             .cloned()
             .collect()
     }
 
-    /// Returns a `Vec` of all public keys that are required for signing attestations and blocks.
-    /// This will exclude initialized validators that are currently in a doppelganger detection period.
+    /// Returns all the validators that are permitted to sign attestations, blocks and other
+    /// consensus messages.
+    ///
+    /// Excludes any validators which are undergoing a doppelganger protection period.
     pub fn signing_pubkeys(&self) -> Vec<PublicKeyBytes> {
-        self.validators
+        let mut pubkeys = self
+            .validators
             .read()
-            .iter_signing_pubkeys()
+            .iter_voting_pubkeys()
             .cloned()
-            .collect()
+            .collect::<Vec<_>>();
+
+        // Filter out all pubkeys which should not sign because they're undergoing doppelganger
+        // protection.
+        //
+        // This filtering happens in it's own `retain` call to avoid interleaving locks.
+        pubkeys.retain(|pubkey| {
+            if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
+                if let Some(should_sign) = doppelganger_service.validator_should_sign(pubkey) {
+                    // Doppleganger protection is enabled and the validator is known to it.
+                    should_sign
+                } else {
+                    crit!(
+                        self.log,
+                        "Doppelganger validator missing";
+                        "msg" => "internal consistency error, preventing validator from signing",
+                        "pubkey" => ?pubkey,
+                    );
+
+                    // Do not retain any validator that has not been registered with the validator
+                    // service.
+                    false
+                }
+            } else {
+                // Retain all pubkeys if there is no doppelganger protection enabled.
+                true
+            }
+        });
+
+        pubkeys
     }
 
     /// Returns a `HashSet` of all public keys that are required for signing attestations and blocks.

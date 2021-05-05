@@ -1006,7 +1006,7 @@ impl BeaconNodeHttpClient {
         ids: &[u64],
         epoch: Epoch,
     ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
