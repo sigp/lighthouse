@@ -19,6 +19,7 @@ use futures_util::StreamExt;
 pub use reqwest;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
+use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
 use ssz::Decode;
 use std::convert::TryFrom;
@@ -36,7 +37,7 @@ pub enum Error {
     /// The server returned an error message where the body was unable to be parsed.
     StatusCode(StatusCode),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
-    InvalidUrl(Url),
+    InvalidUrl(SensitiveUrl),
     /// The supplied validator client secret is invalid.
     InvalidSecret(String),
     /// The server returned a response with an invalid signature. It may be an impostor.
@@ -81,7 +82,7 @@ impl fmt::Display for Error {
 #[derive(Clone)]
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
-    server: Url,
+    server: SensitiveUrl,
 }
 
 impl fmt::Display for BeaconNodeHttpClient {
@@ -92,25 +93,25 @@ impl fmt::Display for BeaconNodeHttpClient {
 
 impl AsRef<str> for BeaconNodeHttpClient {
     fn as_ref(&self) -> &str {
-        self.server.as_str()
+        self.server.as_ref()
     }
 }
 
 impl BeaconNodeHttpClient {
-    pub fn new(server: Url) -> Self {
+    pub fn new(server: SensitiveUrl) -> Self {
         Self {
             client: reqwest::Client::new(),
             server,
         }
     }
 
-    pub fn from_components(server: Url, client: reqwest::Client) -> Self {
+    pub fn from_components(server: SensitiveUrl, client: reqwest::Client) -> Self {
         Self { client, server }
     }
 
     /// Return the path with the standard `/eth1/v1` prefix applied.
     fn eth_path(&self) -> Result<Url, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

@@ -4,17 +4,18 @@ use crate::{
 };
 use reqwest::StatusCode;
 pub use reqwest::Url;
+use sensitive_url::SensitiveUrl;
 use types::{Domain, Fork, Hash256};
 
 /// A wrapper around `reqwest::Client` which provides convenience methods
 /// to interface with a BLS Remote Signer.
 pub struct RemoteSignerHttpConsumer {
     client: reqwest::Client,
-    server: Url,
+    server: SensitiveUrl,
 }
 
 impl RemoteSignerHttpConsumer {
-    pub fn from_components(server: Url, client: reqwest::Client) -> Self {
+    pub fn from_components(server: SensitiveUrl, client: reqwest::Client) -> Self {
         Self { client, server }
     }
 
@@ -43,7 +44,7 @@ impl RemoteSignerHttpConsumer {
             ));
         }
 
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("sign")
