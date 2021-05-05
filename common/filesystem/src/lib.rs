@@ -44,8 +44,7 @@ pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()
             .map_err(Error::UnableToSetPermissions)?;
     }
 
-    file.write_all(bytes)
-        .map_err(Error::UnableToWriteFile)?;
+    file.write_all(bytes).map_err(Error::UnableToWriteFile)?;
     #[cfg(windows)]
     {
         restrict_file_permissions(path)?;
