@@ -202,18 +202,8 @@ impl<E: EthSpec> SlasherDB<E> {
             data.push("data.mdb");
             let mut lock = config.database_path.clone();
             lock.push("lock.mdb");
-            restrict_file_permissions(data)
-                .or_else(|e| {
-                    println!("Error setting permissions for slasher db: {:?}", e);
-                    Err(e)
-                })
-                .map_err(Error::DatabasePermissionsError)?;
-            restrict_file_permissions(lock)
-                .or_else(|e| {
-                    println!("Error setting permissions for slasher db: {:?}", e);
-                    Err(e)
-                })
-                .map_err(Error::DatabasePermissionsError)?;
+            restrict_file_permissions(data).map_err(Error::DatabasePermissionsError)?;
+            restrict_file_permissions(lock).map_err(Error::DatabasePermissionsError)?;
         }
 
         let db = Self {
