@@ -1,4 +1,3 @@
-use filesystem::{create_with_600_perms, Error as fsError};
 use bls::{Keypair, PublicKey};
 use eth2_keystore::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, KdfModule,
@@ -8,6 +7,7 @@ use eth2_keystore::{
     decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, PlainText, Uuid,
     ZeroizeHash, IV_SIZE, SALT_SIZE,
 };
+use filesystem::{create_with_600_perms, Error as fsError};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

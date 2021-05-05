@@ -9,9 +9,9 @@ use eth2_wallet::{
     PlainText,
 };
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
+use filesystem::create_with_600_perms;
 use std::ffi::OsStr;
 use std::fs;
-use filesystem::create_with_600_perms;
 use std::path::{Path, PathBuf};
 
 pub const CMD: &str = "create";
@@ -246,4 +246,3 @@ pub fn read_new_wallet_password_from_cli(
         },
     }
 }
-

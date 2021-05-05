@@ -5,13 +5,13 @@ use crate::interchange::{
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
+use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::Duration;
 use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
-use filesystem::restrict_file_permissions;
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 

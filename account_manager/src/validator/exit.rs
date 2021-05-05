@@ -85,7 +85,6 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
 
     let no_wait = matches.is_present(NO_WAIT);
 
-
     let spec = env.eth2_config().spec.clone();
     let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;
     let client = BeaconNodeHttpClient::new(

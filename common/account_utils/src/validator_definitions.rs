@@ -4,9 +4,9 @@
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{default_keystore_password_path, ZeroizeString};
-use filesystem::{create_with_600_perms, Error as fsError};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
+use filesystem::{create_with_600_perms, Error as fsError};
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};

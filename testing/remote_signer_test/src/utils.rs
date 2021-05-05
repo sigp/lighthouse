@@ -30,8 +30,8 @@ pub fn get_address(client: &Client) -> String {
 
 #[cfg(unix)]
 pub fn set_permissions(path: &Path, perm_octal: u32) {
-    use std::path::Path;
     use std::fs;
+    use std::path::Path;
 
     let metadata = fs::metadata(path).unwrap();
     let mut permissions = metadata.permissions();

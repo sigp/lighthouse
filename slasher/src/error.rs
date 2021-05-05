@@ -1,7 +1,7 @@
 use crate::Config;
+use filesystem::Error as fsError;
 use std::io;
 use types::{Epoch, Hash256};
-use filesystem::Error as fsError;
 
 #[derive(Debug)]
 pub enum Error {
