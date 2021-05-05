@@ -188,7 +188,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             }
                         }
                     },
-                    // Receiving a Rpc request for protocol version 2 for range and root
+                    // Receiving a Rpc request for protocol version 2 for range and root requests
                     Version::V2 => {
                         match self.protocol.message_name {
                             // Request type doesn't change, only response type
@@ -220,7 +220,8 @@ pub struct SSZSnappyOutboundCodec<TSpec: EthSpec> {
     protocol: ProtocolId,
     /// Maximum bytes that can be sent in one req/resp chunked responses.
     max_packet_size: usize,
-    context_bytes: Option<[u8; 4]>,
+    /// The fork name corresponding to the received context bytes.
+    fork_name: Option<ForkName>,
     fork_context: Arc<ForkContext>,
     phantom: PhantomData<TSpec>,
 }
@@ -240,7 +241,7 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
             protocol,
             max_packet_size,
             len: None,
-            context_bytes: None,
+            fork_name: None,
             fork_context,
             phantom: PhantomData,
         }
@@ -294,12 +295,15 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Read the context bytes if required
-        if self.protocol.version == Version::V2 && self.context_bytes.is_none() {
+        if self.protocol.has_context_bytes() && self.fork_name.is_none() {
             if src.len() >= 4 {
                 let context_bytes = src.split_to(4);
                 let mut result = [0; 4];
                 result.copy_from_slice(&context_bytes.as_ref());
-                self.context_bytes = Some(result);
+                self.fork_name = Some(context_bytes_to_fork_name(
+                    result,
+                    self.fork_context.clone(),
+                )?);
             } else {
                 return Ok(None);
             }
@@ -365,27 +369,17 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                             MetaData::from_ssz_bytes(&decoded_buffer)?,
                         ))),
                     },
-                    Version::V2 => {
-                        let context_bytes = self.context_bytes.ok_or_else(|| {
-                            RPCError::ErrorResponse(
-                                RPCResponseErrorCode::InvalidRequest,
-                                "No context bytes provided".to_string(),
-                            )
-                        })?;
-
-                        let fork = self
-                            .fork_context
-                            .from_context_bytes(context_bytes)
-                            .ok_or_else(|| {
+                    Version::V2 => match self.protocol.message_name {
+                        Protocol::BlocksByRange => {
+                            match self.fork_name.take().ok_or_else(|| {
                                 RPCError::ErrorResponse(
                                     RPCResponseErrorCode::InvalidRequest,
-                                    "Context bytes does not correspond to a valid fork".to_string(),
+                                    format!(
+                                        "No context bytes provided for {} response",
+                                        self.protocol.message_name
+                                    ),
                                 )
-                            })?;
-                        self.context_bytes = None;
-
-                        match self.protocol.message_name {
-                            Protocol::BlocksByRange => match fork {
+                            })? {
                                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                                     SignedBeaconBlock::Altair(
                                         SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
@@ -397,26 +391,33 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                                         &decoded_buffer,
                                     )?),
                                 )))),
-                            },
-                            Protocol::BlocksByRoot => match fork {
-                                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                    SignedBeaconBlock::Altair(
-                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
-                                    ),
-                                )))),
-                                ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                        &decoded_buffer,
-                                    )?),
-                                )))),
-                            },
-
-                            _ => Err(RPCError::ErrorResponse(
-                                RPCResponseErrorCode::InvalidRequest,
-                                "Invalid v2 request".to_string(),
-                            )),
+                            }
                         }
-                    }
+                        Protocol::BlocksByRoot => match self.fork_name.take().ok_or_else(|| {
+                            RPCError::ErrorResponse(
+                                RPCResponseErrorCode::InvalidRequest,
+                                format!(
+                                    "No context bytes provided for {} response",
+                                    self.protocol.message_name
+                                ),
+                            )
+                        })? {
+                            ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
+                                    &decoded_buffer,
+                                )?),
+                            )))),
+                            ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                    &decoded_buffer,
+                                )?),
+                            )))),
+                        },
+                        _ => Err(RPCError::ErrorResponse(
+                            RPCResponseErrorCode::InvalidRequest,
+                            "Invalid v2 request".to_string(),
+                        )),
+                    },
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -492,4 +493,20 @@ fn handle_error<T>(
         }
         _ => Err(err).map_err(RPCError::from),
     }
+}
+
+/// Takes the context bytes and a fork_context and returns the corresponding fork_name.
+fn context_bytes_to_fork_name(
+    context_bytes: [u8; 4],
+    fork_context: Arc<ForkContext>,
+) -> Result<ForkName, RPCError> {
+    fork_context
+        .from_context_bytes(context_bytes)
+        .cloned()
+        .ok_or_else(|| {
+            RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Context bytes does not correspond to a valid fork".to_string(),
+            )
+        })
 }

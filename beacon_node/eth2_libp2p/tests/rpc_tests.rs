@@ -605,7 +605,7 @@ fn test_blocks_by_root_chunked_rpc() {
 fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = true;
+    let enable_logging = false;
 
     let messages_to_send: u64 = 10;
     let extra_messages_to_send: u64 = 10;
