@@ -254,36 +254,27 @@ impl ProtocolId {
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => match self.version {
-                Version::V1 => {
-                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
-                }
-                Version::V2 => RpcLimits::new(
-                    std::cmp::min(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                        *SIGNED_BEACON_BLOCK_BASE_MIN,
-                    ),
-                    std::cmp::max(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                        *SIGNED_BEACON_BLOCK_BASE_MAX,
-                    ),
+            Protocol::BlocksByRange => RpcLimits::new(
+                std::cmp::min(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_BASE_MIN,
                 ),
-            },
-            Protocol::BlocksByRoot => match self.version {
-                Version::V1 => {
-                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
-                }
-                Version::V2 => RpcLimits::new(
-                    std::cmp::min(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                        *SIGNED_BEACON_BLOCK_BASE_MIN,
-                    ),
-                    std::cmp::max(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                        *SIGNED_BEACON_BLOCK_BASE_MAX,
-                    ),
+                std::cmp::max(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                    *SIGNED_BEACON_BLOCK_BASE_MAX,
                 ),
-            },
+            ),
+            Protocol::BlocksByRoot => RpcLimits::new(
+                std::cmp::min(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_BASE_MIN,
+                ),
+                std::cmp::max(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                    *SIGNED_BEACON_BLOCK_BASE_MAX,
+                ),
+            ),
+
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
