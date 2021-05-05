@@ -65,15 +65,6 @@ impl<T: EthSpec> BeaconBlock<T> {
         }
     }
 
-    /// Return a block where the block has maximum size.
-    pub fn full(spec: &ChainSpec) -> BeaconBlock<T> {
-        if spec.altair_fork_slot == Some(spec.genesis_slot) {
-            Self::Altair(BeaconBlockAltair::full(spec))
-        } else {
-            Self::Base(BeaconBlockBase::full(spec))
-        }
-    }
-
     /// Custom SSZ decoder that takes a `ChainSpec` as context.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
@@ -367,7 +358,7 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
                 attestations: base_block.body.attestations,
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
-                sync_aggregate: sync_aggregate,
+                sync_aggregate,
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
