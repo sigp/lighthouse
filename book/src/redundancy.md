@@ -4,7 +4,7 @@
 
 There are three places in Lighthouse where redundancy is notable:
 
-1. ✅ GOOD: Using a redundant Beacon node in `lighthouse bn --beacon-nodes`
+1. ✅ GOOD: Using a redundant Beacon node in `lighthouse vc --beacon-nodes`
 1. ✅ GOOD: Using a redundant Eth1 node in `lighthouse bn --eth1-endpoints`
 1. ☠️ BAD: Running redundant `lighthouse vc` instances with overlapping keypairs.
 
@@ -18,7 +18,9 @@ From this paragraph, this document will *only* refer to the first two items (1, 
 
 ## Redundant Beacon Nodes
 
-The `lighthouse bn --beacon-nodes` flag allows one or more comma-separated values:
+The Lighthouse validator client can be configured to use multiple redundant beacon nodes.
+
+The `lighthouse vc --beacon-nodes` flag allows one or more comma-separated values:
 
 1. `lighthouse vc --beacon-nodes http://localhost:5052`
 1. `lighthouse vc --beacon-nodes http://localhost:5052,http://192.168.1.1:5052`
@@ -26,7 +28,7 @@ The `lighthouse bn --beacon-nodes` flag allows one or more comma-separated value
 In the first example, the validator client will attempt to contact
 `http://localhost:5052` to perform duties. If that node is not contactable, not
 synced or unable to serve the request then the validator client may fail to
-perform some duty (e.g., produce a block or attest).
+perform some duty (e.g. produce a block or attest).
 
 However, in the second example, any failure on `http://localhost:5052` will be
 followed by a second attempt using `http://192.168.1.1:5052`. This
