@@ -11,7 +11,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroize;
 
@@ -57,23 +56,6 @@ pub fn default_keystore_password_path<P: AsRef<Path>>(
 /// Reads a password file into a Zeroize-ing `PlainText` struct, with new-lines removed.
 pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
     fs::read(path).map(strip_off_newlines).map(Into::into)
-}
-
-/// Creates a file with `600 (-rw-------)` permissions.
-pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), io::Error> {
-    let path = path.as_ref();
-
-    let mut file = File::create(&path)?;
-
-    let mut perm = file.metadata()?.permissions();
-
-    perm.set_mode(0o600);
-
-    file.set_permissions(perm)?;
-
-    file.write_all(bytes)?;
-
-    Ok(())
 }
 
 /// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN`.

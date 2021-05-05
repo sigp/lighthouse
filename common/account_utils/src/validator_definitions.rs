@@ -3,7 +3,8 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
+use crate::{default_keystore_password_path, ZeroizeString};
+use filesystem::{create_with_600_perms, Error as fsError};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
@@ -31,6 +32,8 @@ pub enum Error {
     UnableToEncodeFile(serde_yaml::Error),
     /// The config file could not be written to the filesystem.
     UnableToWriteFile(io::Error),
+    /// The config file could not be created
+    UnableToCreateFile(fsError),
     /// The public key from the keystore is invalid.
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.
@@ -260,7 +263,7 @@ impl ValidatorDefinitions {
         if config_path.exists() {
             fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
         } else {
-            create_with_600_perms(&config_path, &bytes).map_err(Error::UnableToWriteFile)
+            create_with_600_perms(&config_path, &bytes).map_err(|e| Error::UnableToCreateFile(e))
         }
     }
 

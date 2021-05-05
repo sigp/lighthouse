@@ -195,6 +195,15 @@ impl<E: EthSpec> SlasherDB<E> {
         let proposers_db = env.create_db(Some(PROPOSERS_DB), Self::db_flags())?;
         let metadata_db = env.create_db(Some(METADATA_DB), Self::db_flags())?;
 
+        #[cfg(windows)]
+        {
+            use filesystem::restrict_file_permissions;
+            let mut data = config.database_path.clone(); data.push("data.mdb");
+            let mut lock = config.database_path.clone(); lock.push("lock.mdb");
+            restrict_file_permissions(data).or_else(|e| { println!("Error setting permissions for slasher db: {:?}", e); Err(e)}).map_err(Error::DatabasePermissionsError)?;
+            restrict_file_permissions(lock).or_else(|e| { println!("Error setting permissions for slasher db: {:?}", e); Err(e)}).map_err(Error::DatabasePermissionsError)?;
+        }
+
         let db = Self {
             env,
             indexed_attestation_db,

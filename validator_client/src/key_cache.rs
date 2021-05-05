@@ -1,4 +1,4 @@
-use account_utils::create_with_600_perms;
+use filesystem::{create_with_600_perms, Error as fsError};
 use bls::{Keypair, PublicKey};
 use eth2_keystore::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, KdfModule,
@@ -144,7 +144,7 @@ impl KeyCache {
             let res = if cache_path.exists() {
                 fs::write(cache_path, &bytes).map_err(Error::UnableToWriteFile)
             } else {
-                create_with_600_perms(&cache_path, &bytes).map_err(Error::UnableToWriteFile)
+                create_with_600_perms(&cache_path, &bytes).map_err(Error::UnableToCreateFile)
             };
             if res.is_ok() {
                 self.state = State::DecryptedAndSaved;
@@ -245,6 +245,7 @@ pub enum Error {
     UnableToEncodeFile(serde_json::Error),
     /// The cache file could not be written to the filesystem.
     UnableToWriteFile(io::Error),
+    UnableToCreateFile(fsError),
     /// Couldn't decrypt the cache file
     UnableToDecrypt(KeystoreError),
     UnableToEncrypt(KeystoreError),

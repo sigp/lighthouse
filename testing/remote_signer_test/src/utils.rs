@@ -5,12 +5,11 @@ pub use local_signer_test_data::*;
 pub use mock::*;
 use remote_signer_client::Client;
 pub use remote_signer_test_data::*;
-use std::fs;
 use std::fs::{create_dir, File};
 use std::io::Write;
 use std::net::IpAddr::{V4, V6};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 use tempfile::TempDir;
 use types::{
     AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconBlock,
@@ -29,7 +28,11 @@ pub fn get_address(client: &Client) -> String {
     format!("http://{}:{}", ip, listening_address.port())
 }
 
+#[cfg(unix)]
 pub fn set_permissions(path: &Path, perm_octal: u32) {
+    use std::path::Path;
+    use std::fs;
+
     let metadata = fs::metadata(path).unwrap();
     let mut permissions = metadata.permissions();
     permissions.set_mode(perm_octal);

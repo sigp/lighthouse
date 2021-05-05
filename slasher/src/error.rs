@@ -1,11 +1,13 @@
 use crate::Config;
 use std::io;
 use types::{Epoch, Hash256};
+use filesystem::Error as fsError;
 
 #[derive(Debug)]
 pub enum Error {
     DatabaseError(lmdb::Error),
     DatabaseIOError(io::Error),
+    DatabasePermissionsError(fsError),
     SszDecodeError(ssz::DecodeError),
     BincodeError(bincode::Error),
     ArithError(safe_arith::ArithError),

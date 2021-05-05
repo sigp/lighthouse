@@ -12,6 +12,7 @@ insecure_keys = []
 [dependencies]
 bls = { path = "../../crypto/bls" }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
+filesystem = { path = "../filesystem" }
 types = { path = "../../consensus/types" }
 rand = "0.7.3"
 deposit_contract = { path = "../deposit_contract" }

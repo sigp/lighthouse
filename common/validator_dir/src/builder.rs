@@ -3,11 +3,11 @@ use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{create_dir_all, File, OpenOptions};
+use std::fs::{create_dir_all, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
+use filesystem::{Error as fsError, create_with_600_perms};
 
 /// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
 /// characters.
@@ -33,7 +33,7 @@ pub enum Error {
     KeystoreAlreadyExists(PathBuf),
     UnableToSaveKeystore(io::Error),
     PasswordAlreadyExists(PathBuf),
-    UnableToSavePassword(io::Error),
+    UnableToSavePassword(fsError),
     KeystoreError(KeystoreError),
     UnableToOpenDir(DirError),
     UninitializedVotingKeystore,
@@ -283,19 +283,7 @@ pub fn write_password_to_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(
         return Err(Error::PasswordAlreadyExists(path.into()));
     }
 
-    let mut file = File::create(&path).map_err(Error::UnableToSavePassword)?;
-
-    let mut perm = file
-        .metadata()
-        .map_err(Error::UnableToSavePassword)?
-        .permissions();
-
-    perm.set_mode(0o600);
-
-    file.set_permissions(perm)
-        .map_err(Error::UnableToSavePassword)?;
-
-    file.write_all(bytes).map_err(Error::UnableToSavePassword)?;
+    create_with_600_perms(path, bytes).map_err(|e| Error::UnableToSavePassword(e))?;
 
     Ok(())
 }
