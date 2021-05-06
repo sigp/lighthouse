@@ -17,11 +17,6 @@ pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    #[cfg(unix)]
-    let windows = false;
-    #[cfg(windows)]
-    let windows = true;
-
     App::new(CMD)
         .about(
             "Recovers validator private keys given a BIP-39 mnemonic phrase. \
@@ -77,7 +72,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
                 .takes_value(false)
-                .hidden(windows)
+                .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )

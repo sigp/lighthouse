@@ -29,11 +29,6 @@ pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-e
 pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    #[cfg(unix)]
-    let windows = false;
-    #[cfg(windows)]
-    let windows = true;
-
     App::new("exit")
         .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
         .arg(
@@ -67,7 +62,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
                 .takes_value(false)
-                .hidden(windows)
+                .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
