@@ -84,7 +84,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         }
 
         // Add the context bytes if required
-        if self.protocol.version == Version::V2 {
+        if self.protocol.has_context_bytes() {
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(ref res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = **res {
                     dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Altair));
