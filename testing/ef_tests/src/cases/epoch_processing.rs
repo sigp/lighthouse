@@ -104,8 +104,8 @@ impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
         } else {
             Metadata::default()
         };
-        let pre = ssz_decode_file(&path.join("pre.ssz"))?;
-        let post_file = path.join("post.ssz");
+        let pre = ssz_decode_file(&path.join("pre.ssz_snappy"))?;
+        let post_file = path.join("post.ssz_snappy");
         let post = if post_file.is_file() {
             Some(ssz_decode_file(&post_file)?)
         } else {

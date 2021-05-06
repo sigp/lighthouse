@@ -54,16 +54,24 @@ fn derived_typenum_values() {
     check_typenum_values::<MainnetEthSpec>();
 }
 
+/* Removed in merge
 #[test]
 fn shuffling() {
     ShufflingHandler::<MinimalEthSpec>::run();
     ShufflingHandler::<MainnetEthSpec>::run();
 }
+*/
 
 #[test]
 fn operations_deposit() {
     OperationsHandler::<MinimalEthSpec, Deposit>::run();
     OperationsHandler::<MainnetEthSpec, Deposit>::run();
+}
+
+#[test]
+fn operations_execution_payload() {
+    OperationsHandler::<MinimalEthSpec, ExecutionPayload>::run();
+    OperationsHandler::<MainnetEthSpec, ExecutionPayload>::run();
 }
 
 #[test]
@@ -217,6 +225,7 @@ mod ssz_static {
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 }
 
+/* Not present in merge tests.
 #[test]
 fn ssz_generic() {
     SszGenericHandler::<BasicVector>::run();
@@ -226,6 +235,7 @@ fn ssz_generic() {
     SszGenericHandler::<Uints>::run();
     SszGenericHandler::<Containers>::run();
 }
+*/
 
 #[test]
 fn epoch_processing_justification_and_finalization() {
@@ -251,6 +261,7 @@ fn epoch_processing_slashings() {
     EpochProcessingHandler::<MainnetEthSpec, Slashings>::run();
 }
 
+/* Not present in merge tests.
 #[test]
 fn epoch_processing_final_updates() {
     EpochProcessingHandler::<MinimalEthSpec, FinalUpdates>::run();
@@ -273,3 +284,4 @@ fn genesis_validity() {
     GenesisValidityHandler::<MinimalEthSpec>::run();
     // Note: there are no genesis validity tests for mainnet
 }
+*/

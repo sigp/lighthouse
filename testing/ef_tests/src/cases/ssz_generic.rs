@@ -203,7 +203,8 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
         None
     };
 
-    let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
+    let serialized =
+        fs::read(&path.join("serialized.ssz_snappy")).expect("serialized.ssz_snappy exists");
 
     let value_path = path.join("value.yaml");
     let value: Option<T> = if value_path.is_file() {

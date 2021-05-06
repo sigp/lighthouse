@@ -1,11 +1,11 @@
-TESTS_TAG := v1.0.1
+TESTS_TAG := v1.1.0-alpha.4-pre2
 TESTS = general minimal mainnet
 TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 
 REPO_NAME := eth2.0-spec-tests
 OUTPUT_DIR := ./$(REPO_NAME)
 
-BASE_URL := https://github.com/ethereum/$(REPO_NAME)/releases/download/$(TESTS_TAG)
+BASE_URL := https://github.com/protolambda/$(REPO_NAME)/releases/download/$(TESTS_TAG)
 
 $(OUTPUT_DIR): $(TARBALLS)
 	mkdir $(OUTPUT_DIR)

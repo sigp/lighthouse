@@ -16,7 +16,7 @@ pub trait Handler {
     }
 
     fn fork_name() -> &'static str {
-        "phase0"
+        "merge"
     }
 
     fn runner_name() -> &'static str;
@@ -34,7 +34,7 @@ pub trait Handler {
 
         // Iterate through test suites
         let test_cases = fs::read_dir(&handler_path)
-            .expect("handler dir exists")
+            .expect(&format!("{:?} handler dir exists", &handler_path))
             .flat_map(|entry| {
                 entry
                     .ok()
@@ -62,6 +62,10 @@ macro_rules! bls_handler {
 
         impl Handler for $runner_name {
             type Case = cases::$case_name;
+
+            fn fork_name() -> &'static str {
+                "phase0"
+            }
 
             fn runner_name() -> &'static str {
                 "bls"

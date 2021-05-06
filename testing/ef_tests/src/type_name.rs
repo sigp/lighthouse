@@ -49,6 +49,7 @@ type_name!(Deposit);
 type_name!(DepositData);
 type_name!(DepositMessage);
 type_name!(Eth1Data);
+type_name!(ExecutionPayload);
 type_name!(Fork);
 type_name!(ForkData);
 type_name_generic!(HistoricalBatch);

@@ -23,16 +23,16 @@ pub struct GenesisInitialization<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
     fn load_from_dir(path: &Path) -> Result<Self, Error> {
-        let eth1_block_hash = ssz_decode_file(&path.join("eth1_block_hash.ssz"))?;
+        let eth1_block_hash = ssz_decode_file(&path.join("eth1_block_hash.ssz_snappy"))?;
         let eth1_timestamp = yaml_decode_file(&path.join("eth1_timestamp.yaml"))?;
         let meta: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let deposits: Vec<Deposit> = (0..meta.deposits_count)
             .map(|i| {
-                let filename = format!("deposits_{}.ssz", i);
+                let filename = format!("deposits_{}.ssz_snappy", i);
                 ssz_decode_file(&path.join(filename))
             })
             .collect::<Result<_, _>>()?;
-        let state = ssz_decode_file(&path.join("state.ssz"))?;
+        let state = ssz_decode_file(&path.join("state.ssz_snappy"))?;
 
         Ok(Self {
             path: path.into(),
