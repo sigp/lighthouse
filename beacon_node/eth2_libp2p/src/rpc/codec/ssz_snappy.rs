@@ -540,6 +540,10 @@ mod tests {
         SignedBeaconBlock, Slot,
     };
 
+    use snap::write::FrameEncoder;
+    use ssz::Encode;
+    use std::io::Write;
+
     type Spec = types::MainnetEthSpec;
 
     fn fork_context() -> ForkContext {
@@ -861,5 +865,129 @@ mod tests {
             decode(Protocol::BlocksByRange, Version::V2, &mut wrong_fork_bytes).unwrap_err(),
             RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
         ));
+
+        // Sending bytes less than context bytes length should wait for more bytes by returning `Ok(None)`
+        let mut encoded_bytes = encode(
+            Protocol::BlocksByRoot,
+            Version::V2,
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+        )
+        .unwrap();
+
+        let mut part = encoded_bytes.split_to(3);
+
+        assert_eq!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut part),
+            Ok(None)
+        )
+    }
+
+    #[test]
+    fn test_decode_malicious_status_message() {
+        // 10 byte snappy stream identifier
+        let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
+
+        assert_eq!(stream_identifier.len(), 10);
+
+        // byte 0(0xFE) is padding chunk type identifier for snappy messages
+        // byte 1,2,3 are chunk length (little endian)
+        let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
+
+        // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
+        let status_message_bytes = StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        }
+        .as_ssz_bytes();
+
+        assert_eq!(status_message_bytes.len(), 84);
+        assert_eq!(snap::raw::max_compress_len(status_message_bytes.len()), 130);
+
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Insert length-prefix
+        uvi_codec
+            .encode(status_message_bytes.len(), &mut dst)
+            .unwrap();
+
+        // Insert snappy stream identifier
+        dst.extend_from_slice(stream_identifier);
+
+        // Insert malicious padding of 80 bytes.
+        for _ in 0..20 {
+            dst.extend_from_slice(malicious_padding);
+        }
+
+        // Insert payload (42 bytes compressed)
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&status_message_bytes).unwrap();
+        writer.flush().unwrap();
+        assert_eq!(writer.get_ref().len(), 42);
+        dst.extend_from_slice(writer.get_ref());
+
+        // 10 (for stream identifier) + 80 + 42 = 132 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
+        assert_eq!(
+            decode(Protocol::Status, Version::V1, &mut dst).unwrap_err(),
+            RPCError::InvalidData
+        );
+    }
+
+    #[test]
+    fn test_decode_malicious_v2_message() {
+        let fork_context = Arc::new(fork_context());
+
+        // 10 byte snappy stream identifier
+        let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
+
+        assert_eq!(stream_identifier.len(), 10);
+
+        // byte 0(0xFE) is padding chunk type identifier for snappy messages
+        // byte 1,2,3 are chunk length (little endian)
+        let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
+
+        // Full altair block is 157980 bytes uncompressed. `max_compressed_len` is 32 + 157980 + 157980/6 = 184342.
+        let block_message_bytes = altair_block().as_ssz_bytes();
+
+        assert_eq!(block_message_bytes.len(), 157980);
+        assert_eq!(
+            snap::raw::max_compress_len(block_message_bytes.len()),
+            184342
+        );
+
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Insert context bytes
+        dst.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
+
+        // Insert length-prefix
+        uvi_codec
+            .encode(block_message_bytes.len(), &mut dst)
+            .unwrap();
+
+        // Insert snappy stream identifier
+        dst.extend_from_slice(stream_identifier);
+
+        // Insert malicious padding of 176240 bytes.
+        for _ in 0..44060 {
+            dst.extend_from_slice(malicious_padding);
+        }
+
+        // Insert payload (8106 bytes compressed)
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&block_message_bytes).unwrap();
+        writer.flush().unwrap();
+        assert_eq!(writer.get_ref().len(), 8106);
+        dst.extend_from_slice(writer.get_ref());
+
+        // 10 (for stream identifier) + 176240 + 8106 = 184356 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
+        assert_eq!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut dst).unwrap_err(),
+            RPCError::InvalidData
+        );
     }
 }
