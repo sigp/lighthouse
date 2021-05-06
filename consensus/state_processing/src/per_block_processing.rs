@@ -141,7 +141,7 @@ pub fn per_block_processing<T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_execution_payload(&mut state, &block.body, spec)?;
+    process_execution_payload(&mut state, &block.body.execution_payload, spec)?;
 
     Ok(())
 }
@@ -512,7 +512,7 @@ pub fn process_exits<T: EthSpec>(
 /// This function **does not verify the execution payload**, it must be verified upstream.
 pub fn process_execution_payload<T: EthSpec>(
     state: &mut BeaconState<T>,
-    body: &BeaconBlockBody<T>,
+    execution_payload: &ExecutionPayload,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let transition_completed = is_transition_completed(state);
@@ -522,11 +522,9 @@ pub fn process_execution_payload<T: EthSpec>(
     // ```
     // if not is_transition_completed(state) and not is_transition_block(state, body)
     // ```
-    if !transition_completed && !is_transition_block(body, transition_completed) {
+    if !transition_completed && !is_transition_block(execution_payload, transition_completed) {
         return Ok(());
     }
-
-    let execution_payload = &body.execution_payload;
 
     if transition_completed {
         // assert execution_payload.parent_hash == state.latest_execution_payload_header.block_hash
@@ -582,9 +580,9 @@ pub fn is_transition_completed<T: EthSpec>(state: &BeaconState<T>) -> bool {
     state.latest_execution_payload_header != <_>::default()
 }
 
-pub fn is_transition_block<T: EthSpec>(
-    body: &BeaconBlockBody<T>,
+pub fn is_transition_block(
+    execution_payload: &ExecutionPayload,
     transition_completed: bool,
 ) -> bool {
-    !transition_completed && body.execution_payload != <_>::default()
+    !transition_completed && *execution_payload != <_>::default()
 }
