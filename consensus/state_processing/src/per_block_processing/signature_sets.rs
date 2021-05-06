@@ -2,7 +2,7 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
-use bls::{PublicKeyBytes, SignatureSet};
+use bls::SignatureSet;
 use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
@@ -11,7 +11,7 @@ use types::{
     DepositData, Domain, Epoch, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing,
     PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
+    SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

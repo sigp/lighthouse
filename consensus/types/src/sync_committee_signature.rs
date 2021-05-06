@@ -4,7 +4,6 @@ use crate::{
 };
 
 use crate::attestation::SlotData;
-use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

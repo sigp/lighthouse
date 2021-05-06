@@ -3,10 +3,7 @@ use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::attestation::SlotData;
 use types::sync_committee_contribution::SyncContributionData;
-use types::{
-    Attestation, AttestationData, EthSpec, Hash256, Slot, SyncAggregate,
-    SyncAggregatorSelectionData, SyncCommitteeContribution,
-};
+use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
 type AttestationDataRoot = Hash256;
 type SyncDataRoot = Hash256;

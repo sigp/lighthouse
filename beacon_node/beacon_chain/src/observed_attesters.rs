@@ -12,10 +12,10 @@
 
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
+
 use std::marker::PhantomData;
-use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::{Attestation, Epoch, EthSpec, Slot, Unsigned};
+
+use types::{Epoch, EthSpec, Slot, Unsigned};
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<SlotHashSet, E>;
@@ -476,7 +476,6 @@ mod tests {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
-                use types::test_utils::test_random_instance;
 
                 type E = types::MainnetEthSpec;
 

@@ -35,29 +35,16 @@ use crate::{
     observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use bls::impls::fake_crypto::AggregateSignature;
 use bls::verify_signature_sets;
 use eth2::lighthouse_vc::types::attestation::SlotData;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use safe_arith::SafeArith;
-use slog::debug;
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::errors::BlockProcessingError::SyncAggregateInvalid;
-use state_processing::per_block_processing::errors::SyncAggregateInvalid::PubkeyInvalid;
-use state_processing::per_block_processing::errors::SyncAggregateInvalid::SignatureInvalid;
 use state_processing::per_block_processing::errors::SyncSignatureValidationError;
 use state_processing::signature_sets::{
     signed_sync_aggregate_selection_proof_signature_set, signed_sync_aggregate_signature_set,
     sync_committee_contribution_signature_set_from_pubkeys,
-};
-use state_processing::{
-    common::get_indexed_attestation,
-    per_block_processing::errors::AttestationValidationError,
-    signature_sets::{
-        indexed_attestation_signature_set_from_pubkeys,
-        signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
-    },
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -321,7 +308,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let head_block =
+        let _head_block =
             verify_head_block_is_known(chain, contribution, contribution.beacon_block_root, None)?;
 
         // Ensure that the attestation has participants.

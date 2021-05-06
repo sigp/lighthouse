@@ -19,8 +19,7 @@ use crate::naive_aggregation_pool::{
     SyncAggregateMap,
 };
 use crate::observed_aggregates::{
-    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedAggregates,
-    ObservedSyncAggregates,
+    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncAggregates,
 };
 use crate::observed_attesters::{
     ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,

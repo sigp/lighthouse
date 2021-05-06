@@ -1,6 +1,6 @@
 use super::{
-    Attestation, ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof,
-    Signature, SignedRoot, SyncCommitteeContribution,
+    ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof, Signature,
+    SignedRoot, SyncCommitteeContribution,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
