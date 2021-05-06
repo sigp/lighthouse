@@ -221,7 +221,7 @@ struct JsonExecutionPayload {
 }
 
 pub async fn consensus_assemble_block(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     parent_hash: Hash256,
     timestamp: u64,
     timeout: Duration,
@@ -273,7 +273,7 @@ struct NewBlockResponse {
 }
 
 pub async fn consensus_new_block(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     execution_payload: &ExecutionPayload,
     timeout: Duration,
 ) -> Result<bool, String> {
@@ -312,7 +312,7 @@ struct SetHeadResponse {
 }
 
 pub async fn consensus_set_head(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     block_hash: Hash256,
     timeout: Duration,
 ) -> Result<bool, String> {
