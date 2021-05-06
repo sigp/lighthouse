@@ -563,11 +563,12 @@ mod tests {
         }
     }
 
-    fn encode_then_decode(
+    /// Encodes the given protocol response as bytes.
+    fn encode(
         protocol: Protocol,
         version: Version,
         message: RPCCodedResponse<Spec>,
-    ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
+    ) -> Result<BytesMut, RPCError> {
         let max_packet_size = 1_048_576;
         let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context());
@@ -579,13 +580,33 @@ mod tests {
             fork_context.clone(),
         );
 
-        snappy_inbound_codec
-            .encode(message, &mut buf)
-            .expect("should encode rpc message");
+        snappy_inbound_codec.encode(message, &mut buf)?;
+        return Ok(buf);
+    }
+
+    /// Attempts to decode the given protocol bytes as an rpc response
+    fn decode(
+        protocol: Protocol,
+        version: Version,
+        message: &mut BytesMut,
+    ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
+        let max_packet_size = 1_048_576;
+        let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
+        let fork_context = Arc::new(fork_context());
         let mut snappy_outbound_codec =
-            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, 1_048_576, fork_context);
+            SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
-        snappy_outbound_codec.decode(&mut buf)
+        snappy_outbound_codec.decode(message)
+    }
+
+    /// Encodes the provided protocol message as bytes and tries to decode the encoding bytes.
+    fn encode_then_decode(
+        protocol: Protocol,
+        version: Version,
+        message: RPCCodedResponse<Spec>,
+    ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
+        let mut encoded = encode(protocol, version.clone(), message)?;
+        decode(protocol, version, &mut encoded)
     }
 
     // Test RPCResponse encoding/decoding for V1 messages
@@ -667,14 +688,6 @@ mod tests {
 
     #[test]
     fn test_encode_then_decode_v2() {
-        println!(
-            "{:?}",
-            encode_then_decode(
-                Protocol::Status,
-                Version::V2,
-                RPCCodedResponse::Success(RPCResponse::Status(status_message())),
-            )
-        );
         assert!(
             matches!(
                 encode_then_decode(
@@ -736,15 +749,104 @@ mod tests {
             ),
             Ok(Some(RPCResponse::BlocksByRoot(Box::new(altair_block()))))
         );
+    }
 
-        // TODO: add metadata both variants
-        // assert_eq!(
-        //     encode_then_decode(
-        //         Protocol::MetaData,
-        //         Version::V2,
-        //         RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
-        //     ),
-        //     Ok(Some(RPCResponse::MetaData(metadata()))),
-        // );
+    #[test]
+    fn test_context_bytes_v2() {
+        let fork_context = fork_context();
+
+        // Removing context bytes for v2 messages should error
+        let mut encoded_bytes = encode(
+            Protocol::BlocksByRange,
+            Version::V2,
+            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+        )
+        .unwrap();
+
+        let _ = encoded_bytes.split_to(4);
+
+        assert!(matches!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut encoded_bytes).unwrap_err(),
+            RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
+        ));
+
+        let mut encoded_bytes = encode(
+            Protocol::BlocksByRoot,
+            Version::V2,
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+        )
+        .unwrap();
+
+        let _ = encoded_bytes.split_to(4);
+
+        assert!(matches!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut encoded_bytes).unwrap_err(),
+            RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
+        ));
+
+        // Trying to decode a base block with altair context bytes should give ssz decoding error
+        let mut encoded_bytes = encode(
+            Protocol::BlocksByRange,
+            Version::V2,
+            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+        )
+        .unwrap();
+
+        let mut wrong_fork_bytes = BytesMut::new();
+        wrong_fork_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair));
+        wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
+
+        assert!(matches!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut wrong_fork_bytes).unwrap_err(),
+            RPCError::SSZDecodeError(_),
+        ));
+
+        // Trying to decode an altair block with base context bytes should give ssz decoding error
+        let mut encoded_bytes = encode(
+            Protocol::BlocksByRoot,
+            Version::V2,
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block()))),
+        )
+        .unwrap();
+
+        let mut wrong_fork_bytes = BytesMut::new();
+        wrong_fork_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Base));
+        wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
+
+        assert!(matches!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut wrong_fork_bytes).unwrap_err(),
+            RPCError::SSZDecodeError(_),
+        ));
+
+        // Adding context bytes to Protocols that don't require it should return an error
+        let mut encoded_bytes = BytesMut::new();
+        encoded_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair));
+        encoded_bytes.extend_from_slice(
+            &encode(
+                Protocol::MetaData,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
+            )
+            .unwrap(),
+        );
+
+        assert!(decode(Protocol::MetaData, Version::V2, &mut encoded_bytes).is_err());
+
+        // Sending context bytes which do not correspond to any fork should return an error
+        let mut encoded_bytes = encode(
+            Protocol::BlocksByRoot,
+            Version::V2,
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+        )
+        .unwrap();
+
+        let mut wrong_fork_bytes = BytesMut::new();
+        wrong_fork_bytes.extend_from_slice(&[42, 42, 42, 42]);
+        wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
+
+        assert!(matches!(
+            decode(Protocol::BlocksByRange, Version::V2, &mut wrong_fork_bytes).unwrap_err(),
+            RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
+        ));
     }
 }
