@@ -87,17 +87,29 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
         if self.protocol.has_context_bytes() {
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(ref res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = **res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Altair));
+                    // Altair context being `None` implies that "altair never happened".
+                    // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                    if let Some(ref altair_context) =
+                        self.fork_context.to_context_bytes(ForkName::Altair)
+                    {
+                        dst.extend_from_slice(altair_context);
+                    }
                 } else if let SignedBeaconBlock::Base { .. } = **res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Base));
+                    dst.extend_from_slice(&self.fork_context.genesis_context_bytes());
                 }
             }
 
             if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = item {
                 if let SignedBeaconBlock::Altair { .. } = *res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Altair));
+                    // Altair context being `None` implies that "altair never happened".
+                    // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                    if let Some(ref altair_context) =
+                        self.fork_context.to_context_bytes(ForkName::Altair)
+                    {
+                        dst.extend_from_slice(altair_context);
+                    }
                 } else if let SignedBeaconBlock::Base { .. } = *res {
-                    dst.extend_from_slice(&self.fork_context.to_context_bytes(ForkName::Base));
+                    dst.extend_from_slice(&self.fork_context.genesis_context_bytes());
                 }
             }
         }
@@ -202,7 +214,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             }
                             _ => Err(RPCError::ErrorResponse(
                                 RPCResponseErrorCode::InvalidRequest,
-                                "Invalid v2 request".to_string(),
+                                format!(
+                                    "{} does not support version 2",
+                                    self.protocol.message_name
+                                ),
                             )),
                         }
                     }
@@ -790,7 +805,8 @@ mod tests {
         .unwrap();
 
         let mut wrong_fork_bytes = BytesMut::new();
-        wrong_fork_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair));
+        wrong_fork_bytes
+            .extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
         wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
 
         assert!(matches!(
@@ -807,7 +823,7 @@ mod tests {
         .unwrap();
 
         let mut wrong_fork_bytes = BytesMut::new();
-        wrong_fork_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Base));
+        wrong_fork_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Base).unwrap());
         wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
 
         assert!(matches!(
@@ -817,7 +833,7 @@ mod tests {
 
         // Adding context bytes to Protocols that don't require it should return an error
         let mut encoded_bytes = BytesMut::new();
-        encoded_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair));
+        encoded_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
         encoded_bytes.extend_from_slice(
             &encode(
                 Protocol::MetaData,
