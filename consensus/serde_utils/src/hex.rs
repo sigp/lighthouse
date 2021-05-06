@@ -15,17 +15,7 @@ pub fn encode<T: AsRef<[u8]>>(data: T) -> String {
 /// Decode `data` from a 0x-prefixed hex string.
 pub fn decode(s: &str) -> Result<Vec<u8>, String> {
     if let Some(stripped) = s.strip_prefix("0x") {
-        if !stripped.is_empty() && stripped.len() % 2 == 0 {
-            hex::decode(stripped).map_err(|e| format!("invalid hex: {:?}", e))
-        } else {
-            // TODO: do we want to allow this padding for all decoding?
-            let padded = if stripped.is_empty() {
-                "00".to_string()
-            } else {
-                format!("0{}", stripped)
-            };
-            hex::decode(padded).map_err(|e| format!("invalid hex: {:?}", e))
-        }
+        hex::decode(stripped).map_err(|e| format!("invalid hex: {:?}", e))
     } else {
         Err("hex must have 0x prefix".to_string())
     }
