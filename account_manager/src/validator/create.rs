@@ -120,11 +120,7 @@ pub fn cli_run<T: EthSpec>(
     let spec = env.core_context().eth2_config.spec;
 
     let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
-
-    #[cfg(unix)]
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
-    #[cfg(windows)]
-    let stdin_inputs = true;
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
 
     let wallet_base_dir = if matches.value_of("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;

@@ -73,11 +73,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
 
-    #[cfg(unix)]
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
-    #[cfg(windows)]
-    let stdin_inputs = true;
-
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let no_wait = matches.is_present(NO_WAIT);
 
     let spec = env.eth2_config().spec.clone();

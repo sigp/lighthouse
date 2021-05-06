@@ -153,12 +153,7 @@ pub fn create_wallet_from_mnemonic(
     let name: Option<String> = clap_utils::parse_optional(matches, NAME_FLAG)?;
     let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
-
-    #[cfg(unix)]
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
-    #[cfg(windows)]
-    let stdin_inputs = true;
-
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let wallet_type = match type_field.as_ref() {
         HD_TYPE => WalletType::Hd,
         unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),

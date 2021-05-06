@@ -85,10 +85,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
-    #[cfg(unix)]
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
-    #[cfg(windows)]
-    let stdin_inputs = true;
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
     let keystore_password_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
