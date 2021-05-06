@@ -20,7 +20,7 @@ impl ForkContext {
         )];
 
         // Only add Altair to list of forks if it's enabled (i.e. spec.altair_fork_slot != None)
-        if let Some(_) = spec.altair_fork_slot {
+        if spec.altair_fork_slot.is_some() {
             fork_to_digest.push((
                 ForkName::Altair,
                 ChainSpec::compute_fork_digest(spec.altair_fork_version, genesis_validators_root),
@@ -32,7 +32,7 @@ impl ForkContext {
         let digest_to_fork = fork_to_digest
             .clone()
             .into_iter()
-            .map(|(k, v)| (v.clone(), k.clone()))
+            .map(|(k, v)| (v, k))
             .collect();
 
         Self {
@@ -43,10 +43,10 @@ impl ForkContext {
 
     /// Returns the context bytes/fork_digest corresponding to the genesis fork version.
     pub fn genesis_context_bytes(&self) -> [u8; 4] {
-        self.fork_to_digest
+        *self
+            .fork_to_digest
             .get(&ForkName::Base)
             .expect("ForkContext must contain genesis context bytes")
-            .clone()
     }
 
     /// Returns the fork type given the context bytes/fork_digest.
