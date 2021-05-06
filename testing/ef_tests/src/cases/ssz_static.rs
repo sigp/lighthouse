@@ -1,10 +1,9 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::cases::common::SszStaticType;
-use crate::decode::yaml_decode_file;
+use crate::decode::{ssz_decode_file, yaml_decode_file};
 use cached_tree_hash::{CacheArena, CachedTreeHash};
 use serde_derive::Deserialize;
-use std::fs;
 use std::marker::PhantomData;
 use types::Hash256;
 
@@ -31,8 +30,7 @@ pub struct SszStaticTHC<T, C> {
 
 fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
-    let serialized =
-        fs::read(&path.join("serialized.ssz_snappy")).expect("serialized.ssz_snappy exists");
+    let serialized = ssz_decode_file(&path.join("serialized.ssz_snappy"))?;
     let value = yaml_decode_file(&path.join("value.yaml"))?;
 
     Ok((roots, serialized, value))
