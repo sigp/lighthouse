@@ -169,9 +169,8 @@ pub fn process_block_header<T: EthSpec>(
     *state.latest_block_header_mut() = block.temporary_block_header();
 
     // Verify proposer is not slashed
-    let proposer = &state.validators()[proposer_index];
     verify!(
-        !proposer.slashed,
+        !state.get_validator(proposer_index)?.slashed,
         HeaderInvalid::ProposerSlashed(proposer_index)
     );
 

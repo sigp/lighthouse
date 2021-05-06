@@ -4,7 +4,7 @@ use enr::{CombinedKey, Enr};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{AltairConfig, BaseConfig, BeaconState, ChainSpec, EthSpec, EthSpecId};
+use types::{AltairConfig, BaseConfig, BeaconState, ChainSpec, EthSpec, EthSpecId, StandardConfig};
 
 pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
@@ -106,14 +106,14 @@ impl Eth2NetworkConfig {
 
     /// Construct a consolidated `ChainSpec` from the YAML config.
     pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
-        ChainSpec::from_standard_config::<E>(&self.base_config, &self.altair_config).ok_or_else(
-            || {
-                format!(
-                    "YAML configuration incompatible with spec constants for {}",
-                    self.base_config.config_name
-                )
-            },
-        )
+        let standard_config =
+            StandardConfig::from_parts(self.base_config.clone(), self.altair_config.clone());
+        ChainSpec::from_standard_config::<E>(&standard_config).ok_or_else(|| {
+            format!(
+                "YAML configuration incompatible with spec constants for {}",
+                self.base_config.config_name
+            )
+        })
     }
 
     /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.

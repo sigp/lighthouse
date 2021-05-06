@@ -122,11 +122,14 @@ pub mod altair {
 
             for &(flag_index, weight) in FLAG_INDICES_AND_WEIGHTS.iter() {
                 let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
+                let validator_participation = epoch_participation
+                    .get_mut(index)
+                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                 if participation_flag_indices.contains(&flag_index)
-                    && !epoch_participation[index].has_flag(flag_index)?
+                    && !validator_participation.has_flag(flag_index)?
                 {
-                    epoch_participation[index] = epoch_participation[index].add_flag(flag_index)?;
+                    validator_participation.add_flag(flag_index)?;
                     proposer_reward_numerator.safe_add_assign(
                         get_base_reward(state, index, total_active_balance, spec)?
                             .safe_mul(weight)?,

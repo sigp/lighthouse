@@ -10,6 +10,7 @@ pub enum EpochProcessingError {
     InclusionDistanceZero,
     ValidatorStatusesInconsistent,
     DeltasInconsistent,
+    DeltaOutOfBounds(usize),
     /// Unable to get the inclusion distance for a validator that should have an inclusion
     /// distance. This indicates an internal inconsistency.
     ///

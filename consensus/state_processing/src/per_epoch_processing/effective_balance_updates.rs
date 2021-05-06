@@ -1,10 +1,8 @@
 use super::errors::EpochProcessingError;
-use core::result::Result;
-use core::result::Result::Ok;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
-use types::eth_spec::EthSpec;
+use types::{BeaconStateError, EthSpec};
 
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -17,7 +15,10 @@ pub fn process_effective_balance_updates<T: EthSpec>(
     let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
     let (validators, balances) = state.validators_and_balances_mut();
     for (index, validator) in validators.iter_mut().enumerate() {
-        let balance = balances[index];
+        let balance = balances
+            .get(index)
+            .copied()
+            .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
 
         if balance.safe_add(downward_threshold)? < validator.effective_balance
             || validator.effective_balance.safe_add(upward_threshold)? < balance

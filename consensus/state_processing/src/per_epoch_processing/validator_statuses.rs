@@ -196,7 +196,7 @@ impl ValidatorStatuses {
         let mut total_balances = TotalBalances::new(spec);
 
         for (i, validator) in state.validators().iter().enumerate() {
-            let effective_balance = state.get_effective_balance(i, spec)?;
+            let effective_balance = state.get_effective_balance(i)?;
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed,
                 is_withdrawable_in_current_epoch: validator
@@ -235,7 +235,6 @@ impl ValidatorStatuses {
     pub fn process_attestations<T: EthSpec>(
         &mut self,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let base_state = state.as_base()?;
         for a in base_state
@@ -278,7 +277,10 @@ impl ValidatorStatuses {
 
             // Loop through the participating validator indices and update the status vec.
             for validator_index in attesting_indices {
-                self.statuses[validator_index].update(&status);
+                self.statuses
+                    .get_mut(validator_index)
+                    .ok_or(BeaconStateError::UnknownValidator(validator_index))?
+                    .update(&status);
             }
         }
 
@@ -286,7 +288,7 @@ impl ValidatorStatuses {
         for (index, v) in self.statuses.iter().enumerate() {
             // According to the spec, we only count unslashed validators towards the totals.
             if !v.is_slashed {
-                let validator_balance = state.get_effective_balance(index, spec)?;
+                let validator_balance = state.get_effective_balance(index)?;
 
                 if v.is_current_epoch_attester {
                     self.total_balances

@@ -64,8 +64,10 @@ impl CommitteeCache {
         }
 
         let mut shuffling_positions = vec![None; state.validators().len()];
-        for (i, v) in shuffling.iter().enumerate() {
-            shuffling_positions[*v] = NonZeroUsize::new(i + 1);
+        for (i, &v) in shuffling.iter().enumerate() {
+            *shuffling_positions
+                .get_mut(v)
+                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1);
         }
 
         Ok(CommitteeCache {
@@ -229,7 +231,7 @@ impl CommitteeCache {
     ///
     /// Spec v0.12.1
     fn compute_committee(&self, index: usize) -> Option<&[usize]> {
-        Some(&self.shuffling[self.compute_committee_range(index)?])
+        self.shuffling.get(self.compute_committee_range(index)?)
     }
 
     /// Returns a range of `self.shuffling` that represents the `index`'th committee in the epoch.

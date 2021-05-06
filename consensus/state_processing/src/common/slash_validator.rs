@@ -13,15 +13,11 @@ pub fn slash_validator<T: EthSpec>(
     opt_whistleblower_index: Option<usize>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if slashed_index >= state.validators().len() || slashed_index >= state.balances().len() {
-        return Err(BeaconStateError::UnknownValidator(slashed_index));
-    }
-
     let epoch = state.current_epoch();
 
     initiate_validator_exit(state, slashed_index, spec)?;
 
-    let validator = &mut state.validators_mut()[slashed_index];
+    let validator = state.get_validator_mut(slashed_index)?;
     validator.slashed = true;
     validator.withdrawable_epoch = cmp::max(
         validator.withdrawable_epoch,
@@ -43,7 +39,7 @@ pub fn slash_validator<T: EthSpec>(
         state,
         slashed_index,
         validator_effective_balance.safe_div(min_slashing_penalty_quotient)?,
-    );
+    )?;
 
     // Apply proposer and whistleblower rewards
     let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)?;

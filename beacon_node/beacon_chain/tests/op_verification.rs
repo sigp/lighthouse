@@ -7,7 +7,7 @@ extern crate lazy_static;
 
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
-    let spec = E::default_spec();
+    let spec = test_spec::<E>();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();

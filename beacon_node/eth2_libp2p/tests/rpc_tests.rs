@@ -1,5 +1,4 @@
-// FIXME(altair): disabled until Pawan's network changes are ready
-#![cfg(all(test, not(test)))]
+#![cfg(test)]
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::{BehaviourEvent, Libp2pEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
@@ -141,10 +140,7 @@ fn test_blocks_by_range_chunked_rpc() {
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock {
-            message: empty_block,
-            signature: Signature::empty(),
-        };
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
         // keep count of the number of messages received
@@ -258,10 +254,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock {
-            message: empty_block,
-            signature: Signature::empty(),
-        };
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
         // keep count of the number of messages received
@@ -391,10 +384,7 @@ fn test_blocks_by_range_single_empty_rpc() {
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock {
-            message: empty_block,
-            signature: Signature::empty(),
-        };
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
         let messages_to_send = 1;
@@ -511,10 +501,7 @@ fn test_blocks_by_root_chunked_rpc() {
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::full(&spec);
-        let signed_full_block = SignedBeaconBlock {
-            message: full_block,
-            signature: Signature::empty(),
-        };
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
         // keep count of the number of messages received
@@ -635,10 +622,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::full(&spec);
-        let signed_full_block = SignedBeaconBlock {
-            message: full_block,
-            signature: Signature::empty(),
-        };
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
         // keep count of the number of messages received

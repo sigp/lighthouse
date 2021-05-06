@@ -19,6 +19,7 @@ pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const PASSWORD_FILE_FLAG: &str = "password-file";
 pub const BEACON_SERVER_FLAG: &str = "beacon-node";
+pub const NO_WAIT: &str = "no-wait";
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -53,6 +54,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name(NO_WAIT)
+                .long(NO_WAIT)
+                .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
+        )
+        .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
@@ -64,6 +70,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let password_file_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
     let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    let no_wait = matches.is_present(NO_WAIT);
 
     let spec = env.eth2_config().spec.clone();
     let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;
@@ -84,6 +91,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         &spec,
         stdin_inputs,
         &testnet_config,
+        no_wait,
     ))?;
 
     Ok(())
@@ -97,6 +105,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     spec: &ChainSpec,
     stdin_inputs: bool,
     testnet_config: &Eth2NetworkConfig,
+    no_wait: bool,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = testnet_config
@@ -166,6 +175,10 @@ async fn publish_voluntary_exit<E: EthSpec>(
             "Did not publish voluntary exit for validator {}. Please check that you entered the correct exit phrase.",
             keypair.pk
         );
+        return Ok(());
+    }
+
+    if no_wait {
         return Ok(());
     }
 

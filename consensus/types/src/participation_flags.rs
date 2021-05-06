@@ -13,12 +13,12 @@ pub struct ParticipationFlags {
 }
 
 impl ParticipationFlags {
-    pub fn add_flag(mut self, flag_index: u32) -> Result<Self, ArithError> {
+    pub fn add_flag(&mut self, flag_index: u32) -> Result<(), ArithError> {
         if flag_index > NUM_FLAG_INDICES as u32 {
             return Err(ArithError::Overflow);
         }
         self.bits |= 1u8.safe_shl(flag_index)?;
-        Ok(self)
+        Ok(())
     }
 
     pub fn has_flag(&self, flag_index: u32) -> Result<bool, ArithError> {

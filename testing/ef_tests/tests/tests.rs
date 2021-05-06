@@ -15,10 +15,11 @@ fn config_test<E: EthSpec + TypeName>() {
     let altair_config_path = config_dir.join("altair.yaml");
     let phase0_config = BaseConfig::from_file(&phase0_config_path).expect("config file loads OK");
     let altair_config = AltairConfig::from_file(&altair_config_path).expect("altair config loads");
+    let std_config = StandardConfig::from_parts(phase0_config.clone(), altair_config.clone());
     let spec = E::default_spec();
 
-    let unified_spec = ChainSpec::from_standard_config::<E>(&phase0_config, &altair_config)
-        .expect("config unification");
+    let unified_spec =
+        ChainSpec::from_standard_config::<E>(&std_config).expect("config unification");
     assert_eq!(unified_spec, spec);
 
     let phase0_from_spec = BaseConfig::from_chain_spec::<E>(&spec);

@@ -8,12 +8,8 @@ pub fn initiate_validator_exit<T: EthSpec>(
     index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if index >= state.validators().len() {
-        return Err(Error::UnknownValidator(index));
-    }
-
     // Return if the validator already initiated exit
-    if state.validators()[index].exit_epoch != spec.far_future_epoch {
+    if state.get_validator(index)?.exit_epoch != spec.far_future_epoch {
         return Ok(());
     }
 
@@ -35,8 +31,8 @@ pub fn initiate_validator_exit<T: EthSpec>(
     state
         .exit_cache_mut()
         .record_validator_exit(exit_queue_epoch)?;
-    state.validators_mut()[index].exit_epoch = exit_queue_epoch;
-    state.validators_mut()[index].withdrawable_epoch =
+    state.get_validator_mut(index)?.exit_epoch = exit_queue_epoch;
+    state.get_validator_mut(index)?.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
 
     Ok(())

@@ -299,7 +299,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_slashings(
         &self,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing<T>>) {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
@@ -323,7 +323,7 @@ impl<T: EthSpec> OperationPool<T> {
 
         let relevant_attester_slashings = reader.iter().flat_map(|(slashing, fork)| {
             if *fork == state.fork().previous_version || *fork == state.fork().current_version {
-                AttesterSlashingMaxCover::new(&slashing, &to_be_slashed, state, spec)
+                AttesterSlashingMaxCover::new(&slashing, &to_be_slashed, state)
             } else {
                 None
             }

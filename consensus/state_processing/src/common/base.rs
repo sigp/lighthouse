@@ -14,7 +14,7 @@ pub fn get_base_reward<T: EthSpec>(
         Ok(0)
     } else {
         Ok(state
-            .get_effective_balance(index, spec)?
+            .get_effective_balance(index)?
             .safe_mul(spec.base_reward_factor)?
             .safe_div(total_active_balance.integer_sqrt())?
             .safe_div(spec.base_rewards_per_epoch)?)

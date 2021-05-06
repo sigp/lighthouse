@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{sync::RwLock, time::sleep};
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, StandardConfig};
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
@@ -224,25 +224,31 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             })?
             .data;
 
-        let beacon_node_spec = ChainSpec::from_standard_config::<E>(
-            &std_config.base,
-            &std_config.altair,
-        )
-        .ok_or_else(|| {
-            error!(
-                log,
-                "The minimal/mainnet spec type of the beacon node does not match the validator \
-                client. See the --network command.";
-                "endpoint" => %self.beacon_node,
-            );
-            CandidateError::Incompatible
-        })?;
+        let beacon_node_spec =
+            ChainSpec::from_standard_config::<E>(&std_config).ok_or_else(|| {
+                error!(
+                    log,
+                    "The minimal/mainnet spec type of the beacon node does not match the validator \
+                    client. See the --network command.";
+                    "endpoint" => %self.beacon_node,
+                );
+                CandidateError::Incompatible
+            })?;
 
-        if !std_config.extra_fields.is_empty() {
+        if !std_config.extra_fields().is_empty() {
             debug!(
                 log,
                 "Beacon spec includes unknown fields";
-                "fields" => ?std_config.extra_fields
+                "endpoint" => %self.beacon_node,
+                "fields" => ?std_config.extra_fields(),
+            );
+        }
+
+        if let StandardConfig::Base { .. } = std_config {
+            warn!(
+                log,
+                "Beacon spec lacks Altair config";
+                "endpoint" => %self.beacon_node,
             );
         }
 

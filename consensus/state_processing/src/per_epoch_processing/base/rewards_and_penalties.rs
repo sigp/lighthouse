@@ -1,4 +1,4 @@
-use crate::common::base::get_base_reward;
+use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
 use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
@@ -57,8 +57,8 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
     for (i, delta) in deltas.iter().enumerate() {
-        state.balances_mut()[i] = state.balances()[i].safe_add(delta.rewards)?;
-        state.balances_mut()[i] = state.balances()[i].saturating_sub(delta.penalties);
+        increase_balance(state, i, delta.rewards)?;
+        decrease_balance(state, i, delta.penalties)?;
     }
 
     Ok(())
@@ -103,18 +103,20 @@ fn get_attestation_deltas<T: EthSpec>(
         let inactivity_penalty_delta =
             get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
 
-        deltas[index].combine(source_delta)?;
-        deltas[index].combine(target_delta)?;
-        deltas[index].combine(head_delta)?;
-        deltas[index].combine(inclusion_delay_delta)?;
-        deltas[index].combine(inactivity_penalty_delta)?;
+        let delta = deltas
+            .get_mut(index)
+            .ok_or(Error::DeltaOutOfBounds(index))?;
+        delta.combine(source_delta)?;
+        delta.combine(target_delta)?;
+        delta.combine(head_delta)?;
+        delta.combine(inclusion_delay_delta)?;
+        delta.combine(inactivity_penalty_delta)?;
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
-            if proposer_index >= deltas.len() {
-                return Err(Error::ValidatorStatusesInconsistent);
-            }
-
-            deltas[proposer_index].combine(proposer_delta)?;
+            deltas
+                .get_mut(proposer_index)
+                .ok_or(Error::ValidatorStatusesInconsistent)?
+                .combine(proposer_delta)?;
         }
     }
 

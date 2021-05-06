@@ -5,7 +5,7 @@ use types::consts::altair::{
 };
 use types::{BeaconState, ChainSpec, EthSpec};
 
-use crate::common::altair::get_base_reward;
+use crate::common::{altair::get_base_reward, decrease_balance, increase_balance};
 use crate::per_epoch_processing::Error;
 
 /// Use to track the changes to a validators balance.
@@ -66,8 +66,8 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
     for (i, delta) in deltas.into_iter().enumerate() {
-        state.balances_mut()[i] = state.balances()[i].safe_add(delta.rewards)?;
-        state.balances_mut()[i] = state.balances()[i].saturating_sub(delta.penalties);
+        increase_balance(state, i, delta.rewards)?;
+        decrease_balance(state, i, delta.penalties)?;
     }
 
     Ok(())
@@ -111,7 +111,10 @@ fn get_flag_index_deltas<T: EthSpec>(
         } else {
             delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
         }
-        deltas[index as usize].combine(delta)?;
+        deltas
+            .get_mut(index as usize)
+            .ok_or(Error::DeltaOutOfBounds(index as usize))?
+            .combine(delta)?;
     }
     Ok(())
 }
@@ -140,14 +143,18 @@ fn get_inactivity_penalty_deltas<T: EthSpec>(
                 )?;
             }
             if !matching_target_indices.contains(&index) {
-                let penalty_numerator = state.validators()[index]
+                let penalty_numerator = state
+                    .get_validator(index)?
                     .effective_balance
-                    .safe_mul(state.inactivity_scores()?[index])?;
+                    .safe_mul(state.get_inactivity_score(index)?)?;
                 let penalty_denominator =
                     INACTIVITY_SCORE_BIAS.safe_mul(INACTIVITY_PENALTY_QUOTIENT_ALTAIR)?;
                 delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
             }
-            deltas[index].combine(delta)?;
+            deltas
+                .get_mut(index)
+                .ok_or(Error::DeltaOutOfBounds(index))?
+                .combine(delta)?;
         }
     }
     Ok(())

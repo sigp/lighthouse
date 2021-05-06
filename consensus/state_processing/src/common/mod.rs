@@ -15,19 +15,26 @@ pub use get_indexed_attestation::get_indexed_attestation;
 pub use initiate_validator_exit::initiate_validator_exit;
 pub use slash_validator::slash_validator;
 
-use safe_arith::{ArithError, SafeArith};
-use types::{BeaconState, EthSpec};
+use safe_arith::SafeArith;
+use types::{BeaconState, BeaconStateError, EthSpec};
 
 /// Increase the balance of a validator, erroring upon overflow, as per the spec.
 pub fn increase_balance<E: EthSpec>(
     state: &mut BeaconState<E>,
     index: usize,
     delta: u64,
-) -> Result<(), ArithError> {
-    state.balances_mut()[index].safe_add_assign(delta)
+) -> Result<(), BeaconStateError> {
+    state.get_balance_mut(index)?.safe_add_assign(delta)?;
+    Ok(())
 }
 
 /// Decrease the balance of a validator, saturating upon overflow, as per the spec.
-pub fn decrease_balance<E: EthSpec>(state: &mut BeaconState<E>, index: usize, delta: u64) {
-    state.balances_mut()[index] = state.balances()[index].saturating_sub(delta);
+pub fn decrease_balance<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    index: usize,
+    delta: u64,
+) -> Result<(), BeaconStateError> {
+    let balance = state.get_balance_mut(index)?;
+    *balance = balance.saturating_sub(delta);
+    Ok(())
 }

@@ -1,6 +1,6 @@
 use crate::per_epoch_processing::Error;
 use safe_arith::{SafeArith, SafeArithIter};
-use types::{BeaconState, ChainSpec, EthSpec, Unsigned};
+use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, Unsigned};
 
 /// Process slashings.
 pub fn process_slashings<T: EthSpec>(
@@ -31,7 +31,10 @@ pub fn process_slashings<T: EthSpec>(
                 .safe_mul(increment)?;
 
             // Equivalent to `decrease_balance(state, index, penalty)`, but avoids borrowing `state`.
-            balances[index] = balances[index].saturating_sub(penalty);
+            let balance = balances
+                .get_mut(index)
+                .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
+            *balance = balance.saturating_sub(penalty);
         }
     }
 
