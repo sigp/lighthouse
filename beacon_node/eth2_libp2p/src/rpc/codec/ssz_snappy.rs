@@ -574,14 +574,11 @@ mod tests {
         let fork_context = Arc::new(fork_context());
 
         let mut buf = BytesMut::new();
-        let mut snappy_inbound_codec = SSZSnappyInboundCodec::<Spec>::new(
-            snappy_protocol_id.clone(),
-            max_packet_size,
-            fork_context.clone(),
-        );
+        let mut snappy_inbound_codec =
+            SSZSnappyInboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
 
         snappy_inbound_codec.encode(message, &mut buf)?;
-        return Ok(buf);
+        Ok(buf)
     }
 
     /// Attempts to decode the given protocol bytes as an rpc response

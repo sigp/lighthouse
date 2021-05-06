@@ -291,8 +291,7 @@ mod tests {
         assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
 
         let mut min = encode_len(limit.min - 1);
-        let mut codec =
-            SSZSnappyOutboundCodec::<Spec>::new(protocol_id, 1_048_576, fork_context.clone());
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(protocol_id, 1_048_576, fork_context);
         assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
     }
 
