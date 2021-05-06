@@ -416,7 +416,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RpcRequestContainer<TSpec> {
 /// Implements the encoding per supported protocol for `RPCRequest`.
 impl<TSpec: EthSpec> RPCRequest<TSpec> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match &self {
+        match self {
             // add more protocols when versions/encodings are supported
             RPCRequest::Status(_) => vec![ProtocolId::new(
                 Protocol::Status,
@@ -455,7 +455,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
     /// Number of responses expected for this request.
     pub fn expected_responses(&self) -> u64 {
-        match &self {
+        match self {
             RPCRequest::Status(_) => 1,
             RPCRequest::Goodbye(_) => 0,
             RPCRequest::BlocksByRange(req) => req.count,
@@ -467,7 +467,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
 
     /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
-        match &self {
+        match self {
             RPCRequest::Status(_) => Protocol::Status,
             RPCRequest::Goodbye(_) => Protocol::Goodbye,
             RPCRequest::BlocksByRange(_) => Protocol::BlocksByRange,
@@ -480,7 +480,7 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
     /// Returns the `ResponseTermination` type associated with the request if a stream gets
     /// terminated.
     pub fn stream_termination(&self) -> ResponseTermination {
-        match &self {
+        match self {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
             RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
