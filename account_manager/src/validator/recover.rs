@@ -88,7 +88,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.is_preset(STDIN_INPUTS_FLAG);
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
 
     eprintln!("secrets-dir path: {:?}", secrets_dir);
 
