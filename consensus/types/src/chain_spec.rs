@@ -27,6 +27,10 @@ pub enum Domain {
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
+     * Title
+     */
+    pub config_name: String,
+    /*
      * Constants
      */
     pub genesis_slot: Slot,
@@ -240,6 +244,7 @@ impl ChainSpec {
     /// Spec v0.12.3
     pub fn mainnet() -> Self {
         Self {
+            config_name: "mainnet".into(),
             /*
              * Constants
              */
@@ -347,6 +352,7 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
+            config_name: "minimal".into(),
             max_committees_per_slot: 4,
             target_committee_size: 4,
             shuffle_round_count: 10,
@@ -381,6 +387,7 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
+            config_name: "v0.12_legacy".into(),
             genesis_delay: 172_800, // 2 days
             inactivity_penalty_quotient: u64::pow(2, 24),
             min_slashing_penalty_quotient: 32,
@@ -453,6 +460,7 @@ mod tests {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct YamlConfig {
+    #[serde(default)]
     pub config_name: String,
     // ChainSpec
     #[serde(with = "serde_utils::quoted_u64")]
@@ -594,23 +602,17 @@ impl YamlConfig {
     ///
     /// Returns `None` if there is no match.
     pub fn eth_spec_id(&self) -> Option<EthSpecId> {
-        Some(match self.config_name.as_str() {
-            "mainnet" => EthSpecId::Mainnet,
-            "minimal" => EthSpecId::Minimal,
-            "toledo" => EthSpecId::Mainnet,
-            "prater" => EthSpecId::Mainnet,
-            "steklo" => EthSpecId::Mainnet,
-            "pyrmont" => EthSpecId::Mainnet,
-            "spadina" => EthSpecId::V012Legacy,
-            "medalla" => EthSpecId::V012Legacy,
-            "altona" => EthSpecId::V012Legacy,
-            _ => return None,
-        })
+        match self.epochs_per_eth1_voting_period {
+            4 => Some(EthSpecId::Mainnet),
+            32 => Some(EthSpecId::V012Legacy),
+            64 => Some(EthSpecId::Mainnet),
+            _ => None,
+        }
     }
 
     pub fn from_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
-            config_name: T::spec_name().to_string(),
+            config_name: spec.config_name.clone(),
             // ChainSpec
             max_committees_per_slot: spec.max_committees_per_slot as u64,
             target_committee_size: spec.target_committee_size as u64,
@@ -708,6 +710,10 @@ impl YamlConfig {
 
         // Create a ChainSpec from the yaml config
         Some(ChainSpec {
+            /*
+             * Title
+             */
+            config_name: self.config_name.clone(),
             /*
              * Misc
              */
