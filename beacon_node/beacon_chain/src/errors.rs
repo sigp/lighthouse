@@ -13,8 +13,8 @@ use ssz_types::Error as SszTypesError;
 use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
     per_block_processing::errors::{
-        AttestationValidationError, SyncSignatureValidationError, AttesterSlashingValidationError, ExitValidationError,
-        ProposerSlashingValidationError,
+        AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
+        ProposerSlashingValidationError, SyncSignatureValidationError,
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,

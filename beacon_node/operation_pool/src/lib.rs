@@ -13,7 +13,9 @@ use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
-use state_processing::per_block_processing::errors::{AttestationValidationError, SyncSignatureValidationError};
+use state_processing::per_block_processing::errors::{
+    AttestationValidationError, SyncSignatureValidationError,
+};
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
     VerifySignatures,

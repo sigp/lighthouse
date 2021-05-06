@@ -3,6 +3,7 @@ use super::per_block_processing::{
 };
 use crate::common::DepositDataTree;
 use safe_arith::{ArithError, SafeArith};
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
@@ -45,7 +46,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         state.upgrade_to_altair(spec)?;
 
         // Reset the sync committees (this seems to be what the tests want)
-        state.as_altair_mut()?.current_sync_committee = SyncCommittee::temporary()?;
+        state.as_altair_mut()?.current_sync_committee = Arc::new(SyncCommittee::temporary()?);
         state.as_altair_mut()?.next_sync_committee = SyncCommittee::temporary()?;
 
         // Reset the fork version too.

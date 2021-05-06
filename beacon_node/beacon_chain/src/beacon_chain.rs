@@ -14,15 +14,26 @@ use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
-use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool, AggregatedAttestationMap, SyncAggregateMap};
-use crate::observed_aggregates::{Error as AttestationObservationError, ObservedAggregates, ObservedAggregateAttestations, ObservedSyncAggregates};
-use crate::observed_attesters::{ObservedAggregators, ObservedAttesters, ObservedSyncContributors, ObservedSyncAggregators};
+use crate::naive_aggregation_pool::{
+    AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
+    SyncAggregateMap,
+};
+use crate::observed_aggregates::{
+    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedAggregates,
+    ObservedSyncAggregates,
+};
+use crate::observed_attesters::{
+    ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
+};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
+use crate::sync_committee_verification::{
+    Error as SyncCommitteeError, VerifiedSyncContribution, VerifiedSyncSignature,
+};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
     get_block_delay_ms, get_slot_delay_ms, timestamp_now, ValidatorMonitor,
@@ -60,7 +71,6 @@ use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterato
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
 use types::beacon_state::CloneConfig;
 use types::*;
-use crate::sync_committee_verification::{VerifiedSyncSignature, Error as SyncCommitteeError, VerifiedSyncContribution};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -619,6 +629,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Returns the current sync committee at the head of the canonical chain.
+    ///
+    /// See `Self::head` for more information.
+    pub fn head_current_sync_committee(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        self.with_head(|s| {
+            //TODO: handle base
+            Ok(s.beacon_state.as_altair()?.current_sync_committee.clone())
+        })
+    }
+
     /// Returns info representing the head block and state.
     ///
     /// A summarized version of `Self::head` that involves less cloning.
@@ -1154,54 +1174,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unaggregated_sync_signature: VerifiedSyncSignature,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
         let sync_signature = unaggregated_sync_signature.sync_signature();
-        let positions_by_subnet_id : HashMap<SubnetId,Vec<usize>> = unaggregated_sync_signature.subnet_positions();
+        let positions_by_subnet_id: HashMap<SubnetId, Vec<usize>> =
+            unaggregated_sync_signature.subnet_positions();
         for (subnet_id, positions) in positions_by_subnet_id.iter() {
             for position in positions {
+                let _timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
+                let mut bits = BitVector::new();
+                bits.set(*position, true);
+                let contribution = SyncCommitteeContribution {
+                    slot: sync_signature.slot,
+                    beacon_block_root: sync_signature.beacon_block_root,
+                    subcommittee_index: subnet_id.into(),
+                    aggregation_bits: bits,
+                    //TODO: cloning this seems inefficient if we may eventually be aggregating it with itself
+                    signature: sync_signature.signature.clone(),
+                };
 
-            let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
-            let mut bits = BitVector::new();
-            bits.set(*position, true);
-            let contribution = SyncCommitteeContribution {
-                slot: sync_signature.slot,
-                beacon_block_root: sync_signature.beacon_block_root,
-                subcommittee_index: subnet_id.into(),
-                aggregation_bits: bits,
-                //TODO: cloning this seems inefficient if we may eventually be aggregating it with itself
-                signature: sync_signature.signature.clone(),
-            };
-
-            match self.naive_sync_aggregation_pool.write().insert(&contribution) {
-                Ok(outcome) => trace!(
-                self.log,
-                "Stored unaggregated sync committee signature";
-                "outcome" => ?outcome,
-                "index" => sync_signature.validator_index,
-                "slot" => sync_signature.slot.as_u64(),
-            ),
-                Err(NaiveAggregationError::SlotTooLow {
+                match self
+                    .naive_sync_aggregation_pool
+                    .write()
+                    .insert(&contribution)
+                {
+                    Ok(outcome) => trace!(
+                        self.log,
+                        "Stored unaggregated sync committee signature";
+                        "outcome" => ?outcome,
+                        "index" => sync_signature.validator_index,
+                        "slot" => sync_signature.slot.as_u64(),
+                    ),
+                    Err(NaiveAggregationError::SlotTooLow {
                         slot,
                         lowest_permissible_slot,
                     }) => {
-                    trace!(
-                    self.log,
-                    "Refused to store unaggregated sync committee signature";
-                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
-                    "slot" => slot.as_u64(),
-                );
-                }
-                Err(e) => {
-                    error!(
-                        self.log,
-                        "Failed to store unaggregated sync committee signature";
-                        "error" => ?e,
-                        "index" => sync_signature.validator_index,
-                        "slot" => sync_signature.slot.as_u64(),
-                );
-                    return Err(Error::from(e).into());
-                }
-            };
+                        trace!(
+                            self.log,
+                            "Refused to store unaggregated sync committee signature";
+                            "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                            "slot" => slot.as_u64(),
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                                self.log,
+                                "Failed to store unaggregated sync committee signature";
+                                "error" => ?e,
+                                "index" => sync_signature.validator_index,
+                                "slot" => sync_signature.slot.as_u64(),
+                        );
+                        return Err(Error::from(e).into());
+                    }
+                };
             }
-
         }
         Ok(unaggregated_sync_signature)
     }
@@ -1706,11 +1730,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in signed_block.message().body().attestations() {
-            match self
-                .observed_attestations
-                .write()
-                .observe_item(a, None)
-            {
+            match self.observed_attestations.write().observe_item(a, None) {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
                 //

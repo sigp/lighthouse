@@ -1,4 +1,4 @@
-use crate::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, sync_committee_base_epoch};
+use crate::{sync_committee_base_epoch, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
 
 /// Cache the sync committee indices, as an accelerator for `get_sync_committee_indices`.
 #[derive(Debug, Default, PartialEq, Clone)]

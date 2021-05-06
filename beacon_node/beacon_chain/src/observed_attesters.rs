@@ -12,10 +12,10 @@
 
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::marker::PhantomData;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{Attestation, Epoch, EthSpec, Slot, Unsigned};
-use std::hash::Hash;
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<SlotHashSet, E>;
@@ -320,7 +320,8 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
     /// `Self::max_capacity`.
     pub fn prune(&mut self, current_epoch: Epoch) {
-        let lowest_permissible_epoch = current_epoch.saturating_sub(self.max_capacity().saturating_sub(1));
+        let lowest_permissible_epoch =
+            current_epoch.saturating_sub(self.max_capacity().saturating_sub(1));
 
         self.lowest_permissible_epoch = lowest_permissible_epoch;
 
@@ -361,11 +362,7 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
-    pub fn observe_validator(
-        &mut self,
-        slot: Slot,
-        validator_index: usize,
-    ) -> Result<bool, Error> {
+    pub fn observe_validator(&mut self, slot: Slot, validator_index: usize) -> Result<bool, Error> {
         self.sanitize_request(slot, validator_index)?;
 
         self.prune(slot);
@@ -460,7 +457,8 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
     /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
     /// `Self::max_capacity`.
     pub fn prune(&mut self, current_slot: Slot) {
-        let lowest_permissible_slot = current_slot.saturating_sub(self.max_capacity().saturating_sub(1));
+        let lowest_permissible_slot =
+            current_slot.saturating_sub(self.max_capacity().saturating_sub(1));
 
         self.lowest_permissible_slot = lowest_permissible_slot;
 

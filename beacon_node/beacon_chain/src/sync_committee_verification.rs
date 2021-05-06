@@ -35,18 +35,22 @@ use crate::{
     observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use bls::impls::fake_crypto::AggregateSignature;
 use bls::verify_signature_sets;
 use eth2::lighthouse_vc::types::attestation::SlotData;
 use proto_array::Block as ProtoBlock;
+use safe_arith::ArithError;
+use safe_arith::SafeArith;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::errors::BlockProcessingError::SyncAggregateInvalid;
 use state_processing::per_block_processing::errors::SyncAggregateInvalid::PubkeyInvalid;
 use state_processing::per_block_processing::errors::SyncAggregateInvalid::SignatureInvalid;
-use state_processing::per_block_processing::errors::{
-    SyncSignatureValidationError,
+use state_processing::per_block_processing::errors::SyncSignatureValidationError;
+use state_processing::signature_sets::{
+    signed_sync_aggregate_selection_proof_signature_set, signed_sync_aggregate_signature_set,
+    sync_committee_contribution_signature_set_from_pubkeys,
 };
-use state_processing::signature_sets::{signed_sync_aggregate_selection_proof_signature_set, signed_sync_aggregate_signature_set, sync_committee_contribution_signature_set_from_pubkeys};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::errors::AttestationValidationError,
@@ -56,13 +60,15 @@ use state_processing::{
     },
 };
 use std::borrow::Cow;
+use std::collections::HashMap;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::{Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof, SignedContributionAndProof, Slot, SubnetId, SyncCommitteeContribution, SyncCommitteeSignature, Unsigned, sync_committee_base_epoch, BitVector};
-use std::collections::HashMap;
-use bls::impls::fake_crypto::AggregateSignature;
-use safe_arith::SafeArith;
+use types::{
+    sync_committee_base_epoch, Attestation, BeaconCommittee, BitVector, CommitteeIndex, Epoch,
+    EthSpec, Hash256, IndexedAttestation, SelectionProof, SignedContributionAndProof, Slot,
+    SubnetId, SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
+};
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -144,6 +150,12 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     ValidatorIndexTooHigh(usize),
+    /// The aggregator index is higher than the maximum possible validator count.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    UnknowValidatorIndex(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
     ///
     /// ## Peer scoring
@@ -210,6 +222,7 @@ pub enum Error {
         subcommittee_size: u64,
     },
     SyncCommitteeCacheNotInitialized,
+    ArithError(ArithError),
 }
 
 impl From<BeaconChainError> for Error {
@@ -225,7 +238,7 @@ pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
 
 /// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
 /// macro.
-impl <T: BeaconChainTypes>Clone for VerifiedSyncContribution<T> {
+impl<T: BeaconChainTypes> Clone for VerifiedSyncContribution<T> {
     fn clone(&self) -> Self {
         Self {
             signed_aggregate: self.signed_aggregate.clone(),
@@ -288,10 +301,8 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         match chain
             .observed_sync_aggregators
             .read()
-            .validator_has_been_observed(
-                contribution.slot,
-                aggregator_index as usize,
-            ) {
+            .validator_has_been_observed(contribution.slot, aggregator_index as usize)
+        {
             Ok(true) => Err(Error::AggregatorAlreadyKnown(aggregator_index)),
             Ok(false) => Ok(()),
             Err(ObservedAttestersError::ValidatorIndexTooHigh(i)) => {
@@ -315,66 +326,79 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
 
         // Ensure that the attestation has participants.
         if contribution.aggregation_bits.is_zero() {
-            return Err(Error::EmptyAggregationBitfield)
+            return Err(Error::EmptyAggregationBitfield);
         }
 
-        //TODO: guessing we don't want this lock
-        let participant_indices = chain.with_head(|head| {
-            // assert head block = verified head block
+        // Note: this clones the signature which is known to be a relatively slow operation.
+        //
+        // Future optimizations should remove this clone.
+        let selection_proof =
+            SelectionProof::from(signed_aggregate.message.selection_proof.clone());
 
-            // Note: this clones the signature which is known to be a relatively slow operation.
-            //
-            // Future optimizations should remove this clone.
-            let selection_proof =
-                SelectionProof::from(signed_aggregate.message.selection_proof.clone());
+        if !selection_proof
+            .is_sync_committee_aggregator::<T::EthSpec>()
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            return Err(Error::InvalidSelectionProof { aggregator_index });
+        }
 
-            if !selection_proof
-                .is_sync_committee_aggregator::<T::EthSpec>()
-                .map_err(|e| Error::BeaconChainError(e.into()))?
-            {
-                return Err(Error::InvalidSelectionProof { aggregator_index });
+        // Ensure the aggregator's pubkey is in the declared subcommittee of the current sync committee
+        let pubkey_bytes = chain
+            .validator_pubkey_bytes(aggregator_index as usize)?
+            .ok_or(Error::UnknowValidatorIndex(aggregator_index as usize))?;
+        let current_sync_committee = chain.head_current_sync_committee()?;
+        if let Some(expected_pubkey_bytes) = current_sync_committee
+            .pubkey_aggregates
+            .get(contribution.subcommittee_index as usize)
+        {
+            if expected_pubkey_bytes != &pubkey_bytes {
+                return Err(Error::InvalidSubcommittee {
+                    subcommittee_index: contribution.subcommittee_index,
+                    subcommittee_size: SYNC_COMMITTEE_SUBNET_COUNT,
+                });
             }
+        } else {
+            return Err(Error::AggregatorNotInCommittee { aggregator_index });
+        }
 
-
-            //TODO: what do we do iqf no cache exists for the base epoch?
-            let base_epoch = sync_committee_base_epoch(head.beacon_state.current_epoch(), &chain.spec)
-                .map_err(|e| BeaconChainError::BeaconStateError(e))?;
-
-            // Ensure the aggregator is a member of the committee for which it is aggregating.
-            if !head
-                .beacon_state
-                .current_sync_committee_cache()
-                .get_sync_committee_indices(base_epoch)
-                .map(|cache| cache.contains(&(aggregator_index as usize)))
-                .unwrap_or(false)
-            {
-                return Err(Error::AggregatorNotInCommittee { aggregator_index });
-            } else {
-                Ok(head
-                    .beacon_state
-                    .current_sync_committee_cache()
-                    .get_sync_committee_indices(base_epoch)
-                    .ok_or(Error::SyncCommitteeCacheNotInitialized)?
-                    .iter()
-                    .zip(contribution.aggregation_bits.iter())
-                    .flat_map(|(index, bit)| {
-                        bit.then(||*index)
-                    })
-                    .collect::<Vec<_>>())
-            }
-        })?;
+        let subcommittee_index = contribution.subcommittee_index as usize;
+        //TODO: equivalent to `get_sync_subcommittee_pubkeys`
+        let sync_subcommittee_size =
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSize::to_usize()
+                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
+                .map_err(|e| Error::ArithError(e))?;
+        let i = subcommittee_index
+            .safe_mul(sync_subcommittee_size)
+            .map_err(|e| Error::ArithError(e))?;
+        let j = i
+            .safe_add(sync_subcommittee_size)
+            .map_err(|e| Error::ArithError(e))?;
+        // only iter through the correct partition
+        let participant_indices = current_sync_committee.pubkeys[i..j]
+            .iter()
+            .zip(contribution.aggregation_bits.iter())
+            .flat_map(|(pubkey, bit)| {
+                bit.then::<Result<usize, Error>, _>(|| {
+                    Ok(chain
+                        .validator_index(&pubkey)?
+                        .ok_or(Error::UnknowValidatorIndex(aggregator_index as usize))?)
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Ensure that all signatures are valid.
-        if let Err(e) =
-            verify_signed_aggregate_signatures(chain, &signed_aggregate, participant_indices.as_slice())
-                .and_then(|is_valid| {
-                    if !is_valid {
-                        Err(Error::InvalidSignature)
-                    } else {
-                        Ok(())
-                    }
-                })
-        {
+        if let Err(e) = verify_signed_aggregate_signatures(
+            chain,
+            &signed_aggregate,
+            participant_indices.as_slice(),
+        )
+        .and_then(|is_valid| {
+            if !is_valid {
+                Err(Error::InvalidSignature)
+            } else {
+                Ok(())
+            }
+        }) {
             return Err(e);
         }
         let contribution = &signed_aggregate.message.contribution;
@@ -433,7 +457,7 @@ impl VerifiedSyncSignature {
     ///
     /// `subnet_id` is the subnet from which we received this attestation. This function will
     /// verify that it was received on the correct subnet.
-    pub fn verify<T: BeaconChainTypes>  (
+    pub fn verify<T: BeaconChainTypes>(
         sync_signature: SyncCommitteeSignature,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
@@ -454,32 +478,32 @@ impl VerifiedSyncSignature {
             sync_signature.beacon_block_root,
             chain.config.import_max_skip_slots,
         )?;
+        let sync_subcommittee_size =
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSize::to_usize()
+                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
+                .map_err(|e| Error::ArithError(e))?;
+        let pubkey = chain
+            .validator_pubkey_bytes(sync_signature.validator_index as usize)?
+            .ok_or(Error::UnknowValidatorIndex(
+                sync_signature.validator_index as usize,
+            ))?;
 
-        // If a subnet was specified, ensure that subnet is correct.
-            let subnet_positions  = chain.with_head(|head| {
-                //TODO: this is equivalent to `compute_subnets_for_sync_committee` in the spec
-                // also probably don't want this lock
-                let base_epoch = sync_committee_base_epoch(head.beacon_state.current_epoch(), &chain.spec)?;
-                let subnet_positions : HashMap<SubnetId, Vec<usize>>  =  head
-                    .beacon_state
-                    .current_sync_committee_cache()
-                    .get_sync_committee_indices(base_epoch)
-                    .ok_or(Error::SyncCommitteeCacheNotInitialized)?
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(committee_index, validator_index)| {
-                        (sync_signature.validator_index == *validator_index as u64)
-                            .then(|| (committee_index.safe_div(T::EthSpec::SyncCommitteeSize::to_u64())?.safe_div(SYNC_COMMITTEE_SUBNET_COUNT), committee_index))
-                    }).fold(HashMap::new(), |mut map, (subcommittee_index, committee_index)|{
-                        map.entry(SubnetId::new(subcommittee_index as u64))
-                            .or_insert_with(Vec::new)
-                            .push(committee_index);
-                    map
-                    });
-                Ok(subnet_positions)
-            })?;
+        let current_sync_committee = chain.head_current_sync_committee()?;
+        let mut subnet_positions = HashMap::new();
+        for (committee_index, validator_pubkey) in current_sync_committee.pubkeys.iter().enumerate()
+        {
+            if pubkey == *validator_pubkey {
+                let subcommittee_index = committee_index
+                    .safe_div(sync_subcommittee_size)
+                    .map_err(|e| Error::ArithError(e))?;
+                subnet_positions
+                    .entry(SubnetId::new(subcommittee_index as u64))
+                    .or_insert_with(Vec::new)
+                    .push(committee_index);
+            }
+        }
 
-         if let Some(subnet_id) = subnet_id {
+        if let Some(subnet_id) = subnet_id {
             if !subnet_positions.contains_key(&subnet_id) {
                 return Err(Error::InvalidSubnetId {
                     received: subnet_id,
@@ -506,9 +530,7 @@ impl VerifiedSyncSignature {
         }
 
         // The aggregate signature of the attestation is valid.
-        if let Err(e) = verify_sync_signature(chain, &sync_signature) {
-            return Err(Error::Invalid(e.into()));
-        }
+        verify_sync_signature(chain, &sync_signature)?;
 
         // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
@@ -540,7 +562,7 @@ impl VerifiedSyncSignature {
     }
 
     /// Returns the correct subnet for the attestation.
-    pub fn subnet_positions(&self) -> HashMap<SubnetId,Vec<usize>> {
+    pub fn subnet_positions(&self) -> HashMap<SubnetId, Vec<usize>> {
         self.subnet_positions.clone()
     }
 
@@ -671,11 +693,15 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
             &chain.spec,
         )
         .map_err(BeaconChainError::SignatureSetError)?,
-        sync_committee_contribution_signature_set_from_pubkeys(
+        sync_committee_contribution_signature_set_from_pubkeys::<T::EthSpec, _>(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             participant_indices,
             &signed_aggregate.message.contribution.signature,
-            signed_aggregate.message.contribution.slot.epoch(T::EthSpec::slots_per_epoch()),
+            signed_aggregate
+                .message
+                .contribution
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch()),
             signed_aggregate.message.contribution.beacon_block_root,
             &fork,
             chain.genesis_validators_root,

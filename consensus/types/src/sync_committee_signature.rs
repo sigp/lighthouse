@@ -1,12 +1,14 @@
 use crate::test_utils::TestRandom;
-use crate::{AggregateSignature, Checkpoint, Hash256, SignedRoot, Slot, SyncCommitteeContribution, EthSpec};
+use crate::{
+    AggregateSignature, Checkpoint, EthSpec, Hash256, SignedRoot, Slot, SyncCommitteeContribution,
+};
 
+use crate::attestation::SlotData;
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use crate::attestation::SlotData;
 
 /// The data upon which a `SyncCommitteeContribution` is based.
 ///
