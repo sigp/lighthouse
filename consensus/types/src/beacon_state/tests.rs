@@ -173,8 +173,7 @@ fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: Clon
             .committee_cache(RelativeEpoch::Next)
             .expect_err("shouldn't exist");
     }
-    let base_epoch = state
-        .sync_committee_base_epoch(state.current_epoch(), &E::default_spec())
+    let base_epoch = state.current_epoch().sync_committee_base_epoch(&E::default_spec())
         .unwrap();
     if clone_config.current_sync_committee_cache {
         assert!(state
