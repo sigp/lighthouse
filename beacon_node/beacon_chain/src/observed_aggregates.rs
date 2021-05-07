@@ -251,8 +251,6 @@ mod tests {
 
     type E = types::MainnetEthSpec;
 
-    const NUM_ELEMENTS: usize = 8;
-
     fn get_attestation(slot: Slot, beacon_block_root: u64) -> Attestation<E> {
         let mut a: Attestation<E> = test_random_instance();
         a.data.slot = slot;
@@ -260,171 +258,201 @@ mod tests {
         a
     }
 
-    fn single_slot_test(store: &mut ObservedAggregates<Attestation<E>, E>, slot: Slot) {
-        let attestations = (0..NUM_ELEMENTS as u64)
-            .map(|i| get_attestation(slot, i))
-            .collect::<Vec<_>>();
-
-        for a in &attestations {
-            assert_eq!(
-                store.is_known(a, a.tree_hash_root()),
-                Ok(false),
-                "should indicate an unknown attestation is unknown"
-            );
-            assert_eq!(
-                store.observe_item(a, None),
-                Ok(ObserveOutcome::New),
-                "should observe new attestation"
-            );
-        }
-
-        for a in &attestations {
-            assert_eq!(
-                store.is_known(a, a.tree_hash_root()),
-                Ok(true),
-                "should indicate a known attestation is known"
-            );
-            assert_eq!(
-                store.observe_item(a, Some(a.tree_hash_root())),
-                Ok(ObserveOutcome::AlreadyKnown),
-                "should acknowledge an existing attestation"
-            );
-        }
+    fn get_sync_aggregate(slot: Slot, beacon_block_root: u64) -> SyncCommitteeContribution<E> {
+        let mut a: SyncCommitteeContribution<E> = test_random_instance();
+        a.slot = slot;
+        a.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);
+        a
     }
 
-    #[test]
-    fn single_slot() {
-        let mut store = ObservedAggregates::default();
+    macro_rules! test_suite {
+        ($mod_name: ident, $type: ident, $method_name: ident) => {
+            #[cfg(test)]
+            mod $mod_name {
+                use super::*;
 
-        single_slot_test(&mut store, Slot::new(0));
+                const NUM_ELEMENTS: usize = 8;
 
-        assert_eq!(store.sets.len(), 1, "should have a single set stored");
-        assert_eq!(
-            store.sets[0].len(),
-            NUM_ELEMENTS,
-            "set should have NUM_ELEMENTS elements"
-        );
+                fn single_slot_test(store: &mut $type<E>, slot: Slot) {
+                    let items = (0..NUM_ELEMENTS as u64)
+                        .map(|i| $method_name(slot, i))
+                        .collect::<Vec<_>>();
+
+                    for a in &items {
+                        assert_eq!(
+                            store.is_known(a, a.tree_hash_root()),
+                            Ok(false),
+                            "should indicate an unknown attestation is unknown"
+                        );
+                        assert_eq!(
+                            store.observe_item(a, None),
+                            Ok(ObserveOutcome::New),
+                            "should observe new attestation"
+                        );
+                    }
+
+                    for a in &items {
+                        assert_eq!(
+                            store.is_known(a, a.tree_hash_root()),
+                            Ok(true),
+                            "should indicate a known attestation is known"
+                        );
+                        assert_eq!(
+                            store.observe_item(a, Some(a.tree_hash_root())),
+                            Ok(ObserveOutcome::AlreadyKnown),
+                            "should acknowledge an existing attestation"
+                        );
+                    }
+                }
+
+                #[test]
+                fn single_slot() {
+                    let mut store = $type::default();
+
+                    single_slot_test(&mut store, Slot::new(0));
+
+                    assert_eq!(store.sets.len(), 1, "should have a single set stored");
+                    assert_eq!(
+                        store.sets[0].len(),
+                        NUM_ELEMENTS,
+                        "set should have NUM_ELEMENTS elements"
+                    );
+                }
+
+                #[test]
+                fn mulitple_contiguous_slots() {
+                    let mut store = $type::default();
+                    let max_cap = store.max_capacity();
+
+                    for i in 0..max_cap * 3 {
+                        let slot = Slot::new(i);
+
+                        single_slot_test(&mut store, slot);
+
+                        /*
+                         * Ensure that the number of sets is correct.
+                         */
+
+                        if i < max_cap {
+                            assert_eq!(
+                                store.sets.len(),
+                                i as usize + 1,
+                                "should have a {} sets stored",
+                                i + 1
+                            );
+                        } else {
+                            assert_eq!(
+                                store.sets.len(),
+                                max_cap as usize,
+                                "should have max_capacity sets stored"
+                            );
+                        }
+
+                        /*
+                         * Ensure that each set contains the correct number of elements.
+                         */
+
+                        for set in &store.sets[..] {
+                            assert_eq!(
+                                set.len(),
+                                NUM_ELEMENTS,
+                                "each store should have NUM_ELEMENTS elements"
+                            )
+                        }
+
+                        /*
+                         *  Ensure that all the sets have the expected slots
+                         */
+
+                        let mut store_slots =
+                            store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
+
+                        assert!(
+                            store_slots.len() <= store.max_capacity() as usize,
+                            "store size should not exceed max"
+                        );
+
+                        store_slots.sort_unstable();
+
+                        let expected_slots = (i.saturating_sub(max_cap - 1)..=i)
+                            .map(Slot::new)
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(expected_slots, store_slots, "should have expected slots");
+                    }
+                }
+
+                #[test]
+                fn mulitple_non_contiguous_slots() {
+                    let mut store = $type::default();
+                    let max_cap = store.max_capacity();
+
+                    let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
+                    let slots = (0..max_cap * 3)
+                        .into_iter()
+                        .filter(|i| !to_skip.contains(i))
+                        .collect::<Vec<_>>();
+
+                    for &i in &slots {
+                        if to_skip.contains(&i) {
+                            continue;
+                        }
+
+                        let slot = Slot::from(i);
+
+                        single_slot_test(&mut store, slot);
+
+                        /*
+                         * Ensure that each set contains the correct number of elements.
+                         */
+
+                        for set in &store.sets[..] {
+                            assert_eq!(
+                                set.len(),
+                                NUM_ELEMENTS,
+                                "each store should have NUM_ELEMENTS elements"
+                            )
+                        }
+
+                        /*
+                         *  Ensure that all the sets have the expected slots
+                         */
+
+                        let mut store_slots =
+                            store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
+
+                        store_slots.sort_unstable();
+
+                        assert!(
+                            store_slots.len() <= store.max_capacity() as usize,
+                            "store size should not exceed max"
+                        );
+
+                        let lowest = store.lowest_permissible_slot.as_u64();
+                        let highest = slot.as_u64();
+                        let expected_slots = (lowest..=highest)
+                            .filter(|i| !to_skip.contains(i))
+                            .map(Slot::new)
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            expected_slots,
+                            &store_slots[..],
+                            "should have expected slots"
+                        );
+                    }
+                }
+            }
+        };
     }
-
-    #[test]
-    fn mulitple_contiguous_slots() {
-        let mut store = ObservedAggregates::default();
-        let max_cap = store.max_capacity();
-
-        for i in 0..max_cap * 3 {
-            let slot = Slot::new(i);
-
-            single_slot_test(&mut store, slot);
-
-            /*
-             * Ensure that the number of sets is correct.
-             */
-
-            if i < max_cap {
-                assert_eq!(
-                    store.sets.len(),
-                    i as usize + 1,
-                    "should have a {} sets stored",
-                    i + 1
-                );
-            } else {
-                assert_eq!(
-                    store.sets.len(),
-                    max_cap as usize,
-                    "should have max_capacity sets stored"
-                );
-            }
-
-            /*
-             * Ensure that each set contains the correct number of elements.
-             */
-
-            for set in &store.sets[..] {
-                assert_eq!(
-                    set.len(),
-                    NUM_ELEMENTS,
-                    "each store should have NUM_ELEMENTS elements"
-                )
-            }
-
-            /*
-             *  Ensure that all the sets have the expected slots
-             */
-
-            let mut store_slots = store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
-
-            assert!(
-                store_slots.len() <= store.max_capacity() as usize,
-                "store size should not exceed max"
-            );
-
-            store_slots.sort_unstable();
-
-            let expected_slots = (i.saturating_sub(max_cap - 1)..=i)
-                .map(Slot::new)
-                .collect::<Vec<_>>();
-
-            assert_eq!(expected_slots, store_slots, "should have expected slots");
-        }
-    }
-
-    #[test]
-    fn mulitple_non_contiguous_slots() {
-        let mut store = ObservedAggregates::default();
-        let max_cap = store.max_capacity();
-
-        let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
-        let slots = (0..max_cap * 3)
-            .into_iter()
-            .filter(|i| !to_skip.contains(i))
-            .collect::<Vec<_>>();
-
-        for &i in &slots {
-            if to_skip.contains(&i) {
-                continue;
-            }
-
-            let slot = Slot::from(i);
-
-            single_slot_test(&mut store, slot);
-
-            /*
-             * Ensure that each set contains the correct number of elements.
-             */
-
-            for set in &store.sets[..] {
-                assert_eq!(
-                    set.len(),
-                    NUM_ELEMENTS,
-                    "each store should have NUM_ELEMENTS elements"
-                )
-            }
-
-            /*
-             *  Ensure that all the sets have the expected slots
-             */
-
-            let mut store_slots = store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
-
-            store_slots.sort_unstable();
-
-            assert!(
-                store_slots.len() <= store.max_capacity() as usize,
-                "store size should not exceed max"
-            );
-
-            let lowest = store.lowest_permissible_slot.as_u64();
-            let highest = slot.as_u64();
-            let expected_slots = (lowest..=highest)
-                .filter(|i| !to_skip.contains(i))
-                .map(Slot::new)
-                .collect::<Vec<_>>();
-
-            assert_eq!(
-                expected_slots,
-                &store_slots[..],
-                "should have expected slots"
-            );
-        }
-    }
+    test_suite!(
+        observed_sync_aggregates,
+        ObservedSyncAggregates,
+        get_sync_aggregate
+    );
+    test_suite!(
+        observed_aggregate_attestations,
+        ObservedAggregateAttestations,
+        get_attestation
+    );
 }

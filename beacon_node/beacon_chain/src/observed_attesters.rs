@@ -328,13 +328,18 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
         self.items
             .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
     }
+
+    /// Returns the `lowest_permissible_epoch`
+    pub fn get_lowest_permissible(&self) -> Epoch {
+        self.lowest_permissible_epoch
+    }
 }
 
 /// A container that stores some number of `T` items.
 ///
 /// This container is "auto-pruning" since it gets an idea of the current slot by which
 /// attestations are provided to it and prunes old entries based upon that. For example, if
-/// `Self::max_capacity == 32` and an attestation with `a.data.target.epoch` is supplied, then all
+/// `Self::max_capacity == 32` and an attestation with `data.slot` is supplied, then all
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
@@ -465,6 +470,11 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
         self.items
             .retain(|slot, _item| *slot >= lowest_permissible_slot);
     }
+
+    /// Returns the `lowest_permissible_slot`
+    pub fn get_lowest_permissible(&self) -> Slot {
+        self.lowest_permissible_slot
+    }
 }
 
 #[cfg(test)]
@@ -472,37 +482,37 @@ mod tests {
     use super::*;
 
     macro_rules! test_suite {
-        ($mod_name: ident, $type: ident) => {
+        ($mod_name: ident, $type: ident, $period_type: ident) => {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
 
                 type E = types::MainnetEthSpec;
 
-                fn single_epoch_test(store: &mut $type<E>, epoch: Epoch) {
-                    let attesters = [0, 1, 2, 3, 5, 6, 7, 18, 22];
+                fn single_period_test(store: &mut $type<E>, period: $period_type) {
+                    let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
 
-                    for &i in &attesters {
+                    for &i in &validator_indices {
                         assert_eq!(
-                            store.validator_has_been_observed(epoch, i),
+                            store.validator_has_been_observed(period, i),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
                         assert_eq!(
-                            store.observe_validator(epoch, i),
+                            store.observe_validator(period, i),
                             Ok(false),
                             "should observe new attestation"
                         );
                     }
 
-                    for &i in &attesters {
+                    for &i in &validator_indices {
                         assert_eq!(
-                            store.validator_has_been_observed(epoch, i),
+                            store.validator_has_been_observed(period, i),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_validator(epoch, i),
+                            store.observe_validator(period, i),
                             Ok(true),
                             "should acknowledge an existing attestation"
                         );
@@ -510,23 +520,23 @@ mod tests {
                 }
 
                 #[test]
-                fn single_epoch() {
+                fn single_period() {
                     let mut store = $type::default();
 
-                    single_epoch_test(&mut store, Epoch::new(0));
+                    single_period_test(&mut store, $period_type::new(0));
 
                     assert_eq!(store.items.len(), 1, "should have a single bitfield stored");
                 }
 
                 #[test]
-                fn mulitple_contiguous_epochs() {
+                fn mulitple_contiguous_periods() {
                     let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
                     for i in 0..max_cap * 3 {
-                        let epoch = Epoch::new(i);
+                        let period = $period_type::new(i);
 
-                        single_epoch_test(&mut store, epoch);
+                        single_period_test(&mut store, period);
 
                         /*
                          * Ensure that the number of sets is correct.
@@ -551,74 +561,77 @@ mod tests {
                          *  Ensure that all the sets have the expected slots
                          */
 
-                        let mut store_epochs = store
+                        let mut store_periods = store
                             .items
                             .iter()
-                            .map(|(epoch, _set)| *epoch)
+                            .map(|(period, _set)| *period)
                             .collect::<Vec<_>>();
 
                         assert!(
-                            store_epochs.len() <= store.max_capacity() as usize,
+                            store_periods.len() <= store.max_capacity() as usize,
                             "store size should not exceed max"
                         );
 
-                        store_epochs.sort_unstable();
+                        store_periods.sort_unstable();
 
-                        let expected_epochs = (i.saturating_sub(max_cap - 1)..=i)
-                            .map(Epoch::new)
+                        let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
+                            .map($period_type::new)
                             .collect::<Vec<_>>();
 
-                        assert_eq!(expected_epochs, store_epochs, "should have expected slots");
+                        assert_eq!(
+                            expected_periods, store_periods,
+                            "should have expected slots"
+                        );
                     }
                 }
 
                 #[test]
-                fn mulitple_non_contiguous_epochs() {
+                fn mulitple_non_contiguous_periods() {
                     let mut store = $type::default();
                     let max_cap = store.max_capacity();
 
                     let to_skip = vec![1_u64, 3, 4, 5];
-                    let epochs = (0..max_cap * 3)
+                    let periods = (0..max_cap * 3)
                         .into_iter()
                         .filter(|i| !to_skip.contains(i))
                         .collect::<Vec<_>>();
 
-                    for &i in &epochs {
+                    for &i in &periods {
                         if to_skip.contains(&i) {
                             continue;
                         }
 
-                        let epoch = Epoch::from(i);
+                        let period = $period_type::from(i);
 
-                        single_epoch_test(&mut store, epoch);
+                        single_period_test(&mut store, period);
 
                         /*
                          *  Ensure that all the sets have the expected slots
                          */
 
-                        let mut store_epochs = store
+                        let mut store_periods = store
                             .items
                             .iter()
-                            .map(|(epoch, _)| *epoch)
+                            .map(|(period, _)| *period)
                             .collect::<Vec<_>>();
 
-                        store_epochs.sort_unstable();
+                        store_periods.sort_unstable();
 
                         assert!(
-                            store_epochs.len() <= store.max_capacity() as usize,
+                            store_periods.len() <= store.max_capacity() as usize,
                             "store size should not exceed max"
                         );
 
-                        let lowest = store.lowest_permissible_epoch.as_u64();
-                        let highest = epoch.as_u64();
-                        let expected_epochs = (lowest..=highest)
+                        let lowest = store.get_lowest_permissible().as_u64();
+                        let highest = period.as_u64();
+                        let expected_periods = (lowest..=highest)
                             .filter(|i| !to_skip.contains(i))
-                            .map(Epoch::new)
+                            .map($period_type::new)
                             .collect::<Vec<_>>();
 
                         assert_eq!(
-                            expected_epochs,
-                            &store_epochs[..],
+                            expected_periods,
+                            &store_periods[..],
                             "should have expected epochs"
                         );
                     }
@@ -627,6 +640,8 @@ mod tests {
         };
     }
 
-    test_suite!(observed_attesters, ObservedAttesters);
-    test_suite!(observed_aggregators, ObservedAggregators);
+    test_suite!(observed_attesters, ObservedAttesters, Epoch);
+    test_suite!(observed_sync_contributors, ObservedSyncContributors, Slot);
+    test_suite!(observed_aggregators, ObservedAggregators, Epoch);
+    test_suite!(observed_sync_aggregators, ObservedSyncAggregators, Slot);
 }
