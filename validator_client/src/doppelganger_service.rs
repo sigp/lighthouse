@@ -9,17 +9,29 @@ use std::sync::Arc;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
+/// The number of epochs that must be checked before we assume that there are no other duplicate
+/// validators on the network.
 pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 2;
 
-// TODO: add reasoning for this.
-pub const EPOCH_SATISFACTION_DEPTH: u64 = 2;
-
+/// Store the per-validator status of doppelganger checking.
 pub struct DopplegangerState {
+    /// The next epoch for which the validator should be checked for liveness.
+    ///
+    /// Whilst `self.remaining_epochs > 0`, if a validator is found to be live in this epoch or any
+    /// following then we consider them to have an active doppelganger.
+    ///
+    /// Regardless of `self.remaining_epochs`, never indicate for a doppelganger for epochs that are
+    /// below `next_check_epoch`. This is to avoid the scenario where a user reboots their VC inside
+    /// a single epoch and we detect the activity of that previous process as doppelganger activity,
+    /// even when it's not running anymore.
     next_check_epoch: Epoch,
+    /// The number of epochs that must be checked before this validator is considered
+    /// doppelganger-free.
     remaining_epochs: u64,
 }
 
 impl DopplegangerState {
+    /// Returns `true` if the validator is *not* safe to sign.
     fn requires_further_checks(&self) -> bool {
         self.remaining_epochs > 0
     }
@@ -28,8 +40,8 @@ impl DopplegangerState {
 #[derive(Clone)]
 pub struct DoppelgangerService<T, E: EthSpec> {
     pub slot_clock: T,
-    // The `Box` is used to avoid an infinite-sized struct due to the circular dependency of the
-    // validator store and the doppleganger service.
+    // The `Box` avoids an infinite-sized struct due to the circular dependency of the validator
+    // store and the doppleganger service.
     pub validator_store: Box<ValidatorStore<T, E>>,
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     pub context: RuntimeContext<E>,
@@ -49,13 +61,19 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         self.context.executor.spawn(
             async move {
                 loop {
-                    if let Some(duration) = doppelganger_service.slot_clock.duration_to_next_slot()
+                    let slot_duration = doppelganger_service.slot_clock.slot_duration();
+
+                    if let Some(duration_to_next_slot) =
+                        doppelganger_service.slot_clock.duration_to_next_slot()
                     {
-                        sleep(duration).await;
+                        // Run the doppelganger protection check 75% through each epoch. This
+                        // *should* mean that the BN has seen the blocks and attestations for this
+                        // slot.
+                        sleep(duration_to_next_slot + (slot_duration / 4) * 3).await;
                     } else {
                         // Just sleep for one slot if we are unable to read the system clock, this gives
                         // us an opportunity for the clock to eventually come good.
-                        sleep(doppelganger_service.slot_clock.slot_duration()).await;
+                        sleep(slot_duration).await;
                         continue;
                     }
 
@@ -95,7 +113,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             //
             // Without this, all validators would simply miss the first
             // `DEFAULT_REMAINING_DETECTION_EPOCHS` epochs and then all start at the same time. This
-            // would be pointless and damaging.
+            // would be pointless.
             //
             // The downside of this is that no validators have doppelganger protection at genesis.
             // It's an unfortunate trade-off.
@@ -142,7 +160,8 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
         // Resolve the list of pubkeys to indices.
         //
-        // Any pubkeys which do not have a known validator index will be ignored.
+        // Any pubkeys which do not have a known validator index will be ignored, preventing them
+        // from progressing through doppelganger protection until their indices are resolved.
         let detection_indices = detection_pubkeys
             .iter()
             // Note: mutation of external state inside this `filter_map`.
@@ -189,15 +208,44 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .await
             .map_err(|e| format!("Failed query for validator liveness: {}", e))?;
 
-        // Collect any duplicate validators across the previous and current epochs.
-        let violators = previous_epoch_responses
+        // Perform a loop through the current and previous epoch responses and detect any violators.
+        //
+        // A following loop will update the states of each validator, depending on whether or not
+        // any violators were detected here.
+        let mut violators = vec![];
+        for response in previous_epoch_responses
             .iter()
             .chain(current_epoch_responses.iter())
-            .filter(|response| response.is_live)
-            .map(|response| response.index)
-            .collect::<Vec<_>>();
-        let violators_exist = !violators.is_empty();
+        {
+            if !response.is_live {
+                continue;
+            }
 
+            // Resolve the index from the server response back to a public key.
+            let pubkey = indices_map
+                .get(&response.index)
+                // Abort the routine if inconsistency is detected.
+                .ok_or_else(|| {
+                    format!(
+                        "inconsistent indices map for validator index {}",
+                        response.index
+                    )
+                })?;
+
+            let next_check_epoch = self
+                .doppelganger_states
+                .read()
+                .get(&pubkey)
+                // Abort the routine if inconsistency is detected.
+                .ok_or_else(|| format!("inconsistent states for validator pubkey {}", pubkey))?
+                .next_check_epoch;
+
+            if response.is_live && next_check_epoch >= response.epoch {
+                violators.push(response.index);
+            }
+        }
+
+        let violators_exist = !violators.is_empty();
         if violators_exist {
             crit!(
                 log,
@@ -211,11 +259,18 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             )
         }
 
-        // The slot at which we become confident that we have seen enough of the previous epoch to
-        // detect any duplicate validators.
+        // The concept of "epoch satisfaction" is that for some epoch `e` we are *satisified* that
+        // we've waited long enough such that we don't expect to see any more consensus messages
+        // for that epoch.
+        //
+        // As it stands now, we consider epoch `e` to be satisfied once we're in the last slot of
+        // epoch `e + 1`.
+        //
+        // The reasoning for this choice of satisfaction slot is that by this point we've
+        // *probably* seen all the blocks that are permitted to contain attestations from epoch `e`.
         let previous_epoch_satisfaction_slot = previous_epoch
-            .start_slot(E::slots_per_epoch())
-            .saturating_add(EPOCH_SATISFACTION_DEPTH);
+            .saturating_add(1_u64)
+            .end_slot(E::slots_per_epoch());
         let previous_epoch_is_satisfied = request_slot >= previous_epoch_satisfaction_slot;
 
         // Iterate through all the previous epoch responses, updating `self.doppelganger_states`.
@@ -233,6 +288,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 ));
             }
 
+            // Resolve the index from the server response back to a public key.
             let pubkey = indices_map
                 .get(&response.index)
                 // Abort the routine if inconsistency is detected.
@@ -261,8 +317,8 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 // If a single doppelganger is detected, enable doppelganger checks on all
                 // validators forever (technically only 2**64 epochs).
                 //
-                // This has the effect of stopping all validator activity, even if the validator
-                // client fails to shut down.
+                // This has the effect of stopping validator activity even if the validator client
+                // fails to shut down.
                 doppelganger_state.remaining_epochs = u64::max_value();
             } else if !response.is_live && is_newly_satisfied_epoch {
                 // The validator has successfully completed doppelganger checks for a new epoch.
@@ -288,8 +344,8 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             }
         }
 
+        // Attempt to shutdown the validator client if there are any detected duplicate validators.
         if violators_exist {
-            // Attempt to shutdown the validator client.
             let _ = self
                 .context
                 .executor
