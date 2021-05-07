@@ -221,7 +221,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         let mut subscribed_topics: Vec<GossipKind> = vec![];
 
         for topic_kind in &config.topics {
-            if swarm.subscribe_kind(topic_kind.clone()) {
+            if swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
             } else {
                 warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
@@ -244,7 +244,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
     /// Sends a request to a peer, with a given Id.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
-        self.swarm.send_request(peer_id, request_id, request);
+        self.swarm
+            .behaviour_mut()
+            .send_request(peer_id, request_id, request);
     }
 
     /// Informs the peer that their request failed.
@@ -255,22 +257,30 @@ impl<TSpec: EthSpec> Service<TSpec> {
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.swarm._send_error_reponse(peer_id, id, error, reason);
+        self.swarm
+            .behaviour_mut()
+            ._send_error_reponse(peer_id, id, error, reason);
     }
 
     /// Report a peer's action.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
-        self.swarm.report_peer(peer_id, action, source);
+        self.swarm
+            .behaviour_mut()
+            .report_peer(peer_id, action, source);
     }
 
     /// Disconnect and ban a peer, providing a reason.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        self.swarm.goodbye_peer(peer_id, reason, source);
+        self.swarm
+            .behaviour_mut()
+            .goodbye_peer(peer_id, reason, source);
     }
 
     /// Sends a response to a peer's request.
     pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
-        self.swarm.send_successful_response(peer_id, id, response);
+        self.swarm
+            .behaviour_mut()
+            .send_successful_response(peer_id, id, response);
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
@@ -350,8 +360,8 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 fn build_transport(
     local_private_key: Keypair,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let transport = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
-    let transport = libp2p::dns::DnsConfig::new(transport)?;
+    let tcp = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
+    let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
         let trans_clone = transport.clone();

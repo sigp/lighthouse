@@ -42,9 +42,11 @@ regex = "1.3.9"
 strum = { version = "0.20", features = ["derive"] }
 
 [dependencies.libp2p]
-version = "0.35.1"
+git = "https://github.com/sigp/rust-libp2p"
+branch = "gossip-keep-alive"
+#version = "0.35.1"
 default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "1.1.0", features = ["full"] }
