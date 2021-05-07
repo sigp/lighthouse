@@ -232,18 +232,17 @@ impl<T: Encode> Encode for Option<T> {
     }
 }
 
-/// The SSZ "union" type.
 impl<T: Encode> Encode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
     }
 
-    fn ssz_bytes_len(&self) -> usize {
-        self.as_ref().ssz_bytes_len()
-    }
-
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         self.as_ref().ssz_append(buf)
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.as_ref().ssz_bytes_len()
     }
 }
 

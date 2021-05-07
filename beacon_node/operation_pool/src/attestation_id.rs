@@ -12,7 +12,7 @@ pub struct AttestationId {
 }
 
 /// Number of domain bytes that the end of an attestation ID is padded with.
-const DOMAIN_BYTES_LEN: usize = std::mem::size_of::<Hash256>();
+pub(crate) const DOMAIN_BYTES_LEN: usize = std::mem::size_of::<Hash256>();
 
 impl AttestationId {
     pub fn from_data(

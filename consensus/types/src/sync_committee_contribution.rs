@@ -98,6 +98,13 @@ pub struct SyncContributionData {
     subcommittee_index: u64,
 }
 
+/// Used to key `SyncAggregates` in the `op_pool`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+pub struct SyncAggregateData {
+    pub slot: Slot,
+    pub beacon_block_root: Hash256,
+}
+
 impl SyncContributionData {
     pub fn from_contribution<T: EthSpec>(signing_data: &SyncCommitteeContribution<T>) -> Self {
         Self {

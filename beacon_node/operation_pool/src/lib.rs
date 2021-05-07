@@ -8,6 +8,7 @@ mod sync_contribution_id;
 
 pub use persistence::PersistedOperationPool;
 
+use crate::sync_contribution_id::SyncAggregateId;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
@@ -28,14 +29,18 @@ use sync_contribution_id::SyncContributionId;
 use types::{
     typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
     Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch,
-    SignedVoluntaryExit, SyncCommitteeContribution, Validator,
+    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
 };
+
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from sync contribution ID (see below) to vectors of sync contributions.
-    sync_contributions: RwLock<HashMap<SyncContributionId, Vec<SyncCommitteeContribution<T>>>>,
+    /// Map from sync contribution ID to the best `SyncCommitteeContribution` seen for that ID.
+    sync_contributions: RwLock<HashMap<SyncContributionId, SyncCommitteeContribution<T>>>,
+    /// Map from sync aggregate ID to the current `SyncAggregate` based on the best known
+    /// `SyncCommitteeContribution`'s.
+    sync_aggregate: RwLock<HashMap<SyncAggregateId, SyncAggregate<T>>>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
     /// Map from proposer index to slashing.
@@ -74,30 +79,51 @@ impl<T: EthSpec> OperationPool<T> {
         // Take a write lock on the attestations map.
         let mut contributions = self.sync_contributions.write();
 
-        let existing_contributions = match contributions.entry(id) {
+        let existing_contribution = match contributions.entry(id) {
             hash_map::Entry::Vacant(entry) => {
-                entry.insert(vec![contribution]);
+                entry.insert(contribution);
+                //TODO: recalculate and insert aggregate
                 return Ok(());
             }
             hash_map::Entry::Occupied(entry) => entry.into_mut(),
         };
 
-        let mut aggregated = false;
-        for existing_attestation in existing_contributions.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&contribution) {
-                existing_attestation.aggregate(&contribution);
-                aggregated = true;
-            } else if *existing_attestation == contribution {
-                aggregated = true;
-            }
-        }
-
-        if !aggregated {
-            existing_contributions.push(contribution);
-        }
+        //TODO: calculate aggregate if necessary
 
         Ok(())
     }
+
+    /// Get the a aggregated sync contribution for inclusion in a block.
+    pub fn get_sync_aggregate(
+        &self,
+        state: &BeaconState<T>,
+        block_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Option<SyncAggregate<T>> {
+        let id = SyncAggregateId::from_data(
+            state.slot(),
+            block_root,
+            &state.fork(),
+            state.genesis_validators_root(),
+            spec,
+        );
+        self.sync_aggregate.read().get(&id).cloned()
+    }
+
+    /// Total number of sync contributions in the pool.
+    pub fn num_sync_contributions(&self) -> usize {
+        self.sync_contributions.read().len()
+    }
+
+    /// Remove sync contributions which are too old to be included in a block
+    pub fn prune_sync_contributions(&self, current_slot: Slot) {
+        // Prune sync contributions that are from before the previous slot.
+        self.sync_contributions
+            .write()
+            .retain(|_, contribution| current_slot <= contribution.slot.saturating_add(1));
+    }
+
+    //TODO: Add prune and get methods for the sync aggregate
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
     ///
@@ -426,6 +452,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Prune all types of transactions given the latest head state and head fork.
     pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch) {
         self.prune_attestations(current_epoch);
+        self.prune_sync_contributions(current_epoch);
         self.prune_proposer_slashings(head_state);
         self.prune_attester_slashings(head_state);
         self.prune_voluntary_exits(head_state);

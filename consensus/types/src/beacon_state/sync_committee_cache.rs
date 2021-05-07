@@ -9,7 +9,6 @@ pub struct SyncCommitteeCache {
 #[derive(Debug, PartialEq, Clone)]
 struct Cache {
     base_epoch: Epoch,
-    //TODO: make this ordered so it can be relied on in `compute_subnets_for_sync_committee`
     sync_committee_indices: Vec<usize>,
 }
 
