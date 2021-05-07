@@ -8,9 +8,6 @@ pub use remote_signer_test_data::*;
 use std::fs::{create_dir, File};
 use std::io::Write;
 use std::net::IpAddr::{V4, V6};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
 use std::path::Path;
 use tempfile::TempDir;
 use types::{
@@ -30,14 +27,78 @@ pub fn get_address(client: &Client) -> String {
     format!("http://{}:{}", ip, listening_address.port())
 }
 
-#[cfg(unix)]
-pub fn set_permissions(path: &Path, perm_octal: u32) {
-    use std::fs;
+pub fn restrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        use std::fs;
 
-    let metadata = fs::metadata(path).unwrap();
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(perm_octal);
-    fs::set_permissions(path, permissions).unwrap();
+        let metadata = fs::metadata(path).unwrap();
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o0311); // set to '*-wx--x--x'
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(windows)]
+    {
+        use winapi::um::winnt::PSID;
+        use windows_acl::acl::{AceType, ACL};
+
+        let path_str = path
+            .to_str()
+            .unwrap();
+        let mut acl =
+            ACL::from_file_path(&path_str, false).unwrap();
+
+        let entries = acl
+            .all()
+            .unwrap();
+        // remove all AccessAllow entries
+        for entry in &entries {
+            if let Some(ref entry_sid) = entry.sid {
+                acl.remove(
+                    (*entry_sid).as_ptr() as PSID,
+                    Some(AceType::AccessAllow),
+                    None,
+                ).unwrap();
+            }
+        }
+    }
+}
+
+pub fn unrestrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        use std::fs;
+
+        let metadata = fs::metadata(path).unwrap();
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o0755); // set to '*rwxr-xr-x'
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(windows)]
+    {
+        use winapi::um::winnt::PSID;
+        use windows_acl::acl::{AceType, ACL};
+
+        let path_str = path
+            .to_str()
+            .unwrap();
+        let mut acl =
+            ACL::from_file_path(&path_str, false).unwrap();
+
+        let owner_sid = windows_acl::helper::string_to_sid("S-1-3-4").unwrap();
+        // add single entry for file owner
+        acl.add_entry(
+            owner_sid.as_ptr() as PSID,
+            AceType::AccessAllow,
+            0,
+            0x1f01ff,
+        )
+        .unwrap();
+    }
 }
 
 pub fn add_key_files(tmp_dir: &TempDir) {

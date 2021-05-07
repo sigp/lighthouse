@@ -31,15 +31,15 @@ mod post {
     #[test]
     fn server_error() {
         let (test_signer, tmp_dir) = set_up_api_test_signer_to_sign_message();
-        set_permissions(tmp_dir.path(), 0o40311);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40311);
+        restrict_permissions(tmp_dir.path());
+        restrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         let test_client = set_up_test_consumer(&test_signer.address);
         let test_input = get_input_data_block(0xc137);
         let signature = do_sign_request(&test_client, test_input);
 
-        set_permissions(tmp_dir.path(), 0o40755);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
+        unrestrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         match signature.unwrap_err() {
             Error::ServerMessage(message) => assert_eq!(message, "Storage error: PermissionDenied"),

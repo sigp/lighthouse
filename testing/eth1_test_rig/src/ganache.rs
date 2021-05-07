@@ -74,8 +74,11 @@ impl GanacheInstance {
     /// RPC connections.
     pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
         let port = unused_port()?;
-
-        let child = Command::new("ganache-cli")
+        let binary = match cfg!(windows) {
+            true  => "ganache-cli.cmd", // really windows?
+            false => "ganache-cli",
+        };
+        let child = Command::new(binary)
             .stdout(Stdio::piped())
             .arg("--defaultBalanceEther")
             .arg("1000000000")
@@ -94,8 +97,9 @@ impl GanacheInstance {
             .spawn()
             .map_err(|e| {
                 format!(
-                    "Failed to start ganache-cli. \
-                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
+                    "Failed to start {}. \
+                    Is it installed and available on $PATH? Error: {:?}",
+                    binary,
                     e
                 )
             })?;
