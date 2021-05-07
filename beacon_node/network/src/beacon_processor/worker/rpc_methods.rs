@@ -197,10 +197,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // remove all skip slots
-        let block_roots = block_roots
-            .into_iter()
-            .filter_map(|root| root)
-            .collect::<Vec<_>>();
+        let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
         let mut blocks_sent = 0;
         for root in block_roots {

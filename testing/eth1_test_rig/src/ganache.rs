@@ -62,8 +62,8 @@ impl GanacheInstance {
         child.stdout = Some(reader.into_inner());
 
         Ok(Self {
-            child,
             port,
+            child,
             web3,
             network_id,
             chain_id,

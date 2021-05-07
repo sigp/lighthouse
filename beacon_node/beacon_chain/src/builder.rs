@@ -306,8 +306,8 @@ where
             })?;
 
         let genesis = BeaconSnapshot {
-            beacon_block_root,
             beacon_block,
+            beacon_block_root,
             beacon_state,
         };
 
