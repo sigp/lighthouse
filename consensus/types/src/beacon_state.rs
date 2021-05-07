@@ -1,7 +1,7 @@
-use std::{fmt, mem};
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::{fmt, mem};
 
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
@@ -15,9 +15,9 @@ pub use eth_spec::*;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use ssz::{Decode, DecodeError, Encode, ssz_encode};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitVector, FixedVector, typenum::Unsigned};
+use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use swap_or_not_shuffle::compute_shuffled_index;
 pub use sync_committee_cache::SyncCommitteeCache;
 use test_random_derive::TestRandom;
@@ -25,12 +25,11 @@ use tree_hash::TreeHash;
 pub use tree_hash_cache::BeaconTreeHashCache;
 use tree_hash_derive::TreeHash;
 
-use crate::*;
-use crate::slot_epoch;
 use crate::test_utils::TestRandom;
+use crate::*;
 
-pub use self::committee_cache::CommitteeCache;
 use self::committee_cache::get_active_validator_indices;
+pub use self::committee_cache::CommitteeCache;
 use self::exit_cache::ExitCache;
 
 #[macro_use]

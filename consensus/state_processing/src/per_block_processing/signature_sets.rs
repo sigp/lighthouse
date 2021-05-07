@@ -462,6 +462,7 @@ where
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn sync_committee_contribution_signature_set_from_pubkeys<'a, 'b, T, F>(
     get_pubkey: F,
     indices: &[usize],

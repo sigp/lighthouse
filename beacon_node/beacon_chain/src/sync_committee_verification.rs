@@ -43,21 +43,20 @@ use state_processing::signature_sets::{
     sync_committee_contribution_signature_set_from_pubkeys,
 };
 use tree_hash::TreeHash;
-use types::{
-    Attestation, BeaconCommittee, BitVector, CommitteeIndex, Epoch,
-    EthSpec, Hash256, IndexedAttestation, SelectionProof, SignedContributionAndProof, Slot,
-    SubnetId, SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
-};
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use types::{
+    EthSpec, Hash256, SelectionProof, SignedContributionAndProof, Slot, SubnetId,
+    SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
+};
 
 use crate::{
     beacon_chain::{
         HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    BeaconChain,
-    BeaconChainError,
-    BeaconChainTypes,
-    metrics, observed_aggregates::ObserveOutcome, observed_attesters::Error as ObservedAttestersError,
+    metrics,
+    observed_aggregates::ObserveOutcome,
+    observed_attesters::Error as ObservedAttestersError,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
@@ -213,11 +212,18 @@ pub enum Error {
     },
     SyncCommitteeCacheNotInitialized,
     ArithError(ArithError),
+    SszError(ssz_types::Error),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Error::BeaconChainError(e)
+    }
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Error::ArithError(e)
     }
 }
 
@@ -355,23 +361,18 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         //TODO: equivalent to `get_sync_subcommittee_pubkeys`
         let sync_subcommittee_size =
             <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSize::to_usize()
-                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
-                .map_err(|e| Error::ArithError(e))?;
-        let i = subcommittee_index
-            .safe_mul(sync_subcommittee_size)
-            .map_err(|e| Error::ArithError(e))?;
-        let j = i
-            .safe_add(sync_subcommittee_size)
-            .map_err(|e| Error::ArithError(e))?;
+                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
+        let i = subcommittee_index.safe_mul(sync_subcommittee_size)?;
+        let j = i.safe_add(sync_subcommittee_size)?;
         // only iter through the correct partition
         let participant_indices = current_sync_committee.pubkeys[i..j]
             .iter()
             .zip(contribution.aggregation_bits.iter())
             .flat_map(|(pubkey, bit)| {
                 bit.then::<Result<usize, Error>, _>(|| {
-                    Ok(chain
+                    chain
                         .validator_index(&pubkey)?
-                        .ok_or(Error::UnknowValidatorIndex(aggregator_index as usize))?)
+                        .ok_or(Error::UnknowValidatorIndex(aggregator_index as usize))
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -470,8 +471,7 @@ impl VerifiedSyncSignature {
         )?;
         let sync_subcommittee_size =
             <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSize::to_usize()
-                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
-                .map_err(|e| Error::ArithError(e))?;
+                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
         let pubkey = chain
             .validator_pubkey_bytes(sync_signature.validator_index as usize)?
             .ok_or(Error::UnknowValidatorIndex(
@@ -483,9 +483,7 @@ impl VerifiedSyncSignature {
         for (committee_index, validator_pubkey) in current_sync_committee.pubkeys.iter().enumerate()
         {
             if pubkey == *validator_pubkey {
-                let subcommittee_index = committee_index
-                    .safe_div(sync_subcommittee_size)
-                    .map_err(|e| Error::ArithError(e))?;
+                let subcommittee_index = committee_index.safe_div(sync_subcommittee_size)?;
                 subnet_positions
                     .entry(SubnetId::new(subcommittee_index as u64))
                     .or_insert_with(Vec::new)

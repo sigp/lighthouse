@@ -1186,7 +1186,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let _timer =
                     metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
                 let mut bits = BitVector::new();
-                bits.set(*position, true);
+                bits.set(*position, true)
+                    .map_err(SyncCommitteeError::SszError)?;
                 let contribution = SyncCommitteeContribution {
                     slot: sync_signature.slot,
                     beacon_block_root: sync_signature.beacon_block_root,

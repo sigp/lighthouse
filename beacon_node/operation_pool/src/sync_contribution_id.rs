@@ -3,10 +3,7 @@ use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
 use store::SyncCommitteeContribution;
 use types::sync_committee_contribution::SyncContributionData;
-use types::{
-    AttestationData, ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Slot,
-    SyncAggregatorSelectionData,
-};
+use types::{ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256};
 
 /// Serialized `SynCommitteeSigningData` augmented with a domain to encode the fork info.
 #[derive(

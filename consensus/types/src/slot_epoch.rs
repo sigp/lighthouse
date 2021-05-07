@@ -16,12 +16,12 @@ use std::iter::Iterator;
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-use rand::RngCore;
-use serde_derive::{Deserialize, Serialize};
-use safe_arith::SafeArith;
-use ssz::{Decode, DecodeError, Encode, ssz_encode};
-use crate::{ChainSpec, Error, SignedRoot};
 use crate::test_utils::TestRandom;
+use crate::{ChainSpec, Error, SignedRoot};
+use rand::RngCore;
+use safe_arith::SafeArith;
+use serde_derive::{Deserialize, Serialize};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -103,8 +103,8 @@ impl Epoch {
             self.safe_div(spec.epochs_per_sync_committee_period)?,
             Epoch::new(1),
         )
-            .safe_sub(1)?
-            .safe_mul(spec.epochs_per_sync_committee_period)?)
+        .safe_sub(1)?
+        .safe_mul(spec.epochs_per_sync_committee_period)?)
     }
 }
 

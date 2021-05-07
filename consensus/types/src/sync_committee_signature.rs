@@ -1,7 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{
-    AggregateSignature, Checkpoint, EthSpec, Hash256, SignedRoot, Slot, SyncCommitteeContribution,
-};
+use crate::{AggregateSignature, Hash256, Slot};
 
 use crate::attestation::SlotData;
 use serde_derive::{Deserialize, Serialize};
