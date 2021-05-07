@@ -30,8 +30,8 @@ pub fn get_address(client: &Client) -> String {
 pub fn restrict_permissions(path: &Path) {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         use std::fs;
+        use std::os::unix::fs::PermissionsExt;
 
         let metadata = fs::metadata(path).unwrap();
         let mut permissions = metadata.permissions();
@@ -44,15 +44,10 @@ pub fn restrict_permissions(path: &Path) {
         use winapi::um::winnt::PSID;
         use windows_acl::acl::{AceType, ACL};
 
-        let path_str = path
-            .to_str()
-            .unwrap();
-        let mut acl =
-            ACL::from_file_path(&path_str, false).unwrap();
+        let path_str = path.to_str().unwrap();
+        let mut acl = ACL::from_file_path(&path_str, false).unwrap();
 
-        let entries = acl
-            .all()
-            .unwrap();
+        let entries = acl.all().unwrap();
         // remove all AccessAllow entries
         for entry in &entries {
             if let Some(ref entry_sid) = entry.sid {
@@ -60,7 +55,8 @@ pub fn restrict_permissions(path: &Path) {
                     (*entry_sid).as_ptr() as PSID,
                     Some(AceType::AccessAllow),
                     None,
-                ).unwrap();
+                )
+                .unwrap();
             }
         }
     }
@@ -69,8 +65,8 @@ pub fn restrict_permissions(path: &Path) {
 pub fn unrestrict_permissions(path: &Path) {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         use std::fs;
+        use std::os::unix::fs::PermissionsExt;
 
         let metadata = fs::metadata(path).unwrap();
         let mut permissions = metadata.permissions();
@@ -83,11 +79,8 @@ pub fn unrestrict_permissions(path: &Path) {
         use winapi::um::winnt::PSID;
         use windows_acl::acl::{AceType, ACL};
 
-        let path_str = path
-            .to_str()
-            .unwrap();
-        let mut acl =
-            ACL::from_file_path(&path_str, false).unwrap();
+        let path_str = path.to_str().unwrap();
+        let mut acl = ACL::from_file_path(&path_str, false).unwrap();
 
         let owner_sid = windows_acl::helper::string_to_sid("S-1-3-4").unwrap();
         // add single entry for file owner

@@ -75,7 +75,7 @@ impl GanacheInstance {
     pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
         let port = unused_port()?;
         let binary = match cfg!(windows) {
-            true  => "ganache-cli.cmd", // really windows?
+            true => "ganache-cli.cmd", // really windows?
             false => "ganache-cli",
         };
         let child = Command::new(binary)
@@ -99,8 +99,7 @@ impl GanacheInstance {
                 format!(
                     "Failed to start {}. \
                     Is it installed and available on $PATH? Error: {:?}",
-                    binary,
-                    e
+                    binary, e
                 )
             })?;
 
