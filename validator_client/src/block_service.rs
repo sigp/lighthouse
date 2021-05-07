@@ -5,7 +5,6 @@ use crate::{
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
-use futures::TryFutureExt;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -207,15 +206,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
-                service
-                    .publish_block(slot, validator_pubkey)
-                    .unwrap_or_else(move |e| {
+                async move {
+                    if let Err(e) = service.publish_block(slot, validator_pubkey).await {
                         crit!(
                             log,
                             "Error whilst producing block";
                             "message" => e
                         );
-                    }),
+                    }
+                },
                 "block service",
             );
         }
@@ -241,7 +240,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let randao_reveal = self
             .validator_store
             .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-            .ok_or("Unable to produce randao reveal")?
+            .map_err(|e| format!("Unable to produce randao reveal signature: {:?}", e))?
             .into();
 
         let graffiti = self
@@ -272,7 +271,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 let signed_block = self_ref
                     .validator_store
                     .sign_block(validator_pubkey_ref, block, current_slot)
-                    .ok_or("Unable to sign block")?;
+                    .map_err(|e| format!("Unable to sign block: {:?}", e))?;
 
                 beacon_node
                     .post_beacon_blocks(&signed_block)

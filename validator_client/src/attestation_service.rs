@@ -376,25 +376,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            if self
-                .validator_store
-                .sign_attestation(
-                    &duty.pubkey,
-                    duty.validator_committee_index as usize,
-                    &mut attestation,
-                    current_epoch,
-                )
-                .is_some()
-            {
-                attestations.push(attestation);
-            } else {
+            if let Err(e) = self.validator_store.sign_attestation(
+                &duty.pubkey,
+                duty.validator_committee_index as usize,
+                &mut attestation,
+                current_epoch,
+            ) {
                 crit!(
                     log,
                     "Failed to sign attestation";
+                    "error" => ?e,
                     "committee_index" => committee_index,
                     "slot" => slot.as_u64(),
                 );
                 continue;
+            } else {
+                attestations.push(attestation);
             }
         }
 
@@ -488,17 +485,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 continue;
             }
 
-            if let Some(aggregate) = self.validator_store.produce_signed_aggregate_and_proof(
+            match self.validator_store.produce_signed_aggregate_and_proof(
                 &duty.pubkey,
                 duty.validator_index,
                 aggregated_attestation.clone(),
                 selection_proof.clone(),
             ) {
-                signed_aggregate_and_proofs.push(aggregate);
-            } else {
-                crit!(log, "Failed to sign attestation");
-                continue;
-            };
+                Ok(aggregate) => signed_aggregate_and_proofs.push(aggregate),
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Failed to sign attestation";
+                        "error" => ?e
+                    );
+                    continue;
+                }
+            }
         }
 
         if !signed_aggregate_and_proofs.is_empty() {

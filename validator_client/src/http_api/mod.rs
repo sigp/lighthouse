@@ -16,7 +16,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
-use types::{ChainSpec, Epoch, EthSpec, YamlConfig};
+use types::{ChainSpec, EthSpec, YamlConfig};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -384,11 +384,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     drop(validator_dir);
                     let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
-                    let current_epoch = get_current_epoch::<T, E>(validator_store.slot_clock())?;
-                    let genesis_epoch = validator_store
-                        .slot_clock()
-                        .genesis_slot()
-                        .epoch(E::slots_per_epoch());
 
                     let validator_def = {
                         if let Some(runtime) = runtime.upgrade() {
@@ -398,8 +393,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     voting_password,
                                     body.enable,
                                     graffiti,
-                                    current_epoch,
-                                    genesis_epoch,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -449,20 +442,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            let current_epoch =
-                                get_current_epoch::<T, E>(validator_store.slot_clock())?;
-                            let genesis_epoch = validator_store
-                                .slot_clock()
-                                .genesis_slot()
-                                .epoch(E::slots_per_epoch());
                             if let Some(runtime) = runtime.upgrade() {
                                 runtime
-                                    .block_on(initialized_validators.set_validator_status(
-                                        &validator_pubkey,
-                                        body.enabled,
-                                        current_epoch,
-                                        genesis_epoch,
-                                    ))
+                                    .block_on(
+                                        initialized_validators
+                                            .set_validator_status(&validator_pubkey, body.enabled),
+                                    )
                                     .map_err(|e| {
                                         warp_utils::reject::custom_server_error(format!(
                                             "unable to set validator status: {:?}",
@@ -558,16 +543,4 @@ where
 
             response
         })
-}
-
-/// Helper function to get the current `Epoch` given a `SlotClock` and handle errors with `warp`.
-pub(crate) fn get_current_epoch<T: SlotClock, E: EthSpec>(
-    slot_clock: T,
-) -> Result<Epoch, warp::Rejection> {
-    Ok(slot_clock
-        .now()
-        .ok_or_else(|| {
-            warp_utils::reject::custom_server_error("failed to read slot clock".to_string())
-        })?
-        .epoch(E::slots_per_epoch()))
 }

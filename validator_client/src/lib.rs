@@ -153,7 +153,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
-        let voting_pubkeys: Vec<_> = validators.iter_duties_collection_pubkeys().collect();
+        let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
 
         info!(
             log,
@@ -263,7 +263,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .log(log.clone())
             .build()?;
 
-        let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
+        let mut validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
             validators,
             slashing_protection,
             genesis_validators_root,
@@ -330,26 +330,21 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
-        let doppelganger_service_opt = if config.disable_doppelganger_detection {
+        let doppelganger_service = if config.disable_doppelganger_detection {
             None
         } else {
             let service = DoppelgangerService {
                 slot_clock: slot_clock.clone(),
-                validator_store: validator_store.clone(),
+                validator_store: Box::new(validator_store.clone()),
                 beacon_nodes: beacon_nodes.clone(),
                 context: context.service_context("doppelganger".into()),
-                doppelganger_states: <_>::default()
+                doppelganger_states: <_>::default(),
             };
 
+            validator_store.attach_doppelganger_service(service.clone())?;
+
             Some(service)
-        }
-        let doppelganger_service =
-            (!config.disable_doppelganger_detection).then(|| DoppelgangerService {
-                slot_clock: slot_clock.clone(),
-                validator_store: validator_store.clone(),
-                beacon_nodes: beacon_nodes.clone(),
-                context: context.service_context("doppelganger".into()),
-            });
+        };
 
         Ok(Self {
             context,

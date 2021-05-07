@@ -20,16 +20,13 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use types::{Epoch, Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
-
-/// The default number of epochs we will spend scanning the network for doppelgangers before attesting.
-pub const DEFAULT_REMAINING_DETECTION_EPOCHS: usize = 2;
 
 #[derive(Debug)]
 pub enum Error {
@@ -389,7 +386,6 @@ impl InitializedValidators {
         &mut self,
         voting_public_key: &PublicKey,
         enabled: bool,
-        current_epoch: Epoch,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions

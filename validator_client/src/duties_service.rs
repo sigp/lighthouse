@@ -8,7 +8,9 @@
 
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
-    block_service::BlockServiceNotification, http_metrics::metrics, validator_store::ValidatorStore,
+    block_service::BlockServiceNotification,
+    http_metrics::metrics,
+    validator_store::{Error as ValidatorStoreError, ValidatorStore},
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
@@ -36,7 +38,7 @@ const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 pub enum Error {
     UnableToReadSlotClock,
     FailedToDownloadAttesters(String),
-    FailedToProduceSelectionProof,
+    FailedToProduceSelectionProof(ValidatorStoreError),
     InvalidModulo(ArithError),
 }
 
@@ -57,7 +59,7 @@ impl DutyAndProof {
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
             .produce_selection_proof(&duty.pubkey, duty.slot)
-            .ok_or(Error::FailedToProduceSelectionProof)?;
+            .map_err(Error::FailedToProduceSelectionProof)?;
 
         let selection_proof = selection_proof
             .is_aggregator(duty.committee_length as usize, spec)
@@ -284,7 +286,9 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_INDICES]);
 
     let log = duties_service.context.log();
-    for pubkey in duties_service.validator_store.duties_collection_pubkeys() {
+
+    // Collect *all* pubkeys for resolving indices, even those undergoing doppelganger protection.
+    for pubkey in duties_service.validator_store.all_pubkeys() {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service
             .validator_store
@@ -369,9 +373,13 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let next_epoch = current_epoch + 1;
 
+    // Collect *all* pubkeys, even those undergoing doppelganger protection.
+    //
+    // We must know the duties for doppelganger validators so that we can subscribe to their subnets
+    // and get more information about other running instances.
     let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
         .validator_store
-        .duties_collection_pubkeys()
+        .all_pubkeys()
         .into_iter()
         .collect();
 
@@ -640,13 +648,18 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         current_slot,
         &initial_block_proposers,
         block_service_tx,
+        &duties_service.validator_store,
         &log,
     )
     .await;
 
+    // Collect *all* pubkeys, even those undergoing doppelganger protection.
+    //
+    // It is useful to keep the duties for all validators around, so they're on hand when
+    // doppelganger finishes.
     let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
         .validator_store
-        .duties_collection_pubkeys()
+        .all_pubkeys()
         .into_iter()
         .collect();
 
@@ -723,6 +736,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 current_slot,
                 &additional_block_producers,
                 block_service_tx,
+                &duties_service.validator_store,
                 &log,
             )
             .await;
@@ -745,24 +759,37 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
 }
 
 /// Notify the block service if it should produce a block.
-async fn notify_block_production_service(
+async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
     current_slot: Slot,
     block_proposers: &HashSet<PublicKeyBytes>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
+    validator_store: &ValidatorStore<T, E>,
     log: &Logger,
 ) {
-    if let Err(e) = block_service_tx
-        .send(BlockServiceNotification {
-            slot: current_slot,
-            block_proposers: block_proposers.iter().copied().collect(),
+    let non_doppelganger_proposers = block_proposers
+        .iter()
+        .filter(|pubkey| {
+            validator_store
+                .check_against_doppelganger_protection(pubkey)
+                .is_ok()
         })
-        .await
-    {
-        error!(
-            log,
-            "Failed to notify block service";
-            "current_slot" => current_slot,
-            "error" => %e
-        );
-    };
+        .copied()
+        .collect::<Vec<_>>();
+
+    if !non_doppelganger_proposers.is_empty() {
+        if let Err(e) = block_service_tx
+            .send(BlockServiceNotification {
+                slot: current_slot,
+                block_proposers: non_doppelganger_proposers,
+            })
+            .await
+        {
+            error!(
+                log,
+                "Failed to notify block service";
+                "current_slot" => current_slot,
+                "error" => %e
+            );
+        };
+    }
 }

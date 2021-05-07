@@ -14,7 +14,7 @@ pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 2;
 // TODO: add reasoning for this.
 pub const EPOCH_SATISFACTION_DEPTH: u64 = 2;
 
-struct DopplegangerState {
+pub struct DopplegangerState {
     next_check_epoch: Epoch,
     remaining_epochs: u64,
 }
@@ -151,14 +151,6 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 indices_map.insert(index, pubkey);
                 Some(index)
             })
-            .collect::<Vec<_>>();
-
-        // Resolve the list of pubkeys to indices.
-        //
-        // Any pubkeys which do not have a known validator index will be ignored.
-        let detection_indices = detection_pubkeys
-            .iter()
-            .filter_map(|pubkey| self.validator_store.validator_index(pubkey))
             .collect::<Vec<_>>();
 
         if detection_indices.is_empty() {

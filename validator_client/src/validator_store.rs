@@ -12,11 +12,23 @@ use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
 use types::{
-    graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
-    Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedRoot, Slot,
+    attestation::Error as AttestationError, graffiti::GraffitiString, Attestation, BeaconBlock,
+    ChainSpec, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 use validator_dir::ValidatorDir;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    DoppelgangerProtected(PublicKeyBytes),
+    UnknownToDoppelgangerService(PublicKeyBytes),
+    UnknownPubkey(PublicKeyBytes),
+    Slashable(NotSafe),
+    SameData,
+    GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
+    GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
+    UnableToSignAttestation(AttestationError),
+}
 
 /// Number of epochs of slashing protection history to keep.
 ///
@@ -87,6 +99,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         &mut self,
         service: DoppelgangerService<T, E>,
     ) -> Result<(), String> {
+        if self.doppelganger_service.is_some() {
+            return Err("Cannot attach doppelganger service twice".to_string());
+        }
+
         // Ensure all existing validators are registered with the service.
         for pubkey in self.validators.read().iter_voting_pubkeys() {
             service.register_new_validator(*pubkey)?
@@ -119,8 +135,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         password: ZeroizeString,
         enable: bool,
         graffiti: Option<GraffitiString>,
-        current_epoch: Epoch,
-        genesis_epoch: Epoch,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
@@ -170,6 +184,21 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .iter_voting_pubkeys()
             .cloned()
             .collect()
+    }
+
+    pub fn check_against_doppelganger_protection(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Result<(), Error> {
+        if let Some(doppelganger_service) = &self.doppelganger_service {
+            match doppelganger_service.validator_should_sign(validator_pubkey) {
+                Some(true) => Ok(()),
+                Some(false) => Err(Error::DoppelgangerProtected(*validator_pubkey)),
+                None => Err(Error::UnknownToDoppelgangerService(*validator_pubkey)),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns all the validators that are permitted to sign attestations, blocks and other
@@ -232,25 +261,41 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.fork_service.fork()
     }
 
+    fn with_validator_keypair<F, R>(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        func: F,
+    ) -> Result<R, Error>
+    where
+        F: FnOnce(&Keypair) -> R,
+    {
+        // If the doppelganger service is active, check to ensure it explicitly permits signing by
+        // this validator.
+        self.check_against_doppelganger_protection(validator_pubkey)?;
+
+        let validators_lock = self.validators.read();
+
+        Ok(func(
+            validators_lock
+                .voting_keypair(validator_pubkey)
+                .ok_or_else(|| Error::UnknownPubkey(*validator_pubkey))?,
+        ))
+    }
+
     pub fn randao_reveal(
         &self,
         validator_pubkey: &PublicKeyBytes,
         epoch: Epoch,
-    ) -> Option<Signature> {
-        self.validators
-            .read()
-            .voting_keypair(validator_pubkey)
-            .map(|voting_keypair| {
-                let domain = self.spec.get_domain(
-                    epoch,
-                    Domain::Randao,
-                    &self.fork(),
-                    self.genesis_validators_root,
-                );
-                let message = epoch.signing_root(domain);
+    ) -> Result<Signature, Error> {
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::Randao,
+            &self.fork(),
+            self.genesis_validators_root,
+        );
+        let message = epoch.signing_root(domain);
 
-                voting_keypair.sk.sign(message)
-            })
+        self.with_validator_keypair(validator_pubkey, |keypair| keypair.sk.sign(message))
     }
 
     pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
@@ -262,7 +307,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKeyBytes,
         block: BeaconBlock<E>,
         current_slot: Slot,
-    ) -> Option<SignedBeaconBlock<E>> {
+    ) -> Result<SignedBeaconBlock<E>, Error> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot > current_slot {
             warn!(
@@ -271,7 +316,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 "block_slot" => block.slot.as_u64(),
                 "current_slot" => current_slot.as_u64()
             );
-            return None;
+            return Err(Error::GreaterThanCurrentSlot {
+                slot: block.slot,
+                current_slot,
+            });
         }
 
         // Check for slashing conditions.
@@ -290,19 +338,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         );
 
         match slashing_status {
-            // We can safely sign this block.
+            // We can safely sign this block without slashing.
             Ok(Safe::Valid) => {
-                let validators = self.validators.read();
-                let voting_keypair = validators.voting_keypair(validator_pubkey)?;
-
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
 
-                Some(block.sign(
-                    &voting_keypair.sk,
-                    &fork,
-                    self.genesis_validators_root,
-                    &self.spec,
-                ))
+                self.with_validator_keypair(validator_pubkey, move |keypair| {
+                    block.sign(&keypair.sk, &fork, self.genesis_validators_root, &self.spec)
+                })
             }
             Ok(Safe::SameData) => {
                 warn!(
@@ -310,7 +352,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "Skipping signing of previously signed block";
                 );
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SAME_DATA]);
-                None
+                Err(Error::SameData)
             }
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
@@ -320,7 +362,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "public_key" => format!("{:?}", pk)
                 );
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::UNREGISTERED]);
-                None
+                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
                 crit!(
@@ -329,7 +371,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "error" => format!("{:?}", e)
                 );
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
-                None
+                Err(Error::Slashable(e))
             }
         }
     }
@@ -340,10 +382,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
         current_epoch: Epoch,
-    ) -> Option<()> {
+    ) -> Result<(), Error> {
         // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
         if attestation.data.target.epoch > current_epoch {
-            return None;
+            return Err(Error::GreaterThanCurrentEpoch {
+                epoch: attestation.data.target.epoch,
+                current_epoch,
+            });
         }
 
         // Checking for slashing conditions.
@@ -364,29 +409,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                let validators = self.validators.read();
-                let voting_keypair = validators.voting_keypair(validator_pubkey)?;
-
-                attestation
-                    .sign(
-                        &voting_keypair.sk,
+                self.with_validator_keypair(validator_pubkey, |keypair| {
+                    attestation.sign(
+                        &keypair.sk,
                         validator_committee_position,
                         &fork,
                         self.genesis_validators_root,
                         &self.spec,
                     )
-                    .map_err(|e| {
-                        error!(
-                            self.log,
-                            "Error whilst signing attestation";
-                            "error" => format!("{:?}", e)
-                        )
-                    })
-                    .ok()?;
+                })?
+                .map_err(Error::UnableToSignAttestation)?;
 
                 metrics::inc_counter_vec(&metrics::SIGNED_ATTESTATIONS_TOTAL, &[metrics::SUCCESS]);
 
-                Some(())
+                Ok(())
             }
             Ok(Safe::SameData) => {
                 warn!(
@@ -397,7 +433,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     &metrics::SIGNED_ATTESTATIONS_TOTAL,
                     &[metrics::SAME_DATA],
                 );
-                None
+                Err(Error::SameData)
             }
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
@@ -410,7 +446,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     &metrics::SIGNED_ATTESTATIONS_TOTAL,
                     &[metrics::UNREGISTERED],
                 );
-                None
+                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
                 crit!(
@@ -423,7 +459,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     &metrics::SIGNED_ATTESTATIONS_TOTAL,
                     &[metrics::SLASHABLE],
                 );
-                None
+                Err(Error::Slashable(e))
             }
         }
     }
@@ -438,21 +474,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_index: u64,
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
-    ) -> Option<SignedAggregateAndProof<E>> {
-        let validators = self.validators.read();
-        let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+    ) -> Result<SignedAggregateAndProof<E>, Error> {
+        let proof = self.with_validator_keypair(validator_pubkey, move |keypair| {
+            SignedAggregateAndProof::from_aggregate(
+                validator_index,
+                aggregate,
+                Some(selection_proof),
+                &keypair.sk,
+                &self.fork(),
+                self.genesis_validators_root,
+                &self.spec,
+            )
+        })?;
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
-        Some(SignedAggregateAndProof::from_aggregate(
-            validator_index,
-            aggregate,
-            Some(selection_proof),
-            &voting_keypair.sk,
-            &self.fork(),
-            self.genesis_validators_root,
-            &self.spec,
-        ))
+        Ok(proof)
     }
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
@@ -461,19 +498,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
-    ) -> Option<SelectionProof> {
-        let validators = self.validators.read();
-        let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+    ) -> Result<SelectionProof, Error> {
+        let proof = self.with_validator_keypair(validator_pubkey, |keypair| {
+            SelectionProof::new::<E>(
+                slot,
+                &keypair.sk,
+                &self.fork(),
+                self.genesis_validators_root,
+                &self.spec,
+            )
+        })?;
 
         metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
 
-        Some(SelectionProof::new::<E>(
-            slot,
-            &voting_keypair.sk,
-            &self.fork(),
-            self.genesis_validators_root,
-            &self.spec,
-        ))
+        Ok(proof)
     }
 
     /// Prune the slashing protection database so that it remains performant.
@@ -507,11 +545,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
 
-        let validators = self.validators.read();
-        if let Err(e) = self.slashing_protection.prune_all_signed_attestations(
-            validators.iter_duties_collection_pubkeys(),
-            new_min_target_epoch,
-        ) {
+        let all_pubkeys = self.all_pubkeys();
+        if let Err(e) = self
+            .slashing_protection
+            .prune_all_signed_attestations(all_pubkeys.iter(), new_min_target_epoch)
+        {
             error!(
                 self.log,
                 "Error during pruning of signed attestations";
@@ -522,7 +560,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         if let Err(e) = self
             .slashing_protection
-            .prune_all_signed_blocks(validators.iter_duties_collection_pubkeys(), new_min_slot)
+            .prune_all_signed_blocks(all_pubkeys.iter(), new_min_slot)
         {
             error!(
                 self.log,
