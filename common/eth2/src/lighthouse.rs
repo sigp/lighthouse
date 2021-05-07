@@ -204,7 +204,7 @@ impl SystemHealth {
             network_node_bytes_total_received: net.bytes_recv(),
             network_node_bytes_total_transmit: net.bytes_sent(),
             misc_node_boot_ts_seconds: boot_time,
-            misc_os: psutil::host::info().operating_system().as_str().to_string(),
+            misc_os: std::env::consts::OS.to_string(),
         })
     }
 }
