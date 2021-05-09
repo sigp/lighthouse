@@ -603,7 +603,7 @@ impl YamlConfig {
     /// Returns `None` if there is no match.
     pub fn eth_spec_id(&self) -> Option<EthSpecId> {
         match self.epochs_per_eth1_voting_period {
-            4 => Some(EthSpecId::Mainnet),
+            4 => Some(EthSpecId::Minimal),
             32 => Some(EthSpecId::V012Legacy),
             64 => Some(EthSpecId::Mainnet),
             _ => None,
