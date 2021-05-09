@@ -18,7 +18,10 @@ use serde_json::{json, Value};
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Address, ExecutionPayload, FixedVector, Hash256, VariableList};
+use types::{
+    execution_payload::{serde_logs_bloom, BytesPerLogsBloom},
+    Address, ExecutionPayload, FixedVector, Hash256, VariableList,
+};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -214,8 +217,8 @@ struct JsonExecutionPayload {
     timestamp: u64,
     #[serde(rename = "receiptsRoot")]
     receipts_root: Hash256,
-    #[serde(rename = "logsBloom", with = "serde_utils::hex_vec")]
-    logs_bloom: Vec<u8>,
+    #[serde(rename = "logsBloom", with = "serde_logs_bloom")]
+    logs_bloom: FixedVector<u8, BytesPerLogsBloom>,
     #[serde(with = "serde_utils::list_of_bytes_lists")]
     transactions: Vec<Vec<u8>>,
 }
@@ -256,8 +259,7 @@ pub async fn consensus_assemble_block(
         gas_used: response.gas_used,
         timestamp: response.timestamp,
         receipt_root: response.receipts_root,
-        logs_bloom: FixedVector::new(response.logs_bloom)
-            .map_err(|e| format!("Invalid logs_bloom in consensus_assembleBlock: {:?}", e))?,
+        logs_bloom: response.logs_bloom,
         transactions: VariableList::new(transactions).map_err(|e| {
             format!(
                 "Invalid transactions list in consensus_assembleBlock: {:?}",
@@ -287,7 +289,7 @@ pub async fn consensus_new_block(
         gas_used: execution_payload.gas_used,
         timestamp: execution_payload.timestamp,
         receipts_root: execution_payload.receipt_root,
-        logs_bloom: execution_payload.logs_bloom[..].to_vec(),
+        logs_bloom: execution_payload.logs_bloom.clone(),
         transactions: execution_payload
             .transactions
             .iter()
