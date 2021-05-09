@@ -444,6 +444,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
+            Err(BlockError::NoEth1Connection) => {
+                debug!(self.log, "Cannot verify block from gossip, no eth1 connection")
+            }
             other => {
                 debug!(
                     self.log,
