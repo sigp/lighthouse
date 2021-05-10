@@ -84,7 +84,9 @@ use {procinfo::pid, psutil::process::Process};
 /// Reports on the health of the Lighthouse instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Health {
+    #[serde(flatten)]
     pub system: SystemHealth,
+    #[serde(flatten)]
     pub process: ProcessHealth,
 }
 
