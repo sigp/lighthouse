@@ -18,7 +18,7 @@ mod post {
         match signature.unwrap_err() {
             Error::Reqwest(e) => {
                 let error_msg = e.to_string();
-                let pubkey_string = format!("{}", PUBLIC_KEY_1);
+                let pubkey_string = PUBLIC_KEY_1.to_string();
                 let msgs = vec![
                     "error sending request for url",
                     &pubkey_string,
