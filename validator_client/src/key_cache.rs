@@ -18,6 +18,9 @@ use std::{fs, io};
 /// The file name for the serialized `KeyCache` struct.
 pub const CACHE_FILENAME: &str = "validator_key_cache.json";
 
+/// The file name for the temporary `KeyCache`.
+pub const TEMP_CACHE_FILENAME: &str = ".validator_key_cache.json.tmp";
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum State {
     NotDecrypted,
@@ -139,17 +142,17 @@ impl KeyCache {
             self.encrypt()?;
 
             let cache_path = validators_dir.as_ref().join(CACHE_FILENAME);
+            let temp_path = validators_dir.as_ref().join(TEMP_CACHE_FILENAME);
             let bytes = serde_json::to_vec(self).map_err(Error::UnableToEncodeFile)?;
 
-            let res = if cache_path.exists() {
-                fs::write(cache_path, &bytes).map_err(Error::UnableToWriteFile)
-            } else {
-                create_with_600_perms(&cache_path, &bytes).map_err(Error::UnableToWriteFile)
-            };
-            if res.is_ok() {
-                self.state = State::DecryptedAndSaved;
-            }
-            res.map(|_| true)
+            // Create and write to temporary.
+            create_with_600_perms(&temp_path, &bytes).map_err(Error::UnableToWriteTempFile)?;
+
+            // Rename atomically.
+            fs::rename(&temp_path, &cache_path).map_err(Error::UnableToRenameFile)?;
+
+            self.state = State::DecryptedAndSaved;
+            Ok(true)
         } else {
             Ok(false)
         }
@@ -243,8 +246,10 @@ pub enum Error {
     UnableToParseFile(serde_json::Error),
     /// The cache file could not be serialized as YAML.
     UnableToEncodeFile(serde_json::Error),
-    /// The cache file could not be written to the filesystem.
-    UnableToWriteFile(io::Error),
+    /// The temporary cache file could not be written to the filesystem.
+    UnableToWriteTempFile(io::Error),
+    /// The temporary cache file could not be renamed to replace the official cache file.
+    UnableToRenameFile(io::Error),
     /// Couldn't decrypt the cache file
     UnableToDecrypt(KeystoreError),
     UnableToEncrypt(KeystoreError),

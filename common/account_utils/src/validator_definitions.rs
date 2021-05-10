@@ -19,6 +19,12 @@ use validator_dir::VOTING_KEYSTORE_FILE;
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
 
+/// The temporary file name for the serialized `ValidatorDefinitions` struct.
+///
+/// This is used to achieve an atomic update of the contents on disk, without truncation.
+/// See: https://github.com/sigp/lighthouse/issues/2159
+pub const CONFIG_TEMP_FILENAME: &str = ".validator_definitions.yml.tmp";
+
 #[derive(Debug)]
 pub enum Error {
     /// The config file could not be opened.
@@ -29,8 +35,10 @@ pub enum Error {
     UnableToSearchForKeystores(io::Error),
     /// The config file could not be serialized as YAML.
     UnableToEncodeFile(serde_yaml::Error),
-    /// The config file could not be written to the filesystem.
-    UnableToWriteFile(io::Error),
+    /// The temporary config file could not be written to the filesystem.
+    UnableToWriteTempFile(io::Error),
+    /// The temporary config file could not be renamed into the real config file.
+    UnableToRenameFile(io::Error),
     /// The public key from the keystore is invalid.
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.
@@ -249,19 +257,23 @@ impl ValidatorDefinitions {
         Ok(new_defs_count)
     }
 
-    /// Encodes `self` as a YAML string it writes it to the `CONFIG_FILENAME` file in the
-    /// `validators_dir` directory.
+    /// Encodes `self` as a YAML string and atomically writes it to the `CONFIG_FILENAME` file in
+    /// the `validators_dir` directory.
     ///
-    /// Will create a new file if it does not exist or over-write any existing file.
+    /// Will create a new file if it does not exist or overwrite any existing file.
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
+        let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
         let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
 
-        if config_path.exists() {
-            fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
-        } else {
-            create_with_600_perms(&config_path, &bytes).map_err(Error::UnableToWriteFile)
-        }
+        // Write to the temporary path first. If this fails then the real validator definitions
+        // file is unscathed.
+        create_with_600_perms(&temp_path, &bytes).map_err(Error::UnableToWriteTempFile)?;
+
+        // With the temporary file created, perform an atomic rename.
+        fs::rename(&temp_path, &config_path).map_err(Error::UnableToRenameFile)?;
+
+        Ok(())
     }
 
     /// Adds a new `ValidatorDefinition` to `self`.
@@ -392,7 +404,7 @@ mod tests {
 
     #[test]
     fn graffiti_checks() {
-        let no_graffiti = r#"--- 
+        let no_graffiti = r#"---
         description: ""
         enabled: true
         type: local_keystore
@@ -402,7 +414,7 @@ mod tests {
         let def: ValidatorDefinition = serde_yaml::from_str(&no_graffiti).unwrap();
         assert!(def.graffiti.is_none());
 
-        let invalid_graffiti = r#"--- 
+        let invalid_graffiti = r#"---
         description: ""
         enabled: true
         type: local_keystore
@@ -414,7 +426,7 @@ mod tests {
         let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(&invalid_graffiti);
         assert!(def.is_err());
 
-        let valid_graffiti = r#"--- 
+        let valid_graffiti = r#"---
         description: ""
         enabled: true
         type: local_keystore
