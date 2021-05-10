@@ -12,7 +12,7 @@ use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -126,6 +126,8 @@ pub struct SystemHealth {
     pub iowait_seconds_total: u64,
     /// Total idle cpu time.
     pub idle_seconds_total: u64,
+    /// Total cpu time.
+    pub cpu_time_total: u64,
 
     /// Total capacity of disk.
     pub disk_node_bytes_total: u64,
@@ -143,7 +145,7 @@ pub struct SystemHealth {
 
     /// Boot time
     pub misc_node_boot_ts_seconds: u64,
-    /// OS (would be linux as psutil is not supported in other operating systems).
+    /// OS
     pub misc_os: String,
 }
 
@@ -193,7 +195,8 @@ impl SystemHealth {
             sys_loadavg_15: loadavg.fifteen,
             cpu_cores: psutil::cpu::cpu_count_physical(),
             cpu_threads: psutil::cpu::cpu_count(),
-            system_seconds_total: cpu.total().as_secs(),
+            system_seconds_total: cpu.system().as_secs(),
+            cpu_time_total: cpu.total().as_secs(),
             user_seconds_total: cpu.user().as_secs(),
             iowait_seconds_total: cpu.iowait().as_secs(),
             idle_seconds_total: cpu.idle().as_secs(),
@@ -220,8 +223,8 @@ pub struct ProcessHealth {
     pub pid_mem_resident_set_size: u64,
     /// The total virtual memory used by this pid.
     pub pid_mem_virtual_memory_size: u64,
-    /// Number of seconds since process started.
-    pub cpu_process_seconds_total: u64,
+    /// Number of cpu seconds consumed by this pid.
+    pub pid_process_seconds_total: u64,
 }
 
 impl ProcessHealth {
@@ -240,21 +243,18 @@ impl ProcessHealth {
             .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
 
         let stat = pid::stat_self().map_err(|e| format!("Unable to get stat: {:?}", e))?;
-
-        let boot_time = psutil::host::boot_time()
-            .map_err(|e| format!("Unable to get system boot time: {:?}", e))?;
-        let time_since_boot = SystemTime::now()
-            .duration_since(boot_time)
-            .map_err(|e| format!("Boot time is greater than current time: {:?}", e))?;
+        let process_times = process
+            .cpu_times()
+            .map_err(|e| format!("Unable to get process cpu times : {:?}", e))?;
 
         Ok(Self {
             pid: process.pid(),
             pid_num_threads: stat.num_threads,
             pid_mem_resident_set_size: process_mem.rss(),
             pid_mem_virtual_memory_size: process_mem.vms(),
-            cpu_process_seconds_total: time_since_boot
-                .as_secs()
-                .saturating_sub(process.create_time().as_secs()),
+            pid_process_seconds_total: process_times.busy().as_secs()
+                + process_times.children_system().as_secs()
+                + process_times.children_system().as_secs(),
         })
     }
 }

@@ -73,7 +73,7 @@ pub struct ProcessMetrics {
 impl From<ProcessHealth> for ProcessMetrics {
     fn from(health: ProcessHealth) -> Self {
         Self {
-            cpu_process_seconds_total: health.cpu_process_seconds_total,
+            cpu_process_seconds_total: health.pid_process_seconds_total,
             memory_process_bytes: health.pid_mem_resident_set_size,
             client_name: CLIENT_NAME.to_string(),
             client_version: client_version().unwrap_or_default(),
