@@ -118,7 +118,7 @@ impl From<SystemHealth> for SystemMetrics {
         Self {
             cpu_cores: health.cpu_cores,
             cpu_threads: health.cpu_threads,
-            cpu_node_system_seconds_total: health.system_seconds_total,
+            cpu_node_system_seconds_total: health.cpu_time_total,
             cpu_node_user_seconds_total: health.user_seconds_total,
             cpu_node_iowait_seconds_total: health.iowait_seconds_total,
             cpu_node_idle_seconds_total: health.idle_seconds_total,
