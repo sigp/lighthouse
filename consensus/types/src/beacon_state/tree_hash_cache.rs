@@ -12,8 +12,13 @@ use std::cmp::Ordering;
 use std::iter::ExactSizeIterator;
 use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 
-/// The number of fields on a beacon state.
-const NUM_BEACON_STATE_HASHING_FIELDS: usize = 20;
+/// The number of leaves (including padding) on the `BeaconState` Merkle tree.
+///
+/// ## Note
+///
+/// This constant is set with the assumption that there are `> 16` and `<= 32` fields on the
+/// `BeaconState`. **Tree hashing will fail if this value is set incorrectly.**
+const NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES: usize = 32;
 
 /// The number of nodes in the Merkle tree of a validator record.
 const NODES_PER_VALIDATOR: usize = 15;
@@ -202,7 +207,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             }
         }
 
-        let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASHING_FIELDS);
+        let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES);
 
         hasher.write(state.genesis_time().tree_hash_root().as_bytes())?;
         hasher.write(state.genesis_validators_root().tree_hash_root().as_bytes())?;
