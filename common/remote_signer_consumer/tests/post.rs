@@ -18,11 +18,20 @@ mod post {
         match signature.unwrap_err() {
             Error::Reqwest(e) => {
                 let error_msg = e.to_string();
-                assert!(error_msg.contains("error sending request for url"));
-                assert!(error_msg.contains(PUBLIC_KEY_1));
-                assert!(error_msg.contains("error trying to connect"));
-                assert!(error_msg.contains("tcp connect error"));
-                assert!(error_msg.contains("Connection refused"));
+                let pubkey_string = format!("{}", PUBLIC_KEY_1);
+                let msgs = vec![
+                    "error sending request for url",
+                    &pubkey_string,
+                    "error trying to connect",
+                    "tcp connect error",
+                    match cfg!(windows) {
+                        true => "No connection could be made because the target machine actively refused it",
+                        false => "Connection refused",
+                    }
+                ];
+                for msg in msgs.iter() {
+                    assert!(error_msg.contains(msg), "{:?} should contain {:?}", error_msg, msg);
+                }
             }
             e => panic!("{:?}", e),
         }
@@ -145,7 +154,6 @@ mod post {
 
         let testcase = |u: &str, msgs: Vec<&str>| {
             let r = run_testcase(u).unwrap_err();
-
             for msg in msgs.iter() {
                 assert!(r.contains(msg), "{:?} should contain {:?}", r, msg);
             }
@@ -159,7 +167,10 @@ mod post {
                 &format!("/sign/{}", PUBLIC_KEY_1),
                 "hyper::Error(Connect, ConnectError",
                 "dns error",
-                "failed to lookup address information",
+                match cfg!(windows) {
+                    true => "No such host is known.",
+                    false => "failed to lookup address information",
+                },
             ],
         );
 

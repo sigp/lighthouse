@@ -189,6 +189,8 @@ fn slasher_test(
 
     // Pruning should not error.
     slasher.prune_database(current_epoch).unwrap();
+    // windows won't delete the temporary directory if you don't do this..
+    drop(slasher);
 }
 
 fn parallel_slasher_test(
@@ -212,4 +214,6 @@ fn parallel_slasher_test(
     let slashings = slasher.get_attester_slashings();
     let slashed_validators = slashed_validators_from_slashings(&slashings);
     assert_eq!(slashed_validators, expected_slashed_validators);
+    // windows won't delete the temporary directory if you don't do this..
+    drop(slasher);
 }

@@ -47,6 +47,7 @@ pub fn restrict_permissions(path: &Path) {
         let path_str = path.to_str().unwrap();
         let mut acl = ACL::from_file_path(&path_str, false).unwrap();
 
+        let owner_sid = windows_acl::helper::string_to_sid("S-1-3-4").unwrap();
         let entries = acl.all().unwrap();
         // remove all AccessAllow entries
         for entry in &entries {
@@ -59,6 +60,15 @@ pub fn restrict_permissions(path: &Path) {
                 .unwrap();
             }
         }
+        // add single entry for minimal access to file owner
+        // allowing them only to read attributes of the file
+        // and read/modify permissions
+        acl.add_entry(
+            owner_sid.as_ptr() as PSID,
+            AceType::AccessAllow,
+            0,
+            0x160088,
+        ).unwrap();
     }
 }
 

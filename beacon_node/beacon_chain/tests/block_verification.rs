@@ -824,4 +824,7 @@ fn verify_block_for_gossip_slashing_detection() {
     slasher.process_queued(Epoch::new(0)).unwrap();
     let proposer_slashings = slasher.get_proposer_slashings();
     assert_eq!(proposer_slashings.len(), 1);
+    // windows won't delete the temporary directory if you don't do this..
+    drop(harness);
+    drop(slasher);
 }

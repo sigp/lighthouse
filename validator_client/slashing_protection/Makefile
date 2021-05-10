@@ -4,8 +4,15 @@ OUTPUT_DIR := interchange-tests
 TARBALL := $(OUTPUT_DIR)-$(TESTS_TAG).tar.gz
 ARCHIVE_URL := https://github.com/eth2-clients/slashing-protection-interchange-tests/tarball/$(TESTS_TAG)
 
+ifeq ($(OS),Windows_NT)
+	RMFILE:=del /F /Q
+	RMDIR:=rmdir /Q /S
+else
+	RMFILE:=rm -f
+	RMDIR:=rm -rf
+endif
+
 $(OUTPUT_DIR): $(TARBALL)
-	rm -rf $@
 	mkdir $@
 	tar --strip-components=1 -xzf $^ -C $@
 
@@ -13,13 +20,13 @@ $(TARBALL):
 	curl --fail -L -o $@ $(ARCHIVE_URL)
 
 clean-test-files:
-	rm -rf $(OUTPUT_DIR)
+	$(RMDIR) $(OUTPUT_DIR)
 
 clean-archives:
-	rm -f $(TARBALL)
+	$(RMFILE) $(TARBALL)
 
 generate:
-	rm -rf $(GENERATE_DIR)
+	$(RMDIR) $(GENERATE_DIR)
 	cargo run --release --bin test_generator -- $(GENERATE_DIR)
 
 clean: clean-test-files clean-archives

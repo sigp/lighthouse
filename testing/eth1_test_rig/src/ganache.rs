@@ -75,7 +75,7 @@ impl GanacheInstance {
     pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
         let port = unused_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd", // really windows?
+            true => "ganache-cli.cmd",
             false => "ganache-cli",
         };
         let child = Command::new(binary)
@@ -86,6 +86,8 @@ impl GanacheInstance {
             .arg("1000000000")
             .arg("--accounts")
             .arg("10")
+            .arg("--keepAliveTimeout")
+            .arg("0")
             .arg("--port")
             .arg(format!("{}", port))
             .arg("--mnemonic")
@@ -108,20 +110,26 @@ impl GanacheInstance {
 
     pub fn fork(&self) -> Result<Self, String> {
         let port = unused_port()?;
-
-        let child = Command::new("ganache-cli")
+        let binary = match cfg!(windows) {
+            true => "ganache-cli.cmd",
+            false => "ganache-cli",
+        };
+        let child = Command::new(binary)
             .stdout(Stdio::piped())
             .arg("--fork")
             .arg(self.endpoint())
             .arg("--port")
             .arg(format!("{}", port))
+            .arg("--keepAliveTimeout")
+            .arg("0")
             .arg("--chainId")
             .arg(format!("{}", self.chain_id))
             .spawn()
             .map_err(|e| {
                 format!(
-                    "Failed to start ganache-cli. \
-                     Is it ganache-cli installed and available on $PATH? Error: {:?}",
+                    "Failed to start {}. \
+                    Is it installed and available on $PATH? Error: {:?}",
+                    binary,
                     e
                 )
             })?;
@@ -205,6 +213,24 @@ pub fn unused_port() -> Result<u16, String> {
 
 impl Drop for GanacheInstance {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        if cfg!(windows) {
+            // Calling child.kill() in Windows will only kill the process
+            // that spawned ganache, leaving the actual ganache process
+            // intact. You have to kill the whole process tree. What's more,
+            // if you don't spawn ganache with --keepAliveTimeout=0, Windows
+            // will STILL keep the server running even after you've ended
+            // the process tree and it's disappeared from the task manager.
+            // Unbelievable...
+            Command::new("taskkill")
+                .arg("/pid")
+                .arg(self.child.id().to_string())
+                .arg("/T")
+                .arg("/F")
+                .output()
+                .expect("failed to execute taskkill");
+        }
+        else {
+            let _ = self.child.kill();
+        }
     }
 }
