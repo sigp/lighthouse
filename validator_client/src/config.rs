@@ -7,6 +7,7 @@ use directory::{
     DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
+use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
@@ -26,7 +27,7 @@ pub struct Config {
     /// The http endpoints of the beacon node APIs.
     ///
     /// Should be similar to `["http://localhost:8080"]`
-    pub beacon_nodes: Vec<String>,
+    pub beacon_nodes: Vec<SensitiveUrl>,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -55,10 +56,13 @@ impl Default for Config {
             .join(DEFAULT_HARDCODED_NETWORK);
         let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
+
+        let beacon_nodes = vec![SensitiveUrl::parse(DEFAULT_BEACON_NODE)
+            .expect("beacon_nodes must always be a valid url.")];
         Self {
             validator_dir,
             secrets_dir,
-            beacon_nodes: vec![DEFAULT_BEACON_NODE.to_string()],
+            beacon_nodes,
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
@@ -111,25 +115,31 @@ impl Config {
         }
 
         if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
-            config.beacon_nodes = beacon_nodes.as_str().split(',').map(String::from).collect()
+            config.beacon_nodes = beacon_nodes
+                .split(',')
+                .map(|s| SensitiveUrl::parse(s))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
         // To be deprecated.
-        else if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+        else if let Some(beacon_node) = parse_optional::<String>(cli_args, "beacon-node")? {
             warn!(
                 log,
                 "The --beacon-node flag is deprecated";
                 "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_nodes = vec![beacon_node];
+            config.beacon_nodes = vec![SensitiveUrl::parse(&beacon_node)
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
         // To be deprecated.
-        else if let Some(server) = parse_optional(cli_args, "server")? {
+        else if let Some(server) = parse_optional::<String>(cli_args, "server")? {
             warn!(
                 log,
                 "The --server flag is deprecated";
                 "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_nodes = vec![server];
+            config.beacon_nodes = vec![SensitiveUrl::parse(&server)
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
 
         if cli_args.is_present("delete-lockfiles") {
@@ -225,5 +235,16 @@ impl Config {
         }
 
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // Ensures the default config does not panic.
+    fn default_config() {
+        Config::default();
     }
 }

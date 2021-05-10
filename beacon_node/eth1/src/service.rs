@@ -11,6 +11,7 @@ use crate::{
 use fallback::{Fallback, FallbackError};
 use futures::future::TryFutureExt;
 use parking_lot::{RwLock, RwLockReadGuard};
+use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::fmt::Debug;
@@ -26,6 +27,8 @@ use types::{ChainSpec, EthSpec, Unsigned};
 pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
 /// Indicates the default eth1 chain id we use for the deposit contract.
 pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
+/// Indicates the default eth1 endpoint.
+pub const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545";
 
 const STANDARD_TIMEOUT_MILLIS: u64 = 15_000;
 
@@ -51,7 +54,7 @@ pub enum EndpointError {
 
 type EndpointState = Result<(), EndpointError>;
 
-type EndpointWithState = (String, TRwLock<Option<EndpointState>>);
+type EndpointWithState = (SensitiveUrl, TRwLock<Option<EndpointState>>);
 
 /// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
 /// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
@@ -74,7 +77,10 @@ impl EndpointsCache {
         if let Some(result) = *value {
             return result;
         }
-        crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_REQUESTS, &[&endpoint.0]);
+        crate::metrics::inc_counter_vec(
+            &crate::metrics::ENDPOINT_REQUESTS,
+            &[&endpoint.0.to_string()],
+        );
         let state = endpoint_state(
             &endpoint.0,
             &self.config_network_id,
@@ -84,7 +90,10 @@ impl EndpointsCache {
         .await;
         *value = Some(state);
         if state.is_err() {
-            crate::metrics::inc_counter_vec(&crate::metrics::ENDPOINT_ERRORS, &[&endpoint.0]);
+            crate::metrics::inc_counter_vec(
+                &crate::metrics::ENDPOINT_ERRORS,
+                &[&endpoint.0.to_string()],
+            );
         }
         state
     }
@@ -94,7 +103,7 @@ impl EndpointsCache {
         func: F,
     ) -> Result<O, FallbackError<SingleEndpointError>>
     where
-        F: Fn(&'a str) -> R,
+        F: Fn(&'a SensitiveUrl) -> R,
         R: Future<Output = Result<O, SingleEndpointError>>,
     {
         let func = &func;
@@ -102,7 +111,7 @@ impl EndpointsCache {
             .first_success(|endpoint| async move {
                 match self.state(endpoint).await {
                     Ok(()) => {
-                        let endpoint_str = &endpoint.0;
+                        let endpoint_str = &endpoint.0.to_string();
                         crate::metrics::inc_counter_vec(
                             &crate::metrics::ENDPOINT_REQUESTS,
                             &[endpoint_str],
@@ -131,7 +140,7 @@ impl EndpointsCache {
 /// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
 /// chain id. Otherwise it returns `Err`.
 async fn endpoint_state(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     config_network_id: &Eth1Id,
     config_chain_id: &Eth1Id,
     log: &Logger,
@@ -140,7 +149,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Error connecting to eth1 node endpoint";
-            "endpoint" => endpoint,
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks"
         );
         EndpointError::NotReachable
@@ -152,7 +161,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Invalid eth1 network id on endpoint. Please switch to correct network id";
-            "endpoint" => endpoint,
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_network_id),
             "received" => format!("{:?}",network_id),
@@ -168,7 +177,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Remote eth1 node is not synced";
-            "endpoint" => endpoint,
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks"
         );
         return Err(EndpointError::FarBehind);
@@ -177,7 +186,7 @@ async fn endpoint_state(
         warn!(
             log,
             "Invalid eth1 chain id. Please switch to correct chain id on endpoint";
-            "endpoint" => endpoint,
+            "endpoint" => %endpoint,
             "action" => "trying fallbacks",
             "expected" => format!("{:?}",config_chain_id),
             "received" => format!("{:?}", chain_id),
@@ -198,7 +207,7 @@ pub enum HeadType {
 /// Returns the head block and the new block ranges relevant for deposits and the block cache
 /// from the given endpoint.
 async fn get_remote_head_and_new_block_ranges(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     service: &Service,
     node_far_behind_seconds: u64,
 ) -> Result<
@@ -218,7 +227,7 @@ async fn get_remote_head_and_new_block_ranges(
         warn!(
             service.log,
             "Eth1 endpoint is not synced";
-            "endpoint" => endpoint,
+            "endpoint" => %endpoint,
             "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
             "action" => "trying fallback"
         );
@@ -230,7 +239,7 @@ async fn get_remote_head_and_new_block_ranges(
             warn!(
                 service.log,
                 "Eth1 endpoint is not synced";
-                "endpoint" => endpoint,
+                "endpoint" => %endpoint,
                 "action" => "trying fallbacks"
             );
         }
@@ -252,7 +261,7 @@ async fn get_remote_head_and_new_block_ranges(
 /// Returns the range of new block numbers to be considered for the given head type from the given
 /// endpoint.
 async fn relevant_new_block_numbers_from_endpoint(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     service: &Service,
     head_type: HeadType,
 ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
@@ -319,7 +328,7 @@ pub struct DepositCacheUpdateOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
-    pub endpoints: Vec<String>,
+    pub endpoints: Vec<SensitiveUrl>,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
@@ -383,7 +392,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            endpoints: vec!["http://localhost:8545".into()],
+            endpoints: vec![SensitiveUrl::parse(DEFAULT_ETH1_ENDPOINT)
+                .expect("The default Eth1 endpoint must always be a valid URL.")],
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             network_id: DEFAULT_NETWORK_ID,
             chain_id: DEFAULT_CHAIN_ID,
@@ -1137,7 +1147,7 @@ fn relevant_block_range(
 ///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
 async fn download_eth1_block(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     cache: Arc<Inner>,
     block_number_opt: Option<u64>,
 ) -> Result<Eth1Block, SingleEndpointError> {
@@ -1181,6 +1191,12 @@ async fn download_eth1_block(
 mod tests {
     use super::*;
     use types::MainnetEthSpec;
+
+    #[test]
+    // Ensures the default config does not panic.
+    fn default_config() {
+        Config::default();
+    }
 
     #[test]
     fn serde_serialize() {
