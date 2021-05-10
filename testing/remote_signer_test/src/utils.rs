@@ -68,7 +68,8 @@ pub fn restrict_permissions(path: &Path) {
             AceType::AccessAllow,
             0,
             0x160088,
-        ).unwrap();
+        )
+        .unwrap();
     }
 }
 

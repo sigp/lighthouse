@@ -129,8 +129,7 @@ impl GanacheInstance {
                 format!(
                     "Failed to start {}. \
                     Is it installed and available on $PATH? Error: {:?}",
-                    binary,
-                    e
+                    binary, e
                 )
             })?;
 
@@ -228,8 +227,7 @@ impl Drop for GanacheInstance {
                 .arg("/F")
                 .output()
                 .expect("failed to execute taskkill");
-        }
-        else {
+        } else {
             let _ = self.child.kill();
         }
     }

@@ -30,7 +30,12 @@ mod post {
                     }
                 ];
                 for msg in msgs.iter() {
-                    assert!(error_msg.contains(msg), "{:?} should contain {:?}", error_msg, msg);
+                    assert!(
+                        error_msg.contains(msg),
+                        "{:?} should contain {:?}",
+                        error_msg,
+                        msg
+                    );
                 }
             }
             e => panic!("{:?}", e),

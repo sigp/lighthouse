@@ -88,8 +88,7 @@ mod test {
                 // windows returns an IoError because the lockfile is already open :/
                 LockfileError::IoError(..),
             ));
-        }
-        else {
+        } else {
             assert!(matches!(
                 Lockfile::new(path).unwrap_err(),
                 LockfileError::FileLocked(..)

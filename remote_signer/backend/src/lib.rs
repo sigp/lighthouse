@@ -163,10 +163,14 @@ pub mod backend_new {
 
     #[test]
     fn given_path_is_not_a_dir() {
-        let matches = set_matches(vec!["this_test", "--storage-raw-dir", match cfg!(windows) {
-            true => "C:\\Windows\\system.ini",
-            false => "/dev/null"
-        }]);
+        let matches = set_matches(vec![
+            "this_test",
+            "--storage-raw-dir",
+            match cfg!(windows) {
+                true => "C:\\Windows\\system.ini",
+                false => "/dev/null",
+            },
+        ]);
 
         assert_backend_new_error(&matches, "Storage Raw Dir: Path is not a directory.");
     }
