@@ -1,13 +1,7 @@
 use std::borrow::Cow;
-use std::convert::TryInto;
 use std::sync::Arc;
-use std::{fmt, mem};
-
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
-use superstruct::superstruct;
-
-pub use clone_config::CloneConfig;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
@@ -22,15 +16,11 @@ use std::convert::TryInto;
 use std::{fmt, mem};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
-pub use sync_committee_cache::SyncCommitteeCache;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-pub use tree_hash_cache::BeaconTreeHashCache;
 use tree_hash_derive::TreeHash;
-
 use crate::test_utils::TestRandom;
 use crate::*;
-
 use self::committee_cache::get_active_validator_indices;
 pub use self::committee_cache::CommitteeCache;
 pub use clone_config::CloneConfig;
