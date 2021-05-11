@@ -173,18 +173,6 @@ fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: Clon
             .committee_cache(RelativeEpoch::Next)
             .expect_err("shouldn't exist");
     }
-    let base_epoch = state
-        .sync_committee_base_epoch(state.current_epoch(), &E::default_spec())
-        .unwrap();
-    if clone_config.current_sync_committee_cache {
-        assert!(state
-            .current_sync_committee_cache()
-            .is_initialized_for(base_epoch));
-    } else {
-        assert!(!state
-            .current_sync_committee_cache()
-            .is_initialized_for(base_epoch));
-    }
     if clone_config.pubkey_cache {
         assert_ne!(state.pubkey_cache().len(), 0);
     } else {
@@ -223,13 +211,12 @@ fn clone_config() {
         .update_tree_hash_cache()
         .expect("should update tree hash cache");
 
-    let num_caches = 5;
+    let num_caches = 4;
     let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
         committee_caches: (i & 1) != 0,
-        current_sync_committee_cache: ((i >> 1) & 1) != 0,
-        pubkey_cache: ((i >> 2) & 1) != 0,
-        exit_cache: ((i >> 3) & 1) != 0,
-        tree_hash_cache: ((i >> 4) & 1) != 0,
+        pubkey_cache: ((i >> 1) & 1) != 0,
+        exit_cache: ((i >> 2) & 1) != 0,
+        tree_hash_cache: ((i >> 3) & 1) != 0,
     });
 
     for config in all_configs {
