@@ -1,4 +1,4 @@
-use account_utils::create_with_600_perms;
+use account_utils::write_file_via_temporary;
 use bls::{Keypair, PublicKey};
 use eth2_keystore::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, KdfModule,
@@ -12,8 +12,8 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 
 /// The file name for the serialized `KeyCache` struct.
 pub const CACHE_FILENAME: &str = "validator_key_cache.json";
@@ -145,11 +145,8 @@ impl KeyCache {
             let temp_path = validators_dir.as_ref().join(TEMP_CACHE_FILENAME);
             let bytes = serde_json::to_vec(self).map_err(Error::UnableToEncodeFile)?;
 
-            // Create and write to temporary.
-            create_with_600_perms(&temp_path, &bytes).map_err(Error::UnableToWriteTempFile)?;
-
-            // Rename atomically.
-            fs::rename(&temp_path, &cache_path).map_err(Error::UnableToRenameFile)?;
+            write_file_via_temporary(&cache_path, &temp_path, &bytes)
+                .map_err(Error::UnableToWriteFile)?;
 
             self.state = State::DecryptedAndSaved;
             Ok(true)
@@ -246,10 +243,8 @@ pub enum Error {
     UnableToParseFile(serde_json::Error),
     /// The cache file could not be serialized as YAML.
     UnableToEncodeFile(serde_json::Error),
-    /// The temporary cache file could not be written to the filesystem.
-    UnableToWriteTempFile(io::Error),
-    /// The temporary cache file could not be renamed to replace the official cache file.
-    UnableToRenameFile(io::Error),
+    /// The cache file or its temporary could not be written to the filesystem.
+    UnableToWriteFile(io::Error),
     /// Couldn't decrypt the cache file
     UnableToDecrypt(KeystoreError),
     UnableToEncrypt(KeystoreError),

@@ -3,7 +3,7 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
+use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
@@ -35,10 +35,8 @@ pub enum Error {
     UnableToSearchForKeystores(io::Error),
     /// The config file could not be serialized as YAML.
     UnableToEncodeFile(serde_yaml::Error),
-    /// The temporary config file could not be written to the filesystem.
-    UnableToWriteTempFile(io::Error),
-    /// The temporary config file could not be renamed into the real config file.
-    UnableToRenameFile(io::Error),
+    /// The config file or temp file could not be written to the filesystem.
+    UnableToWriteFile(io::Error),
     /// The public key from the keystore is invalid.
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.
@@ -266,12 +264,8 @@ impl ValidatorDefinitions {
         let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
         let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
 
-        // Write to the temporary path first. If this fails then the real validator definitions
-        // file is unscathed.
-        create_with_600_perms(&temp_path, &bytes).map_err(Error::UnableToWriteTempFile)?;
-
-        // With the temporary file created, perform an atomic rename.
-        fs::rename(&temp_path, &config_path).map_err(Error::UnableToRenameFile)?;
+        write_file_via_temporary(&config_path, &temp_path, &bytes)
+            .map_err(Error::UnableToWriteFile)?;
 
         Ok(())
     }
