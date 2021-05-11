@@ -61,6 +61,7 @@ pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
+pub mod fork_context;
 pub mod participation_flags;
 pub mod preset;
 pub mod slot_epoch;
@@ -106,6 +107,7 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::fork::Fork;
+pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
 pub use crate::free_attestation::FreeAttestation;

@@ -148,39 +148,54 @@ impl ChainSpec {
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
-    pub fn enr_fork_id(&self, slot: Slot, genesis_validators_root: Hash256) -> EnrForkId {
+    pub fn enr_fork_id<T: EthSpec>(
+        &self,
+        slot: Slot,
+        genesis_validators_root: Hash256,
+    ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest(slot, genesis_validators_root),
-            next_fork_version: self.genesis_fork_version,
-            next_fork_epoch: self.far_future_epoch,
+            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
+            next_fork_version: self.next_fork_version(),
+            next_fork_epoch: self
+                .next_fork_epoch::<T>(slot)
+                .map(|(_, e)| e)
+                .unwrap_or(self.far_future_epoch),
         }
     }
 
     /// Returns the `ForkDigest` for the given slot.
     ///
-    /// Add additional if else branches with additional forks.
-    pub fn fork_digest(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        if slot >= self.altair_fork_slot {
-            Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
-        } else {
-            Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
+    /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
+    /// otherwise, returns the fork digest based on the slot.
+    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        match self.fork_name_at_slot::<T>(slot) {
+            ForkName::Altair => {
+                Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
+            }
+            ForkName::Base => {
+                Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
+            }
         }
     }
 
-    pub fn genesis_fork_digest(&self, genesis_validators_root: Hash256) -> [u8; 4] {
-        Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
-    }
-
-    pub fn altair_fork_digest(&self, genesis_validators_root: Hash256) -> [u8; 4] {
-        Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
-    }
-
-    /// Returns the epoch of the next scheduled change in the `fork.current_version`.
+    /// Returns the `next_fork_version`.
     ///
-    /// There are no future forks scheduled so this function always returns `None`. This may not
-    /// always be the case in the future, though.
-    pub fn next_fork_epoch(&self) -> Option<Epoch> {
-        None
+    /// Since `next_fork_version = current_fork_version` if no future fork is planned,
+    /// this function returns `altair_fork_version` until the next fork is planned.
+    pub fn next_fork_version(&self) -> [u8; 4] {
+        self.altair_fork_version
+    }
+
+    /// Returns the epoch of the next scheduled fork along with it's corresponding `ForkName`.
+    ///
+    /// If no future forks are scheduled, this function returns `None`.
+    pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
+        match self.fork_name_at_slot::<T>(slot) {
+            ForkName::Altair => None,
+            ForkName::Base => self
+                .altair_fork_epoch
+                .map(|epoch| (ForkName::Altair, epoch)),
+        }
     }
 
     /// Returns the name of the fork which is active at `slot`.
