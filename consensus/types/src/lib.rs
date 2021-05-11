@@ -68,6 +68,8 @@ pub mod sync_committee;
 pub mod sync_committee_contribution;
 pub mod sync_committee_signature;
 pub mod sync_committee_signing_data;
+pub mod sync_selection_proof;
+pub mod sync_subnet_id;
 mod tree_hash_impls;
 
 #[cfg(feature = "sqlite")]
@@ -127,6 +129,8 @@ pub use crate::sync_committee::SyncCommittee;
 pub use crate::sync_committee_contribution::SyncCommitteeContribution;
 pub use crate::sync_committee_signature::SyncCommitteeSignature;
 pub use crate::sync_committee_signing_data::SyncAggregatorSelectionData;
+pub use crate::sync_selection_proof::SyncSelectionProof;
+pub use crate::sync_subnet_id::SyncSubnetId;
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;

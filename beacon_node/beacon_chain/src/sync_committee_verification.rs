@@ -45,8 +45,8 @@ use state_processing::signature_sets::{
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    EthSpec, Hash256, SelectionProof, SignedContributionAndProof, Slot, SubnetId,
-    SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
+    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
+    SyncCommitteeSignature, SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 use crate::{
@@ -178,8 +178,8 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     InvalidSubnetId {
-        received: SubnetId,
-        expected: Vec<SubnetId>,
+        received: SyncSubnetId,
+        expected: Vec<SyncSubnetId>,
     },
     /// The sync signature failed the `state_processing` verification stage.
     ///
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> Clone for VerifiedSyncContribution<T> {
 /// Wraps a `SyncCommitteeSignature` that has been verified for propagation on the gossip network.
 pub struct VerifiedSyncSignature {
     sync_signature: SyncCommitteeSignature,
-    subnet_positions: HashMap<SubnetId, Vec<usize>>,
+    subnet_positions: HashMap<SyncSubnetId, Vec<usize>>,
 }
 
 /// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
@@ -329,10 +329,10 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         //
         // Future optimizations should remove this clone.
         let selection_proof =
-            SelectionProof::from(signed_aggregate.message.selection_proof.clone());
+            SyncSelectionProof::from(signed_aggregate.message.selection_proof.clone());
 
         if !selection_proof
-            .is_sync_committee_aggregator::<T::EthSpec>()
+            .is_aggregator::<T::EthSpec>()
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             return Err(Error::InvalidSelectionProof { aggregator_index });
@@ -450,7 +450,7 @@ impl VerifiedSyncSignature {
     /// verify that it was received on the correct subnet.
     pub fn verify<T: BeaconChainTypes>(
         sync_signature: SyncCommitteeSignature,
-        subnet_id: Option<SubnetId>,
+        subnet_id: Option<SyncSubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // Ensure sync committee signature is for the current slot (within a
@@ -485,7 +485,7 @@ impl VerifiedSyncSignature {
             if pubkey == *validator_pubkey {
                 let subcommittee_index = committee_index.safe_div(sync_subcommittee_size)?;
                 subnet_positions
-                    .entry(SubnetId::new(subcommittee_index as u64))
+                    .entry(SyncSubnetId::new(subcommittee_index as u64))
                     .or_insert_with(Vec::new)
                     .push(committee_index);
             }
@@ -550,7 +550,7 @@ impl VerifiedSyncSignature {
     }
 
     /// Returns the correct subnet for the attestation.
-    pub fn subnet_positions(&self) -> HashMap<SubnetId, Vec<usize>> {
+    pub fn subnet_positions(&self) -> HashMap<SyncSubnetId, Vec<usize>> {
         self.subnet_positions.clone()
     }
 

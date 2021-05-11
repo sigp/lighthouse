@@ -237,6 +237,10 @@ impl<T: Encode> Encode for Arc<T> {
         T::is_ssz_fixed_len()
     }
 
+    fn ssz_fixed_len() -> usize {
+        T::ssz_fixed_len()
+    }
+
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         self.as_ref().ssz_append(buf)
     }

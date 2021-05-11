@@ -40,7 +40,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     sync_contributions: RwLock<HashMap<SyncContributionId, SyncCommitteeContribution<T>>>,
     /// Map from sync aggregate ID to the current `SyncAggregate` based on the best known
     /// `SyncCommitteeContribution`'s.
-    sync_aggregate: RwLock<HashMap<SyncAggregateId, SyncAggregate<T>>>,
+    sync_aggregates: RwLock<HashMap<SyncAggregateId, SyncAggregate<T>>>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
     /// Map from proposer index to slashing.
@@ -100,14 +100,14 @@ impl<T: EthSpec> OperationPool<T> {
         block_root: Hash256,
         spec: &ChainSpec,
     ) -> Option<SyncAggregate<T>> {
-        let id = SyncAggregateId::from_data(
+        let id = SyncAggregateId::from_data::<T>(
             state.slot(),
             block_root,
             &state.fork(),
             state.genesis_validators_root(),
             spec,
         );
-        self.sync_aggregate.read().get(&id).cloned()
+        self.sync_aggregates.read().get(&id).cloned()
     }
 
     /// Total number of sync contributions in the pool.
@@ -118,9 +118,9 @@ impl<T: EthSpec> OperationPool<T> {
     /// Remove sync contributions which are too old to be included in a block
     pub fn prune_sync_contributions(&self, current_slot: Slot) {
         // Prune sync contributions that are from before the previous slot.
-        self.sync_contributions
-            .write()
-            .retain(|_, contribution| current_slot <= contribution.slot.saturating_add(1));
+        self.sync_contributions.write().retain(|_, contribution| {
+            current_slot <= contribution.slot.saturating_add(Slot::new(1))
+        });
     }
 
     //TODO: Add prune and get methods for the sync aggregate
@@ -452,7 +452,8 @@ impl<T: EthSpec> OperationPool<T> {
     /// Prune all types of transactions given the latest head state and head fork.
     pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch) {
         self.prune_attestations(current_epoch);
-        self.prune_sync_contributions(current_epoch);
+        //TODO: figure out pruning
+        //self.prune_sync_contributions(current_epoch);
         self.prune_proposer_slashings(head_state);
         self.prune_attester_slashings(head_state);
         self.prune_voluntary_exits(head_state);

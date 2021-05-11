@@ -1,6 +1,6 @@
 use super::{
     ChainSpec, ContributionAndProof, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey,
-    SelectionProof, Signature, SignedRoot, SyncCommitteeContribution,
+    Signature, SignedRoot, SyncCommitteeContribution, SyncSelectionProof,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ impl<T: EthSpec> SignedContributionAndProof<T> {
     pub fn from_aggregate(
         aggregator_index: u64,
         contribution: SyncCommitteeContribution<T>,
-        selection_proof: Option<SelectionProof>,
+        selection_proof: Option<SyncSelectionProof>,
         secret_key: &SecretKey,
         fork: &Fork,
         genesis_validators_root: Hash256,

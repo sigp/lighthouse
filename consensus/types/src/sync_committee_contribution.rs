@@ -1,6 +1,6 @@
 use super::{AggregateSignature, ChainSpec, Domain, EthSpec, Fork, SecretKey, SignedRoot};
 use crate::attestation::SlotData;
-use crate::{test_utils::TestRandom, BitVector, Hash256, Slot};
+use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeSignature};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -28,8 +28,24 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
     pub signature: AggregateSignature,
 }
 
-//TODO: verify all this
 impl<T: EthSpec> SyncCommitteeContribution<T> {
+    pub fn from_signature(
+        signature: SyncCommitteeSignature,
+        subnet_id: u64,
+        subcommittee_index: u64,
+    ) -> Result<Self, Error> {
+        let mut bits = BitVector::new();
+        bits.set(subcommittee_index as usize, true)
+            .map_err(|e| Error::SszTypesError(e))?;
+        Ok(Self {
+            slot: signature.slot,
+            beacon_block_root: signature.beacon_block_root,
+            subcommittee_index: subnet_id,
+            aggregation_bits: bits,
+            signature: signature.signature,
+        })
+    }
+
     /// Are the aggregation bitfields of these attestations disjoint?
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
@@ -49,45 +65,8 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
     }
-
-    /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
-    ///
-    /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
-    pub fn sign(
-        &mut self,
-        secret_key: &SecretKey,
-        committee_position: usize,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        if self
-            .aggregation_bits
-            .get(committee_position)
-            .map_err(Error::SszTypesError)?
-        {
-            Err(Error::AlreadySigned(committee_position))
-        } else {
-            self.aggregation_bits
-                .set(committee_position, true)
-                .map_err(Error::SszTypesError)?;
-
-            let domain = spec.get_domain(
-                self.slot.epoch(T::slots_per_epoch()),
-                Domain::BeaconAttester,
-                fork,
-                genesis_validators_root,
-            );
-            let message = self.beacon_block_root.signing_root(domain);
-
-            self.signature.add_assign(&secret_key.sign(message));
-
-            Ok(())
-        }
-    }
 }
 
-//TODO: verify
 impl SignedRoot for Hash256 {}
 
 /// This is not in the spec, but useful for determining uniqueness of sync committee contributions

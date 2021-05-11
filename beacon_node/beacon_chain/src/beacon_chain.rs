@@ -1179,7 +1179,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unaggregated_sync_signature: VerifiedSyncSignature,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
         let sync_signature = unaggregated_sync_signature.sync_signature();
-        let positions_by_subnet_id: HashMap<SubnetId, Vec<usize>> =
+        let positions_by_subnet_id: HashMap<SyncSubnetId, Vec<usize>> =
             unaggregated_sync_signature.subnet_positions();
         for (subnet_id, positions) in positions_by_subnet_id.iter() {
             for position in positions {

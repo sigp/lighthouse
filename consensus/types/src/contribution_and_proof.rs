@@ -1,6 +1,6 @@
 use super::{
-    ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof, Signature,
-    SignedRoot, SyncCommitteeContribution,
+    ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot,
+    SyncCommitteeContribution, SyncSelectionProof,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ impl<T: EthSpec> ContributionAndProof<T> {
     pub fn from_aggregate(
         aggregator_index: u64,
         contribution: SyncCommitteeContribution<T>,
-        selection_proof: Option<SelectionProof>,
+        selection_proof: Option<SyncSelectionProof>,
         secret_key: &SecretKey,
         fork: &Fork,
         genesis_validators_root: Hash256,
@@ -41,7 +41,7 @@ impl<T: EthSpec> ContributionAndProof<T> {
     ) -> Self {
         let selection_proof = selection_proof
             .unwrap_or_else(|| {
-                SelectionProof::new::<T>(
+                SyncSelectionProof::new::<T>(
                     contribution.slot,
                     secret_key,
                     fork,
@@ -58,8 +58,7 @@ impl<T: EthSpec> ContributionAndProof<T> {
         }
     }
 
-    //TODO: fix
-    /// Returns `true` if `validator_pubkey` signed over `self.aggregate.data.slot`.
+    /// Returns `true` if `validator_pubkey` signed over `contribution.slot`.
     pub fn is_valid_selection_proof(
         &self,
         validator_pubkey: &PublicKey,
@@ -70,7 +69,7 @@ impl<T: EthSpec> ContributionAndProof<T> {
         let target_epoch = self.contribution.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,
-            Domain::SelectionProof,
+            Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
         );

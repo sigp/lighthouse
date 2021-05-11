@@ -1,17 +1,21 @@
+use crate::consts::altair::{
+    SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
+};
 use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
 };
 use eth2_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
+use ssz_types::typenum::Unsigned;
 use std::cmp;
 use std::convert::TryInto;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone)]
-pub struct SelectionProof(Signature);
+pub struct SyncSelectionProof(Signature);
 
-impl SelectionProof {
+impl SyncSelectionProof {
     pub fn new<T: EthSpec>(
         slot: Slot,
         secret_key: &SecretKey,
@@ -21,7 +25,7 @@ impl SelectionProof {
     ) -> Self {
         let domain = spec.get_domain(
             slot.epoch(T::slots_per_epoch()),
-            Domain::SelectionProof,
+            Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
         );
@@ -30,20 +34,18 @@ impl SelectionProof {
         Self(secret_key.sign(message))
     }
 
-    /// Returns the "modulo" used for determining if a `SelectionProof` elects an aggregator.
-    pub fn modulo(committee_len: usize, spec: &ChainSpec) -> Result<u64, ArithError> {
+    /// Returns the "modulo" used for determining if a `SyncSelectionProof` elects an aggregator.
+    pub fn modulo<T: EthSpec>() -> Result<u64, ArithError> {
         Ok(cmp::max(
             1,
-            (committee_len as u64).safe_div(spec.target_aggregators_per_committee)?,
+            (T::SyncCommitteeSize::to_u64())
+                .safe_div(SYNC_COMMITTEE_SUBNET_COUNT)?
+                .safe_div(TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE)?,
         ))
     }
 
-    pub fn is_aggregator(
-        &self,
-        committee_len: usize,
-        spec: &ChainSpec,
-    ) -> Result<bool, ArithError> {
-        self.is_aggregator_from_modulo(Self::modulo(committee_len, spec)?)
+    pub fn is_aggregator<T: EthSpec>(&self) -> Result<bool, ArithError> {
+        self.is_aggregator_from_modulo(Self::modulo::<T>()?)
     }
 
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {
@@ -69,7 +71,7 @@ impl SelectionProof {
     ) -> bool {
         let domain = spec.get_domain(
             slot.epoch(T::slots_per_epoch()),
-            Domain::SelectionProof,
+            Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
         );
@@ -79,13 +81,13 @@ impl SelectionProof {
     }
 }
 
-impl Into<Signature> for SelectionProof {
+impl Into<Signature> for SyncSelectionProof {
     fn into(self) -> Signature {
         self.0
     }
 }
 
-impl From<Signature> for SelectionProof {
+impl From<Signature> for SyncSelectionProof {
     fn from(sig: Signature) -> Self {
         Self(sig)
     }

@@ -64,7 +64,7 @@ impl SyncAggregateId {
             slot,
             beacon_block_root,
         });
-        let epoch = contribution.slot.epoch(T::slots_per_epoch());
+        let epoch = slot.epoch(T::slots_per_epoch());
         bytes.extend_from_slice(
             SyncAggregateId::compute_domain_bytes(epoch, fork, genesis_validators_root, spec)
                 .as_bytes(),
