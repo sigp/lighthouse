@@ -127,3 +127,5 @@ define_net!(toledo, include_toledo_file, "toledo", true);
 define_net!(prater, include_prater_file, "prater", true);
 
 define_net!(steklo, include_steklo_file, "steklo", true);
+
+define_net!(nocturne, include_nocturne_file, "nocturne", true);

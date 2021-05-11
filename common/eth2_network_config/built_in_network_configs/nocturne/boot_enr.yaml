@@ -1,0 +1,34 @@
+# Nocturne testnet bootnodes
+# ---------------------------------------
+# 1. Tag nodes with maintainer
+# 2. Keep nodes updated
+# 3. Review PRs: check ENR duplicates, fork-digest, connection.
+
+
+# Proto noct_101: Teku + Geth
+- enr:-KG4QAot7X6xLDriqiOpDx9SsoGyDa_IOEaMyibfGxSnSwGNSRU49YJDkluFuw-bqO3EpYiLCBJkfp5JTEcoh6XA6UQDhGV0aDKQ6PqIZwAABwL__________4JpZIJ2NIJpcIQS3eH5iXNlY3AyNTZrMaEDzOz7QvfIbJC2iYzO1E0H_EkoA7Rr3cXK88CHRFl2bTODdGNwgiMog3VkcIIjKA
+
+# Proto noct 102: Teku + Besu
+- enr:-KG4QHfAwMzERDnjq59K5YPzWpRXrkCKKF-vwcGbE-Y5-WbVVbjzjYGP1mFxmcwpLmqPZLmlZOJNkZeLA3Le9dImCocDhGV0aDKQ6PqIZwAABwL__________4JpZIJ2NIJpcIQSv2NjiXNlY3AyNTZrMaECEuQJA4lxZX7zoqTXq5Lj2LhqzY865AHIn-apmr_Q4oyDdGNwgiMog3VkcIIjKA
+
+# Proto noct 103: Teku + Nethermind
+- enr:-KG4QFddZVEYZl40l7lfrDLwWD2zxyvdvscVwh68dNYSJMzOTqdlPFvsyymK5NE-e3dEiTwPENAyY-FpyoYRqnPoqu0DhGV0aDKQ6PqIZwAABwL__________4JpZIJ2NIJpcIQNOxpTiXNlY3AyNTZrMaECBRIx5tIZXH6Zcyb4uIf7nJx_o1jDHoxR5UIxBZBokS2DdGNwgiMog3VkcIIjKA
+
+# Proto noct 104: Prysm + Geth
+- enr:-LK4QM7m9MQqU7N2cDt2TqxrY6sDG1jnm4hk0MigeQGcUxTURvEZc1gk2nveZiZfBN7mumqIwQ9lWdSwegaEbnUNphoBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpDo-ohnAAAHAv__________gmlkgnY0gmlwhBLex-SJc2VjcDI1NmsxoQPHMYyjD5XaR3797lG_Wj-JoqPcFOa3dwHDlAbIx6loBYN0Y3CCIyiDdWRwgiMo
+
+# Proto noct 105: Prysm + Besu
+- enr:-LK4QHso1e97FeoDFl0FcSGaQNlq6REBUxxt7vwTvUKC8WhjMVUYDLQ44lhAwVt5wUKRCKeX63KF_eQSbbYKCzluaWEBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpDo-ohnAAAHAv__________gmlkgnY0gmlwhBLYe_qJc2VjcDI1NmsxoQPkN-M3x7SKIqlebY40swTVbBT3-XILub8PI5sPIz_LBYN0Y3CCIyiDdWRwgiMo
+
+# Proto noct 106: Prysm + Nethermind
+- enr:-LK4QMl5I25EREe2En8EKM-9lLLm9WcjHu5znHAHga8uCQv9M67nZ9qusrypHsdTfu7MMKzmJYS4XKYcZFTYiw4AOicBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpDo-ohnAAAHAv__________gmlkgnY0gmlwhAOJvQyJc2VjcDI1NmsxoQMKcofI7xFJkHKBvZn34PonEtwLl6_Wf4n6MlMcYzzV04N0Y3CCIyiDdWRwgiMo
+
+# Proto noct 107: Lighthouse + Geth
+- enr:-LK4QO47q-FNnfDcQk88xW3gOXhqN1qomLSd5OgUNJ1pSg4eJXEA65Eq99K6KaUHQ6lxfY1adMGWeN0An7FXNuKlaHcBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpDo-ohnAAAHAv__________gmlkgnY0gmlwhAOFWluJc2VjcDI1NmsxoQIWLK0r-BMnD1zGl3cSI1lO7ph07NZGJuNSgxLUlB336oN0Y3CCIyiDdWRwgiMo
+
+# Proto noct 108: Lighthouse + Besu
+- enr:-LK4QI1brZ3_T28UxYaU9k-2B324nb7_IfEsT_3pjS_Kjx5eYZ96JM-YujYO2UX28TKzvhn3awrREs_aGBCKFGdddHcBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpDo-ohnAAAHAv__________gmlkgnY0gmlwhBLcIVCJc2VjcDI1NmsxoQOX5hzJZXAOnZ2JmcMy25uOcWz713bcf01HRHopA8EwnoN0Y3CCIyiDdWRwgiMo
+
+# Proto noct 109: Lighthouse + Nethermind
+- enr:-LK4QNstPLesGCGI4g4t-79M6b8C6Fdxms4vmKtWietRgfYmP2Hkk_z_mHcV4eQbkqB6P7rh1QI_lJ4siWKBmQWk7wcBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpDo-ohnAAAHAv__________gmlkgnY0gmlwhBLg_OOJc2VjcDI1NmsxoQJhwfIDOttCK4baG6D_LvT8oANUmEkbGPMx7ra0hmEHeoN0Y3CCIyiDdWRwgiMo
+

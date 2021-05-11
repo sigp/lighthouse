@@ -57,9 +57,10 @@ const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
 const TOLEDO: HardcodedNet = define_net!(toledo, include_toledo_file);
 const PRATER: HardcodedNet = define_net!(prater, include_prater_file);
 const STEKLO: HardcodedNet = define_net!(steklo, include_steklo_file);
+const NOCTURNE: HardcodedNet = define_net!(nocturne, include_nocturne_file);
 
 const HARDCODED_NETS: &[HardcodedNet] = &[
-    ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO, PRATER, STEKLO,
+    ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO, PRATER, STEKLO, NOCTURNE,
 ];
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 

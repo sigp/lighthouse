@@ -1,7 +1,7 @@
 //! Extracts zipped genesis states on first run.
 use eth2_config::{
-    altona, mainnet, medalla, prater, pyrmont, spadina, steklo, toledo, Eth2NetArchiveAndDirectory,
-    GENESIS_FILE_NAME,
+    altona, mainnet, medalla, nocturne, prater, pyrmont, spadina, steklo, toledo,
+    Eth2NetArchiveAndDirectory, GENESIS_FILE_NAME,
 };
 use std::fs::File;
 use std::io;
@@ -16,6 +16,7 @@ const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[
     toledo::ETH2_NET_DIR,
     prater::ETH2_NET_DIR,
     steklo::ETH2_NET_DIR,
+    nocturne::ETH2_NET_DIR,
 ];
 
 fn main() {

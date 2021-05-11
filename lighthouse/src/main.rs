@@ -174,7 +174,17 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo", "prater", "steklo"])
+                .possible_values(&[
+                    "medalla",
+                    "altona",
+                    "spadina",
+                    "pyrmont",
+                    "mainnet",
+                    "toledo",
+                    "prater",
+                    "steklo",
+                    "nocturne"
+                ])
                 .takes_value(true)
                 .global(true)
 
