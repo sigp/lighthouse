@@ -15,9 +15,10 @@ use libp2p::{Multiaddr, PeerId};
 use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
 use slog::{crit, debug, o};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
@@ -96,12 +97,13 @@ pub struct RPC<TSpec: EthSpec> {
     limiter: RateLimiter,
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
+    fork_context: Arc<ForkContext>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
 impl<TSpec: EthSpec> RPC<TSpec> {
-    pub fn new(log: slog::Logger) -> Self {
+    pub fn new(fork_context: Arc<ForkContext>, log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
@@ -123,6 +125,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         RPC {
             limiter,
             events: Vec::new(),
+            fork_context,
             log,
         }
     }
@@ -171,10 +174,12 @@ where
         RPCHandler::new(
             SubstreamProtocol::new(
                 RPCProtocol {
+                    fork_context: self.fork_context.clone(),
                     phantom: PhantomData,
                 },
                 (),
             ),
+            self.fork_context.clone(),
             &self.log,
         )
     }
