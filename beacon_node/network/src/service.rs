@@ -19,7 +19,7 @@ use store::HotColdDB;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use types::{EthSpec, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
+use types::{EthSpec, ForkContext, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
 
 mod tests;
 
@@ -160,13 +160,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // keep track of when our fork_id needs to be updated
         let next_fork_update = next_fork_delay(&beacon_chain);
 
+        // Create a fork context for the given config and genesis validators root
+        let fork_context = Arc::new(ForkContext::new(
+            beacon_chain.genesis_validators_root,
+            &beacon_chain.spec,
+        ));
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(
             executor.clone(),
             config,
             enr_fork_id,
             &network_log,
-            beacon_chain.genesis_validators_root,
+            fork_context,
             &beacon_chain.spec,
         )
         .await?;
@@ -557,7 +563,7 @@ fn spawn_service<T: BeaconChainTypes>(
 fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    beacon_chain.duration_to_next_fork().map(|until_fork| {
+    beacon_chain.duration_to_next_fork().map(|(_, until_fork)| {
         // Add a short time-out to start within the new fork period.
         let delay = Duration::from_millis(200);
         tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
