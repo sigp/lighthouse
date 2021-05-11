@@ -1,4 +1,4 @@
-use crate::ChainSpec;
+use crate::{ChainSpec, Slot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ForkName {
@@ -23,6 +23,19 @@ impl ForkName {
                 spec.altair_fork_slot = Some(spec.genesis_slot);
                 spec
             }
+        }
+    }
+
+    /// Returns the `ForkName` given the slot and depending if Altair is enabled in the `ChainSpec`.
+    pub fn from_slot(slot: Slot, spec: &ChainSpec) -> Self {
+        if let Some(altair_fork_slot) = spec.altair_fork_slot {
+            if slot >= altair_fork_slot {
+                ForkName::Altair
+            } else {
+                ForkName::Base
+            }
+        } else {
+            ForkName::Base
         }
     }
 }

@@ -65,101 +65,6 @@ impl<T: EthSpec> BeaconBlock<T> {
         }
     }
 
-    /// Return a block where the block has maximum size.
-    pub fn full(spec: &ChainSpec) -> BeaconBlock<T> {
-        let header = BeaconBlockHeader {
-            slot: Slot::new(1),
-            proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body_root: Hash256::zero(),
-        };
-
-        let signed_header = SignedBeaconBlockHeader {
-            message: header,
-            signature: Signature::empty(),
-        };
-        let indexed_attestation: IndexedAttestation<T> = IndexedAttestation {
-            attesting_indices: VariableList::new(vec![
-                0_u64;
-                T::MaxValidatorsPerCommittee::to_usize()
-            ])
-            .unwrap(),
-            data: AttestationData::default(),
-            signature: AggregateSignature::empty(),
-        };
-
-        let deposit_data = DepositData {
-            pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::zero(),
-            amount: 0,
-            signature: SignatureBytes::empty(),
-        };
-        let proposer_slashing = ProposerSlashing {
-            signed_header_1: signed_header.clone(),
-            signed_header_2: signed_header,
-        };
-
-        let attester_slashing = AttesterSlashing {
-            attestation_1: indexed_attestation.clone(),
-            attestation_2: indexed_attestation,
-        };
-
-        let attestation: Attestation<T> = Attestation {
-            aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
-                .unwrap(),
-            data: AttestationData::default(),
-            signature: AggregateSignature::empty(),
-        };
-
-        let deposit = Deposit {
-            proof: FixedVector::from_elem(Hash256::zero()),
-            data: deposit_data,
-        };
-
-        let voluntary_exit = VoluntaryExit {
-            epoch: Epoch::new(1),
-            validator_index: 1,
-        };
-
-        let signed_voluntary_exit = SignedVoluntaryExit {
-            message: voluntary_exit,
-            signature: Signature::empty(),
-        };
-
-        // FIXME(altair): use an Altair block (they're bigger)
-        let mut block = BeaconBlockBase::<T>::empty(spec);
-        for _ in 0..T::MaxProposerSlashings::to_usize() {
-            block
-                .body
-                .proposer_slashings
-                .push(proposer_slashing.clone())
-                .unwrap();
-        }
-        for _ in 0..T::MaxDeposits::to_usize() {
-            block.body.deposits.push(deposit.clone()).unwrap();
-        }
-        for _ in 0..T::MaxVoluntaryExits::to_usize() {
-            block
-                .body
-                .voluntary_exits
-                .push(signed_voluntary_exit.clone())
-                .unwrap();
-        }
-        for _ in 0..T::MaxAttesterSlashings::to_usize() {
-            block
-                .body
-                .attester_slashings
-                .push(attester_slashing.clone())
-                .unwrap();
-        }
-
-        for _ in 0..T::MaxAttestations::to_usize() {
-            block.body.attestations.push(attestation.clone()).unwrap();
-        }
-        BeaconBlock::Base(block)
-    }
-
     /// Custom SSZ decoder that takes a `ChainSpec` as context.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
@@ -313,10 +218,104 @@ impl<T: EthSpec> BeaconBlockBase<T> {
             },
         }
     }
+
+    /// Return a block where the block has maximum size.
+    pub fn full(spec: &ChainSpec) -> Self {
+        let header = BeaconBlockHeader {
+            slot: Slot::new(1),
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body_root: Hash256::zero(),
+        };
+
+        let signed_header = SignedBeaconBlockHeader {
+            message: header,
+            signature: Signature::empty(),
+        };
+        let indexed_attestation: IndexedAttestation<T> = IndexedAttestation {
+            attesting_indices: VariableList::new(vec![
+                0_u64;
+                T::MaxValidatorsPerCommittee::to_usize()
+            ])
+            .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+        };
+
+        let deposit_data = DepositData {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::zero(),
+            amount: 0,
+            signature: SignatureBytes::empty(),
+        };
+        let proposer_slashing = ProposerSlashing {
+            signed_header_1: signed_header.clone(),
+            signed_header_2: signed_header,
+        };
+
+        let attester_slashing = AttesterSlashing {
+            attestation_1: indexed_attestation.clone(),
+            attestation_2: indexed_attestation,
+        };
+
+        let attestation: Attestation<T> = Attestation {
+            aggregation_bits: BitList::with_capacity(T::MaxValidatorsPerCommittee::to_usize())
+                .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+        };
+
+        let deposit = Deposit {
+            proof: FixedVector::from_elem(Hash256::zero()),
+            data: deposit_data,
+        };
+
+        let voluntary_exit = VoluntaryExit {
+            epoch: Epoch::new(1),
+            validator_index: 1,
+        };
+
+        let signed_voluntary_exit = SignedVoluntaryExit {
+            message: voluntary_exit,
+            signature: Signature::empty(),
+        };
+
+        let mut block = BeaconBlockBase::<T>::empty(spec);
+        for _ in 0..T::MaxProposerSlashings::to_usize() {
+            block
+                .body
+                .proposer_slashings
+                .push(proposer_slashing.clone())
+                .unwrap();
+        }
+        for _ in 0..T::MaxDeposits::to_usize() {
+            block.body.deposits.push(deposit.clone()).unwrap();
+        }
+        for _ in 0..T::MaxVoluntaryExits::to_usize() {
+            block
+                .body
+                .voluntary_exits
+                .push(signed_voluntary_exit.clone())
+                .unwrap();
+        }
+        for _ in 0..T::MaxAttesterSlashings::to_usize() {
+            block
+                .body
+                .attester_slashings
+                .push(attester_slashing.clone())
+                .unwrap();
+        }
+
+        for _ in 0..T::MaxAttestations::to_usize() {
+            block.body.attestations.push(attestation.clone()).unwrap();
+        }
+        block
+    }
 }
 
 impl<T: EthSpec> BeaconBlockAltair<T> {
-    /// Returns an empty block to be used during genesis.
+    /// Returns an empty Altair block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
             slot: spec.genesis_slot,
@@ -337,6 +336,36 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
+            },
+        }
+    }
+
+    /// Return an Altair block where the block has maximum size.
+    pub fn full(spec: &ChainSpec) -> Self {
+        let base_block = BeaconBlockBase::full(spec);
+        let sync_aggregate = SyncAggregate {
+            sync_committee_signature: AggregateSignature::empty(),
+            sync_committee_bits: BitVector::default(),
+        };
+        BeaconBlockAltair {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyAltair {
+                proposer_slashings: base_block.body.proposer_slashings,
+                attester_slashings: base_block.body.attester_slashings,
+                attestations: base_block.body.attestations,
+                deposits: base_block.body.deposits,
+                voluntary_exits: base_block.body.voluntary_exits,
+                sync_aggregate,
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
             },
         }
     }
