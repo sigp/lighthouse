@@ -12,6 +12,7 @@ use ssz::Encode;
 use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::Duration;
 use strum::{AsStaticRef, AsStaticStr};
 use tokio_io_timeout::TimeoutStream;
@@ -19,19 +20,35 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
+use types::{
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, EthSpec, ForkContext, Hash256, MainnetEthSpec,
+    Signature, SignedBeaconBlock,
+};
 
 lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
     // same across different `EthSpec` implementations.
-    pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::empty(&MainnetEthSpec::default_spec()),
+    pub static ref SIGNED_BEACON_BLOCK_BASE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
-    pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::full(&MainnetEthSpec::default_spec()),
+    pub static ref SIGNED_BEACON_BLOCK_BASE_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Base(BeaconBlockBase::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
+    pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Altair(BeaconBlockAltair::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+    pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Altair(BeaconBlockAltair::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
@@ -95,6 +112,8 @@ pub enum Protocol {
 pub enum Version {
     /// Version 1 of RPC
     V1,
+    /// Version 2 of RPC
+    V2,
 }
 
 /// RPC Encondings supported.
@@ -130,6 +149,7 @@ impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
             Version::V1 => "1",
+            Version::V2 => "2",
         };
         f.write_str(repr)
     }
@@ -137,6 +157,7 @@ impl std::fmt::Display for Version {
 
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
+    pub fork_context: Arc<ForkContext>,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -149,7 +170,10 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
         vec![
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
+            // V2 variants have higher preference then V1
+            ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
@@ -226,12 +250,27 @@ impl ProtocolId {
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => {
-                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
-            }
-            Protocol::BlocksByRoot => {
-                RpcLimits::new(*SIGNED_BEACON_BLOCK_MIN, *SIGNED_BEACON_BLOCK_MAX)
-            }
+            Protocol::BlocksByRange => RpcLimits::new(
+                std::cmp::min(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_BASE_MIN,
+                ),
+                std::cmp::max(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                    *SIGNED_BEACON_BLOCK_BASE_MAX,
+                ),
+            ),
+            Protocol::BlocksByRoot => RpcLimits::new(
+                std::cmp::min(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_BASE_MIN,
+                ),
+                std::cmp::max(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                    *SIGNED_BEACON_BLOCK_BASE_MAX,
+                ),
+            ),
+
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -241,6 +280,18 @@ impl ProtocolId {
                 <MetaData<T> as Encode>::ssz_fixed_len(),
             ),
         }
+    }
+
+    /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
+    /// beginning of the stream, else returns `false`.
+    pub fn has_context_bytes(&self) -> bool {
+        if self.version == Version::V2 {
+            match self.message_name {
+                Protocol::BlocksByRange | Protocol::BlocksByRoot => return true,
+                _ => return false,
+            }
+        }
+        false
     }
 }
 
@@ -292,8 +343,11 @@ where
             let socket = socket.compat();
             let codec = match protocol.encoding {
                 Encoding::SSZSnappy => {
-                    let ssz_snappy_codec =
-                        BaseInboundCodec::new(SSZSnappyInboundCodec::new(protocol, MAX_RPC_SIZE));
+                    let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
+                        protocol,
+                        MAX_RPC_SIZE,
+                        self.fork_context.clone(),
+                    ));
                     InboundCodec::SSZSnappy(ssz_snappy_codec)
                 }
             };
@@ -359,16 +413,16 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            InboundRequest::BlocksByRange(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRange,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::BlocksByRoot(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRoot,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            InboundRequest::BlocksByRange(_) => vec![
+                // V2 has higher preference when negotiating a stream
+                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ],
+            InboundRequest::BlocksByRoot(_) => vec![
+                // V2 has higher preference when negotiating a stream
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ],
             InboundRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,

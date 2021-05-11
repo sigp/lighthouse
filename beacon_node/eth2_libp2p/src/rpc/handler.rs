@@ -2,6 +2,7 @@
 #![allow(clippy::cognitive_complexity)]
 
 use super::methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination};
+use super::outbound::OutboundRequestContainer;
 use super::protocol::{Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
@@ -21,12 +22,13 @@ use smallvec::SmallVec;
 use std::{
     collections::hash_map::Entry,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
@@ -124,6 +126,9 @@ where
     /// This keeps track of the number of attempts.
     outbound_io_error_retries: u8,
 
+    /// Fork specific info.
+    fork_context: Arc<ForkContext>,
+
     /// Logger for handling RPC streams
     log: slog::Logger,
 }
@@ -201,6 +206,7 @@ where
 {
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
+        fork_context: Arc<ForkContext>,
         log: &slog::Logger,
     ) -> Self {
         RPCHandler {
@@ -217,6 +223,7 @@ where
             state: HandlerState::Active,
             max_dial_negotiated: 8,
             outbound_io_error_retries: 0,
+            fork_context,
             log: log.clone(),
         }
     }
@@ -304,7 +311,7 @@ where
     type OutEvent = HandlerEvent<TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
-    type OutboundProtocol = OutboundRequest<TSpec>;
+    type OutboundProtocol = OutboundRequestContainer<TSpec>;
     type OutboundOpenInfo = (RequestId, OutboundRequest<TSpec>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
@@ -861,7 +868,14 @@ where
             let (id, req) = self.dial_queue.remove(0);
             self.dial_queue.shrink_to_fit();
             return Poll::Ready(ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(req.clone(), ()).map_info(|()| (id, req)),
+                protocol: SubstreamProtocol::new(
+                    OutboundRequestContainer {
+                        req: req.clone(),
+                        fork_context: self.fork_context.clone(),
+                    },
+                    (),
+                )
+                .map_info(|()| (id, req)),
             });
         }
         Poll::Pending

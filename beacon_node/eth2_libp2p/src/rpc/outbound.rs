@@ -14,15 +14,22 @@ use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};
 use libp2p::core::{OutboundUpgrade, UpgradeInfo};
+use std::sync::Arc;
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 /* Outbound request */
 
 // Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
 // `OutboundUpgrade`
+
+#[derive(Debug, Clone)]
+pub struct OutboundRequestContainer<TSpec: EthSpec> {
+    pub req: OutboundRequest<TSpec>,
+    pub fork_context: Arc<ForkContext>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutboundRequest<TSpec: EthSpec> {
@@ -34,13 +41,13 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     MetaData(PhantomData<TSpec>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for OutboundRequest<TSpec> {
+impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
     // add further protocols as we support more encodings/versions
     fn protocol_info(&self) -> Self::InfoIter {
-        self.supported_protocols()
+        self.req.supported_protocols()
     }
 }
 
@@ -130,7 +137,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
 
 pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
 
-impl<TSocket, TSpec> OutboundUpgrade<TSocket> for OutboundRequest<TSpec>
+impl<TSocket, TSpec> OutboundUpgrade<TSocket> for OutboundRequestContainer<TSpec>
 where
     TSpec: EthSpec + Send + 'static,
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -147,6 +154,7 @@ where
                 let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
                     protocol,
                     usize::max_value(),
+                    self.fork_context.clone(),
                 ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)
             }
@@ -155,7 +163,7 @@ where
         let mut socket = Framed::new(socket, codec);
 
         async {
-            socket.send(self).await?;
+            socket.send(self.req).await?;
             socket.close().await?;
             Ok(socket)
         }
