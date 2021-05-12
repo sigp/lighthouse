@@ -58,6 +58,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
+use task_executor::ShutdownReason;
 use types::beacon_state::CloneConfig;
 use types::*;
 
@@ -254,7 +255,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
-    pub shutdown_sender: Sender<&'static str>,
+    pub shutdown_sender: Sender<ShutdownReason>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -1699,7 +1700,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "error" => ?e,
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
-                    shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                    shutdown_sender
+                        .try_send(ShutdownReason::Failure(
+                            "Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint."
+                        ))
                         .map_err(|err| BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
                     return Err(BlockError::WeakSubjectivityConflict);
                 }
@@ -2811,7 +2815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Get a channel to request shutting down.
-    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+    pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.shutdown_sender.clone()
     }
 

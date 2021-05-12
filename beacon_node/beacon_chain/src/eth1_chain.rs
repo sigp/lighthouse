@@ -612,11 +612,9 @@ fn collect_valid_votes<T: EthSpec>(
         .eth1_data_votes
         .iter()
         .filter_map(|vote| {
-            if let Some(block_num) = votes_to_consider.get(vote) {
-                Some((vote.clone(), *block_num))
-            } else {
-                None
-            }
+            votes_to_consider
+                .get(vote)
+                .map(|block_num| (vote.clone(), *block_num))
         })
         .for_each(|(eth1_data, block_number)| {
             valid_votes

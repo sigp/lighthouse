@@ -23,7 +23,7 @@ use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use task_executor::TaskExecutor;
+use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
 
@@ -314,9 +314,9 @@ impl<E: EthSpec> RuntimeContext<E> {
 pub struct Environment<E: EthSpec> {
     runtime: Arc<Runtime>,
     /// Receiver side of an internal shutdown signal.
-    signal_rx: Option<Receiver<&'static str>>,
+    signal_rx: Option<Receiver<ShutdownReason>>,
     /// Sender to request shutting down.
-    signal_tx: Sender<&'static str>,
+    signal_tx: Sender<ShutdownReason>,
     signal: Option<exit_future::Signal>,
     exit: exit_future::Exit,
     log: Logger,
@@ -365,7 +365,7 @@ impl<E: EthSpec> Environment<E> {
     /// Block the current thread until a shutdown signal is received.
     ///
     /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
-    pub fn block_until_shutdown_requested(&mut self) -> Result<(), String> {
+    pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
         // future of a task requesting to shutdown
         let mut rx = self
             .signal_rx
@@ -398,11 +398,13 @@ impl<E: EthSpec> Environment<E> {
             .block_on(future::select(inner_shutdown, ctrlc_oneshot))
         {
             future::Either::Left((Ok(reason), _)) => {
-                info!(self.log, "Internal shutdown received"; "reason" => reason);
-                Ok(())
+                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
-            future::Either::Right((x, _)) => x.map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
+            future::Either::Right((x, _)) => x
+                .map(|()| ShutdownReason::Success("Received Ctrl+C"))
+                .map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
         }
     }
 

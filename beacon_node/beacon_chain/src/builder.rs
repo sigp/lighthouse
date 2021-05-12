@@ -25,6 +25,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
+use task_executor::ShutdownReason;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
@@ -75,7 +76,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
-    shutdown_sender: Option<Sender<&'static str>>,
+    shutdown_sender: Option<Sender<ShutdownReason>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
@@ -305,8 +306,8 @@ where
             })?;
 
         let genesis = BeaconSnapshot {
-            beacon_block_root,
             beacon_block,
+            beacon_block_root,
             beacon_state,
         };
 
@@ -349,7 +350,7 @@ where
     }
 
     /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
-    pub fn shutdown_sender(mut self, sender: Sender<&'static str>) -> Self {
+    pub fn shutdown_sender(mut self, sender: Sender<ShutdownReason>) -> Self {
         self.shutdown_sender = Some(sender);
         self
     }

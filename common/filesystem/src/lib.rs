@@ -7,8 +7,12 @@ use std::path::Path;
 pub enum Error {
     /// The file could not be created
     UnableToCreateFile(io::Error),
+    /// The file could not be copied
+    UnableToCopyFile(io::Error),
     /// The file could not be opened
     UnableToOpenFile(io::Error),
+    /// The file could not be renamed
+    UnableToRenameFile(io::Error),
     /// Failed to set permissions
     UnableToSetPermissions(io::Error),
     /// Failed to retrieve file metadata
