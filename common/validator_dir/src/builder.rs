@@ -2,7 +2,7 @@ use crate::{Error as DirError, ValidatorDir};
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
-use filesystem::{create_with_600_perms, Error as fsError};
+use filesystem::create_with_600_perms;
 use rand::{distributions::Alphanumeric, Rng};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{self, Write};
@@ -33,7 +33,7 @@ pub enum Error {
     KeystoreAlreadyExists(PathBuf),
     UnableToSaveKeystore(io::Error),
     PasswordAlreadyExists(PathBuf),
-    UnableToSavePassword(fsError),
+    UnableToSavePassword(filesystem::Error),
     KeystoreError(KeystoreError),
     UnableToOpenDir(DirError),
     UninitializedVotingKeystore,

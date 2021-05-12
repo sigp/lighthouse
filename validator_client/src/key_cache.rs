@@ -8,7 +8,6 @@ use eth2_keystore::{
     decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, PlainText, Uuid,
     ZeroizeHash, IV_SIZE, SALT_SIZE,
 };
-use filesystem::Error as FsError;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -246,7 +245,7 @@ pub enum Error {
     UnableToEncodeFile(serde_json::Error),
     /// The cache file or its temporary could not be written to the filesystem.
     UnableToWriteFile(io::Error),
-    UnableToCreateFile(FsError),
+    UnableToCreateFile(filesystem::Error),
     /// Couldn't decrypt the cache file
     UnableToDecrypt(KeystoreError),
     UnableToEncrypt(KeystoreError),

@@ -198,10 +198,8 @@ impl<E: EthSpec> SlasherDB<E> {
         #[cfg(windows)]
         {
             use filesystem::restrict_file_permissions;
-            let mut data = config.database_path.clone();
-            data.push("data.mdb");
-            let mut lock = config.database_path.clone();
-            lock.push("lock.mdb");
+            let data = config.database_path.join("data.mtb");
+            let lock = config.database_path.join("lock.mdb");
             restrict_file_permissions(data).map_err(Error::DatabasePermissionsError)?;
             restrict_file_permissions(lock).map_err(Error::DatabasePermissionsError)?;
         }

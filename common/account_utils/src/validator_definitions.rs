@@ -6,7 +6,6 @@
 use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
-use filesystem::Error as FsError;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
@@ -37,7 +36,7 @@ pub enum Error {
     /// The config file could not be serialized as YAML.
     UnableToEncodeFile(serde_yaml::Error),
     /// The config file or temp file could not be written to the filesystem.
-    UnableToWriteFile(FsError),
+    UnableToWriteFile(filesystem::Error),
     /// The public key from the keystore is invalid.
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.

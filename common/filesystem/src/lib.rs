@@ -2,6 +2,25 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::path::Path;
+#[cfg(windows)]
+use winapi::um::winnt::{FILE_GENERIC_READ, FILE_GENERIC_WRITE, STANDARD_RIGHTS_ALL};
+
+/// This is the security identifier in Windows for the owner of a file. See:
+/// - https://docs.microsoft.com/en-us/troubleshoot/windows-server/identity/security-identifiers-in-windows#well-known-sids-all-versions-of-windows
+#[cfg(windows)]
+const OWNER_SID_STR: &str = "S-1-3-4";
+/// We don't need any of the `AceFlags` listed here:
+/// - https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-ace_header
+#[cfg(windows)]
+const OWNER_ACL_ENTRY_FLAGS: u32 = 0;
+/// Generic Rights:
+///  - https://docs.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
+/// Individual Read/Write/Execute Permissions (referenced in generic rights link):
+///  - https://docs.microsoft.com/en-us/windows/win32/wmisdk/file-and-directory-access-rights-constants
+/// STANDARD_RIGHTS_ALL
+///  - https://docs.microsoft.com/en-us/windows/win32/secauthz/access-mask
+#[cfg(windows)]
+const OWNER_ACL_ENTRY_MASK: u32 = FILE_GENERIC_READ | FILE_GENERIC_WRITE | STANDARD_RIGHTS_ALL;
 
 #[derive(Debug)]
 pub enum Error {
@@ -21,6 +40,8 @@ pub enum Error {
     UnableToWriteFile(io::Error),
     /// Failed to obtain file path
     UnableToObtainFilePath,
+    /// Failed to convert string to SID
+    UnableToConvertSID(u32),
     /// Failed to retrieve ACL for file
     UnableToRetrieveACL(u32),
     /// Failed to enumerate ACL entries
@@ -81,22 +102,19 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
             .as_ref()
             .to_str()
             .ok_or(Error::UnableToObtainFilePath)?;
-        let mut acl =
-            ACL::from_file_path(&path_str, false).map_err(|e| Error::UnableToRetrieveACL(e))?;
+        let mut acl = ACL::from_file_path(&path_str, false).map_err(Error::UnableToRetrieveACL)?;
 
-        let owner_sid_str = "S-1-3-4";
-        let owner_sid = windows_acl::helper::string_to_sid(owner_sid_str).unwrap();
+        let owner_sid =
+            windows_acl::helper::string_to_sid(OWNER_SID_STR).map_err(Error::UnableToConvertSID)?;
 
-        let entries = acl
-            .all()
-            .map_err(|e| Error::UnableToEnumerateACLEntries(e))?;
+        let entries = acl.all().map_err(Error::UnableToEnumerateACLEntries)?;
 
         // add single entry for file owner
         acl.add_entry(
             owner_sid.as_ptr() as PSID,
             AceType::AccessAllow,
-            0,
-            0x1f01ff,
+            OWNER_ACL_ENTRY_FLAGS,
+            OWNER_ACL_ENTRY_MASK,
         )
         .map_err(|code| {
             Error::UnableToAddACLEntry(format!(
