@@ -6,17 +6,25 @@ use crate::{
 };
 use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::{Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet, rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId}};
-use eth2_libp2p::{types::{GossipEncoding, GossipTopic}, BehaviourEvent, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+};
+use eth2_libp2p::{
+    types::{GossipEncoding, GossipTopic},
+    BehaviourEvent, MessageId, NetworkGlobals, PeerId,
+};
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
 use futures::prelude::*;
-use slog::{debug, error, info, o, trace, warn, crit};
+use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use types::{EthSpec, ForkContext, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription, ChainSpec};
+use types::{
+    ChainSpec, EthSpec, ForkContext, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription,
+};
 
 mod tests;
 
@@ -244,9 +252,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// digests since we should be subscribed to post fork topics before the fork.
     /// TODO(pawan): use ForkContext to get required gossip fork digests instead of using slots
     pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
-        let current_slot = match self
-        .beacon_chain
-        .slot() {
+        let current_slot = match self.beacon_chain.slot() {
             Ok(current_slot) => current_slot,
             Err(e) => {
                 crit!(self.log, "Failed to get current slot, returning all fork_digests"; "error" => ?e);
@@ -259,13 +265,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             if current_slot < altair_fork_slot {
                 // Return both pre-altair and post-altair fork digests if altair hasn't happened yet
                 return self.fork_context.all_fork_digests();
-            }
-            else {
+            } else {
                 // Return only altair if altair_fork_slot is passed
-                return vec![ChainSpec::compute_fork_digest(spec.altair_fork_version, genesis_validators_root)]
+                return vec![ChainSpec::compute_fork_digest(
+                    spec.altair_fork_version,
+                    genesis_validators_root,
+                )];
             }
         }
-        vec![ChainSpec::compute_fork_digest(spec.genesis_fork_version, genesis_validators_root)]
+        vec![ChainSpec::compute_fork_digest(
+            spec.genesis_fork_version,
+            genesis_validators_root,
+        )]
     }
 }
 
@@ -424,7 +435,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                         warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
                                     }
                                 }
-                                
                             }
 
                             // if we are to subscribe to all subnets we do it here
@@ -633,14 +643,15 @@ fn next_fork_delay<T: BeaconChainTypes>(
 
 /// Returns a `Sleep` that triggers `UNSUBSCRIBE_DELAY` epochs after change in the beacon chain fork version.
 /// If there is no scheduled fork, `None` is returned.
-fn topic_unsubscribe_delay<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> Option<tokio::time::Sleep> {
+fn topic_unsubscribe_delay<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<tokio::time::Sleep> {
     beacon_chain.duration_to_next_fork().map(|until_fork| {
         let epoch_duration = beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
-        let delay = Duration::from_secs( UNSUBSCRIBE_DELAY * epoch_duration) ;
+        let delay = Duration::from_secs(UNSUBSCRIBE_DELAY * epoch_duration);
         tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
     })
 }
-
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {
     fn drop(&mut self) {

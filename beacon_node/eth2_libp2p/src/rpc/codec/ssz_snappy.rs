@@ -1,9 +1,9 @@
-use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
+use crate::{rpc::methods::*, EnrSyncCommitteeBitfield};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -78,7 +78,21 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                             attnets: res.attnets().clone(),
                         })
                         .as_ssz_bytes(),
-                        Version::V2 => res.as_ssz_bytes(),
+                        Version::V2 => {
+                            // `res` is of type MetaDataV2, return the ssz bytes
+                            if res.syncnets().is_ok() {
+                                res.as_ssz_bytes()
+                            } else {
+                                // `res` is of type MetaDataV1, create a MetaDataV2 by adding a default syncnets field
+                                // Note: This code path is redundant as `res` would be always of type MetaDataV2
+                                MetaData::<TSpec>::V2(MetaDataV2 {
+                                    seq_number: *res.seq_number(),
+                                    attnets: res.attnets().clone(),
+                                    syncnets: EnrSyncCommitteeBitfield::<TSpec>::default(),
+                                })
+                                .as_ssz_bytes()
+                            }
+                        }
                     }
                 }
             },
@@ -175,6 +189,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
 
+        dbg!(&self.protocol);
+
         match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
@@ -203,6 +219,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                         Protocol::Ping => Ok(Some(RPCRequest::Ping(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
                         }))),
+
+                        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
+                        // Handle this case just for completeness.
                         Protocol::MetaData => {
                             if !decoded_buffer.is_empty() {
                                 Err(RPCError::InvalidData)
@@ -212,26 +231,30 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                         }
                     },
                     // Receiving a Rpc request for protocol version 2 for range and root requests
-                    Version::V2 => {
-                        match self.protocol.message_name {
-                            // Request type doesn't change, only response type
-                            Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
-                                BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
-                            ))),
-                            Protocol::BlocksByRoot => {
-                                Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                                    block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                                })))
-                            }
-                            _ => Err(RPCError::ErrorResponse(
-                                RPCResponseErrorCode::InvalidRequest,
-                                format!(
-                                    "{} does not support version 2",
-                                    self.protocol.message_name
-                                ),
-                            )),
+                    Version::V2 => match self.protocol.message_name {
+                        // Request type doesn't change, only response type
+                        Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
+                            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+                        ))),
+                        Protocol::BlocksByRoot => {
+                            Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                                block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+                            })))
                         }
-                    }
+                        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
+                        // Handle this case just for completeness.
+                        Protocol::MetaData => {
+                            if !decoded_buffer.is_empty() {
+                                Err(RPCError::InvalidData)
+                            } else {
+                                Ok(Some(RPCRequest::MetaData(PhantomData)))
+                            }
+                        }
+                        _ => Err(RPCError::ErrorResponse(
+                            RPCResponseErrorCode::InvalidRequest,
+                            format!("{} does not support version 2", self.protocol.message_name),
+                        )),
+                    },
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -547,7 +570,7 @@ mod tests {
     use crate::rpc::{protocol::*, MetaData};
     use crate::{
         rpc::{methods::StatusMessage, Ping, RPCResponseErrorCode},
-        types::EnrAttestationBitfield,
+        types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     };
     use std::sync::Arc;
     use types::{
@@ -594,6 +617,14 @@ mod tests {
         MetaData::V1(MetaDataV1 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
+        })
+    }
+
+    fn metadata_v2() -> MetaData<Spec> {
+        MetaData::V2(MetaDataV2 {
+            seq_number: 1,
+            attnets: EnrAttestationBitfield::<Spec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
         })
     }
 
@@ -714,9 +745,27 @@ mod tests {
             Ok(Some(RPCResponse::MetaData(metadata()))),
         );
 
-        // TODO: add metadataV2 response failure case
+        assert_eq!(
+            encode_then_decode(
+                Protocol::MetaData,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
+
+        // A MetaDataV2 still encodes as a MetaDataV1 since version is Version::V1
+        assert_eq!(
+            encode_then_decode(
+                Protocol::MetaData,
+                Version::V1,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v2())),
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
     }
 
+    // Test RPCResponse encoding/decoding for V1 messages
     #[test]
     fn test_encode_then_decode_v2() {
         assert!(
@@ -779,6 +828,25 @@ mod tests {
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block())))
             ),
             Ok(Some(RPCResponse::BlocksByRoot(Box::new(altair_block()))))
+        );
+
+        // A MetaDataV1 still encodes as a MetaDataV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode(
+                Protocol::MetaData,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata()))
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata_v2())))
+        );
+
+        assert_eq!(
+            encode_then_decode(
+                Protocol::MetaData,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v2()))
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata_v2())))
         );
     }
 
