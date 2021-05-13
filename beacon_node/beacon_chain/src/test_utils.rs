@@ -28,6 +28,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -144,7 +145,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
-    pub shutdown_receiver: Receiver<&'static str>,
+    pub shutdown_receiver: Receiver<ShutdownReason>,
 
     pub rng: Mutex<StdRng>,
 }

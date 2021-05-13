@@ -133,7 +133,7 @@ impl ApiSecret {
             ));
         }
 
-        Ok(Self { sk, pk })
+        Ok(Self { pk, sk })
     }
 
     /// Returns the public key of `self` as a 0x-prefixed hex string.
