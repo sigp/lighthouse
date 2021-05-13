@@ -15,9 +15,10 @@ use eth2_libp2p::{
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
+use futures::future::OptionFuture;
 use futures::prelude::*;
 use slog::{crit, debug, error, info, o, trace, warn};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
@@ -120,9 +121,9 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// update the UDP socket of discovery if the UPnP mappings get established.
     discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
-    next_fork_update: Option<Sleep>,
-    /// A delay that expires when we need to unsubscribe from old fork topics
-    next_unsubscribe: Option<Sleep>,
+    next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
+    /// A delay that expires when we need to unsubscribe from old fork topics.
+    next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
     /// Subscribe to all the subnets once synced.
     subscribe_all_subnets: bool,
     /// A timer for updating various network metrics.
@@ -168,8 +169,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let enr_fork_id = beacon_chain.enr_fork_id();
 
         // keep track of when our fork_id needs to be updated
-        let next_fork_update = next_fork_delay(&beacon_chain);
-        let next_unsubscribe = topic_unsubscribe_delay(&beacon_chain);
+        let next_fork_update = Box::pin(next_fork_delay(&beacon_chain).into());
+        let next_unsubscribe = Box::pin(None.into());
 
         // Create a fork context for the given config and genesis validators root
         let fork_context = Arc::new(ForkContext::new(
@@ -603,27 +604,34 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                     }
                 }
-            }
-
-            if let Some(delay) = &service.next_fork_update {
-                if delay.is_elapsed() {
+                Some(_) = &mut service.next_fork_update => {
+                    let new_enr_fork_id = service.beacon_chain.enr_fork_id();
+                    info!(
+                        service.log,
+                        "Updating enr fork version";
+                        "new_fork_digest" => ?new_enr_fork_id
+                    );
                     service
                         .libp2p
                         .swarm
-                        .update_fork_version(service.beacon_chain.enr_fork_id());
-                    service.next_fork_update = next_fork_delay(&service.beacon_chain);
+                        .update_fork_version(new_enr_fork_id.clone());
+                    service.next_fork_update = Box::pin(next_fork_delay(&service.beacon_chain).into());
+
+                    // Set the next_unsubscribe delay.
+                    // let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
+                    // let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY * epoch_duration);
+                    let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY * service.beacon_chain.spec.seconds_per_slot);
+                    service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
+
+                    info!(service.log, "Network will unsubscribe from old fork topics in a few epochs");
+                }
+                Some(_) = &mut service.next_unsubscribe => {
+                    let new_enr_fork_id = service.beacon_chain.enr_fork_id();
+                    service.libp2p.swarm.unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
+                    info!(service.log, "Unsubscribed from old fork topics");
+                    service.next_unsubscribe = Box::pin(None.into());
                 }
             }
-
-            // TODO: try sticking this logic in the next_fork_update delay
-            if let Some(delay) = &service.next_unsubscribe {
-                if delay.is_elapsed() {
-                    let current_fork_digest = service.beacon_chain.fork_digest();
-                    service.libp2p.swarm.unsubscribe_from_fork_topics(current_fork_digest);
-                }
-                service.next_fork_update = topic_unsubscribe_delay(&service.beacon_chain);
-            }
-
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
     }, "network");
@@ -634,22 +642,10 @@ fn spawn_service<T: BeaconChainTypes>(
 fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    beacon_chain.duration_to_next_fork().map(|until_fork| {
+    beacon_chain.duration_to_next_fork().map(|(_, until_fork)| {
         // Add a short time-out to start within the new fork period.
         let delay = Duration::from_millis(200);
-        tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
-    })
-}
-
-/// Returns a `Sleep` that triggers `UNSUBSCRIBE_DELAY` epochs after change in the beacon chain fork version.
-/// If there is no scheduled fork, `None` is returned.
-fn topic_unsubscribe_delay<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
-) -> Option<tokio::time::Sleep> {
-    beacon_chain.duration_to_next_fork().map(|until_fork| {
-        let epoch_duration = beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
-        let delay = Duration::from_secs(UNSUBSCRIBE_DELAY * epoch_duration);
-        tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
+        tokio::time::sleep(until_fork + delay)
     })
 }
 
