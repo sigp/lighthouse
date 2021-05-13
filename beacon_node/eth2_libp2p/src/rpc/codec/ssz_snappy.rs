@@ -189,8 +189,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         let mut reader = FrameDecoder::new(limit_reader);
         let mut decoded_buffer = vec![0; length];
 
-        dbg!(&self.protocol);
-
         match reader.read_exact(&mut decoded_buffer) {
             Ok(()) => {
                 // `n` is how many bytes the reader read in the compressed stream
