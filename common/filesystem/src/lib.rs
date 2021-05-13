@@ -12,7 +12,7 @@ const OWNER_SID_STR: &str = "S-1-3-4";
 /// We don't need any of the `AceFlags` listed here:
 /// - https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-ace_header
 #[cfg(windows)]
-const OWNER_ACL_ENTRY_FLAGS: u32 = 0;
+const OWNER_ACL_ENTRY_FLAGS: u8 = 0;
 /// Generic Rights:
 ///  - https://docs.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
 /// Individual Read/Write/Execute Permissions (referenced in generic rights link):
@@ -119,17 +119,17 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
         .map_err(|code| {
             Error::UnableToAddACLEntry(format!(
                 "Failed to add ACL entry for SID {} error={}",
-                owner_sid_str, code
+                OWNER_SID_STR, code
             ))
         })?;
         // remove all AccessAllow entries from the file that aren't the owner_sid
         for entry in &entries {
             if let Some(ref entry_sid) = entry.sid {
-                let entry_sid_str = sid_to_string((*entry_sid).as_ptr() as PSID)
+                let entry_sid_str = sid_to_string(entry_sid.as_ptr() as PSID)
                     .unwrap_or_else(|_| "BadFormat".to_string());
-                if entry_sid_str != owner_sid_str {
+                if entry_sid_str != OWNER_SID_STR {
                     acl.remove(
-                        (*entry_sid).as_ptr() as PSID,
+                        entry_sid.as_ptr() as PSID,
                         Some(AceType::AccessAllow),
                         None,
                     )

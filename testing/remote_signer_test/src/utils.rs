@@ -79,7 +79,7 @@ pub fn restrict_permissions(path: &Path) {
         for entry in &entries {
             if let Some(ref entry_sid) = entry.sid {
                 acl.remove(
-                    (*entry_sid).as_ptr() as PSID,
+                    entry_sid.as_ptr() as PSID,
                     Some(AceType::AccessAllow),
                     None,
                 )
