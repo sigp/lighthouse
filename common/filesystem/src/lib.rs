@@ -128,17 +128,13 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
                 let entry_sid_str = sid_to_string(entry_sid.as_ptr() as PSID)
                     .unwrap_or_else(|_| "BadFormat".to_string());
                 if entry_sid_str != OWNER_SID_STR {
-                    acl.remove(
-                        entry_sid.as_ptr() as PSID,
-                        Some(AceType::AccessAllow),
-                        None,
-                    )
-                    .map_err(|_| {
-                        Error::UnableToRemoveACLEntry(format!(
-                            "Failed to remove ACL entry for SID {}",
-                            entry_sid_str
-                        ))
-                    })?;
+                    acl.remove(entry_sid.as_ptr() as PSID, Some(AceType::AccessAllow), None)
+                        .map_err(|_| {
+                            Error::UnableToRemoveACLEntry(format!(
+                                "Failed to remove ACL entry for SID {}",
+                                entry_sid_str
+                            ))
+                        })?;
                 }
             }
         }

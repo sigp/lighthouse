@@ -78,12 +78,8 @@ pub fn restrict_permissions(path: &Path) {
         // remove all AccessAllow entries
         for entry in &entries {
             if let Some(ref entry_sid) = entry.sid {
-                acl.remove(
-                    entry_sid.as_ptr() as PSID,
-                    Some(AceType::AccessAllow),
-                    None,
-                )
-                .unwrap();
+                acl.remove(entry_sid.as_ptr() as PSID, Some(AceType::AccessAllow), None)
+                    .unwrap();
             }
         }
         // add single entry for minimal access to file owner
