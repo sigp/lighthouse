@@ -170,7 +170,7 @@ fn slasher_test(
     should_process_after: impl Fn(usize) -> bool,
 ) {
     let tempdir = tempdir().unwrap();
-    let config = Config::new(tempdir.path().into());
+    let config = Config::new(tempdir.path().into()).for_testing();
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
@@ -199,7 +199,7 @@ fn parallel_slasher_test(
     current_epoch: u64,
 ) {
     let tempdir = tempdir().unwrap();
-    let config = Config::new(tempdir.path().into());
+    let config = Config::new(tempdir.path().into()).for_testing();
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 

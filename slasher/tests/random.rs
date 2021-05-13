@@ -40,7 +40,7 @@ fn random_test(seed: u64, test_config: TestConfig) {
 
     let tempdir = tempdir().unwrap();
 
-    let mut config = Config::new(tempdir.path().into());
+    let mut config = Config::new(tempdir.path().into()).for_testing();
     config.validator_chunk_size = 1 << rng.gen_range(1, 4);
 
     let chunk_size_exponent = rng.gen_range(1, 4);
