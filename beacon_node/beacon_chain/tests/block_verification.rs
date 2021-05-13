@@ -827,4 +827,5 @@ fn verify_block_for_gossip_slashing_detection() {
     // windows won't delete the temporary directory if you don't do this..
     drop(harness);
     drop(slasher);
+    slasher_dir.close().unwrap();
 }
