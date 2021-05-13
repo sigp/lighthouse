@@ -53,9 +53,9 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache-cli
-      run: sudo npm install -g ganache-cli
+      run: npm install -g ganache-cli
     - name: Install make
-      run: sudo choco install make
+      run: choco install -y make
     - name: Run tests in release
       run: make test-release
   debug-tests-ubuntu:
