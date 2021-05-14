@@ -3,9 +3,11 @@ use crate::test_utils::*;
 use beacon_chain::store::config::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    BeaconState, BeaconStateError, ChainSpec, CloneConfig, Domain, Epoch, EthSpec, FixedVector,
-    Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
+    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
+    ChainSpec, CloneConfig, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair, MainnetEthSpec,
+    MinimalEthSpec, RelativeEpoch, Slot,
 };
+use ssz::{Decode, Encode};
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;
 
@@ -416,5 +418,63 @@ mod get_outstanding_deposit_len {
                 deposit_index: 17,
             })
         );
+    }
+}
+
+#[test]
+fn decode_base_and_altair() {
+    let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+    let fork_slot = Slot::from_ssz_bytes(&[7, 6, 5, 4, 3, 2, 1, 0]).unwrap();
+
+    let base_slot = fork_slot.saturating_sub(1_u64);
+    let altair_slot = fork_slot;
+
+    let mut spec = MainnetEthSpec::default_spec();
+    spec.altair_fork_slot = Some(fork_slot);
+
+    // BeaconStateBase
+    {
+        let good_base_block: BeaconState<MainnetEthSpec> = BeaconState::Base(BeaconStateBase {
+            slot: base_slot,
+            ..<_>::random_for_test(rng)
+        });
+        // It's invalid to have a base block with a slot higher than the fork slot.
+        let bad_base_block = {
+            let mut bad = good_base_block.clone();
+            *bad.slot_mut() = altair_slot;
+            bad
+        };
+
+        assert_eq!(
+            BeaconState::from_ssz_bytes(&good_base_block.as_ssz_bytes(), &spec)
+                .expect("good base block can be decoded"),
+            good_base_block
+        );
+        <BeaconState<MainnetEthSpec>>::from_ssz_bytes(&bad_base_block.as_ssz_bytes(), &spec)
+            .expect_err("bad base block cannot be decoded");
+    }
+
+    // BeaconStateAltair
+    {
+        let good_altair_block: BeaconState<MainnetEthSpec> =
+            BeaconState::Altair(BeaconStateAltair {
+                slot: altair_slot,
+                ..<_>::random_for_test(rng)
+            });
+        // It's invalid to have an Altair block with a slot lower than the fork slot.
+        let bad_altair_block = {
+            let mut bad = good_altair_block.clone();
+            *bad.slot_mut() = base_slot;
+            bad
+        };
+
+        assert_eq!(
+            BeaconState::from_ssz_bytes(&good_altair_block.as_ssz_bytes(), &spec)
+                .expect("good altair block can be decoded"),
+            good_altair_block
+        );
+        <BeaconState<MainnetEthSpec>>::from_ssz_bytes(&bad_altair_block.as_ssz_bytes(), &spec)
+            .expect_err("bad altair block cannot be decoded");
     }
 }
