@@ -16,8 +16,8 @@ pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
-pub const SIGNED_CONTRIBUTION_AND_PROOF: &str = "sync_committee_contribution_and_proof";
-pub const SYNC_COMMITTEE_PREFIX: &str = "sync_committee_";
+pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
+pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 
 pub const CORE_TOPICS: [GossipKind; 6] = [
     GossipKind::BeaconBlock,
@@ -61,6 +61,7 @@ pub enum GossipKind {
     /// Topic for publishing partially aggregated sync committee signatures.
     SignedContributionAndProof,
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
+    #[strum(serialize = "sync_committee")]
     SyncCommitteeSignature(SubnetId),
 }
 
@@ -136,6 +137,7 @@ impl GossipTopic {
             let kind = match topic_parts[3] {
                 BEACON_BLOCK_TOPIC => GossipKind::BeaconBlock,
                 BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipKind::BeaconAggregateAndProof,
+                SIGNED_CONTRIBUTION_AND_PROOF_TOPIC => GossipKind::SignedContributionAndProof,
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
@@ -178,9 +180,9 @@ impl Into<String> for GossipTopic {
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
             GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
             GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
-            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF.into(),
+            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
             GossipKind::SyncCommitteeSignature(index) => {
-                format!("{}{}", SYNC_COMMITTEE_PREFIX, *index)
+                format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
         };
         format!(
@@ -252,7 +254,9 @@ mod tests {
             for kind in [
                 BeaconBlock,
                 BeaconAggregateAndProof,
+                SignedContributionAndProof,
                 Attestation(SubnetId::new(42)),
+                SyncCommitteeSignature(SubnetId::new(42)),
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
@@ -331,6 +335,12 @@ mod tests {
             subnet_id_from_topic_hash(&topic_hash),
             Some(Subnet::Attestation(SubnetId::new(42)))
         );
+
+        let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/sync_committee_42/ssz_snappy");
+        assert_eq!(
+            subnet_id_from_topic_hash(&topic_hash),
+            Some(Subnet::SyncCommittee(SubnetId::new(42)))
+        );
     }
 
     #[test]
@@ -343,6 +353,11 @@ mod tests {
         assert_eq!(
             "beacon_attestation",
             Attestation(SubnetId::new(42)).as_ref()
+        );
+
+        assert_eq!(
+            "sync_committee",
+            SyncCommitteeSignature(SubnetId::new(42)).as_ref()
         );
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());
