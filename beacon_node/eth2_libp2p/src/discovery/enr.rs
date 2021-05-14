@@ -45,10 +45,10 @@ impl Eth2Enr for Enr {
     ) -> Result<EnrAttestationBitfield<TSpec>, &'static str> {
         let bitfield_bytes = self
             .get(ATTESTATION_BITFIELD_ENR_KEY)
-            .ok_or("ENR bitfield non-existent")?;
+            .ok_or("ENR attestation bitfield non-existent")?;
 
         BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
-            .map_err(|_| "Could not decode the ENR SSZ bitfield")
+            .map_err(|_| "Could not decode the ENR attnets bitfield")
     }
 
     fn sync_committee_bitfield<TSpec: EthSpec>(
@@ -56,10 +56,10 @@ impl Eth2Enr for Enr {
     ) -> Result<EnrSyncCommitteeBitfield<TSpec>, &'static str> {
         let bitfield_bytes = self
             .get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
-            .ok_or("ENR bitfield non-existent")?;
+            .ok_or("ENR sync committee bitfield non-existent")?;
 
         BitVector::<TSpec::SyncCommitteeSubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
-            .map_err(|_| "Could not decode the ENR SSZ bitfield")
+            .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {

@@ -2,6 +2,7 @@ use serde::{ser::Serializer, Serialize};
 use std::time::Instant;
 use types::SubnetId;
 
+/// Represents a subnet on an attestation or sync committee `SubnetId`.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub enum Subnet {
     Attestation(SubnetId),

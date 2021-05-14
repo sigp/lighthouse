@@ -10,7 +10,9 @@ use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::{null_logger, Environment, EnvironmentBuilder};
 use eth2_libp2p::{
-    rpc::methods::MetaData, types::EnrAttestationBitfield, MessageId, NetworkGlobals, PeerId,
+    rpc::methods::{MetaData, MetaDataV2},
+    types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
+    MessageId, NetworkGlobals, PeerId,
 };
 use slot_clock::SlotClock;
 use std::cmp;
@@ -133,10 +135,11 @@ impl TestRig {
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
-        let meta_data = MetaData {
+        let meta_data = MetaData::V2(MetaDataV2 {
             seq_number: SEQ_NUMBER,
             attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-        };
+            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+        });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
         let network_globals = Arc::new(NetworkGlobals::new(

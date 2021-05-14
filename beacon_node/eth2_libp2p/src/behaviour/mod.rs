@@ -173,7 +173,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
-            filter: Self::create_whitelist_filter(possible_fork_digests, 64, 8), //TODO change this to a constant
+            filter: Self::create_whitelist_filter(
+                possible_fork_digests,
+                chain_spec.attestation_subnet_count,
+                chain_spec.sync_committee_subnet_count,
+            ),
             max_subscribed_topics: 200, //TODO change this to a constant
             max_subscriptions_per_request: 100, //this is according to the current go implementation
         };
@@ -322,26 +326,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.unsubscribe(gossip_topic)
     }
 
-    /// Subscribes to a specific subnet id;
-    pub fn subscribe_to_subnet(&mut self, subnet_id: Subnet) -> bool {
-        let topic = GossipTopic::new(
-            subnet_id.into(),
-            GossipEncoding::default(),
-            self.enr_fork_id.fork_digest,
-        );
-        self.subscribe(topic)
-    }
-
-    /// Un-Subscribes from a specific subnet id;
-    pub fn unsubscribe_from_subnet(&mut self, subnet_id: Subnet) -> bool {
-        let topic = GossipTopic::new(
-            subnet_id.into(),
-            GossipEncoding::default(),
-            self.enr_fork_id.fork_digest,
-        );
-        self.unsubscribe(topic)
-    }
-
     /// Unsubscribe from all topics that doesn't have the given fork_digest
     pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
@@ -365,8 +349,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let topic: Topic = topic.into();
 
         match self.gossipsub.subscribe(&topic) {
-            Err(e) => {
-                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic, "error" => ?e);
+            Err(_) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic);
                 false
             }
             Ok(v) => {
