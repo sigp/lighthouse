@@ -24,7 +24,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription,
+    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, Unsigned,
+    ValidatorSubscription,
 };
 
 mod tests;
@@ -172,8 +173,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let next_fork_update = Box::pin(next_fork_delay(&beacon_chain).into());
         let next_unsubscribe = Box::pin(None.into());
 
+        let current_slot = beacon_chain
+            .slot()
+            .unwrap_or(beacon_chain.spec.genesis_slot);
+
         // Create a fork context for the given config and genesis validators root
         let fork_context = Arc::new(ForkContext::new(
+            current_slot,
             beacon_chain.genesis_validators_root,
             &beacon_chain.spec,
         ));
@@ -249,35 +255,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     /// Returns the required fork digests that gossipsub needs to subscribe to based on the current slot.
-    /// For current_slot < fork_slot, this function returns both the pre-fork and post-fork
+    ///
+    /// For `current_slot < fork_slot`, this function returns both the pre-fork and post-fork
     /// digests since we should be subscribed to post fork topics before the fork.
-    /// TODO(pawan): use ForkContext to get required gossip fork digests instead of using slots
     pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
-        let current_slot = match self.beacon_chain.slot() {
-            Ok(current_slot) => current_slot,
-            Err(e) => {
-                crit!(self.log, "Failed to get current slot, returning all fork_digests"; "error" => ?e);
-                return self.fork_context.all_fork_digests();
+        let fork_context = &self.fork_context;
+        match fork_context.current_fork() {
+            ForkName::Base => {
+                if fork_context.fork_exists(ForkName::Altair) {
+                    fork_context.all_fork_digests()
+                } else {
+                    vec![fork_context.genesis_context_bytes()]
+                }
             }
-        };
-        let spec = self.beacon_chain.spec.clone();
-        let genesis_validators_root = self.beacon_chain.genesis_validators_root;
-        if let Some(altair_fork_slot) = spec.altair_fork_slot {
-            if current_slot < altair_fork_slot {
-                // Return both pre-altair and post-altair fork digests if altair hasn't happened yet
-                return self.fork_context.all_fork_digests();
-            } else {
-                // Return only altair if altair_fork_slot is passed
-                return vec![ChainSpec::compute_fork_digest(
-                    spec.altair_fork_version,
-                    genesis_validators_root,
-                )];
-            }
+            ForkName::Altair => vec![fork_context
+                .to_context_bytes(ForkName::Altair)
+                .unwrap_or(fork_context.genesis_context_bytes())],
         }
-        vec![ChainSpec::compute_fork_digest(
-            spec.genesis_fork_version,
-            genesis_validators_root,
-        )]
     }
 }
 
@@ -441,9 +435,21 @@ fn spawn_service<T: BeaconChainTypes>(
                             // if we are to subscribe to all subnets we do it here
                             // 
                             if service.subscribe_all_subnets {
-                                //TODO(pawan): Subscribe to all syncnets here if required
                                 for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
                                     let subnet_id = Subnet::Attestation(SubnetId::new(subnet_id));
+                                    for fork_digest in service.required_gossip_fork_digests() {
+                                        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::default(), fork_digest);
+                                        if service.libp2p.swarm.subscribe(topic.clone()) {
+                                            // Update the ENR bitfield.
+                                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                                            subscribed_topics.push(topic);
+                                        } else {
+                                            warn!(service.log, "Could not subscribe to topic"; "topic" => ?topic);
+                                        }
+                                    }
+                                }
+                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetBitfieldLength::to_u64() {
+                                    let subnet_id = Subnet::SyncCommittee(SubnetId::new(subnet_id));
                                     for fork_digest in service.required_gossip_fork_digests() {
                                         let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::default(), fork_digest);
                                         if service.libp2p.swarm.subscribe(topic.clone()) {
@@ -606,24 +612,34 @@ fn spawn_service<T: BeaconChainTypes>(
                 }
                 Some(_) = &mut service.next_fork_update => {
                     let new_enr_fork_id = service.beacon_chain.enr_fork_id();
-                    info!(
-                        service.log,
-                        "Updating enr fork version";
-                        "new_fork_digest" => ?new_enr_fork_id
-                    );
-                    service
-                        .libp2p
-                        .swarm
-                        .update_fork_version(new_enr_fork_id.clone());
-                    service.next_fork_update = Box::pin(next_fork_delay(&service.beacon_chain).into());
 
-                    // Set the next_unsubscribe delay.
-                    // let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
-                    // let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY * epoch_duration);
-                    let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY * service.beacon_chain.spec.seconds_per_slot);
-                    service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
+                    let fork_context = &service.fork_context;
+                    if let Some(new_fork_name) = fork_context.from_context_bytes(new_enr_fork_id.fork_digest) {
+                        info!(
+                            service.log,
+                            "Updating enr fork version";
+                            "old_fork" => ?fork_context.current_fork(),
+                            "new_fork" => ?new_fork_name,
+                        );
+                        fork_context.update_current_fork(*new_fork_name);
 
-                    info!(service.log, "Network will unsubscribe from old fork topics in a few epochs");
+                        service
+                            .libp2p
+                            .swarm
+                            .update_fork_version(new_enr_fork_id.clone());
+                        
+                        service.next_fork_update = Box::pin(next_fork_delay(&service.beacon_chain).into());
+
+                        // Set the next_unsubscribe delay.
+                        let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
+                        let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY * epoch_duration);
+                        service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
+
+                        info!(service.log, "Network will unsubscribe from old fork gossip topics in a few epochs");
+                    } else {
+                        crit!(service.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
+                    }
+
                 }
                 Some(_) = &mut service.next_unsubscribe => {
                     let new_enr_fork_id = service.beacon_chain.enr_fork_id();
