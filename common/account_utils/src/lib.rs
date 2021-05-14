@@ -76,6 +76,32 @@ pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()
     Ok(())
 }
 
+/// Write a file atomically by using a temporary file as an intermediate.
+///
+/// Care is taken to preserve the permissions of the file at `file_path` being written.
+///
+/// If no file exists at `file_path` one will be created with restricted 0o600-equivalent
+/// permissions.
+pub fn write_file_via_temporary(
+    file_path: &Path,
+    temp_path: &Path,
+    bytes: &[u8],
+) -> Result<(), io::Error> {
+    // If the file already exists, preserve its permissions by copying it.
+    // Otherwise, create a new file with restricted permissions.
+    if file_path.exists() {
+        fs::copy(&file_path, &temp_path)?;
+        fs::write(&temp_path, &bytes)?;
+    } else {
+        create_with_600_perms(&temp_path, &bytes)?;
+    }
+
+    // With the temporary file created, perform an atomic rename.
+    fs::rename(&temp_path, &file_path)?;
+
+    Ok(())
+}
+
 /// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN`.
 pub fn random_password() -> PlainText {
     rand::thread_rng()

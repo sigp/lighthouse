@@ -31,7 +31,7 @@ lcli \
 	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
 	--altair-fork-slot $ALTAIR_FORK_SLOT \
-	--eth1-id $BOOTNODE_PORT \
+	--eth1-id $NETWORK_ID \
 	--eth1-follow-distance 1 \
 	--seconds-per-eth1-block 1 \
 	--force

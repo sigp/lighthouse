@@ -1,7 +1,8 @@
 mod post {
     use remote_signer_consumer::{Error, RemoteSignerHttpConsumer};
     use remote_signer_test::*;
-    use reqwest::{ClientBuilder, Url};
+    use reqwest::ClientBuilder;
+    use sensitive_url::SensitiveUrl;
     use tokio::time::Duration;
 
     #[test]
@@ -53,7 +54,7 @@ mod post {
         let (test_signer, _tmp_dir) = set_up_api_test_signer_to_sign_message();
 
         let run_testcase = |u: &str| -> Result<String, String> {
-            let url: Url = u.parse().map_err(|e| format!("[ParseError] {:?}", e))?;
+            let url = SensitiveUrl::parse(u).map_err(|e| format!("{:?}", e))?;
 
             let reqwest_client = ClientBuilder::new()
                 .timeout(Duration::from_secs(12))
@@ -66,7 +67,7 @@ mod post {
             let signature = do_sign_request(&test_client, test_input);
 
             signature.map_err(|e| match e {
-                Error::InvalidUrl(message) => format!("[InvalidUrl] {:?}", message),
+                Error::InvalidUrl(message) => format!("{:?}", message),
                 Error::Reqwest(re) => {
                     if re.is_builder() {
                         format!("[Reqwest - Builder] {:?}", re.url().unwrap())
@@ -84,25 +85,22 @@ mod post {
 
         // url::parser::ParseError.
         // These cases don't even make it to the step of building a RemoteSignerHttpConsumer.
-        testcase("", "[ParseError] RelativeUrlWithoutBase");
-        testcase("/4/8/15/16/23/42", "[ParseError] RelativeUrlWithoutBase");
-        testcase("localhost", "[ParseError] RelativeUrlWithoutBase");
-        testcase(":", "[ParseError] RelativeUrlWithoutBase");
-        testcase("0.0:0", "[ParseError] RelativeUrlWithoutBase");
-        testcase(":aa", "[ParseError] RelativeUrlWithoutBase");
-        testcase("0:", "[ParseError] RelativeUrlWithoutBase");
-        testcase("ftp://", "[ParseError] EmptyHost");
-        testcase("http://", "[ParseError] EmptyHost");
-        testcase("http://127.0.0.1:abcd", "[ParseError] InvalidPort");
-        testcase("http://280.0.0.1", "[ParseError] InvalidIpv4Address");
+        testcase("", "ParseError(RelativeUrlWithoutBase)");
+        testcase("/4/8/15/16/23/42", "ParseError(RelativeUrlWithoutBase)");
+        testcase("localhost", "ParseError(RelativeUrlWithoutBase)");
+        testcase(":", "ParseError(RelativeUrlWithoutBase)");
+        testcase("0.0:0", "ParseError(RelativeUrlWithoutBase)");
+        testcase(":aa", "ParseError(RelativeUrlWithoutBase)");
+        testcase("0:", "ParseError(RelativeUrlWithoutBase)");
+        testcase("ftp://", "ParseError(EmptyHost)");
+        testcase("http://", "ParseError(EmptyHost)");
+        testcase("http://127.0.0.1:abcd", "ParseError(InvalidPort)");
+        testcase("http://280.0.0.1", "ParseError(InvalidIpv4Address)");
 
         // `Error::InvalidUrl`.
         // The RemoteSignerHttpConsumer is created, but fails at `path_segments_mut()`.
-        testcase(
-            "localhost:abcd",
-            "[InvalidUrl] Url { scheme: \"localhost\", username: \"\", password: None, host: None, port: None, path: \"abcd\", query: None, fragment: None }",
-        );
-        testcase("localhost:", "[InvalidUrl] Url { scheme: \"localhost\", username: \"\", password: None, host: None, port: None, path: \"\", query: None, fragment: None }");
+        testcase("localhost:abcd", "InvalidUrl(\"URL cannot be a base.\")");
+        testcase("localhost:", "InvalidUrl(\"URL cannot be a base.\")");
 
         // `Reqwest::Error` of the `Builder` kind.
         // POST is not made.
@@ -130,7 +128,7 @@ mod post {
         let (test_signer, _tmp_dir) = set_up_api_test_signer_to_sign_message();
 
         let run_testcase = |u: &str| -> Result<String, String> {
-            let url: Url = u.parse().unwrap();
+            let url = SensitiveUrl::parse(u).unwrap();
 
             let reqwest_client = ClientBuilder::new()
                 .timeout(Duration::from_secs(12))

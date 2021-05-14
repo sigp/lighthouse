@@ -4,6 +4,7 @@ use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -163,17 +164,21 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Defines the URL to reach the eth1 node.
-    if let Some(val) = cli_args.value_of("eth1-endpoint") {
+    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
         warn!(
             log,
             "The --eth1-endpoint flag is deprecated";
             "msg" => "please use --eth1-endpoints instead"
         );
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = vec![val.to_string()];
-    } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
-        client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = val.split(',').map(String::from).collect();
+        client_config.eth1.endpoints = vec![SensitiveUrl::parse(endpoint)
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
+    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
+        client_config.eth1.endpoints = endpoints
+            .split(',')
+            .map(|s| SensitiveUrl::parse(s))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -638,7 +643,7 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
 
 /// A bit of hack to find an unused port.
 ///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// Does not guarantee that the given port is unused after the function exits, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
 ///
 /// Used for passing unused ports to libp2 so that lighthouse won't have to update
