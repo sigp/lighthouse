@@ -148,11 +148,10 @@ impl ChainSpec {
     /// Construct a `ChainSpec` from a standard config.
     pub fn from_standard_config<T: EthSpec>(standard_config: &StandardConfig) -> Option<Self> {
         let mut spec = T::default_spec();
-        spec = standard_config.base().apply_to_chain_spec::<T>(&spec)?;
 
-        if let Ok(altair) = standard_config.altair() {
-            spec = altair.apply_to_chain_spec::<T>(&spec)?;
-        }
+        spec = standard_config.base.apply_to_chain_spec::<T>(&spec)?;
+        spec = standard_config.altair.apply_to_chain_spec::<T>(&spec)?;
+
         Some(spec)
     }
 
@@ -440,17 +439,11 @@ impl Default for ChainSpec {
 /// Ordering of these enum variants is significant because it determines serde's deserialisation
 /// priority. I.e. Altair before Base.
 ///
-#[superstruct(
-    variants(Altair, Base),
-    variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
-)]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(untagged)]
 pub struct StandardConfig {
     #[serde(flatten)]
     pub base: BaseConfig,
     /// Configuration related to the Altair hard fork.
-    #[superstruct(only(Altair))]
     #[serde(flatten)]
     pub altair: AltairConfig,
 
@@ -468,11 +461,11 @@ impl StandardConfig {
 
     pub fn from_parts(base: BaseConfig, altair: AltairConfig) -> Self {
         let extra_fields = HashMap::new();
-        StandardConfig::Altair(StandardConfigAltair {
+        StandardConfig {
             base,
             altair,
             extra_fields,
-        })
+        }
     }
 }
 
@@ -995,9 +988,8 @@ mod tests {
         let f = File::open(tmp_file.as_ref()).unwrap();
         let standard_config: StandardConfig = serde_yaml::from_reader(f).unwrap();
 
-        let standard_base = standard_config.as_base().unwrap();
-        assert_eq!(standard_base.base, base_config);
-        assert!(standard_base.extra_fields.is_empty());
+        assert_eq!(standard_config.base, base_config);
+        assert!(standard_config.extra_fields.is_empty());
     }
 }
 
@@ -1065,8 +1057,8 @@ mod yaml_tests {
         let mut yamlconfig = StandardConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
-        yamlconfig.extra_fields_mut().insert(k1.into(), v1.into());
-        yamlconfig.extra_fields_mut().insert(k2.into(), v2.into());
+        yamlconfig.extra_fields.insert(k1.into(), v1.into());
+        yamlconfig.extra_fields.insert(k2.into(), v2.into());
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()
