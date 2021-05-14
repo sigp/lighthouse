@@ -1098,4 +1098,16 @@ mod yaml_tests {
             .expect("should have applied spec");
         assert_eq!(new_spec, ChainSpec::minimal());
     }
+
+    #[test]
+    fn parses_base_spec() {
+        let spec = ChainSpec::minimal();
+        let base_config = BaseConfig::from_chain_spec::<MinimalEthSpec>(&spec);
+        let std_conf =
+            serde_json::from_str::<StandardConfig>(&serde_json::to_string(&base_config).unwrap())
+                .expect("should parse base spec");
+        std_conf
+            .as_altair()
+            .expect_err("should not have altair params");
+    }
 }
