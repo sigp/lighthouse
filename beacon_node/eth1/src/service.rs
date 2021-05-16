@@ -678,8 +678,7 @@ impl Service {
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
         let endpoints = self.get_endpoints();
 
-        // Reset the state of any endpoints which have errored.
-        // This will ensure the endpoint state will be updated
+        // Reset the state of any endpoints which have errored so their state can be redetermined.
         endpoints.reset_errorred_endpoints().await;
 
         let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
