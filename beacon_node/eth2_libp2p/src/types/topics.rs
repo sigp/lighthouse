@@ -219,19 +219,19 @@ pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
 // Determines if a string is a committee topic.
 fn committee_topic_index(topic: &str) -> Option<Subnet> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
-        return Some(SubnetId::new(
+        return Some(Subnet::Attestation(SubnetId::new(
             topic
                 .trim_start_matches(BEACON_ATTESTATION_PREFIX)
                 .parse::<u64>()
                 .ok()?,
-        ));
-    } else if topic.starts_with(SYNC_COMMITTEE_PREFIX) {
-        return Some(SubnetId::new(
+        )));
+    } else if topic.starts_with(SYNC_COMMITTEE_PREFIX_TOPIC) {
+        return Some(Subnet::SyncCommittee(SubnetId::new(
             topic
-                .trim_start_matches(SYNC_COMMITTEE_PREFIX)
+                .trim_start_matches(SYNC_COMMITTEE_PREFIX_TOPIC)
                 .parse::<u64>()
                 .ok()?,
-        ));
+        )));
     }
     None
 }
