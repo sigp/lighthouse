@@ -347,6 +347,7 @@ mod tests {
     use super::*;
     use crate::test_utils::{test_ssz_tree_hash_pair_with, SeedableRng, TestRandom, XorShiftRng};
     use crate::{ForkName, MainnetEthSpec};
+    use ssz::Encode;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
     type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
@@ -388,5 +389,62 @@ mod tests {
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
             BeaconBlock::from_ssz_bytes(bytes, spec)
         });
+    }
+
+    #[test]
+    fn decode_base_and_altair() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let fork_slot = Slot::from_ssz_bytes(&[7, 6, 5, 4, 3, 2, 1, 0]).unwrap();
+
+        let base_slot = fork_slot.saturating_sub(1_u64);
+        let altair_slot = fork_slot;
+
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.altair_fork_slot = Some(fork_slot);
+
+        // BeaconBlockBase
+        {
+            let good_base_block = BeaconBlock::Base(BeaconBlockBase {
+                slot: base_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have a base block with a slot higher than the fork slot.
+            let bad_base_block = {
+                let mut bad = good_base_block.clone();
+                *bad.slot_mut() = altair_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_base_block.as_ssz_bytes(), &spec)
+                    .expect("good base block can be decoded"),
+                good_base_block
+            );
+            BeaconBlock::from_ssz_bytes(&bad_base_block.as_ssz_bytes(), &spec)
+                .expect_err("bad base block cannot be decoded");
+        }
+
+        // BeaconBlockAltair
+        {
+            let good_altair_block = BeaconBlock::Altair(BeaconBlockAltair {
+                slot: altair_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have an Altair block with a slot lower than the fork slot.
+            let bad_altair_block = {
+                let mut bad = good_altair_block.clone();
+                *bad.slot_mut() = base_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_altair_block.as_ssz_bytes(), &spec)
+                    .expect("good altair block can be decoded"),
+                good_altair_block
+            );
+            BeaconBlock::from_ssz_bytes(&bad_altair_block.as_ssz_bytes(), &spec)
+                .expect_err("bad altair block cannot be decoded");
+        }
     }
 }

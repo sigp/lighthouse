@@ -19,7 +19,7 @@ use beacon_chain::{BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY}
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
-use eth2::{types::*, BeaconNodeHttpClient, Url};
+use eth2::{types::*, BeaconNodeHttpClient};
 use eth2_libp2p::{
     rpc::methods::MetaData,
     types::{EnrBitfield, SyncState},
@@ -27,6 +27,7 @@ use eth2_libp2p::{
 };
 use http_api::{Config, Context};
 use network::NetworkMessage;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use tree_hash::TreeHash;
@@ -202,7 +203,7 @@ impl ApiTester {
         tokio::spawn(async { server.await });
 
         let client = BeaconNodeHttpClient::new(
-            Url::parse(&format!(
+            SensitiveUrl::parse(&format!(
                 "http://{}:{}",
                 listening_socket.ip(),
                 listening_socket.port()
@@ -309,7 +310,7 @@ impl ApiTester {
         tokio::spawn(async { server.await });
 
         let client = BeaconNodeHttpClient::new(
-            Url::parse(&format!(
+            SensitiveUrl::parse(&format!(
                 "http://{}:{}",
                 listening_socket.ip(),
                 listening_socket.port()

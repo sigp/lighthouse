@@ -44,7 +44,7 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
 
 // A bit of hack to find an unused port.
 ///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// Does not guarantee that the given port is unused after the function exits, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
 pub fn unused_port(transport: &str) -> Result<u16, String> {
     let local_addr = match transport {
