@@ -45,8 +45,9 @@ use state_processing::signature_sets::{
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
-    SyncCommitteeSignature, SyncSelectionProof, SyncSubnetId, Unsigned,
+    sync_committee_contribution::Error as ContributionError, AggregateSignature, EthSpec, Hash256,
+    SignedContributionAndProof, Slot, SyncCommitteeContribution, SyncCommitteeSignature,
+    SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 use crate::{
@@ -213,6 +214,7 @@ pub enum Error {
     SyncCommitteeCacheNotInitialized,
     ArithError(ArithError),
     SszError(ssz_types::Error),
+    ContributionError(ContributionError),
 }
 
 impl From<BeaconChainError> for Error {
@@ -224,6 +226,12 @@ impl From<BeaconChainError> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::ArithError(e)
+    }
+}
+
+impl From<ContributionError> for Error {
+    fn from(e: ContributionError) -> Self {
+        Error::ContributionError(e)
     }
 }
 
@@ -720,10 +728,11 @@ pub fn verify_sync_signature<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
         .map(|head| head.beacon_state.fork())?;
 
+    let agg_sig = AggregateSignature::from(&sync_signature.signature);
     let signature_set = sync_committee_contribution_signature_set_from_pubkeys::<T::EthSpec, _>(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
         &[sync_signature.validator_index as usize],
-        &sync_signature.signature,
+        &agg_sig,
         sync_signature.slot.epoch(T::EthSpec::slots_per_epoch()),
         sync_signature.beacon_block_root,
         &fork,

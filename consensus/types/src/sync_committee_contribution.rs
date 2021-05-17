@@ -1,4 +1,4 @@
-use super::{AggregateSignature, ChainSpec, Domain, EthSpec, Fork, SecretKey, SignedRoot};
+use super::{AggregateSignature, EthSpec, SignedRoot};
 use crate::attestation::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeSignature};
 use safe_arith::ArithError;
@@ -30,19 +30,19 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
 
 impl<T: EthSpec> SyncCommitteeContribution<T> {
     pub fn from_signature(
-        signature: SyncCommitteeSignature,
+        signature: &SyncCommitteeSignature,
         subnet_id: u64,
-        subcommittee_index: u64,
+        validator_sync_committee_index: usize,
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
-        bits.set(subcommittee_index as usize, true)
+        bits.set(validator_sync_committee_index, true)
             .map_err(|e| Error::SszTypesError(e))?;
         Ok(Self {
             slot: signature.slot,
             beacon_block_root: signature.beacon_block_root,
             subcommittee_index: subnet_id,
             aggregation_bits: bits,
-            signature: signature.signature,
+            signature: AggregateSignature::from(&signature.signature),
         })
     }
 

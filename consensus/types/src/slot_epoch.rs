@@ -17,9 +17,9 @@ use std::iter::Iterator;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 use crate::test_utils::TestRandom;
-use crate::{ChainSpec, Error, SignedRoot};
+use crate::{ChainSpec, SignedRoot};
 use rand::RngCore;
-use safe_arith::SafeArith;
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
@@ -98,7 +98,7 @@ impl Epoch {
     }
 
     /// Compute the `base_epoch` used by sync committees.
-    pub fn sync_committee_base_epoch(&self, spec: &ChainSpec) -> Result<Epoch, Error> {
+    pub fn sync_committee_base_epoch(&self, spec: &ChainSpec) -> Result<Epoch, ArithError> {
         Ok(std::cmp::max(
             self.safe_div(spec.epochs_per_sync_committee_period)?,
             Epoch::new(1),

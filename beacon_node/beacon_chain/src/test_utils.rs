@@ -27,10 +27,8 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use store::{
-    config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore,
-    SignedContributionAndProof, SyncCommitteeContribution, SyncCommitteeSignature,
-};
+use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -38,8 +36,9 @@ use types::{
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
     Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, SyncCommittee,
-    Unsigned, VariableList, VoluntaryExit,
+    SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
+    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
+    VariableList, VoluntaryExit,
 };
 
 use safe_arith::SafeArith;
@@ -151,7 +150,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
-    pub shutdown_receiver: Receiver<&'static str>,
+    pub shutdown_receiver: Receiver<ShutdownReason>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -634,13 +633,7 @@ where
 
                             let message = head_block_root.signing_root(domain);
 
-                            let mut agg_sig = AggregateSignature::infinity();
-
-                            agg_sig.add_assign(
-                                &self.validator_keypairs[validator_index].sk.sign(message),
-                            );
-
-                            agg_sig
+                            self.validator_keypairs[validator_index].sk.sign(message)
                         };
 
                         let sync_signature = SyncCommitteeSignature {
@@ -810,13 +803,13 @@ where
                             subnet_id, state.slot(), committee_signatures.len()
                         ));
 
-                    let default = SyncCommitteeContribution::from_signature(sync_signature.clone(), subnet_id as u64, 0)
+                    let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, 0)
                         .expect("should derive sync contribution");
 
                     // TODO: could update this to use the naive aggregation pool like with attestations
                     let aggregate =
                             committee_signatures.iter().enumerate().skip(1).fold(default, |mut agg, (i, sig)| {
-                                let contribution = SyncCommitteeContribution::from_signature(sync_signature.clone(), subnet_id as u64, i as u64)
+                                let contribution = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, i)
                                     .expect("should derive sync contribution");
                                 agg.aggregate(&contribution);
                                 agg

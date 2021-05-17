@@ -38,10 +38,10 @@ impl<E: EthSpec> Slasher<E> {
         let block_queue = BlockQueue::default();
         Ok(Self {
             db,
-            attester_slashings,
-            proposer_slashings,
             attestation_queue,
             block_queue,
+            attester_slashings,
+            proposer_slashings,
             config,
             log,
         })
