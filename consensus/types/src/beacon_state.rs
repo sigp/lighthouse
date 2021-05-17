@@ -1,23 +1,18 @@
-use std::convert::TryInto;
-use std::sync::Arc;
-use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
-use superstruct::superstruct;
-
 use self::exit_cache::ExitCache;
-pub use clone_config::CloneConfig;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
+use derivative::Derivative;
 use eth2_hashing::hash;
 pub use eth_spec::*;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
+use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
-use std::{fmt, mem};
+use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -30,7 +25,6 @@ pub use self::committee_cache::CommitteeCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use tree_hash_cache::BeaconTreeHashCache;
-use self::exit_cache::ExitCache;
 
 #[macro_use]
 mod committee_cache;
