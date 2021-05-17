@@ -1185,17 +1185,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for position in positions {
                 let _timer =
                     metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
-                let mut bits = BitVector::new();
-                bits.set(*position, true)
-                    .map_err(SyncCommitteeError::SszError)?;
-                let contribution = SyncCommitteeContribution {
-                    slot: sync_signature.slot,
-                    beacon_block_root: sync_signature.beacon_block_root,
-                    subcommittee_index: subnet_id.into(),
-                    aggregation_bits: bits,
-                    //TODO: cloning this seems inefficient if we may eventually be aggregating it with itself
-                    signature: sync_signature.signature.clone(),
-                };
+                let contribution = SyncCommitteeContribution::from_signature(
+                    sync_signature.clone(),
+                    subnet_id.into(),
+                    *position,
+                );
 
                 match self
                     .naive_sync_aggregation_pool

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::{fmt, mem};
@@ -19,7 +18,6 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use swap_or_not_shuffle::compute_shuffled_index;
-pub use sync_committee_cache::SyncCommitteeCache;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 pub use tree_hash_cache::BeaconTreeHashCache;
