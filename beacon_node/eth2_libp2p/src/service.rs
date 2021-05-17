@@ -233,9 +233,9 @@ impl<TSpec: EthSpec> Service<TSpec> {
         }
 
         let service = Service {
-            local_peer_id,
-            bandwidth,
             swarm,
+            bandwidth,
+            local_peer_id,
             log,
         };
 

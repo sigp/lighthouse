@@ -73,7 +73,7 @@ impl FromStr for Eth1Id {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        u64::from_str_radix(s, 10)
+        s.parse::<u64>()
             .map(Into::into)
             .map_err(|e| format!("Failed to parse eth1 network id {}", e))
     }

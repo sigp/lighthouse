@@ -81,8 +81,8 @@ impl GossipTopic {
     pub fn new(kind: GossipKind, encoding: GossipEncoding, fork_digest: [u8; 4]) -> Self {
         GossipTopic {
             encoding,
-            kind,
             fork_digest,
+            kind,
         }
     }
 
@@ -135,8 +135,8 @@ impl GossipTopic {
 
             return Ok(GossipTopic {
                 encoding,
-                kind,
                 fork_digest,
+                kind,
             });
         }
 
@@ -195,7 +195,10 @@ pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
 fn committee_topic_index(topic: &str) -> Option<SubnetId> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
         return Some(SubnetId::new(
-            u64::from_str_radix(topic.trim_start_matches(BEACON_ATTESTATION_PREFIX), 10).ok()?,
+            topic
+                .trim_start_matches(BEACON_ATTESTATION_PREFIX)
+                .parse::<u64>()
+                .ok()?,
         ));
     }
     None
