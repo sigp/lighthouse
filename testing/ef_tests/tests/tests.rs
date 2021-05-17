@@ -18,6 +18,9 @@ fn config_test<E: EthSpec + TypeName>() {
     let std_config = StandardConfig::from_parts(phase0_config.clone(), altair_config.clone());
     let spec = E::default_spec();
 
+    log_file_access(&phase0_config_path);
+    log_file_access(&altair_config_path);
+
     let unified_spec =
         ChainSpec::from_standard_config::<E>(&std_config).expect("config unification");
     assert_eq!(unified_spec, spec);
