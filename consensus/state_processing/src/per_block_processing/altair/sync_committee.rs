@@ -1,6 +1,5 @@
 use crate::common::{altair::get_base_reward_per_increment, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
-use itertools::Itertools;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
@@ -13,11 +12,10 @@ pub fn process_sync_committee<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify sync committee aggregate signature signing over the previous slot block root
-    state.build_current_sync_committee_cache(spec)?;
-
     let previous_slot = state.slot().saturating_sub(1u64);
 
-    let committee_pubkeys = &state.current_sync_committee()?.pubkeys;
+    let current_sync_committee = state.current_sync_committee()?.clone();
+    let committee_pubkeys = &current_sync_committee.pubkeys;
 
     let participant_pubkeys = committee_pubkeys
         .iter()
@@ -70,13 +68,10 @@ pub fn process_sync_committee<T: EthSpec>(
         .safe_div(WEIGHT_DENOMINATOR.safe_sub(PROPOSER_WEIGHT)?)?;
 
     // Apply participant and proposer rewards
-    let committee_indices = state.get_current_sync_committee_indices(spec)?;
-
-    let participant_indices = committee_indices
-        .iter()
-        .zip(aggregate.sync_committee_bits.iter())
-        .flat_map(|(index, bit)| Some(*index).filter(|_| bit))
-        .collect_vec();
+    let participant_indices = state.get_sync_committee_participant_indices(
+        &current_sync_committee,
+        &aggregate.sync_committee_bits,
+    )?;
 
     for participant_index in participant_indices {
         increase_balance(state, participant_index as usize, participant_reward)?;

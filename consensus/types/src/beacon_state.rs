@@ -6,6 +6,7 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use superstruct::superstruct;
 
+use self::exit_cache::ExitCache;
 pub use clone_config::CloneConfig;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
@@ -28,14 +29,12 @@ use crate::*;
 
 use self::committee_cache::get_active_validator_indices;
 pub use self::committee_cache::CommitteeCache;
-use self::exit_cache::ExitCache;
 
 #[macro_use]
 mod committee_cache;
 mod clone_config;
 mod exit_cache;
 mod pubkey_cache;
-mod sync_committee_cache;
 mod tests;
 mod tree_hash_cache;
 
@@ -273,13 +272,6 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
-    pub current_sync_committee_cache: SyncCommitteeCache,
-    #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing)]
@@ -356,7 +348,6 @@ impl<T: EthSpec> BeaconState<T> {
                 CommitteeCache::default(),
                 CommitteeCache::default(),
             ],
-            current_sync_committee_cache: SyncCommitteeCache::default(),
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: <_>::default(),
@@ -716,14 +707,38 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
-    /// Get the *current* sync committee indices using the cache.
-    ///
-    /// Will error if the cache isn't initialised at the correct base epoch.
-    pub fn get_current_sync_committee_indices(&self, spec: &ChainSpec) -> Result<&[usize], Error> {
-        let base_epoch = self.current_epoch().sync_committee_base_epoch(spec)?;
-        self.current_sync_committee_cache()
-            .get_sync_committee_indices(base_epoch)
-            .ok_or(Error::SyncCommitteeCacheUninitialized)
+    /// Get the sync committee for the current or next period by computing it from scratch.
+    pub fn get_sync_committee(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<SyncCommittee<T>, Error> {
+        let sync_committee_indices = self.compute_sync_committee_indices(epoch, spec)?;
+        self.compute_sync_committee(&sync_committee_indices)
+    }
+
+    /// Get the validator indices of all validators from `sync_committee` identified by
+    /// `sync_committee_bits`.
+    pub fn get_sync_committee_participant_indices(
+        &mut self,
+        sync_committee: &SyncCommittee<T>,
+        sync_committee_bits: &BitVector<T::SyncCommitteeSize>,
+    ) -> Result<Vec<usize>, Error> {
+        sync_committee
+            .pubkeys
+            .iter()
+            .zip(sync_committee_bits.iter())
+            .flat_map(|(pubkey, bit)| {
+                if bit {
+                    let validator_index_res = self
+                        .get_validator_index(&pubkey)
+                        .and_then(|opt| opt.ok_or(Error::PubkeyCacheInconsistent));
+                    Some(validator_index_res)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Calculate the sync committee indices for the state's base epoch from scratch.
@@ -734,11 +749,6 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<Vec<usize>, Error> {
         let base_epoch = epoch.sync_committee_base_epoch(spec)?;
 
-        // Allow calculation of any sync committee with base epoch less than or equal to the
-        // next epoch. This allows calculating the sync committee for *two* periods after the
-        // current period, which is necessary for `process_sync_committee_updates`. It also
-        // allows calculation of historical periods, the current period, and the next period
-        // (which has a base epoch equal to the first epoch of the current period).
         if base_epoch > self.next_epoch()? {
             return Err(Error::EpochOutOfBounds);
         }
@@ -773,25 +783,6 @@ impl<T: EthSpec> BeaconState<T> {
             i.safe_add_assign(1)?;
         }
         Ok(sync_committee_indices)
-    }
-
-    /// Get the sync committee for the current or next period.
-    ///
-    /// Will utilise the cache for the current period.
-    pub fn get_sync_committee(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<SyncCommittee<T>, Error> {
-        let base_epoch = epoch.sync_committee_base_epoch(spec)?;
-        let current_base_epoch = self.current_epoch().sync_committee_base_epoch(spec)?;
-
-        let sync_committee_indices = if base_epoch == current_base_epoch {
-            Cow::Borrowed(self.get_current_sync_committee_indices(spec)?)
-        } else {
-            Cow::Owned(self.compute_sync_committee_indices(epoch, spec)?)
-        };
-        self.compute_sync_committee(sync_committee_indices.as_ref())
     }
 
     /// Compute the sync committee for a given list of indices.
@@ -1232,7 +1223,6 @@ impl<T: EthSpec> BeaconState<T> {
     /// Build all caches (except the tree hash cache), if they need to be built.
     pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
-        self.build_current_sync_committee_cache(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
 
@@ -1255,23 +1245,11 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    /// Build the sync committee cache if it needs to be built.
-    pub fn build_current_sync_committee_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        if !self
-            .current_sync_committee_cache()
-            .is_initialized_for(self.current_epoch().sync_committee_base_epoch(spec)?)
-        {
-            *self.current_sync_committee_cache_mut() = SyncCommitteeCache::new(self, spec)?;
-        }
-        Ok(())
-    }
-
     /// Drop all caches on the state.
     pub fn drop_all_caches(&mut self) -> Result<(), Error> {
         self.drop_committee_cache(RelativeEpoch::Previous)?;
         self.drop_committee_cache(RelativeEpoch::Current)?;
         self.drop_committee_cache(RelativeEpoch::Next)?;
-        *self.current_sync_committee_cache_mut() = SyncCommitteeCache::default();
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
         *self.exit_cache_mut() = ExitCache::default();
@@ -1468,9 +1446,6 @@ impl<T: EthSpec> BeaconState<T> {
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
         }
-        if config.current_sync_committee_cache {
-            *res.current_sync_committee_cache_mut() = self.current_sync_committee_cache().clone();
-        }
         if config.pubkey_cache {
             *res.pubkey_cache_mut() = self.pubkey_cache().clone();
         }
@@ -1542,14 +1517,12 @@ impl<T: EthSpec> BeaconState<T> {
             next_sync_committee: SyncCommittee::temporary()?,              // not read
             // Caches
             committee_caches: mem::take(&mut pre.committee_caches),
-            current_sync_committee_cache: mem::take(&mut pre.current_sync_committee_cache),
             pubkey_cache: mem::take(&mut pre.pubkey_cache),
             exit_cache: mem::take(&mut pre.exit_cache),
             tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
         });
 
         // Fill in sync committees
-        post.build_current_sync_committee_cache(spec)?;
         post.as_altair_mut()?.current_sync_committee =
             Arc::new(post.get_sync_committee(post.current_epoch(), spec)?);
         post.as_altair_mut()?.next_sync_committee = post.get_sync_committee(

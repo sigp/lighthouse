@@ -45,8 +45,9 @@ use state_processing::signature_sets::{
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
-    SyncCommitteeSignature, SyncSelectionProof, SyncSubnetId, Unsigned,
+    sync_committee_contribution::Error as ContributionError, EthSpec, Hash256,
+    SignedContributionAndProof, Slot, SyncCommitteeContribution, SyncCommitteeSignature,
+    SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 use crate::{
@@ -213,6 +214,7 @@ pub enum Error {
     SyncCommitteeCacheNotInitialized,
     ArithError(ArithError),
     SszError(ssz_types::Error),
+    ContributionError(ContributionError),
 }
 
 impl From<BeaconChainError> for Error {
@@ -224,6 +226,12 @@ impl From<BeaconChainError> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::ArithError(e)
+    }
+}
+
+impl From<ContributionError> for Error {
+    fn from(e: ContributionError) -> Self {
+        Error::ContributionError(e)
     }
 }
 
