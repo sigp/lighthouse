@@ -1,10 +1,23 @@
 #! /bin/python
+
+# The purpose of this script is to compare a list of file names that were accessed during testing
+# against all the file names in the eth2.0-spec-tests repository. It then checks to see which files
+# were not accessed and returns on an error if any non-intentionally-ignored files are detected.
+#
+# The ultimate goal is to detect any accidentally-missed spec tests.
+
 import os
 import sys
 
+# First argument should the path to a file which contains a list of accessed file names.
 passed_tests_filename = sys.argv[1]
+
+# Second argument should be the path to the eth2.0-spec-tests directory.
 tests_dir_filename = sys.argv[2]
 
+# If any of the file names found in the eth2.0-spec-tests directory *starts with* one of the
+# following strings, we will assume they are to be ignored (i.e., we are purposefully *not* running
+# the spec tests).
 excluded_paths = [
     # Things from future phases
     "tests/mainnet/config/custody_game.yaml",

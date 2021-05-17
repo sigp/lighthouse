@@ -7,8 +7,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec};
 
+/// See `log_file_access` for details.
 const ACCESSED_FILE_LOG_FILENAME: &str = ".accessed_file_log.txt";
 
+/// Writes `path` to a file that contains a log of all files accessed during testing.
+///
+/// That log file might later be used to ensure that all spec tests were accessed and none were
+/// accidentally missed.
 pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
     let passed_test_list_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(ACCESSED_FILE_LOG_FILENAME);
