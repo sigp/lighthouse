@@ -26,7 +26,7 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
 
     file.lock_exclusive().expect("unable to lock file");
 
-    write!(&mut file, "{:?}\n", file_accessed.as_ref()).expect("should write to file");
+    writeln!(&mut file, "{:?}", file_accessed.as_ref()).expect("should write to file");
 
     file.unlock().expect("unable to unlock file");
 }
