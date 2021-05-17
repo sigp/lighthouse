@@ -1187,7 +1187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let _timer =
                     metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
                 let contribution = SyncCommitteeContribution::from_signature(
-                    sync_signature.clone(),
+                    sync_signature,
                     subnet_id.into(),
                     *position,
                 )?;

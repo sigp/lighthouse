@@ -633,13 +633,7 @@ where
 
                             let message = head_block_root.signing_root(domain);
 
-                            let mut agg_sig = AggregateSignature::infinity();
-
-                            agg_sig.add_assign(
-                                &self.validator_keypairs[validator_index].sk.sign(message),
-                            );
-
-                            agg_sig
+                            self.validator_keypairs[validator_index].sk.sign(message)
                         };
 
                         let sync_signature = SyncCommitteeSignature {
@@ -809,13 +803,13 @@ where
                             subnet_id, state.slot(), committee_signatures.len()
                         ));
 
-                    let default = SyncCommitteeContribution::from_signature(sync_signature.clone(), subnet_id as u64, 0)
+                    let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, 0)
                         .expect("should derive sync contribution");
 
                     // TODO: could update this to use the naive aggregation pool like with attestations
                     let aggregate =
                             committee_signatures.iter().enumerate().skip(1).fold(default, |mut agg, (i, sig)| {
-                                let contribution = SyncCommitteeContribution::from_signature(sync_signature.clone(), subnet_id as u64, i as u64)
+                                let contribution = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, i)
                                     .expect("should derive sync contribution");
                                 agg.aggregate(&contribution);
                                 agg

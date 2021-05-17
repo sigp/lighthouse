@@ -30,21 +30,19 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
 
 impl<T: EthSpec> SyncCommitteeContribution<T> {
     pub fn from_signature(
-        signature: SyncCommitteeSignature,
+        signature: &SyncCommitteeSignature,
         subnet_id: u64,
         validator_sync_committee_index: usize,
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
         bits.set(validator_sync_committee_index, true)
             .map_err(|e| Error::SszTypesError(e))?;
-        let mut agg_sig = AggregateSignature::infinity();
-        agg_sig.add_assign(&signature.signature);
         Ok(Self {
             slot: signature.slot,
             beacon_block_root: signature.beacon_block_root,
             subcommittee_index: subnet_id,
             aggregation_bits: bits,
-            signature: agg_sig,
+            signature: AggregateSignature::from(&signature.signature),
         })
     }
 
