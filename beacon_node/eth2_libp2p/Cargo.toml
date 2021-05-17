@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-discv5 = { git = "https://github.com/sigp/discv5 ", rev = "02d2c896c66f8dc2b848c3996fedcd98e1dfec69", features = ["libp2p"] }
+discv5 = { git = "https://github.com/sigp/discv5 ", banch = "feature-update", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
@@ -43,7 +43,7 @@ strum = { version = "0.20", features = ["derive"] }
 
 [dependencies.libp2p]
 git = "https://github.com/sigp/rust-libp2p"
-branch = "gossip-keep-alive"
+branch = "master"
 #version = "0.35.1"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
