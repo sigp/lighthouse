@@ -1,4 +1,4 @@
-use crate::persisted_dht::{load_dht, persist_dht};
+use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::{
     attestation_service::{AttServiceMessage, AttestationService},
@@ -573,6 +573,10 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
             "Persisting DHT to store";
             "Number of peers" => enrs.len(),
         );
+        if let Err(e) = clear_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone()) {
+            error!(self.log, "Failed to clear old DHT entries"; "error" => ?e);
+        }
+        // Still try to update new entries
         match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone(), enrs) {
             Err(e) => error!(
                 self.log,
