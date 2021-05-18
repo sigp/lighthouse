@@ -1782,6 +1782,7 @@ dependencies = [
  "bls",
  "cached_tree_hash",
  "compare_fields",
+ "compare_fields_derive",
  "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",
