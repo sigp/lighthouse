@@ -4,7 +4,7 @@ use core::result::Result::Ok;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
-use types::consts::altair::{INACTIVITY_SCORE_BIAS, TIMELY_TARGET_FLAG_INDEX};
+use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::eth_spec::EthSpec;
 
 // FIXME(altair): there's no EF test for this one (yet)
@@ -26,7 +26,7 @@ pub fn process_inactivity_updates<T: EthSpec>(
         } else if state.is_in_inactivity_leak(spec) {
             state
                 .get_inactivity_score_mut(index)?
-                .safe_add_assign(INACTIVITY_SCORE_BIAS)?;
+                .safe_add_assign(spec.inactivity_score_bias)?;
         }
     }
     Ok(())
