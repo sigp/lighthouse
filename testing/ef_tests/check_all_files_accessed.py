@@ -29,18 +29,12 @@ excluded_paths = [
     # Genesis Validity
     "tests/minimal/altair/genesis/validity",
     # Eth1Block
+    #
+    # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/minimal/phase0/ssz_static/Eth1Block/",
     "tests/mainnet/phase0/ssz_static/Eth1Block/",
     "tests/minimal/altair/ssz_static/Eth1Block/",
     "tests/mainnet/altair/ssz_static/Eth1Block/",
-    # Rewards
-    #
-    # These are all commented-out since I think they *should not* be ignored.
-    #
-    # "tests/minimal/phase0/rewards",
-    # "tests/mainnet/phase0/rewards",
-    # "tests/minimal/altair/rewards",
-    # "tests/mainnet/altair/rewards",
     # LightClientStore
     "tests/minimal/altair/ssz_static/LightClientStore",
     "tests/mainnet/altair/ssz_static/LightClientStore",
