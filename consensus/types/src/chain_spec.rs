@@ -304,10 +304,22 @@ impl ChainSpec {
             /*
              *  Gwei values
              */
-            min_deposit_amount: u64::pow(2, 0).saturating_mul(u64::pow(10, 9)),
-            max_effective_balance: u64::pow(2, 5).saturating_mul(u64::pow(10, 9)),
-            ejection_balance: u64::pow(2, 4).saturating_mul(u64::pow(10, 9)),
-            effective_balance_increment: u64::pow(2, 0).saturating_mul(u64::pow(10, 9)),
+            min_deposit_amount: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            ejection_balance: option_wrapper(|| {
+                u64::checked_pow(2, 4)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            effective_balance_increment: option_wrapper(|| {
+                u64::checked_pow(2, 0)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
 
             /*
              * Initial Values
@@ -367,7 +379,10 @@ impl ChainSpec {
             /*
              * Altair hard fork params
              */
-            inactivity_penalty_quotient_altair: u64::pow(2, 24).saturating_mul(3),
+            inactivity_penalty_quotient_altair: option_wrapper(|| {
+                u64::checked_pow(2, 24)?.checked_mul(3)
+            })
+            .expect("calculation does not overflow"),
             min_slashing_penalty_quotient_altair: u64::pow(2, 6),
             proportional_slashing_multiplier_altair: 2,
             inactivity_score_bias: 4,
@@ -928,6 +943,14 @@ impl AltairConfig {
                 .map(|slot| MaybeQuoted { value: slot }),
         }
     }
+}
+
+/// A simple wrapper to permit the in-line use of `?`.
+fn option_wrapper<F, T>(f: F) -> Option<T>
+where
+    F: Fn() -> Option<T>,
+{
+    f()
 }
 
 #[cfg(test)]
