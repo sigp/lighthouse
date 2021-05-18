@@ -43,6 +43,7 @@ impl<T: EthSpec> ContributionAndProof<T> {
             .unwrap_or_else(|| {
                 SyncSelectionProof::new::<T>(
                     contribution.slot,
+                    contribution.subcommittee_index,
                     secret_key,
                     fork,
                     genesis_validators_root,

@@ -11,7 +11,7 @@ use types::{
     DepositData, Domain, Epoch, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing,
     PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData,
-    SyncAggregatorSelectionData, Unsigned,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

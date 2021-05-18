@@ -31,5 +31,5 @@ mod tests {
 
     ssz_and_tree_hash_tests!(SyncAggregatorSelectionData);
 }
-//TODO: verify
+
 impl SignedRoot for SyncAggregatorSelectionData {}

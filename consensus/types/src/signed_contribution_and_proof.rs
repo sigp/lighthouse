@@ -46,9 +46,9 @@ impl<T: EthSpec> SignedContributionAndProof<T> {
             spec,
         );
 
-        let target_epoch = message.contribution.slot.epoch(T::slots_per_epoch());
+        let epoch = message.contribution.slot.epoch(T::slots_per_epoch());
         let domain = spec.get_domain(
-            target_epoch,
+            epoch,
             Domain::ContributionAndProof,
             fork,
             genesis_validators_root,

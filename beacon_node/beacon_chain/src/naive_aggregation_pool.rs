@@ -426,7 +426,7 @@ mod tests {
     use store::BitVector;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
-        Fork, Hash256,
+        AggregateSignature, Domain, Fork, Hash256, SignedRoot,
     };
 
     type E = types::MainnetEthSpec;
@@ -461,14 +461,23 @@ mod tests {
         i: usize,
         genesis_validators_root: Hash256,
     ) {
-        a.sign(
-            &generate_deterministic_keypair(i).sk,
-            i,
-            &Fork::default(),
-            genesis_validators_root,
-            &E::default_spec(),
-        )
-        .expect("should sign sync contribution");
+        let signature = {
+            let domain = E::default_spec().get_domain(
+                a.slot.epoch(E::slots_per_epoch()),
+                Domain::SyncCommittee,
+                &Fork::default(),
+                genesis_validators_root,
+            );
+
+            let message = a.beacon_block_root.signing_root(domain);
+
+            let mut agg_sig = AggregateSignature::infinity();
+
+            agg_sig.add_assign(&generate_deterministic_keypair(i).sk.sign(message));
+
+            agg_sig
+        };
+        a.signature = signature;
     }
 
     fn unset_attestation_bit(a: &mut Attestation<E>, i: usize) {

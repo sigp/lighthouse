@@ -3,6 +3,7 @@ use crate::consts::altair::{
 };
 use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
+    SyncAggregatorSelectionData,
 };
 use eth2_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
@@ -18,6 +19,7 @@ pub struct SyncSelectionProof(Signature);
 impl SyncSelectionProof {
     pub fn new<T: EthSpec>(
         slot: Slot,
+        subcommittee_index: u64,
         secret_key: &SecretKey,
         fork: &Fork,
         genesis_validators_root: Hash256,
@@ -29,7 +31,11 @@ impl SyncSelectionProof {
             fork,
             genesis_validators_root,
         );
-        let message = slot.signing_root(domain);
+        let message = SyncAggregatorSelectionData {
+            subcommittee_index,
+            slot,
+        }
+        .signing_root(domain);
 
         Self(secret_key.sign(message))
     }
