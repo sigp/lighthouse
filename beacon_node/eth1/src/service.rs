@@ -139,9 +139,10 @@ impl EndpointsCache {
                                 );
                                 if let SingleEndpointError::EndpointError(e) = &t {
                                     *endpoint.state.write().await = Some(Err(*e));
+                                } else {
+                                    // A non-`EndpointError` error occurred, so reset the state.
+                                    self.reset_endpoint_state(endpoint).await;
                                 }
-                                // Endpoint had a non-`EndpointError` error so reset the state.
-                                self.reset_endpoint_state(endpoint).await;
                                 Err(t)
                             }
                         }
