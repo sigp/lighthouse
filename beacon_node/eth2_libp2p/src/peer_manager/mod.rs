@@ -60,6 +60,9 @@ const PEER_EXCESS_FACTOR: f32 = 0.1;
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 
+/// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
+const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.1;
+
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
     /// Storage of network globals to access the `PeerDB`.
@@ -923,7 +926,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
         let peer_count = self.network_globals.connected_or_dialing_peers();
-        if peer_count < self.target_peers {
+        let mut outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let min_outbound_only_target =
+            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
+
+        if peer_count < self.target_peers || outbound_only_peer_count < min_outbound_only_target {
             // If we need more peers, queue a discovery lookup.
             if self.discovery.started {
                 debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
@@ -938,21 +945,35 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut disconnecting_peers = Vec::new();
 
         let connected_peer_count = self.network_globals.connected_peers();
+        //refresh outbound-only peer count
+        outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
         if connected_peer_count > self.target_peers {
             //remove excess peers with the worst scores, but keep subnet peers
-            for (peer_id, _) in self
+            //must also ensure that the outbound-only peer count does not go below the minimum threshold
+            let mut peers_removed = 0;
+            let mut n_outbound_removed = 0;
+            for (peer_id, info) in self
                 .network_globals
                 .peers
                 .read()
                 .worst_connected_peers()
                 .iter()
                 .filter(|(_, info)| !info.has_future_duty())
-                .take(connected_peer_count - self.target_peers)
-                //we only need to disconnect peers with healthy scores, since the others got already
-                //disconnected in update_peer_scores
-                .filter(|(_, info)| info.score_state() == ScoreState::Healthy)
             {
-                disconnecting_peers.push(**peer_id);
+                if peers_removed == connected_peer_count - self.target_peers {
+                    break;
+                }
+                if info.is_outbound_only() {
+                    if n_outbound_removed < outbound_only_peer_count - min_outbound_only_target {
+                        n_outbound_removed += 1;
+                    } else {
+                        continue;
+                    }
+                }
+                peers_removed += 1;
+                if info.score_state() == ScoreState::Healthy {
+                    disconnecting_peers.push(**peer_id);
+                }
             }
         }
 
