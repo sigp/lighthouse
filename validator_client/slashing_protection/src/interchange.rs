@@ -1,5 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::io;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -49,8 +50,12 @@ impl Interchange {
         serde_json::from_str(json)
     }
 
-    pub fn from_json_reader(reader: impl std::io::Read) -> Result<Self, serde_json::Error> {
-        serde_json::from_reader(reader)
+    pub fn from_json_reader(mut reader: impl std::io::Read) -> Result<Self, io::Error> {
+        // We read the entire file into memory first, as this is *a lot* faster than using
+        // `serde_json::from_reader`. See https://github.com/serde-rs/json/issues/160
+        let mut json_str = String::new();
+        reader.read_to_string(&mut json_str)?;
+        Ok(Interchange::from_json_str(&json_str)?)
     }
 
     pub fn write_to(&self, writer: impl std::io::Write) -> Result<(), serde_json::Error> {

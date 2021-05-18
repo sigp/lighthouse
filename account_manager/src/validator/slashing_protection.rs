@@ -72,8 +72,10 @@ pub fn cli_run<T: EthSpec>(
                 )
             })?;
 
+            eprintln!("Loading JSON file into memory & deserializing");
             let interchange = Interchange::from_json_reader(&import_file)
                 .map_err(|e| format!("Error parsing file for import: {:?}", e))?;
+            eprintln!("JSON load complete - performing import");
 
             let slashing_protection_database =
                 SlashingDatabase::open_or_create(&slashing_protection_db_path).map_err(|e| {
