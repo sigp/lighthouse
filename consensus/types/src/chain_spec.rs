@@ -345,7 +345,7 @@ impl ChainSpec {
             base_reward_factor: 64,
             whistleblower_reward_quotient: 512,
             proposer_reward_quotient: 8,
-            inactivity_penalty_quotient: u64::pow(2, 26),
+            inactivity_penalty_quotient: u64::checked_pow(2, 26).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 128,
             proportional_slashing_multiplier: 1,
 
@@ -383,7 +383,8 @@ impl ChainSpec {
                 u64::checked_pow(2, 24)?.checked_mul(3)
             })
             .expect("calculation does not overflow"),
-            min_slashing_penalty_quotient_altair: u64::pow(2, 6),
+            min_slashing_penalty_quotient_altair: u64::checked_pow(2, 6)
+                .expect("pow does not overflow"),
             proportional_slashing_multiplier_altair: 2,
             inactivity_score_bias: 4,
             epochs_per_sync_committee_period: Epoch::new(256),
@@ -423,7 +424,7 @@ impl ChainSpec {
             shard_committee_period: 64,
             genesis_delay: 300,
             seconds_per_slot: 6,
-            inactivity_penalty_quotient: u64::pow(2, 25),
+            inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
             safe_slots_to_update_justified: 2,
