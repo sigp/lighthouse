@@ -244,20 +244,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     self.network_globals
                         .peers
                         .write()
-                        .extend_peers_on_subnet(&s.subnet_id, min_ttl);
+                        .extend_peers_on_subnet(&s.subnet, min_ttl);
                 }
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals
                     .peers
                     .read()
-                    .good_peers_on_subnet(s.subnet_id.clone())
+                    .good_peers_on_subnet(s.subnet)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     trace!(
                         self.log,
                         "Discovery query ignored";
-                        "subnet_id" => ?s.subnet_id,
+                        "subnet_id" => ?s.subnet,
                         "reason" => "Already connected to desired peers",
                         "connected_peers_on_subnet" => peers_on_subnet,
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
@@ -267,7 +267,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // If we connect to the cached peers before the discovery query starts, then we potentially
                 // save a costly discovery query.
                 } else {
-                    self.dial_cached_enrs_in_subnet(s.subnet_id);
+                    self.dial_cached_enrs_in_subnet(s.subnet);
                     true
                 }
             })
@@ -285,16 +285,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
-    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: Subnet) {
+    pub fn add_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.insert(subnet_id);
+            info.subnets.insert(subnet);
         }
     }
 
     /// Removes a gossipsub subscription to a peer in the peerdb.
-    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: Subnet) {
+    pub fn remove_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.remove(&subnet_id);
+            info.subnets.remove(&subnet);
         }
     }
 
@@ -662,10 +662,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.events.push(PeerManagerEvent::SocketUpdated(multiaddr));
     }
 
-    /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
+    /// Dial cached enrs in discovery service that are in the given `Subnet` and aren't
     /// in Connected, Dialing or Banned state.
-    fn dial_cached_enrs_in_subnet(&mut self, subnet_id: Subnet) {
-        let predicate = subnet_predicate::<TSpec>(vec![subnet_id], &self.log);
+    fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
+        let predicate = subnet_predicate::<TSpec>(vec![subnet], &self.log);
         let peers_to_dial: Vec<PeerId> = self
             .discovery()
             .cached_enrs()

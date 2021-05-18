@@ -52,7 +52,7 @@ impl ForkContext {
 
     /// Returns the `current_fork`.
     pub fn current_fork(&self) -> ForkName {
-        self.current_fork.read().clone()
+        *self.current_fork.read()
     }
 
     /// Updates the `current_fork` field to a new fork.

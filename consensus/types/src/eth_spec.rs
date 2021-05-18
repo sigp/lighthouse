@@ -212,7 +212,7 @@ impl EthSpec for MainnetEthSpec {
     type SyncCommitteeSize = U1024;
     type SyncPubkeysPerAggregate = U64;
     type SyncAggregateSize = U16;
-    type SyncCommitteeSubnetBitfieldLength = U8;
+    type SyncCommitteeSubnetBitfieldLength = U4;
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
 

@@ -195,6 +195,35 @@ impl Into<String> for GossipTopic {
     }
 }
 
+impl std::fmt::Display for GossipTopic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let encoding = match self.encoding {
+            GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
+        };
+
+        let kind = match self.kind {
+            GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
+            GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
+            GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
+            GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
+            GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
+            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
+            GossipKind::SyncCommitteeSignature(index) => {
+                format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
+            }
+        };
+        write!(
+            f,
+            "/{}/{}/{}/{}",
+            TOPIC_PREFIX,
+            hex::encode(self.fork_digest),
+            kind,
+            encoding
+        )
+    }
+}
+
 impl From<Subnet> for GossipKind {
     fn from(subnet_id: Subnet) -> Self {
         match subnet_id {

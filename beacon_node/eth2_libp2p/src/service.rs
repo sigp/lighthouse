@@ -482,6 +482,8 @@ fn load_or_build_metadata<E: EthSpec>(
     log: &slog::Logger,
 ) -> MetaData<E> {
     // We load a V2 metadata version by default (regardless of current fork)
+    // since a V2 metadata can be converted to V1. The RPC encoder is responsible
+    // for sending the correct metadata version based on the negotiated protocol version.
     let mut meta_data = MetaData::V2(MetaDataV2 {
         seq_number: 0,
         attnets: EnrAttestationBitfield::<E>::default(),
@@ -514,11 +516,8 @@ fn load_or_build_metadata<E: EthSpec>(
                     match MetaDataV1::<E>::from_ssz_bytes(&metadata_ssz) {
                         Ok(persisted_metadata) => {
                             let persisted_metadata = MetaData::V1(persisted_metadata);
-                            metadata_mut.seq_number = *persisted_metadata.seq_number();
-                            // Increment seq number if persisted attnet is not default
-                            if *persisted_metadata.attnets() != metadata_mut.attnets {
-                                metadata_mut.seq_number += 1;
-                            }
+                            // Increment seq number as the persisted metadata version is updated
+                            metadata_mut.seq_number = *persisted_metadata.seq_number() + 1;
                             debug!(log, "Loaded metadata from disk");
                         }
                         Err(e) => {

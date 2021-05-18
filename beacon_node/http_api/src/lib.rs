@@ -20,9 +20,7 @@ use beacon_chain::{
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
-use eth2_libp2p::{
-    types::SyncState, EnrExt, EnrSyncCommitteeBitfield, NetworkGlobals, PeerId, PubsubMessage,
-};
+use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use serde::{Deserialize, Serialize};
@@ -1395,7 +1393,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 meta_data
                                     .syncnets()
                                     .map(|x| x.clone())
-                                    .unwrap_or(EnrSyncCommitteeBitfield::<T::EthSpec>::default())
+                                    .unwrap_or_default()
                                     .into_bytes()
                             )
                         ),

@@ -6,7 +6,7 @@ use std::ops::Deref;
 
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<TSpec>(
-    subnet_ids: Vec<Subnet>,
+    subnets: Vec<Subnet>,
     log: &slog::Logger,
 ) -> impl Fn(&Enr) -> bool + Send
 where
@@ -26,7 +26,7 @@ where
         let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<TSpec>, _> =
             enr.sync_committee_bitfield::<TSpec>();
 
-        let predicate = subnet_ids.iter().any(|subnet| match subnet {
+        let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield
                 .get(*s.deref() as usize)
                 .unwrap_or(false),
@@ -42,6 +42,6 @@ where
                 "peer_id" => %enr.peer_id()
             );
         }
-        return predicate;
+        predicate
     }
 }

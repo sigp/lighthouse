@@ -209,8 +209,7 @@ impl ChainSpec {
         self.altair_fork_version
     }
 
-    /// Returns the epoch of the next scheduled change in the `fork.current_version`
-    /// along with it's corresponding `ForkName`.
+    /// Returns the epoch of the next scheduled fork along with it's corresponding `ForkName`.
     ///
     /// If no future forks are scheduled, this function returns `None`.
     pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
@@ -454,7 +453,7 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            sync_committee_subnet_count: 8,
+            sync_committee_subnet_count: 4,
             random_subnets_per_validator: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,

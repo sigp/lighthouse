@@ -27,7 +27,7 @@ pub enum PubsubMessage<T: EthSpec> {
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
     AttesterSlashing(Box<AttesterSlashing<T>>),
-    /// Gossipsub message providing notification of partially aggregated sync committee signatures
+    /// Gossipsub message providing notification of partially aggregated sync committee signatures.
     SignedContributionAndProof(Box<SyncAggregate<T>>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
     SyncCommitteeSignature(Box<(SubnetId, SyncCommittee<T>)>),

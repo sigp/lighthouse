@@ -24,16 +24,15 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, Unsigned,
-    ValidatorSubscription,
+    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 1;
-/// Delay (in epochs) after a fork where we unsubscribe from pre-fork topics.
-const UNSUBSCRIBE_DELAY: u64 = 2;
+/// Delay after a fork where we unsubscribe from pre-fork topics.
+const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
@@ -270,7 +269,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             ForkName::Altair => vec![fork_context
                 .to_context_bytes(ForkName::Altair)
-                .unwrap_or(fork_context.genesis_context_bytes())],
+                .expect("Altair fork bytes should exist as it's initialized in ForkContext")],
         }
     }
 }
@@ -419,52 +418,53 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         NetworkMessage::SubscribeCoreTopics => {
                             let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                            // TODO(pawan): not sure why we need to filter already subscribed
-                            let _already_subscribed = service.network_globals.gossipsub_subscriptions.read().clone();
                             for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter() {
-                                for fork_digest in service.required_gossip_fork_digests().iter() {
-                                    let topic = GossipTopic::new(topic_kind.clone(), GossipEncoding::default(), *fork_digest);
+                                for fork_digest in service.required_gossip_fork_digests() {
+                                    let topic = GossipTopic::new(topic_kind.clone(), GossipEncoding::default(), fork_digest);
                                     if service.libp2p.swarm.subscribe(topic.clone()) {
                                         subscribed_topics.push(topic);
                                     } else {
-                                        warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
+                                        warn!(service.log, "Could not subscribe to topic"; "topic" => %topic);
                                     }
                                 }
                             }
 
-                            // if we are to subscribe to all subnets we do it here
-                            // 
+                            // If we are to subscribe to all subnets we do it here
                             if service.subscribe_all_subnets {
                                 for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
-                                    let subnet_id = Subnet::Attestation(SubnetId::new(subnet_id));
+                                    let subnet = Subnet::Attestation(SubnetId::new(subnet_id));
+                                    // Update the ENR bitfield
+                                    service.libp2p.swarm.update_enr_subnet(subnet, true);
                                     for fork_digest in service.required_gossip_fork_digests() {
-                                        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::default(), fork_digest);
+                                        let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                         if service.libp2p.swarm.subscribe(topic.clone()) {
-                                            // Update the ENR bitfield.
-                                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
                                             subscribed_topics.push(topic);
                                         } else {
-                                            warn!(service.log, "Could not subscribe to topic"; "topic" => ?topic);
+                                            warn!(service.log, "Could not subscribe to topic"; "topic" => %topic);
                                         }
                                     }
                                 }
                                 for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetBitfieldLength::to_u64() {
-                                    let subnet_id = Subnet::SyncCommittee(SubnetId::new(subnet_id));
+                                    let subnet = Subnet::SyncCommittee(SubnetId::new(subnet_id));
+                                    // Update the ENR bitfield
+                                    service.libp2p.swarm.update_enr_subnet(subnet, true);
                                     for fork_digest in service.required_gossip_fork_digests() {
-                                        let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::default(), fork_digest);
+                                        let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                         if service.libp2p.swarm.subscribe(topic.clone()) {
-                                            // Update the ENR bitfield.
-                                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
                                             subscribed_topics.push(topic);
                                         } else {
-                                            warn!(service.log, "Could not subscribe to topic"; "topic" => ?topic);
+                                            warn!(service.log, "Could not subscribe to topic"; "topic" => %topic);
                                         }
                                     }
                                 }
                             }
 
                             if !subscribed_topics.is_empty() {
-                                info!(service.log, "Subscribed to topics"; "topics" => ?subscribed_topics);
+                                info!(
+                                    service.log,
+                                    "Subscribed to topics";
+                                    "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
+                                );
                             }
                         }
                     }
@@ -473,26 +473,26 @@ fn spawn_service<T: BeaconChainTypes>(
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
                         AttServiceMessage::Subscribe(subnet_id) => {
-                            let subnet_id = Subnet::Attestation(subnet_id);
+                            let subnet = Subnet::Attestation(subnet_id);
                             for fork_digest in service.required_gossip_fork_digests() {
-                                let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::default(), fork_digest);
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.subscribe(topic);
                             }
                         }
                         AttServiceMessage::Unsubscribe(subnet_id) => {
-                            let subnet_id = Subnet::Attestation(subnet_id);
+                            let subnet = Subnet::Attestation(subnet_id);
                             for fork_digest in service.required_gossip_fork_digests() {
-                                let topic = GossipTopic::new(subnet_id.into(), GossipEncoding::default(), fork_digest);
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.unsubscribe(topic);
                             }
                         }
                         AttServiceMessage::EnrAdd(subnet_id) => {
-                            let subnet_id = Subnet::Attestation(subnet_id);
-                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                            let subnet = Subnet::Attestation(subnet_id);
+                            service.libp2p.swarm.update_enr_subnet(subnet, true);
                         }
                         AttServiceMessage::EnrRemove(subnet_id) => {
-                            let subnet_id = Subnet::Attestation(subnet_id);
-                            service.libp2p.swarm.update_enr_subnet(subnet_id, false);
+                            let subnet = Subnet::Attestation(subnet_id);
+                            service.libp2p.swarm.update_enr_subnet(subnet, false);
                         }
                         AttServiceMessage::DiscoverPeers(subnets_to_discover) => {
                             service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
@@ -627,15 +627,14 @@ fn spawn_service<T: BeaconChainTypes>(
                             .libp2p
                             .swarm
                             .update_fork_version(new_enr_fork_id.clone());
-                        
+                        // Reinitialize the next_fork_update
                         service.next_fork_update = Box::pin(next_fork_delay(&service.beacon_chain).into());
 
                         // Set the next_unsubscribe delay.
                         let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
-                        let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY * epoch_duration);
+                        let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY_EPOCHS * epoch_duration);
                         service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
-
-                        info!(service.log, "Network will unsubscribe from old fork gossip topics in a few epochs");
+                        info!(service.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
                     } else {
                         crit!(service.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
                     }

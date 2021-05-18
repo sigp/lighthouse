@@ -66,7 +66,7 @@ pub enum DiscoveryEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 struct SubnetQuery {
-    subnet_id: Subnet,
+    subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
 }
@@ -320,10 +320,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         debug!(
             self.log,
             "Making discovery query for subnets";
-            "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet_id).collect::<Vec<_>>()
+            "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
         );
         for subnet in subnets_to_discover {
-            self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
+            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
         }
     }
 
@@ -409,10 +409,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Adds/Removes a subnet from the ENR attnets/syncnets Bitfield
-    pub fn update_enr_bitfield(&mut self, subnet_id: Subnet, value: bool) -> Result<(), String> {
+    pub fn update_enr_bitfield(&mut self, subnet: Subnet, value: bool) -> Result<(), String> {
         let local_enr = self.discv5.local_enr();
 
-        match subnet_id {
+        match subnet {
             Subnet::Attestation(id) => {
                 let id = *id as usize;
                 let mut current_bitfield = local_enr.attestation_bitfield::<TSpec>()?;
@@ -566,7 +566,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
     /// updates the min_ttl field.
-    fn add_subnet_query(&mut self, subnet_id: Subnet, min_ttl: Option<Instant>, retries: usize) {
+    fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
         // remove the entry and complete the query if greater than the maximum search count
         if retries > MAX_DISCOVERY_RETRY {
             debug!(
@@ -581,7 +581,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let mut found = false;
         for query in self.queued_queries.iter_mut() {
             if let QueryType::Subnet(ref mut subnet_query) = query {
-                if subnet_query.subnet_id == subnet_id {
+                if subnet_query.subnet == subnet {
                     if subnet_query.min_ttl < min_ttl {
                         subnet_query.min_ttl = min_ttl;
                     }
@@ -596,12 +596,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if !found {
             // Set up the query and add it to the queue
             let query = QueryType::Subnet(SubnetQuery {
-                subnet_id,
+                subnet,
                 min_ttl,
                 retries,
             });
             // update the metrics and insert into the queue.
-            debug!(self.log, "Queuing subnet query"; "subnet" => ?subnet_id, "retries" => retries);
+            debug!(self.log, "Queuing subnet query"; "subnet" => ?subnet, "retries" => retries);
             self.queued_queries.push_back(query);
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
@@ -658,7 +658,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         debug!(
                             self.log,
                             "Starting grouped subnet query";
-                            "subnets" => ?grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>(),
+                            "subnets" => ?grouped_queries.iter().map(|q| q.subnet).collect::<Vec<_>>(),
                         );
                         self.start_subnet_query(grouped_queries);
                         processed = true;
@@ -680,7 +680,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Runs a discovery request for a given group of subnets.
     fn start_subnet_query(&mut self, subnet_queries: Vec<SubnetQuery>) {
-        let mut filtered_subnet_ids: Vec<Subnet> = Vec::new();
+        let mut filtered_subnets: Vec<Subnet> = Vec::new();
 
         // find subnet queries that are still necessary
         let filtered_subnet_queries: Vec<SubnetQuery> = subnet_queries
@@ -691,7 +691,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     .network_globals
                     .peers
                     .read()
-                    .good_peers_on_subnet(subnet_query.subnet_id)
+                    .good_peers_on_subnet(subnet_query.subnet)
                     .count();
 
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
@@ -705,7 +705,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                 let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
                 debug!(self.log, "Discovery query started for subnet";
-                    "subnet_id" => ?subnet_query.subnet_id,
+                    "subnet_id" => ?subnet_query.subnet,
                     "connected_peers_on_subnet" => peers_on_subnet,
                     "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     "peers_to_find" => target_peers,
@@ -713,7 +713,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     "min_ttl" => ?subnet_query.min_ttl,
                 );
 
-                filtered_subnet_ids.push(subnet_query.subnet_id);
+                filtered_subnets.push(subnet_query.subnet);
                 true
             })
             .collect();
@@ -721,7 +721,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnet_ids, &self.log);
+            let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnets, &self.log);
 
             self.start_query(
                 GroupedQueryType::Subnet(filtered_subnet_queries),
@@ -818,16 +818,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
             GroupedQueryType::Subnet(queries) => {
                 let subnets_searched_for: Vec<Subnet> =
-                    queries.iter().map(|query| query.subnet_id).collect();
+                    queries.iter().map(|query| query.subnet).collect();
                 match query_result.1 {
                     Ok(r) if r.is_empty() => {
                         debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
                         queries.iter().for_each(|query| {
-                            self.add_subnet_query(
-                                query.subnet_id,
-                                query.min_ttl,
-                                query.retries + 1,
-                            );
+                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
                         })
                     }
                     Ok(r) => {
@@ -843,15 +839,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         // Map each subnet query's min_ttl to the set of ENR's returned for that subnet.
                         queries.iter().for_each(|query| {
                             // A subnet query has completed. Add back to the queue, incrementing retries.
-                            self.add_subnet_query(
-                                query.subnet_id,
-                                query.min_ttl,
-                                query.retries + 1,
-                            );
+                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
-                                subnet_predicate::<TSpec>(vec![query.subnet_id], &self.log);
+                                subnet_predicate::<TSpec>(vec![query.subnet], &self.log);
 
                             r.iter()
                                 .filter(|enr| subnet_predicate(enr))
@@ -1048,12 +1040,12 @@ mod tests {
         let mut discovery = build_discovery().await;
         let now = Instant::now();
         let mut subnet_query = SubnetQuery {
-            subnet_id: Subnet::Attestation(SubnetId::new(1)),
+            subnet: Subnet::Attestation(SubnetId::new(1)),
             min_ttl: Some(now),
             retries: 0,
         };
         discovery.add_subnet_query(
-            subnet_query.subnet_id,
+            subnet_query.subnet,
             subnet_query.min_ttl,
             subnet_query.retries,
         );
@@ -1064,7 +1056,7 @@ mod tests {
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
-        discovery.add_subnet_query(subnet_query.subnet_id, subnet_query.min_ttl, 1);
+        discovery.add_subnet_query(subnet_query.subnet, subnet_query.min_ttl, 1);
 
         subnet_query.retries += 1;
 
@@ -1077,7 +1069,7 @@ mod tests {
         // Retries > MAX_DISCOVERY_RETRY must return immediately without adding
         // anything.
         discovery.add_subnet_query(
-            subnet_query.subnet_id,
+            subnet_query.subnet,
             subnet_query.min_ttl,
             MAX_DISCOVERY_RETRY + 1,
         );
@@ -1095,7 +1087,7 @@ mod tests {
 
         let now = Instant::now();
         let subnet_query = SubnetQuery {
-            subnet_id: Subnet::Attestation(SubnetId::new(1)),
+            subnet: Subnet::Attestation(SubnetId::new(1)),
             min_ttl: Some(now + Duration::from_secs(10)),
             retries: 0,
         };
@@ -1142,12 +1134,12 @@ mod tests {
 
         let query = GroupedQueryType::Subnet(vec![
             SubnetQuery {
-                subnet_id: Subnet::Attestation(SubnetId::new(1)),
+                subnet: Subnet::Attestation(SubnetId::new(1)),
                 min_ttl: instant1,
                 retries: 0,
             },
             SubnetQuery {
-                subnet_id: Subnet::Attestation(SubnetId::new(2)),
+                subnet: Subnet::Attestation(SubnetId::new(2)),
                 min_ttl: instant2,
                 retries: 0,
             },

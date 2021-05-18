@@ -84,10 +84,10 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Returns if the peer is subscribed to a given `SubnetId` from the metadata attnets field.
-    pub fn on_subnet_metadata(&self, subnet_id: &Subnet) -> bool {
+    /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
+    pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
-            match subnet_id {
+            match subnet {
                 Subnet::Attestation(id) => {
                     return meta_data.attnets().get(**id as usize).unwrap_or(false)
                 }
@@ -101,9 +101,9 @@ impl<T: EthSpec> PeerInfo<T> {
         false
     }
 
-    /// Returns if the peer is subscribed to a given `SubnetId` from the gossipsub subscriptions.
-    pub fn on_subnet_gossipsub(&self, subnet_id: &Subnet) -> bool {
-        self.subnets.contains(&subnet_id)
+    /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
+    pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
+        self.subnets.contains(&subnet)
     }
 
     /// Returns the seen IP addresses of the peer.

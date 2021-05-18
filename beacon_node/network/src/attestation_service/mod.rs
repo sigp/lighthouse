@@ -68,7 +68,7 @@ impl PartialEq for AttServiceMessage {
                     return false;
                 }
                 for i in 0..a.len() {
-                    if a[i].subnet_id != b[i].subnet_id || a[i].min_ttl != b[i].min_ttl {
+                    if a[i].subnet != b[i].subnet || a[i].min_ttl != b[i].min_ttl {
                         return false;
                     }
                 }
@@ -332,7 +332,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         .duration_to_slot(exact_subnet.slot + 1)
                         .map(|duration| std::time::Instant::now() + duration);
                     Some(SubnetDiscovery {
-                        subnet_id: Subnet::Attestation(exact_subnet.subnet_id),
+                        subnet: Subnet::Attestation(exact_subnet.subnet_id),
                         min_ttl,
                     })
                 } else {
@@ -475,7 +475,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // this makes it easier to deterministically test the attestations service.
             self.events
                 .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                    subnet_id: Subnet::Attestation(subnet_id),
+                    subnet: Subnet::Attestation(subnet_id),
                     min_ttl: None,
                 }]));
 
