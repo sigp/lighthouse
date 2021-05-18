@@ -305,7 +305,7 @@ impl ChainSpec {
              *  Gwei values
              */
             min_deposit_amount: option_wrapper(|| {
-                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+                u64::checked_pow(2, 0)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
             max_effective_balance: option_wrapper(|| {
