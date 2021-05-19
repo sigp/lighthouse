@@ -6,17 +6,16 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError};
+use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig};
 use slasher::{Config as SlasherConfig, Slasher};
+use state_processing::{
+    per_block_processing::{per_block_processing, BlockSignatureStrategy},
+    per_slot_processing,
+};
 use std::sync::Arc;
 use store::config::StoreConfig;
 use tempfile::tempdir;
-use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
-    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
-    IndexedAttestation, Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, VoluntaryExit, DEPOSIT_TREE_DEPTH,
-};
+use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
 
@@ -857,4 +856,92 @@ fn verify_block_for_gossip_slashing_detection() {
     slasher.process_queued(Epoch::new(0)).unwrap();
     let proposer_slashings = slasher.get_proposer_slashings();
     assert_eq!(proposer_slashings.len(), 1);
+}
+
+#[test]
+fn add_base_block_to_altair_chain() {
+    let mut spec = MainnetEthSpec::default_spec();
+    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+    // The Altair fork happens at epoch 1.
+    spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+
+    let harness = BeaconChainHarness::new_with_chain_config_and_spec(
+        MainnetEthSpec,
+        spec,
+        KEYPAIRS[..].to_vec(),
+        1 << 32,
+        StoreConfig::default(),
+        ChainConfig::default(),
+    );
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build out all the blocks in epoch 0.
+    harness.extend_chain(
+        slots_per_epoch as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // Produce an Altair block.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (altair_signed_block, _) = harness.make_block(state.clone(), slot);
+    let altair_block = &altair_signed_block
+        .as_altair()
+        .expect("test expects an altair block")
+        .message;
+    let altair_body = &altair_block.body;
+
+    // Create a Base-equivalent of `altair_block`.
+    let mut base_block = SignedBeaconBlock::Base(SignedBeaconBlockBase {
+        message: BeaconBlockBase {
+            slot: altair_block.slot,
+            proposer_index: altair_block.proposer_index,
+            parent_root: altair_block.parent_root,
+            state_root: altair_block.state_root,
+            body: BeaconBlockBodyBase {
+                randao_reveal: altair_body.randao_reveal.clone(),
+                eth1_data: altair_body.eth1_data.clone(),
+                graffiti: altair_body.graffiti,
+                proposer_slashings: altair_body.proposer_slashings.clone(),
+                attester_slashings: altair_body.attester_slashings.clone(),
+                attestations: altair_body.attestations.clone(),
+                deposits: altair_body.deposits.clone(),
+                voluntary_exits: altair_body.voluntary_exits.clone(),
+            },
+        },
+        signature: Signature::empty(),
+    });
+
+    // Compute a new state root for the `base_block`, then sign it.
+    let mut base_state = state.clone();
+    per_slot_processing(&mut base_state, None, &harness.chain.spec).unwrap();
+    per_block_processing(
+        &mut base_state,
+        &base_block,
+        None,
+        BlockSignatureStrategy::NoVerification,
+        &harness.chain.spec,
+    )
+    .unwrap();
+    let state_root = base_state.update_tree_hash_cache().unwrap();
+    *base_block.message_mut().state_root_mut() = state_root;
+    let signed_base_block = BeaconBlock::Base(base_block.as_base().unwrap().message.clone()).sign(
+        &harness.validator_keypairs[altair_block.proposer_index as usize].sk,
+        &base_state.fork(),
+        base_state.genesis_validators_root(),
+        &harness.chain.spec,
+    );
+
+    // Apply the base block to the altair chain.
+    harness
+        .chain
+        .process_block(signed_base_block)
+        .expect_err("altair chain should not process base block");
 }
