@@ -69,6 +69,14 @@ impl EndpointWithState {
     }
 }
 
+async fn reset_endpoint_state(endpoint: &EndpointWithState) {
+    *endpoint.state.write().await = None;
+}
+
+async fn get_state(endpoint: &EndpointWithState) -> Option<EndpointState> {
+    *endpoint.state.read().await
+}
+
 /// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
 /// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
 /// is not usable.
@@ -141,7 +149,7 @@ impl EndpointsCache {
                                     *endpoint.state.write().await = Some(Err(*e));
                                 } else {
                                     // A non-`EndpointError` error occurred, so reset the state.
-                                    self.reset_endpoint_state(endpoint).await;
+                                    reset_endpoint_state(endpoint).await;
                                 }
                                 Err(t)
                             }
@@ -153,19 +161,11 @@ impl EndpointsCache {
             .await
     }
 
-    async fn reset_endpoint_state(&self, endpoint: &EndpointWithState) {
-        *endpoint.state.write().await = None;
-    }
-
-    async fn get_state(&self, endpoint: &EndpointWithState) -> Option<EndpointState> {
-        *endpoint.state.read().await
-    }
-
     pub async fn reset_errorred_endpoints(&self) {
         for endpoint in &self.fallback.servers {
-            if let Some(state) = self.get_state(endpoint).await {
+            if let Some(state) = get_state(endpoint).await {
                 if state.is_err() {
-                    self.reset_endpoint_state(endpoint).await;
+                    reset_endpoint_state(endpoint).await;
                 }
             }
         }
