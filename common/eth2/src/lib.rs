@@ -29,7 +29,7 @@ use std::time::Duration;
 
 /// A specific timeout ratio for HTTP requests involved in producing attestations.
 /// This can help reduce missed attestations that occur when an endpoint fallback occurs.
-/// A value of 3 would be a timeout of 1/3 the slots_per_second (rounded down) of the network.
+/// A value of 3 would be a timeout of 1/3 the milliseconds per slot (rounded down) of the network.
 const HTTP_ATTESTATION_TIMEOUT_RATIO: u64 = 3;
 
 #[derive(Debug)]
@@ -628,8 +628,8 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
-            .timeout(Duration::from_secs(
-                self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO,
+            .timeout(Duration::from_millis(
+                (self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO,
             ))
             .json(attestations)
             .send()
@@ -1038,7 +1038,8 @@ impl BeaconNodeHttpClient {
             .append_pair("slot", &slot.to_string())
             .append_pair("committee_index", &committee_index.to_string());
 
-        let timeout = Duration::from_secs(self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO);
+        let timeout =
+            Duration::from_millis((self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO);
         self.get_with_timeout(path, timeout).await
     }
 
@@ -1062,7 +1063,8 @@ impl BeaconNodeHttpClient {
                 &format!("{:?}", attestation_data_root),
             );
 
-        let timeout = Duration::from_secs(self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO);
+        let timeout =
+            Duration::from_millis((self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO);
         self.get_opt_with_timeout(path, timeout).await
     }
 
@@ -1099,8 +1101,8 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
-            .timeout(Duration::from_secs(
-                self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO,
+            .timeout(Duration::from_millis(
+                (self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO,
             ))
             .json(aggregates)
             .send()
