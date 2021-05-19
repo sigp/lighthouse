@@ -37,7 +37,7 @@ directory will be the location you cloned Lighthouse to during the installation 
     - Run `$ git clone https://github.com/sigp/lighthouse.git`
     - Change into the newly created directory with `$ cd lighthouse`
 1. Build Lighthouse with `$ make`.
-1. The build was successful if the `lighthouse` binary exists in the `target/release` directory and `$ ./target/release/lighthouse --help` displays the command-line documentation.
+1. Installation was successful if `$ lighthouse --help` displays the command-line documentation.
 
 > First time compilation may take several minutes. If you experience any
 > failures, please reach out on [discord](https://discord.gg/cyAszAh) or
@@ -64,8 +64,6 @@ If using Ubuntu under WSL, you should follow the instructions for Ubuntu listed 
 1. Install [Chocolatey](https://chocolatey.org/install) Package Manager for Windows
     - Install `make` via `choco install make`
     - Install `cmake` via `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`
-1. Note that in Windows, the lighthouse binary will exist at `.\target\release\lighthouse.exe` when
-     built successfully.
 
 #### Ubuntu
 
