@@ -25,6 +25,12 @@ use ssz::Decode;
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
+use std::time::Duration;
+
+/// A specific timeout ratio for HTTP requests involved in producing attestations.
+/// This can help reduce missed attestations that occur when an endpoint fallback occurs.
+/// A value of 3 would be a timeout of 1/3 the slots_per_second (rounded down) of the network.
+const HTTP_ATTESTATION_TIMEOUT_RATIO: u64 = 3;
 
 #[derive(Debug)]
 pub enum Error {
@@ -83,6 +89,7 @@ impl fmt::Display for Error {
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
+    seconds_per_slot: u64,
 }
 
 impl fmt::Display for BeaconNodeHttpClient {
@@ -98,15 +105,24 @@ impl AsRef<str> for BeaconNodeHttpClient {
 }
 
 impl BeaconNodeHttpClient {
-    pub fn new(server: SensitiveUrl) -> Self {
+    pub fn new(server: SensitiveUrl, seconds_per_slot: u64) -> Self {
         Self {
             client: reqwest::Client::new(),
             server,
+            seconds_per_slot,
         }
     }
 
-    pub fn from_components(server: SensitiveUrl, client: reqwest::Client) -> Self {
-        Self { client, server }
+    pub fn from_components(
+        server: SensitiveUrl,
+        client: reqwest::Client,
+        seconds_per_slot: u64,
+    ) -> Self {
+        Self {
+            client,
+            server,
+            seconds_per_slot,
+        }
     }
 
     /// Return the path with the standard `/eth1/v1` prefix applied.
@@ -131,9 +147,54 @@ impl BeaconNodeHttpClient {
             .map_err(Error::Reqwest)
     }
 
+    /// Perform a HTTP GET request with a custom timeout.
+    async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Duration,
+    ) -> Result<T, Error> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
+    }
+
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
         let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        match ok_or_error(response).await {
+            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
+            Err(err) => {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Perform a HTTP GET request with a custom timeout, returning `None` on a 404 error.
+    async fn get_opt_with_timeout<T: DeserializeOwned, U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Duration,
+    ) -> Result<Option<T>, Error> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
         match ok_or_error(response).await {
             Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
             Err(err) => {
@@ -567,6 +628,9 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
+            .timeout(Duration::from_secs(
+                self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO,
+            ))
             .json(attestations)
             .send()
             .await
@@ -974,10 +1038,11 @@ impl BeaconNodeHttpClient {
             .append_pair("slot", &slot.to_string())
             .append_pair("committee_index", &committee_index.to_string());
 
-        self.get(path).await
+        let timeout = Duration::from_secs(self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO);
+        self.get_with_timeout(path, timeout).await
     }
 
-    /// `GET validator/attestation_attestation?slot,attestation_data_root`
+    /// `GET validator/aggregate_attestation?slot,attestation_data_root`
     pub async fn get_validator_aggregate_attestation<T: EthSpec>(
         &self,
         slot: Slot,
@@ -997,7 +1062,8 @@ impl BeaconNodeHttpClient {
                 &format!("{:?}", attestation_data_root),
             );
 
-        self.get_opt(path).await
+        let timeout = Duration::from_secs(self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO);
+        self.get_opt_with_timeout(path, timeout).await
     }
 
     /// `POST validator/duties/attester/{epoch}`
@@ -1033,6 +1099,9 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
+            .timeout(Duration::from_secs(
+                self.seconds_per_slot / HTTP_ATTESTATION_TIMEOUT_RATIO,
+            ))
             .json(aggregates)
             .send()
             .await

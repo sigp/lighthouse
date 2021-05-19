@@ -57,9 +57,6 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-/// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
-
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
@@ -228,12 +225,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .into_iter()
             .map(|url| {
                 let beacon_node_http_client = ClientBuilder::new()
-                    .timeout(HTTP_TIMEOUT)
+                    // Set default timeout to be the full slot duration.
+                    .timeout(Duration::from_secs(
+                        context.eth2_config.spec.seconds_per_slot,
+                    ))
                     .build()
                     .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
                 Ok(BeaconNodeHttpClient::from_components(
                     url,
                     beacon_node_http_client,
+                    context.eth2_config.spec.seconds_per_slot,
                 ))
             })
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;

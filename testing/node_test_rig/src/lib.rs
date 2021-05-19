@@ -19,6 +19,8 @@ pub use environment;
 pub use eth2;
 pub use validator_client::Config as ValidatorConfig;
 
+const SECONDS_PER_SLOT: u64 = 12;
+
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
 
@@ -77,6 +79,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         Ok(BeaconNodeHttpClient::from_components(
             beacon_node_url,
             beacon_node_http_client,
+            SECONDS_PER_SLOT,
         ))
     }
 }
