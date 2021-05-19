@@ -478,3 +478,62 @@ fn decode_base_and_altair() {
             .expect_err("bad altair block cannot be decoded");
     }
 }
+
+#[test]
+fn tree_hash_cache_linear_history() {
+    use crate::test_utils::{SeedableRng, XorShiftRng};
+    use tree_hash::TreeHash;
+
+    let mut rng = XorShiftRng::from_seed([42; 16]);
+
+    let mut state: BeaconState<MainnetEthSpec> =
+        BeaconState::Base(BeaconStateBase::random_for_test(&mut rng));
+
+    let root = state.update_tree_hash_cache().unwrap();
+
+    assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
+
+    /*
+     * A cache should hash twice without updating the slot.
+     */
+
+    assert_eq!(
+        state.update_tree_hash_cache().unwrap(),
+        root,
+        "tree hash result should be identical on the same slot"
+    );
+
+    /*
+     * A cache should not hash after updating the slot but not updating the state roots.
+     */
+
+    // The tree hash cache needs to be rebuilt since it was dropped when it failed.
+    state
+        .update_tree_hash_cache()
+        .expect("should rebuild cache");
+
+    *state.slot_mut() += 1;
+
+    assert_eq!(
+        state.update_tree_hash_cache(),
+        Err(BeaconStateError::NonLinearTreeHashCacheHistory),
+        "should not build hash without updating the state root"
+    );
+
+    /*
+     * The cache should update if the slot and state root are updated.
+     */
+
+    // The tree hash cache needs to be rebuilt since it was dropped when it failed.
+    let root = state
+        .update_tree_hash_cache()
+        .expect("should rebuild cache");
+
+    *state.slot_mut() += 1;
+    state
+        .set_state_root(state.slot() - 1, root)
+        .expect("should set state root");
+
+    let root = state.update_tree_hash_cache().unwrap();
+    assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
+}
