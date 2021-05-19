@@ -39,6 +39,7 @@ logging = { path = "../common/logging" }
 environment = { path = "../lighthouse/environment" }
 parking_lot = "0.11.0"
 exit-future = "0.2.0"
+filesystem = { path = "../common/filesystem" }
 libc = "0.2.79"
 eth2_ssz_derive = "0.1.0"
 hex = "0.4.2"

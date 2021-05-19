@@ -146,7 +146,7 @@ impl KeyCache {
             let bytes = serde_json::to_vec(self).map_err(Error::UnableToEncodeFile)?;
 
             write_file_via_temporary(&cache_path, &temp_path, &bytes)
-                .map_err(Error::UnableToWriteFile)?;
+                .map_err(Error::UnableToCreateFile)?;
 
             self.state = State::DecryptedAndSaved;
             Ok(true)
@@ -245,6 +245,7 @@ pub enum Error {
     UnableToEncodeFile(serde_json::Error),
     /// The cache file or its temporary could not be written to the filesystem.
     UnableToWriteFile(io::Error),
+    UnableToCreateFile(filesystem::Error),
     /// Couldn't decrypt the cache file
     UnableToDecrypt(KeystoreError),
     UnableToEncrypt(KeystoreError),

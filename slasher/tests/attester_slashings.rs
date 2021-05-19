@@ -170,7 +170,7 @@ fn slasher_test(
     should_process_after: impl Fn(usize) -> bool,
 ) {
     let tempdir = tempdir().unwrap();
-    let config = Config::new(tempdir.path().into());
+    let config = Config::new(tempdir.path().into()).for_testing();
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
@@ -189,6 +189,8 @@ fn slasher_test(
 
     // Pruning should not error.
     slasher.prune_database(current_epoch).unwrap();
+    // windows won't delete the temporary directory if you don't do this..
+    drop(slasher);
 }
 
 fn parallel_slasher_test(
@@ -197,7 +199,7 @@ fn parallel_slasher_test(
     current_epoch: u64,
 ) {
     let tempdir = tempdir().unwrap();
-    let config = Config::new(tempdir.path().into());
+    let config = Config::new(tempdir.path().into()).for_testing();
     let slasher = Slasher::open(config, logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
@@ -212,4 +214,6 @@ fn parallel_slasher_test(
     let slashings = slasher.get_attester_slashings();
     let slashed_validators = slashed_validators_from_slashings(&slashings);
     assert_eq!(slashed_validators, expected_slashed_validators);
+    // windows won't delete the temporary directory if you don't do this..
+    drop(slasher);
 }
