@@ -350,6 +350,27 @@ impl<T: EthSpec> BeaconState<T> {
         })
     }
 
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
+    /// dictated by `self.slot()`.
+    pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
+        let fork_at_slot = spec.fork_name_at_slot(self.slot());
+        let object_fork = match self {
+            BeaconState::Base { .. } => ForkName::Base,
+            BeaconState::Altair { .. } => ForkName::Altair,
+        };
+
+        if fork_at_slot == object_fork {
+            Ok(object_fork)
+        } else {
+            return Err(InconsistentFork {
+                fork_at_slot,
+                object_fork,
+            });
+        }
+    }
+
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::integer_arithmetic)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
