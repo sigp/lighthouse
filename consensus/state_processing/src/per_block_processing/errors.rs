@@ -55,6 +55,8 @@ pub enum BlockProcessingError {
     SszTypesError(ssz_types::Error),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
+    InconsistentBlockFork(InconsistentFork),
+    InconsistentStateFork(InconsistentFork),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

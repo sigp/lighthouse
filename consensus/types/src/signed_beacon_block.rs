@@ -160,6 +160,12 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> bool {
+        // Refuse to verify the signature of a block if its structure does not match the fork at
+        // `self.slot()`.
+        if self.fork_name(spec).is_err() {
+            return false;
+        }
+
         let domain = spec.get_domain(
             self.slot().epoch(E::slots_per_epoch()),
             Domain::BeaconProposer,

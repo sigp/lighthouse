@@ -1,4 +1,4 @@
-use types::BeaconStateError;
+use types::{BeaconStateError, InconsistentFork};
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {
@@ -20,6 +20,7 @@ pub enum EpochProcessingError {
     InclusionError(InclusionError),
     SszTypesError(ssz_types::Error),
     ArithError(safe_arith::ArithError),
+    InconsistentStateFork(InconsistentFork),
 }
 
 impl From<InclusionError> for EpochProcessingError {

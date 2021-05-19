@@ -84,6 +84,17 @@ pub fn per_block_processing<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
+
+    // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
+    signed_block
+        .fork_name(spec)
+        .map_err(BlockProcessingError::InconsistentBlockFork)?;
+
+    // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
+    state
+        .fork_name(spec)
+        .map_err(BlockProcessingError::InconsistentStateFork)?;
+
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.

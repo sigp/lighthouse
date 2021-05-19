@@ -7,6 +7,7 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     EpochProcessingError(EpochProcessingError),
     ArithError(ArithError),
+    InconsistentStateFork(InconsistentFork),
 }
 
 impl From<ArithError> for Error {
@@ -27,6 +28,11 @@ pub fn per_slot_processing<T: EthSpec>(
     state_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<Option<EpochProcessingSummary>, Error> {
+    // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
+    state
+        .fork_name(spec)
+        .map_err(Error::InconsistentStateFork)?;
+
     cache_state(state, state_root)?;
 
     let summary = if state.slot() > spec.genesis_slot

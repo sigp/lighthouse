@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
@@ -6,11 +6,11 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig};
+use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing,
+    per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
 use store::config::StoreConfig;
@@ -899,7 +899,7 @@ fn add_base_block_to_altair_chain() {
     let altair_body = &altair_block.body;
 
     // Create a Base-equivalent of `altair_block`.
-    let mut base_block = SignedBeaconBlock::Base(SignedBeaconBlockBase {
+    let base_block = SignedBeaconBlock::Base(SignedBeaconBlockBase {
         message: BeaconBlockBase {
             slot: altair_block.slot,
             proposer_index: altair_block.proposer_index,
@@ -919,29 +919,62 @@ fn add_base_block_to_altair_chain() {
         signature: Signature::empty(),
     });
 
-    // Compute a new state root for the `base_block`, then sign it.
-    let mut base_state = state.clone();
-    per_slot_processing(&mut base_state, None, &harness.chain.spec).unwrap();
-    per_block_processing(
-        &mut base_state,
-        &base_block,
-        None,
-        BlockSignatureStrategy::NoVerification,
-        &harness.chain.spec,
-    )
-    .unwrap();
-    let state_root = base_state.update_tree_hash_cache().unwrap();
-    *base_block.message_mut().state_root_mut() = state_root;
-    let signed_base_block = BeaconBlock::Base(base_block.as_base().unwrap().message.clone()).sign(
-        &harness.validator_keypairs[altair_block.proposer_index as usize].sk,
-        &base_state.fork(),
-        base_state.genesis_validators_root(),
-        &harness.chain.spec,
-    );
+    // Ensure that it would be impossible to apply this block to `per_block_processing`.
+    {
+        let mut state = state.clone();
+        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        assert!(matches!(
+            per_block_processing(
+                &mut state,
+                &base_block,
+                None,
+                BlockSignatureStrategy::NoVerification,
+                &harness.chain.spec,
+            ),
+            Err(BlockProcessingError::InconsistentBlockFork(
+                InconsistentFork {
+                    fork_at_slot: ForkName::Altair,
+                    object_fork: ForkName::Base,
+                }
+            ))
+        ));
+    }
 
-    // Apply the base block to the altair chain.
-    harness
-        .chain
-        .process_block(signed_base_block)
-        .expect_err("altair chain should not process base block");
+    // Ensure that it would be impossible to verify this block for gossip.
+    assert!(matches!(
+        harness
+            .chain
+            .verify_block_for_gossip(base_block.clone())
+            .err()
+            .expect("should error when processing base block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    assert!(matches!(
+        harness
+            .chain
+            .process_block(base_block.clone())
+            .err()
+            .expect("should error when processing base block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
+    assert!(matches!(
+        harness.chain.process_chain_segment(vec![base_block]),
+        ChainSegmentResult::Failed {
+            imported_blocks: 0,
+            error: BlockError::InconsistentFork(InconsistentFork {
+                fork_at_slot: ForkName::Altair,
+                object_fork: ForkName::Base,
+            })
+        }
+    ));
 }
