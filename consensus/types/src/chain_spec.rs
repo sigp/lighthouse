@@ -1,7 +1,7 @@
 //! This file contains several different representations of the beacon chain configuration
 //! parameters.
 //!
-//! Arguably the most import of these is `ChainSpec`, which is used throughout Lighthouse as the
+//! Arguably the most important of these is `ChainSpec`, which is used throughout Lighthouse as the
 //! source-of-truth regarding spec-level configuration.
 //!
 //! The other types exist for interoperability with other systems. The `StandardConfig` is an object

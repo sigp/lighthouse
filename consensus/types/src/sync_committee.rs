@@ -16,7 +16,7 @@ pub struct SyncCommittee<T: EthSpec> {
 }
 
 impl<T: EthSpec> SyncCommittee<T> {
-    /// Create a temporary sync committee that should *never* be used.
+    /// Create a temporary sync committee that should *never* be included in a legitimate consensus object.
     pub fn temporary() -> Result<Self, ssz_types::Error> {
         Ok(Self {
             pubkeys: FixedVector::new(vec![
