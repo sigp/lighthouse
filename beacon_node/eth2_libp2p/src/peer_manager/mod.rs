@@ -926,7 +926,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
         let peer_count = self.network_globals.connected_or_dialing_peers();
-        let mut outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
         let min_outbound_only_target =
             (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
@@ -945,8 +945,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut disconnecting_peers = Vec::new();
 
         let connected_peer_count = self.network_globals.connected_peers();
-        //refresh outbound-only peer count
-        outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
         if connected_peer_count > self.target_peers {
             //remove excess peers with the worst scores, but keep subnet peers
             //must also ensure that the outbound-only peer count does not go below the minimum threshold
@@ -1073,4 +1071,117 @@ enum ConnectingType {
         /// The multiaddr we dialed to reach the peer.
         multiaddr: Multiaddr,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discovery::enr::build_enr;
+    use crate::discovery::enr_ext::CombinedKeyExt;
+    use crate::rpc::methods::MetaData;
+    use crate::Enr;
+    use discv5::enr::CombinedKey;
+    use slog::{o, Drain};
+    use std::net::UdpSocket;
+    use types::{EnrForkId, MinimalEthSpec};
+
+    type E = MinimalEthSpec;
+
+    pub fn unused_port() -> u16 {
+        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
+        let local_addr = socket.local_addr().expect("should read udp socket");
+        local_addr.port()
+    }
+
+    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+
+        if enabled {
+            slog::Logger::root(drain.filter_level(level).fuse(), o!())
+        } else {
+            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
+    }
+
+    async fn build_peer_manager() -> PeerManager<E> {
+        let keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let config = NetworkConfig {
+            discovery_port: unused_port(),
+            target_peers: 5,
+            ..Default::default()
+        };
+        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let log = build_log(slog::Level::Debug, false);
+        let globals = NetworkGlobals::new(
+            enr,
+            9000,
+            9000,
+            MetaData {
+                seq_number: 0,
+                attnets: Default::default(),
+            },
+            vec![],
+            &log,
+        );
+        PeerManager::new(&keypair, &config, Arc::new(globals), &log)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_peer_manager_disconnects_peers_when_target_reached() {
+        let mut peer_manager = build_peer_manager().await;
+
+        //create 6 peers to connect too
+        //1 will be outbound-only, and have the lowest score.
+        let peer0 = PeerId::random();
+        let peer1 = PeerId::random();
+        let peer2 = PeerId::random();
+        let peer3 = PeerId::random();
+        let peer4 = PeerId::random();
+        let outbound_only_peer = PeerId::random();
+
+        peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_outgoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_outgoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_outgoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_ingoing(&peer3, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_outgoing(&peer3, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_ingoing(&peer4, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_outgoing(&peer4, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.connect_outgoing(&outbound_only_peer, "/ip4/0.0.0.0".parse().unwrap());
+
+        //set the outbound-only peer to have the lowest score
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .peer_info_mut(&outbound_only_peer)
+            .unwrap()
+            .add_to_score(-1.0);
+
+        //check initial connected peers
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 6);
+
+        peer_manager.heartbeat();
+
+        //check that we disconnected from one peer
+        //and that we did not disconnect the outbound peer even though it was the worst peer
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 5);
+        assert!(peer_manager
+            .network_globals
+            .peers
+            .read()
+            .is_connected(&outbound_only_peer));
+
+        peer_manager.heartbeat();
+
+        //check that if we are at target number of peers, we do not disconnect any
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 5);
+    }
 }
