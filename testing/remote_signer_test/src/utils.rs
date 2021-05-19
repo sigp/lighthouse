@@ -115,7 +115,7 @@ pub fn unrestrict_permissions(path: &Path) {
         let path_str = path.to_str().unwrap();
         let mut acl = ACL::from_file_path(&path_str, false).unwrap();
 
-        let owner_sid = windows_acl::helper::string_to_sid("S-1-3-4").unwrap();
+        let owner_sid = windows_acl::helper::string_to_sid(OWNER_SID_STR).unwrap();
         // add single entry for file owner
         acl.add_entry(
             owner_sid.as_ptr() as PSID,
