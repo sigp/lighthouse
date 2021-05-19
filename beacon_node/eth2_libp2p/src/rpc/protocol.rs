@@ -29,7 +29,7 @@ lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
     // same across different `EthSpec` implementations.
     pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec()),
+        BeaconBlock::empty(&MainnetEthSpec::default_spec()),
         Signature::empty(),
     )
     .as_ssz_bytes()
