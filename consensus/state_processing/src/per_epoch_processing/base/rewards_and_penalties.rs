@@ -2,37 +2,10 @@ use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
 use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
-use crate::per_epoch_processing::Error;
+use crate::per_epoch_processing::{Delta, Error};
 use safe_arith::SafeArith;
 use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
-
-/// Use to track the changes to a validators balance.
-#[derive(Default, Clone)]
-pub struct Delta {
-    pub rewards: u64,
-    pub penalties: u64,
-}
-
-impl Delta {
-    /// Reward the validator with the `reward`.
-    pub fn reward(&mut self, reward: u64) -> Result<(), Error> {
-        self.rewards = self.rewards.safe_add(reward)?;
-        Ok(())
-    }
-
-    /// Penalize the validator with the `penalty`.
-    pub fn penalize(&mut self, penalty: u64) -> Result<(), Error> {
-        self.penalties = self.penalties.safe_add(penalty)?;
-        Ok(())
-    }
-
-    /// Combine two deltas.
-    fn combine(&mut self, other: Delta) -> Result<(), Error> {
-        self.reward(other.rewards)?;
-        self.penalize(other.penalties)
-    }
-}
 
 /// Combination of several deltas for different components of an attestation reward.
 ///
