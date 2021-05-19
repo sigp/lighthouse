@@ -5,8 +5,13 @@ TARBALL := $(OUTPUT_DIR)-$(TESTS_TAG).tar.gz
 ARCHIVE_URL := https://github.com/eth2-clients/slashing-protection-interchange-tests/tarball/$(TESTS_TAG)
 
 ifeq ($(OS),Windows_NT)
+ifeq (, $(shell where rm))
 	rmfile = if exist $(1) (del /F /Q $(1))
 	rmdir  = if exist $(1) (rmdir /Q /S $(1))
+else
+	rmfile = rm -f $(1)
+	rmdir  = rm -rf $(1)
+endif
 else
 	rmfile = rm -f $(1)
 	rmdir  = rm -rf $(1)
