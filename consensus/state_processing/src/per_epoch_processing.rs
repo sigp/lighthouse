@@ -21,6 +21,7 @@ pub mod validator_statuses;
 pub mod weigh_justification_and_finalization;
 
 /// Provides a summary of validator participation during the epoch.
+#[derive(PartialEq, Debug)]
 pub struct EpochProcessingSummary {
     pub total_balances: TotalBalances,
     pub statuses: Vec<ValidatorStatus>,
