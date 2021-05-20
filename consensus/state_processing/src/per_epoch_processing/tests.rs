@@ -45,7 +45,7 @@ mod release_tests {
         per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
-    use types::{Epoch, ForkName, MainnetEthSpec};
+    use types::{Epoch, ForkName, InconsistentFork, MainnetEthSpec};
 
     #[test]
     fn altair_state_on_base_fork() {
