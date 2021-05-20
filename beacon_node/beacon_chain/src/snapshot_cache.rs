@@ -289,6 +289,7 @@ mod test {
     fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
         let harness = BeaconChainHarness::new_with_store_config(
             MainnetEthSpec,
+            None,
             types::test_utils::generate_deterministic_keypairs(1),
             StoreConfig::default(),
         );

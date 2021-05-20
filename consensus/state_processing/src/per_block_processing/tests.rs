@@ -34,6 +34,7 @@ fn get_harness<E: EthSpec>(
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
     let harness = BeaconChainHarness::new_with_store_config(
         E::default(),
+        None,
         KEYPAIRS[0..num_validators].to_vec(),
         StoreConfig::default(),
     );

@@ -349,6 +349,7 @@ mod test {
     fn get_state<T: EthSpec>() -> BeaconState<T> {
         let harness = BeaconChainHarness::new_with_store_config(
             T::default(),
+            None,
             vec![Keypair::random()],
             StoreConfig::default(),
         );

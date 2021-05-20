@@ -50,6 +50,7 @@ impl ForkChoiceTest {
     pub fn new() -> Self {
         let harness = BeaconChainHarness::new_with_target_aggregators(
             MainnetEthSpec,
+            None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
             // Ensure we always have an aggregator for each slot.
             u64::max_value(),
@@ -63,6 +64,7 @@ impl ForkChoiceTest {
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
         let harness = BeaconChainHarness::new_with_chain_config(
             MainnetEthSpec,
+            None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
             // Ensure we always have an aggregator for each slot.
             u64::max_value(),

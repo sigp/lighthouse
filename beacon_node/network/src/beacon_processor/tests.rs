@@ -66,6 +66,7 @@ impl TestRig {
     pub fn new(chain_length: u64) -> Self {
         let mut harness = BeaconChainHarness::new(
             MainnetEthSpec,
+            None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 

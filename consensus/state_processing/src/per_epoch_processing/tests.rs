@@ -13,6 +13,7 @@ fn runs_without_error() {
 
     let harness = BeaconChainHarness::new_with_store_config(
         MinimalEthSpec,
+        None,
         types::test_utils::generate_deterministic_keypairs(8),
         StoreConfig::default(),
     );

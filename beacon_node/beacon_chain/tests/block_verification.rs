@@ -53,6 +53,7 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
@@ -866,9 +867,9 @@ fn add_base_block_to_altair_chain() {
     // The Altair fork happens at epoch 1.
     spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
 
-    let harness = BeaconChainHarness::new_with_chain_config_and_spec(
+    let harness = BeaconChainHarness::new_with_chain_config(
         MainnetEthSpec,
-        spec,
+        Some(spec),
         KEYPAIRS[..].to_vec(),
         1 << 32,
         StoreConfig::default(),
@@ -986,9 +987,9 @@ fn add_altair_block_to_base_chain() {
     // Altair never happens.
     spec.altair_fork_slot = None;
 
-    let harness = BeaconChainHarness::new_with_chain_config_and_spec(
+    let harness = BeaconChainHarness::new_with_chain_config(
         MainnetEthSpec,
-        spec,
+        Some(spec),
         KEYPAIRS[..].to_vec(),
         1 << 32,
         StoreConfig::default(),

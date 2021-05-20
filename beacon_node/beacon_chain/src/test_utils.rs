@@ -156,9 +156,14 @@ pub type HarnessAttestations<E> = Vec<(
 )>;
 
 impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
-    pub fn new(eth_spec_instance: E, validator_keypairs: Vec<Keypair>) -> Self {
+    pub fn new(
+        eth_spec_instance: E,
+        spec: Option<ChainSpec>,
+        validator_keypairs: Vec<Keypair>,
+    ) -> Self {
         Self::new_with_store_config(
             eth_spec_instance,
+            spec,
             validator_keypairs,
             StoreConfig::default(),
         )
@@ -166,6 +171,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
 
     pub fn new_with_store_config(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
         config: StoreConfig,
     ) -> Self {
@@ -173,18 +179,26 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         // committee are required to produce an aggregate. This is overkill, however with small
         // validator counts it's the only way to be certain there is _at least one_ aggregator per
         // committee.
-        Self::new_with_target_aggregators(eth_spec_instance, validator_keypairs, 1 << 32, config)
+        Self::new_with_target_aggregators(
+            eth_spec_instance,
+            spec,
+            validator_keypairs,
+            1 << 32,
+            config,
+        )
     }
 
     /// Instantiate a new harness with  a custom `target_aggregators_per_committee` spec value
     pub fn new_with_target_aggregators(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
     ) -> Self {
         Self::new_with_chain_config(
             eth_spec_instance,
+            spec,
             validator_keypairs,
             target_aggregators_per_committee,
             store_config,
@@ -196,66 +210,14 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
     /// `target_aggregators_per_committee` spec value, and a `ChainConfig`
     pub fn new_with_chain_config(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
         chain_config: ChainConfig,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let mut spec = test_spec::<E>();
-
-        spec.target_aggregators_per_committee = target_aggregators_per_committee;
-
-        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
-
-        let log = test_logger();
-
-        let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
-        let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
-            .custom_spec(spec.clone())
-            .store(Arc::new(store))
-            .store_migrator_config(MigratorConfig::default().blocking())
-            .genesis_state(
-                interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
-                    .expect("should generate interop state"),
-            )
-            .expect("should build state using recent genesis")
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .testing_slot_clock(HARNESS_SLOT_TIME)
-            .expect("should configure testing slot clock")
-            .shutdown_sender(shutdown_tx)
-            .chain_config(chain_config)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-                log.clone(),
-                1,
-            )))
-            .monitor_validators(true, vec![], log)
-            .build()
-            .expect("should build");
-
-        Self {
-            spec: chain.spec.clone(),
-            chain,
-            validator_keypairs,
-            data_dir,
-            shutdown_receiver,
-            rng: make_rng(),
-        }
-    }
-
-    /// Instantiate a new harness with `validator_count` initial validators, a custom
-    /// `target_aggregators_per_committee` spec value, and a `ChainConfig`
-    pub fn new_with_chain_config_and_spec(
-        eth_spec_instance: E,
-        mut spec: ChainSpec,
-        validator_keypairs: Vec<Keypair>,
-        target_aggregators_per_committee: u64,
-        store_config: StoreConfig,
-        chain_config: ChainConfig,
-    ) -> Self {
-        let data_dir = tempdir().expect("should create temporary data_dir");
+        let mut spec = spec.unwrap_or_else(|| test_spec::<E>());
 
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
@@ -303,11 +265,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let spec = test_spec::<E>();
+        let spec = spec.unwrap_or_else(|| test_spec::<E>());
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
@@ -347,11 +310,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
-        let spec = test_spec::<E>();
+        let spec = spec.unwrap_or_else(|| test_spec::<E>());
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
