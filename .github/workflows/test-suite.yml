@@ -46,7 +46,7 @@ jobs:
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: windows-latest
+    runs-on: [windows, x64]
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
