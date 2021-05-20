@@ -8,9 +8,9 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, Epoch, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing,
-    PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData,
+    DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
+    ProposerSlashing, PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData,
     SyncAggregatorSelectionData, SyncCommitteeContribution, Unsigned,
 };
 
@@ -36,6 +36,8 @@ pub enum Error {
     /// The public key bytes stored in the `BeaconState` were not valid. This is a serious internal
     /// error.
     BadBlsBytes { validator_index: u64 },
+    /// The block structure is not appropriate for the fork at `block.slot()`.
+    InconsistentBlockFork(InconsistentFork),
 }
 
 impl From<BeaconStateError> for Error {
@@ -74,6 +76,11 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
+    // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
+    signed_block
+        .fork_name(spec)
+        .map_err(Error::InconsistentBlockFork)?;
+
     let block = signed_block.message();
     let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
 

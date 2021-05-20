@@ -181,6 +181,14 @@ impl ChainSpec {
         None
     }
 
+    /// Returns the name of the fork which is active at `slot`.
+    pub fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
+        match self.altair_fork_slot {
+            Some(fork_slot) if slot >= fork_slot => ForkName::Altair,
+            _ => ForkName::Base,
+        }
+    }
+
     /// Get the domain number, unmodified by the fork.
     ///
     /// Spec v0.12.1

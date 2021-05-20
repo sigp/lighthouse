@@ -72,7 +72,7 @@ use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
-    PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    InconsistentFork, PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -219,6 +219,12 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is invalid and the peer is faulty.
     WeakSubjectivityConflict,
+    /// The block has the wrong structure for the fork at `block.slot`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    InconsistentFork(InconsistentFork),
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
@@ -477,6 +483,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        // Ensure the block is the correct structure for the fork at `block.slot()`.
+        block
+            .fork_name(&chain.spec)
+            .map_err(BlockError::InconsistentFork)?;
+
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
@@ -692,6 +703,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        // Ensure the block is the correct structure for the fork at `block.slot()`.
+        block
+            .fork_name(&chain.spec)
+            .map_err(BlockError::InconsistentFork)?;
+
         let (mut parent, block) = load_parent(block, chain)?;
 
         // Reject any block that exceeds our limit on skipped slots.

@@ -13,6 +13,7 @@ fn runs_without_error() {
 
     let harness = BeaconChainHarness::new_with_store_config(
         MinimalEthSpec,
+        None,
         types::test_utils::generate_deterministic_keypairs(8),
         StoreConfig::default(),
     );
@@ -35,4 +36,130 @@ fn runs_without_error() {
     let mut new_head_state = harness.get_current_state();
 
     process_epoch(&mut new_head_state, &spec).unwrap();
+}
+
+#[cfg(not(debug_assertions))]
+mod release_tests {
+    use super::*;
+    use crate::{
+        per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
+    };
+    use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+    use types::{Epoch, ForkName, MainnetEthSpec};
+
+    #[test]
+    fn altair_state_on_base_fork() {
+        let mut spec = MainnetEthSpec::default_spec();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        // The Altair fork happens at epoch 1.
+        spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+
+        let altair_state = {
+            let harness = BeaconChainHarness::new(
+                MainnetEthSpec,
+                Some(spec.clone()),
+                types::test_utils::generate_deterministic_keypairs(8),
+            );
+
+            harness.advance_slot();
+
+            harness.extend_chain(
+                // Build out enough blocks so we get an Altair block at the very end of an epoch.
+                (slots_per_epoch * 2 - 1) as usize,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            );
+
+            harness.get_current_state()
+        };
+
+        // Pre-conditions for a valid test.
+        assert_eq!(altair_state.fork_name(&spec).unwrap(), ForkName::Altair);
+        assert_eq!(
+            altair_state.slot(),
+            altair_state.current_epoch().end_slot(slots_per_epoch)
+        );
+
+        // Check the state is valid before starting this test.
+        process_epoch(&mut altair_state.clone(), &spec)
+            .expect("state passes intial epoch processing");
+        per_slot_processing(&mut altair_state.clone(), None, &spec)
+            .expect("state passes intial slot processing");
+
+        // Modify the spec so altair never happens.
+        spec.altair_fork_slot = None;
+
+        let expected_err = InconsistentFork {
+            fork_at_slot: ForkName::Base,
+            object_fork: ForkName::Altair,
+        };
+
+        assert_eq!(altair_state.fork_name(&spec), Err(expected_err));
+        assert_eq!(
+            process_epoch(&mut altair_state.clone(), &spec),
+            Err(EpochProcessingError::InconsistentStateFork(expected_err))
+        );
+        assert_eq!(
+            per_slot_processing(&mut altair_state.clone(), None, &spec),
+            Err(SlotProcessingError::InconsistentStateFork(expected_err))
+        );
+    }
+
+    #[test]
+    fn base_state_on_altair_fork() {
+        let mut spec = MainnetEthSpec::default_spec();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        // The Altair fork never happens.
+        spec.altair_fork_slot = None;
+
+        let base_state = {
+            let harness = BeaconChainHarness::new(
+                MainnetEthSpec,
+                Some(spec.clone()),
+                types::test_utils::generate_deterministic_keypairs(8),
+            );
+
+            harness.advance_slot();
+
+            harness.extend_chain(
+                // Build out enough blocks so we get a block at the very end of an epoch.
+                (slots_per_epoch * 2 - 1) as usize,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            );
+
+            harness.get_current_state()
+        };
+
+        // Pre-conditions for a valid test.
+        assert_eq!(base_state.fork_name(&spec).unwrap(), ForkName::Base);
+        assert_eq!(
+            base_state.slot(),
+            base_state.current_epoch().end_slot(slots_per_epoch)
+        );
+
+        // Check the state is valid before starting this test.
+        process_epoch(&mut base_state.clone(), &spec)
+            .expect("state passes intial epoch processing");
+        per_slot_processing(&mut base_state.clone(), None, &spec)
+            .expect("state passes intial slot processing");
+
+        // Modify the spec so Altair happens at the first epoch.
+        spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+
+        let expected_err = InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        };
+
+        assert_eq!(base_state.fork_name(&spec), Err(expected_err));
+        assert_eq!(
+            process_epoch(&mut base_state.clone(), &spec),
+            Err(EpochProcessingError::InconsistentStateFork(expected_err))
+        );
+        assert_eq!(
+            per_slot_processing(&mut base_state.clone(), None, &spec),
+            Err(SlotProcessingError::InconsistentStateFork(expected_err))
+        );
+    }
 }

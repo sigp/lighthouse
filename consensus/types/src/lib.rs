@@ -103,7 +103,7 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::fork::Fork;
 pub use crate::fork_data::ForkData;
-pub use crate::fork_name::ForkName;
+pub use crate::fork_name::{ForkName, InconsistentFork};
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;

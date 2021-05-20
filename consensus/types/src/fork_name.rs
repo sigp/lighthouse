@@ -26,3 +26,9 @@ impl ForkName {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InconsistentFork {
+    pub fork_at_slot: ForkName,
+    pub object_fork: ForkName,
+}

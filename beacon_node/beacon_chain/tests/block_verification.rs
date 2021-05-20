@@ -6,17 +6,16 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError};
+use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
+use state_processing::{
+    per_block_processing::{per_block_processing, BlockSignatureStrategy},
+    per_slot_processing, BlockProcessingError,
+};
 use std::sync::Arc;
 use store::config::StoreConfig;
 use tempfile::tempdir;
-use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
-    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
-    IndexedAttestation, Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, VoluntaryExit, DEPOSIT_TREE_DEPTH,
-};
+use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
 
@@ -54,6 +53,7 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
@@ -171,10 +171,7 @@ fn chain_segment_varying_chunk_size() {
                 .chain
                 .process_chain_segment(chunk.to_vec())
                 .into_block_error()
-                .expect(&format!(
-                    "should import chain segment of len {}",
-                    chunk_size
-                ));
+                .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
         harness.chain.fork_choice().expect("should run fork choice");
@@ -209,7 +206,7 @@ fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -228,7 +225,7 @@ fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -257,7 +254,7 @@ fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -277,7 +274,7 @@ fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -857,4 +854,246 @@ fn verify_block_for_gossip_slashing_detection() {
     slasher.process_queued(Epoch::new(0)).unwrap();
     let proposer_slashings = slasher.get_proposer_slashings();
     assert_eq!(proposer_slashings.len(), 1);
+}
+
+#[test]
+fn add_base_block_to_altair_chain() {
+    let mut spec = MainnetEthSpec::default_spec();
+    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+    // The Altair fork happens at epoch 1.
+    spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+
+    let harness = BeaconChainHarness::new_with_chain_config(
+        MainnetEthSpec,
+        Some(spec),
+        KEYPAIRS[..].to_vec(),
+        1 << 32,
+        StoreConfig::default(),
+        ChainConfig::default(),
+    );
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build out all the blocks in epoch 0.
+    harness.extend_chain(
+        slots_per_epoch as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // Produce an Altair block.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (altair_signed_block, _) = harness.make_block(state.clone(), slot);
+    let altair_block = &altair_signed_block
+        .as_altair()
+        .expect("test expects an altair block")
+        .message;
+    let altair_body = &altair_block.body;
+
+    // Create a Base-equivalent of `altair_block`.
+    let base_block = SignedBeaconBlock::Base(SignedBeaconBlockBase {
+        message: BeaconBlockBase {
+            slot: altair_block.slot,
+            proposer_index: altair_block.proposer_index,
+            parent_root: altair_block.parent_root,
+            state_root: altair_block.state_root,
+            body: BeaconBlockBodyBase {
+                randao_reveal: altair_body.randao_reveal.clone(),
+                eth1_data: altair_body.eth1_data.clone(),
+                graffiti: altair_body.graffiti,
+                proposer_slashings: altair_body.proposer_slashings.clone(),
+                attester_slashings: altair_body.attester_slashings.clone(),
+                attestations: altair_body.attestations.clone(),
+                deposits: altair_body.deposits.clone(),
+                voluntary_exits: altair_body.voluntary_exits.clone(),
+            },
+        },
+        signature: Signature::empty(),
+    });
+
+    // Ensure that it would be impossible to apply this block to `per_block_processing`.
+    {
+        let mut state = state;
+        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        assert!(matches!(
+            per_block_processing(
+                &mut state,
+                &base_block,
+                None,
+                BlockSignatureStrategy::NoVerification,
+                &harness.chain.spec,
+            ),
+            Err(BlockProcessingError::InconsistentBlockFork(
+                InconsistentFork {
+                    fork_at_slot: ForkName::Altair,
+                    object_fork: ForkName::Base,
+                }
+            ))
+        ));
+    }
+
+    // Ensure that it would be impossible to verify this block for gossip.
+    assert!(matches!(
+        harness
+            .chain
+            .verify_block_for_gossip(base_block.clone())
+            .err()
+            .expect("should error when processing base block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    assert!(matches!(
+        harness
+            .chain
+            .process_block(base_block.clone())
+            .err()
+            .expect("should error when processing base block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
+    assert!(matches!(
+        harness.chain.process_chain_segment(vec![base_block]),
+        ChainSegmentResult::Failed {
+            imported_blocks: 0,
+            error: BlockError::InconsistentFork(InconsistentFork {
+                fork_at_slot: ForkName::Altair,
+                object_fork: ForkName::Base,
+            })
+        }
+    ));
+}
+
+#[test]
+fn add_altair_block_to_base_chain() {
+    let mut spec = MainnetEthSpec::default_spec();
+
+    // Altair never happens.
+    spec.altair_fork_slot = None;
+
+    let harness = BeaconChainHarness::new_with_chain_config(
+        MainnetEthSpec,
+        Some(spec),
+        KEYPAIRS[..].to_vec(),
+        1 << 32,
+        StoreConfig::default(),
+        ChainConfig::default(),
+    );
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build one block.
+    harness.extend_chain(
+        1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // Produce an altair block.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (base_signed_block, _) = harness.make_block(state.clone(), slot);
+    let base_block = &base_signed_block
+        .as_base()
+        .expect("test expects a base block")
+        .message;
+    let base_body = &base_block.body;
+
+    // Create an Altair-equivalent of `altair_block`.
+    let altair_block = SignedBeaconBlock::Altair(SignedBeaconBlockAltair {
+        message: BeaconBlockAltair {
+            slot: base_block.slot,
+            proposer_index: base_block.proposer_index,
+            parent_root: base_block.parent_root,
+            state_root: base_block.state_root,
+            body: BeaconBlockBodyAltair {
+                randao_reveal: base_body.randao_reveal.clone(),
+                eth1_data: base_body.eth1_data.clone(),
+                graffiti: base_body.graffiti,
+                proposer_slashings: base_body.proposer_slashings.clone(),
+                attester_slashings: base_body.attester_slashings.clone(),
+                attestations: base_body.attestations.clone(),
+                deposits: base_body.deposits.clone(),
+                voluntary_exits: base_body.voluntary_exits.clone(),
+                sync_aggregate: SyncAggregate::empty(),
+            },
+        },
+        signature: Signature::empty(),
+    });
+
+    // Ensure that it would be impossible to apply this block to `per_block_processing`.
+    {
+        let mut state = state;
+        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        assert!(matches!(
+            per_block_processing(
+                &mut state,
+                &altair_block,
+                None,
+                BlockSignatureStrategy::NoVerification,
+                &harness.chain.spec,
+            ),
+            Err(BlockProcessingError::InconsistentBlockFork(
+                InconsistentFork {
+                    fork_at_slot: ForkName::Base,
+                    object_fork: ForkName::Altair,
+                }
+            ))
+        ));
+    }
+
+    // Ensure that it would be impossible to verify this block for gossip.
+    assert!(matches!(
+        harness
+            .chain
+            .verify_block_for_gossip(altair_block.clone())
+            .err()
+            .expect("should error when processing altair block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Base,
+            object_fork: ForkName::Altair,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    assert!(matches!(
+        harness
+            .chain
+            .process_block(altair_block.clone())
+            .err()
+            .expect("should error when processing altair block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Base,
+            object_fork: ForkName::Altair,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
+    assert!(matches!(
+        harness.chain.process_chain_segment(vec![altair_block]),
+        ChainSegmentResult::Failed {
+            imported_blocks: 0,
+            error: BlockError::InconsistentFork(InconsistentFork {
+                fork_at_slot: ForkName::Base,
+                object_fork: ForkName::Altair,
+            })
+        }
+    ));
 }
