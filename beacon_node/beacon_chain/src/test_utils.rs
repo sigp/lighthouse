@@ -217,7 +217,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         chain_config: ChainConfig,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let mut spec = spec.unwrap_or_else(|| test_spec::<E>());
+        let mut spec = spec.unwrap_or_else(test_spec::<E>);
 
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
@@ -270,7 +270,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let spec = spec.unwrap_or_else(|| test_spec::<E>());
+        let spec = spec.unwrap_or_else(test_spec::<E>);
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
@@ -315,7 +315,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
         validator_keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
-        let spec = spec.unwrap_or_else(|| test_spec::<E>());
+        let spec = spec.unwrap_or_else(test_spec::<E>);
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);

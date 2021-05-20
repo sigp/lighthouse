@@ -80,10 +80,10 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         if fork_at_slot == object_fork {
             Ok(object_fork)
         } else {
-            return Err(InconsistentFork {
+            Err(InconsistentFork {
                 fork_at_slot,
                 object_fork,
-            });
+            })
         }
     }
 

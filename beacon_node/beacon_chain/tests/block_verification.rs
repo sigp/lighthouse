@@ -171,10 +171,7 @@ fn chain_segment_varying_chunk_size() {
                 .chain
                 .process_chain_segment(chunk.to_vec())
                 .into_block_error()
-                .expect(&format!(
-                    "should import chain segment of len {}",
-                    chunk_size
-                ));
+                .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
         harness.chain.fork_choice().expect("should run fork choice");
@@ -209,7 +206,7 @@ fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -228,7 +225,7 @@ fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -257,7 +254,7 @@ fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -277,7 +274,7 @@ fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -922,7 +919,7 @@ fn add_base_block_to_altair_chain() {
 
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
-        let mut state = state.clone();
+        let mut state = state;
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
@@ -1043,7 +1040,7 @@ fn add_altair_block_to_base_chain() {
 
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
-        let mut state = state.clone();
+        let mut state = state;
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
