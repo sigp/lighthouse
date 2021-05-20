@@ -4,14 +4,15 @@ mod attester_slashing;
 mod max_cover;
 mod metrics;
 mod persistence;
-mod sync_contribution_id;
+mod sync_aggregate_id;
 
 pub use persistence::PersistedOperationPool;
 
-use crate::sync_contribution_id::SyncAggregateId;
+use crate::sync_aggregate_id::SyncAggregateId;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
+use itertools::Itertools;
 use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::{
@@ -22,25 +23,25 @@ use state_processing::per_block_processing::{
     VerifySignatures,
 };
 use state_processing::SigVerifiedOp;
-use std::collections::{hash_map, HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
-use sync_contribution_id::SyncContributionId;
+use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    typenum::Unsigned, Attestation, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, Fork, ForkVersion, Hash256, ProposerSlashing, RelativeEpoch,
-    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
+    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttesterSlashing,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256,
+    ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Slot, SyncAggregate,
+    SyncCommitteeContribution, Validator,
 };
 
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from sync contribution ID to the best `SyncCommitteeContribution` seen for that ID.
-    sync_contributions: RwLock<HashMap<SyncContributionId, SyncCommitteeContribution<T>>>,
-    /// Map from sync aggregate ID to the current `SyncAggregate` based on the best known
-    /// `SyncCommitteeContribution`'s.
-    sync_aggregates: RwLock<HashMap<SyncAggregateId, SyncAggregate<T>>>,
+    /// Map from sync aggregate ID to the current `SyncAggregate` and the best
+    /// `SyncCommitteeContribution`s seen for that ID
+    sync_contributions:
+        RwLock<HashMap<SyncAggregateId, (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>)>>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
     /// Map from proposer index to slashing.
@@ -53,6 +54,13 @@ pub struct OperationPool<T: EthSpec + Default> {
 #[derive(Debug, PartialEq)]
 pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
+    SyncAggregateError(SyncAggregateError),
+}
+
+impl From<SyncAggregateError> for OpPoolError {
+    fn from(e: SyncAggregateError) -> Self {
+        OpPoolError::SyncAggregateError(e)
+    }
 }
 
 impl<T: EthSpec> OperationPool<T> {
@@ -61,39 +69,70 @@ impl<T: EthSpec> OperationPool<T> {
         Self::default()
     }
 
-    //TODO: implement insert_sync_contribution, num_sync_contributions, etc,
-    /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
+    /// Insert a sync contribution into the pool, aggregating it with existing sync contributions if possible.
     ///
     /// ## Note
     ///
-    /// This function assumes the given `attestation` is valid.
+    /// This function assumes the given `contribution` is valid.
     pub fn insert_sync_contribution(
         &self,
         contribution: SyncCommitteeContribution<T>,
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> Result<(), SyncSignatureValidationError> {
-        let id = SyncContributionId::from_data(&contribution, fork, genesis_validators_root, spec);
+    ) -> Result<(), OpPoolError> {
+        let aggregate_id = SyncAggregateId::from_data::<T>(
+            contribution.slot,
+            contribution.beacon_block_root,
+            fork,
+            genesis_validators_root,
+            spec,
+        );
 
-        // Take a write lock on the attestations map.
         let mut contributions = self.sync_contributions.write();
 
-        let existing_contribution = match contributions.entry(id) {
-            hash_map::Entry::Vacant(entry) => {
-                entry.insert(contribution);
-                //TODO: recalculate and insert aggregate
-                return Ok(());
+        match contributions.entry(aggregate_id) {
+            Entry::Vacant(entry) => {
+                // If no contributions or aggregate exist for these keys, insert both.
+                let contributions = vec![contribution];
+                let mut aggregate = SyncAggregate::from_contributions(contributions.as_slice())?;
+                entry.insert((contributions, aggregate));
             }
-            hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(mut entry) => {
+                // If both a contribution and aggregate exist for this key, check whether the new or
+                // old contribution has more aggregation bits set. If the new one does, add it to the
+                // aggregate and insert both the aggregate and the contribution.
+                let existing_contributions = entry.get_mut();
+                match existing_contributions
+                    .0
+                    .iter()
+                    .position(|existing_contribution| {
+                        existing_contribution.subcommittee_index == contribution.subcommittee_index
+                    }) {
+                    Some(position) => {
+                        // Only need to recalculate if the new contribution has more bits set.
+                        if existing_contributions.0[position].aggregation_bits.len() < contribution.aggregation_bits.len() {
+                            existing_contributions.0[position] = contribution;
+                            let mut aggregate =
+                                SyncAggregate::from_contributions(existing_contributions.0.as_slice())?;
+                            existing_contributions.1 = aggregate;
+                        }
+                    }
+                    None => {
+                        // If there has been no previous sync contribution for this subcommittee index,
+                        // add it and recalculate the aggregate.
+                        existing_contributions.0.push(contribution);
+                        let mut aggregate =
+                            SyncAggregate::from_contributions(existing_contributions.0.as_slice())?;
+                        existing_contributions.1 = aggregate;
+                    }
+                }
+            }
         };
-
-        //TODO: calculate aggregate if necessary
-
         Ok(())
     }
 
-    /// Get the a aggregated sync contribution for inclusion in a block.
+    /// Get the a sync aggregate for inclusion in a block.
     pub fn get_sync_aggregate(
         &self,
         state: &BeaconState<T>,
@@ -107,23 +146,35 @@ impl<T: EthSpec> OperationPool<T> {
             state.genesis_validators_root(),
             spec,
         );
-        self.sync_aggregates.read().get(&id).cloned()
+        self.sync_contributions
+            .read()
+            .get(&id)
+            .map(|(_, aggregate)| aggregate)
+            .cloned()
     }
 
     /// Total number of sync contributions in the pool.
     pub fn num_sync_contributions(&self) -> usize {
-        self.sync_contributions.read().len()
+        self.sync_contributions
+            .read()
+            .values()
+            .map(|(contributions, _)| contributions.len())
+            .sum()
     }
 
-    /// Remove sync contributions which are too old to be included in a block
+    /// Remove sync contributions which are too old to be included in a block.
     pub fn prune_sync_contributions(&self, current_slot: Slot) {
         // Prune sync contributions that are from before the previous slot.
-        self.sync_contributions.write().retain(|_, contribution| {
-            current_slot <= contribution.slot.saturating_add(Slot::new(1))
-        });
+        self.sync_contributions
+            .write()
+            .retain(|_, (contributions, _)| {
+                // All the contributions in this bucket have the same data, so we only need to
+                // check the first one.
+                contributions.first().map_or(false, |contribution| {
+                    current_slot <= contribution.slot.saturating_add(Slot::new(1))
+                })
+            });
     }
-
-    //TODO: Add prune and get methods for the sync aggregate
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
     ///
@@ -143,11 +194,11 @@ impl<T: EthSpec> OperationPool<T> {
         let mut attestations = self.attestations.write();
 
         let existing_attestations = match attestations.entry(id) {
-            hash_map::Entry::Vacant(entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(vec![attestation]);
                 return Ok(());
             }
-            hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => entry.into_mut(),
         };
 
         let mut aggregated = false;
@@ -452,8 +503,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Prune all types of transactions given the latest head state and head fork.
     pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch) {
         self.prune_attestations(current_epoch);
-        //TODO: figure out pruning
-        //self.prune_sync_contributions(current_epoch);
+        self.prune_sync_contributions(head_state.slot());
         self.prune_proposer_slashings(head_state);
         self.prune_attester_slashings(head_state);
         self.prune_voluntary_exits(head_state);
@@ -599,12 +649,12 @@ mod release_tests {
 
     fn get_harness<E: EthSpec>(
         validator_count: usize,
+        spec: Option<ChainSpec>,
     ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-        let harness = BeaconChainHarness::new_with_store_config(
+        let harness = BeaconChainHarness::new(
             E::default(),
-            None,
+            spec,
             KEYPAIRS[0..validator_count].to_vec(),
-            StoreConfig::default(),
         );
 
         harness.advance_slot();
@@ -616,11 +666,33 @@ mod release_tests {
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
-        let spec = E::default_spec();
+        let mut spec = E::default_spec();
 
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
-        let harness = get_harness::<E>(num_validators);
+        let harness = get_harness::<E>(num_validators, None);
+
+        let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
+
+        // advance until we have finalized and justified epochs
+        for _ in 0..slot_offset {
+            harness.advance_slot();
+        }
+
+        (harness, spec)
+    }
+
+    /// Test state for sync contribution-related tests.
+    fn sync_contribution_test_state<E: EthSpec>(
+        num_committees: usize,
+    ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
+        let mut spec = E::default_spec();
+
+        spec.altair_fork_slot = Some(Slot::new(0));
+
+        let num_validators =
+            num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
+        let harness = get_harness::<E>(num_validators, Some(spec.clone()));
 
         let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
 
@@ -1149,7 +1221,7 @@ mod release_tests {
     /// Insert two slashings for the same proposer and ensure only one is returned.
     #[test]
     fn duplicate_proposer_slashing() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1177,7 +1249,7 @@ mod release_tests {
     // Sanity check on the pruning of proposer slashings
     #[test]
     fn prune_proposer_slashing_noop() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1193,7 +1265,7 @@ mod release_tests {
     // Sanity check on the pruning of attester slashings
     #[test]
     fn prune_attester_slashing_noop() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1210,7 +1282,7 @@ mod release_tests {
     // Check that we get maximum coverage for attester slashings (highest qty of validators slashed)
     #[test]
     fn simple_max_cover_attester_slashing() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1244,7 +1316,7 @@ mod release_tests {
     // Check that we get maximum coverage for attester slashings with overlapping indices
     #[test]
     fn overlapping_max_cover_attester_slashing() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1278,7 +1350,7 @@ mod release_tests {
     // Max coverage of attester slashings taking into account proposer slashings
     #[test]
     fn max_coverage_attester_proposer_slashings() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1309,7 +1381,7 @@ mod release_tests {
     //Max coverage checking that non overlapping indices are still recognized for their value
     #[test]
     fn max_coverage_different_indices_set() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1341,7 +1413,7 @@ mod release_tests {
     //Max coverage should be affected by the overall effective balances
     #[test]
     fn max_coverage_effective_balances() {
-        let harness = get_harness(32);
+        let harness = get_harness(32,None);
         let spec = &harness.spec;
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1369,4 +1441,84 @@ mod release_tests {
         let best_slashings = op_pool.get_slashings(&state, spec);
         assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
     }
+
+    /// End-to-end test of basic sync contribution handling.
+    #[test]
+    fn sync_contribution_aggregation_insert_get_prune() {
+        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let mut state = harness.get_current_state();
+
+        let slot = state.slot() - 1;
+
+        let contributions = harness.make_sync_contributions(
+            &state,
+            Hash256::zero(),
+            slot,
+        );
+
+        for(_ , contribution_and_proof) in contributions {
+            dbg!("here");
+            let contribution = contribution_and_proof.expect("contribution exists for committee").message.contribution;
+            op_pool
+                .insert_sync_contribution(contribution, &state.fork(), state.genesis_validators_root(), spec)
+                .unwrap();
+        }
+
+        assert_eq!(op_pool.sync_contributions.read().len(), 1);
+        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+
+        let sync_aggregate = op_pool
+            .get_sync_aggregate(&state,Hash256::zero(), spec)
+            .expect("Should have block sync aggregate");
+        assert_eq!(sync_aggregate.sync_committee_bits.len(), MainnetEthSpec::sync_committee_size());
+
+        // Prune sync contributions shouldn't do anything at this point.
+        op_pool.prune_sync_contributions(state.slot());
+        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+        op_pool.prune_sync_contributions(state.slot() + Slot::new(1));
+        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+
+        // But once we advance to more than two slots after the contribution, it should prune it
+        // out of existence.
+        op_pool.prune_sync_contributions(state.slot() + Slot::new(2));
+        assert_eq!(op_pool.num_sync_contributions(), 0);
+    }
+
+    /// Adding an sync contributions already in the pool should not increase the size of the pool.
+    #[test]
+    fn sync_contribution_duplicate() {
+        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let mut state = harness.get_current_state();
+
+        let slot = state.slot() - 1;
+
+        let contributions = harness.make_sync_contributions(
+            &state,
+            Hash256::zero(),
+            slot,
+        );
+
+        for(_ , contribution_and_proof) in contributions {
+            dbg!("here");
+            let contribution = contribution_and_proof.expect("contribution exists for committee").message.contribution;
+            op_pool
+                .insert_sync_contribution(contribution.clone(), &state.fork(), state.genesis_validators_root(), spec)
+                .unwrap();
+            op_pool
+                .insert_sync_contribution(contribution, &state.fork(), state.genesis_validators_root(), spec)
+                .unwrap();
+        }
+
+        assert_eq!(op_pool.sync_contributions.read().len(), 1);
+        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+    }
+
+    //FIXME(sean): add tests for these
+    // sync contributions with different signatures but the same number of signed bits
+    // sync contributions with different signatures one set of bits is higher
+    // sync contributions with different subcommittees signatures one set of bits is higher (no change)
 }

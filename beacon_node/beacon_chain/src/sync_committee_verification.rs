@@ -486,10 +486,11 @@ impl VerifiedSyncSignature {
         {
             if pubkey == *validator_pubkey {
                 let subcommittee_index = committee_index.safe_div(sync_subcommittee_size)?;
+                let position_in_subcommittee = committee_index.safe_rem(sync_subcommittee_size)?;
                 subnet_positions
                     .entry(SyncSubnetId::new(subcommittee_index as u64))
                     .or_insert_with(Vec::new)
-                    .push(committee_index);
+                    .push(position_in_subcommittee);
             }
         }
 

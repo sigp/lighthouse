@@ -609,7 +609,6 @@ where
     /// A list of sync signatures for the given state.
     pub fn make_sync_signatures(
         &self,
-        signing_validators: &[usize],
         state: &BeaconState<E>,
         head_block_root: Hash256,
         signature_slot: Slot,
@@ -637,10 +636,6 @@ where
                             .validator_index(pubkey)
                             .unwrap()
                             .expect("pubkey should exist in the beacon chain");
-
-                        if !signing_validators.contains(&validator_index) {
-                            return None;
-                        }
 
                         let sync_signature = SyncCommitteeSignature::new::<E>(
                             signature_slot,
@@ -771,13 +766,12 @@ where
 
     pub fn make_sync_contributions(
         &self,
-        attesting_validators: &[usize],
         state: &BeaconState<E>,
         block_hash: Hash256,
         slot: Slot,
     ) -> HarnessSyncContributions<E> {
         let sync_signatures =
-            self.make_sync_signatures(&attesting_validators, &state, block_hash, slot);
+            self.make_sync_signatures( &state, block_hash, slot);
 
         let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_signatures
             .iter()
@@ -791,10 +785,6 @@ where
                         .iter()
                         .find_map(|pubkey| {
                             let validator_index = self.chain.validator_index(pubkey).unwrap().expect("pubkey should exist in the beacon chain");
-
-                            if !attesting_validators.contains(&validator_index) {
-                                return None
-                            }
 
                             let selection_proof = SyncSelectionProof::new::<E>(
                                 slot,

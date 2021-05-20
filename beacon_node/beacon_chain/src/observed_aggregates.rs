@@ -258,7 +258,7 @@ mod tests {
         a
     }
 
-    fn get_sync_aggregate(slot: Slot, beacon_block_root: u64) -> SyncCommitteeContribution<E> {
+    fn get_sync_contribution(slot: Slot, beacon_block_root: u64) -> SyncCommitteeContribution<E> {
         let mut a: SyncCommitteeContribution<E> = test_random_instance();
         a.slot = slot;
         a.beacon_block_root = Hash256::from_low_u64_be(beacon_block_root);

@@ -1,5 +1,5 @@
 use crate::attestation_id::AttestationId;
-use crate::sync_contribution_id::{SyncAggregateId, SyncContributionId};
+use crate::sync_aggregate_id::SyncAggregateId;
 use crate::OperationPool;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
@@ -19,11 +19,12 @@ pub struct PersistedOperationPool<T: EthSpec> {
     // We could save space by not storing the attestation ID, but it might
     // be difficult to make that roundtrip due to eager aggregation.
     attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
-    /// Mapping from sync contribution ID to sync contribution.
-    //TODO: think about whether we should store the SyncContributionId
-    sync_contributions: Vec<(SyncContributionId, SyncCommitteeContribution<T>)>,
-    /// Mapping from sync aggregate ID to sync aggregate.
-    sync_aggregates: Vec<(SyncAggregateId, SyncAggregate<T>)>,
+    /// Mapping from sync contribution ID to sync contributions and aggregate.
+    //FIXME(sean): think about whether we should store the SyncContributionId
+    sync_contributions: Vec<(
+        SyncAggregateId,
+        (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>),
+    )>,
     /// Attester slashings.
     attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Proposer slashings.
@@ -44,13 +45,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
 
         let sync_contributions = operation_pool
             .sync_contributions
-            .read()
-            .iter()
-            .map(|(id, contribution)| (id.clone(), contribution.clone()))
-            .collect();
-
-        let sync_aggregates = operation_pool
-            .sync_aggregates
             .read()
             .iter()
             .map(|(id, contribution)| (id.clone(), contribution.clone()))
@@ -80,7 +74,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         Self {
             attestations,
             sync_contributions,
-            sync_aggregates,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
@@ -91,7 +84,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     pub fn into_operation_pool(self) -> OperationPool<T> {
         let attestations = RwLock::new(self.attestations.into_iter().collect());
         let sync_contributions = RwLock::new(self.sync_contributions.into_iter().collect());
-        let sync_aggregates = RwLock::new(self.sync_aggregates.into_iter().collect());
         let attester_slashings = RwLock::new(self.attester_slashings.into_iter().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings
@@ -109,7 +101,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         OperationPool {
             attestations,
             sync_contributions,
-            sync_aggregates,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,

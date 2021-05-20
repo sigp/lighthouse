@@ -45,7 +45,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     if spec.altair_fork_slot == Some(spec.genesis_slot) {
         state.upgrade_to_altair(spec)?;
 
-        //TODO: this breaks EF tests (until the next version is released?)
+        //FIXME(sean): this breaks EF tests (until the next version is released?)
         // need it to make the beacon harness's sync committee shuffling work without advancing a ton of slots
         let next_synce_committee = state.get_sync_committee(state.next_epoch()?, spec)?;
         state.as_altair_mut()?.current_sync_committee = Arc::new(next_synce_committee.clone());
