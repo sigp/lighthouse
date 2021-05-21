@@ -150,7 +150,10 @@ impl<'a> SszDecoderBuilder<'a> {
     ///
     /// ## Notes
     ///
-    /// Use of this function is generally discouraged, use `Self::register_type` wherever possible.
+    /// Use of this function is generally discouraged since it cannot detect if some type changes
+    /// from variable to fixed length.
+    ///
+    /// Use `Self::register_type` wherever possible.
     pub fn register_anonymous_variable_length_item(&mut self) -> Result<(), DecodeError> {
         struct Anonymous;
 
