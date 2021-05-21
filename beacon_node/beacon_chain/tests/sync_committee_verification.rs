@@ -28,8 +28,7 @@ use types::{
 
 pub type E = MainnetEthSpec;
 
-/// The validator count needs to be relatively high compared to other tests to ensure that we can
-/// have committees where _some_ validators are aggregators but not _all_.
+//FIXME(sean): is this unnecessarily high?
 pub const VALIDATOR_COUNT: usize = 256;
 
 lazy_static! {
@@ -52,7 +51,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     harness
 }
 
-/// Returns an attestation that is valid for some slot in the given `chain`.
+/// Returns a sync signature that is valid for some slot in the given `chain`.
 ///
 /// Also returns some info about who created it.
 fn get_valid_sync_signature(
@@ -121,7 +120,7 @@ fn get_valid_sync_contribution(
     )
 }
 
-/// Returns a proof and index for a validator that is **not** an aggregator for the current sync period
+/// Returns a proof and index for a validator that is **not** an aggregator for the current sync period.
 fn get_non_aggregator(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     slot: Slot,
@@ -169,6 +168,8 @@ fn get_non_aggregator(
 fn aggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
 
+    //FIXME(sean): could maybe reduce.
+
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness.extend_chain(
         MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
@@ -176,7 +177,7 @@ fn aggregated_gossip_verification() {
         AttestationStrategy::AllValidators,
     );
 
-    // Advance into a slot where there have not been blocks or attestations produced.
+    // Advance into a slot where there have not been blocks or sync signatures produced.
     harness.advance_slot();
 
     let current_slot = harness.chain.slot().expect("should get slot");
@@ -283,8 +284,9 @@ fn aggregated_gossip_verification() {
      * The following test ensures:
      *
      * The attestation has participants.
-     * Note: this isn't in the spec
+     * Fixme(sean): this isn't in the spec
      */
+
     assert_invalid!(
         "aggregate with no participants",
         {
@@ -300,8 +302,6 @@ fn aggregated_gossip_verification() {
 
     /*
      * This test ensures:
-     *
-     * Spec v0.12.1
      *
      * The aggregator signature, signed_aggregate_and_proof.signature, is valid.
      */

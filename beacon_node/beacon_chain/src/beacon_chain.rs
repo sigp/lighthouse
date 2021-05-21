@@ -1113,7 +1113,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
         VerifiedSyncSignature::verify(sync_signature, subnet_id, self)
-        //TODO: verify events in the api spec
+        //FIXME(sean): verify events in the api spec
 
         //     .map(
         //     |v| {
@@ -1144,7 +1144,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             banana
         }
-        //TODO: verify events in the api spec
+        //FIXME(sean): verify events in the api spec
 
         //     .map(|v| {
         //     // This method is called for API and gossip attestations, so this covers all aggregated attestation events

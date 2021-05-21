@@ -581,7 +581,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes, E: SlotData>(
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
     if let Some(block) = chain.fork_choice.read().get_block(&beacon_block_root) {
-        //TODO: do we want to keep this?
+        //FIXME(sean): do we want to keep this?
         // Reject any block that exceeds our limit on skipped slots.
         if let Some(max_skip_slots) = max_skip_slots {
             if sync_contribution.get_slot() > block.slot + max_skip_slots {
