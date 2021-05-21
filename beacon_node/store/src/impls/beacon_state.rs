@@ -65,9 +65,7 @@ impl<T: EthSpec> StorageContainer<T> {
         // compose with the other SSZ utils, so we duplicate some parts of `ssz_derive` here.
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-        // Register the message type as `BeaconStateBase`, even though that isn't accurate.
-        // Really we just need some variable-length type to provide here.
-        builder.register_type::<BeaconStateBase<T>>()?;
+        builder.register_anonymous_variable_length_item()?;
         builder.register_type::<Vec<CommitteeCache>>()?;
 
         let mut decoder = builder.build()?;
