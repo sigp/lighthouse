@@ -770,8 +770,7 @@ where
         block_hash: Hash256,
         slot: Slot,
     ) -> HarnessSyncContributions<E> {
-        let sync_signatures =
-            self.make_sync_signatures( &state, block_hash, slot);
+        let sync_signatures = self.make_sync_signatures(&state, block_hash, slot);
 
         let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_signatures
             .iter()

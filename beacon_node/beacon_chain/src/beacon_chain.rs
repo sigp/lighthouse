@@ -16,7 +16,7 @@ use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
-    SyncAggregateMap,
+    SyncContributionAggregateMap,
 };
 use crate::observed_aggregates::{
     Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncAggregates,
@@ -224,7 +224,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     ///
     /// This pool accepts `SyncCommitteeContribution` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `SyncCommitteeContribution` for some `SyncCommitteeContributionData`.
-    pub naive_sync_aggregation_pool: RwLock<NaiveAggregationPool<SyncAggregateMap<T::EthSpec>>>,
+    pub naive_sync_aggregation_pool: RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
     /// Contains a store of sync contributions which have been observed by the beacon chain.

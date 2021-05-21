@@ -448,7 +448,7 @@ mod tests {
     test_suite!(
         observed_sync_aggregates,
         ObservedSyncAggregates,
-        get_sync_aggregate
+        get_sync_contribution
     );
     test_suite!(
         observed_aggregate_attestations,

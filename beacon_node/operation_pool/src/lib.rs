@@ -111,10 +111,13 @@ impl<T: EthSpec> OperationPool<T> {
                     }) {
                     Some(position) => {
                         // Only need to recalculate if the new contribution has more bits set.
-                        if existing_contributions.0[position].aggregation_bits.len() < contribution.aggregation_bits.len() {
+                        if existing_contributions.0[position].aggregation_bits.len()
+                            < contribution.aggregation_bits.len()
+                        {
                             existing_contributions.0[position] = contribution;
-                            let mut aggregate =
-                                SyncAggregate::from_contributions(existing_contributions.0.as_slice())?;
+                            let mut aggregate = SyncAggregate::from_contributions(
+                                existing_contributions.0.as_slice(),
+                            )?;
                             existing_contributions.1 = aggregate;
                         }
                     }
@@ -651,11 +654,8 @@ mod release_tests {
         validator_count: usize,
         spec: Option<ChainSpec>,
     ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-        let harness = BeaconChainHarness::new(
-            E::default(),
-            spec,
-            KEYPAIRS[0..validator_count].to_vec(),
-        );
+        let harness =
+            BeaconChainHarness::new(E::default(), spec, KEYPAIRS[0..validator_count].to_vec());
 
         harness.advance_slot();
 
@@ -666,7 +666,7 @@ mod release_tests {
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
-        let mut spec = E::default_spec();
+        let spec = E::default_spec();
 
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
@@ -1221,7 +1221,7 @@ mod release_tests {
     /// Insert two slashings for the same proposer and ensure only one is returned.
     #[test]
     fn duplicate_proposer_slashing() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1249,7 +1249,7 @@ mod release_tests {
     // Sanity check on the pruning of proposer slashings
     #[test]
     fn prune_proposer_slashing_noop() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1265,7 +1265,7 @@ mod release_tests {
     // Sanity check on the pruning of attester slashings
     #[test]
     fn prune_attester_slashing_noop() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1282,7 +1282,7 @@ mod release_tests {
     // Check that we get maximum coverage for attester slashings (highest qty of validators slashed)
     #[test]
     fn simple_max_cover_attester_slashing() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1316,7 +1316,7 @@ mod release_tests {
     // Check that we get maximum coverage for attester slashings with overlapping indices
     #[test]
     fn overlapping_max_cover_attester_slashing() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1350,7 +1350,7 @@ mod release_tests {
     // Max coverage of attester slashings taking into account proposer slashings
     #[test]
     fn max_coverage_attester_proposer_slashings() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1381,7 +1381,7 @@ mod release_tests {
     //Max coverage checking that non overlapping indices are still recognized for their value
     #[test]
     fn max_coverage_different_indices_set() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1413,7 +1413,7 @@ mod release_tests {
     //Max coverage should be affected by the overall effective balances
     #[test]
     fn max_coverage_effective_balances() {
-        let harness = get_harness(32,None);
+        let harness = get_harness(32, None);
         let spec = &harness.spec;
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
@@ -1452,33 +1452,49 @@ mod release_tests {
 
         let slot = state.slot() - 1;
 
-        let contributions = harness.make_sync_contributions(
-            &state,
-            Hash256::zero(),
-            slot,
-        );
+        let contributions = harness.make_sync_contributions(&state, Hash256::zero(), slot);
 
-        for(_ , contribution_and_proof) in contributions {
+        for (_, contribution_and_proof) in contributions {
             dbg!("here");
-            let contribution = contribution_and_proof.expect("contribution exists for committee").message.contribution;
+            let contribution = contribution_and_proof
+                .expect("contribution exists for committee")
+                .message
+                .contribution;
             op_pool
-                .insert_sync_contribution(contribution, &state.fork(), state.genesis_validators_root(), spec)
+                .insert_sync_contribution(
+                    contribution,
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    spec,
+                )
                 .unwrap();
         }
 
         assert_eq!(op_pool.sync_contributions.read().len(), 1);
-        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+        assert_eq!(
+            op_pool.num_sync_contributions(),
+            SYNC_COMMITTEE_SUBNET_COUNT as usize
+        );
 
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state,Hash256::zero(), spec)
+            .get_sync_aggregate(&state, Hash256::zero(), spec)
             .expect("Should have block sync aggregate");
-        assert_eq!(sync_aggregate.sync_committee_bits.len(), MainnetEthSpec::sync_committee_size());
+        assert_eq!(
+            sync_aggregate.sync_committee_bits.len(),
+            MainnetEthSpec::sync_committee_size()
+        );
 
         // Prune sync contributions shouldn't do anything at this point.
         op_pool.prune_sync_contributions(state.slot());
-        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+        assert_eq!(
+            op_pool.num_sync_contributions(),
+            SYNC_COMMITTEE_SUBNET_COUNT as usize
+        );
         op_pool.prune_sync_contributions(state.slot() + Slot::new(1));
-        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+        assert_eq!(
+            op_pool.num_sync_contributions(),
+            SYNC_COMMITTEE_SUBNET_COUNT as usize
+        );
 
         // But once we advance to more than two slots after the contribution, it should prune it
         // out of existence.
@@ -1496,25 +1512,37 @@ mod release_tests {
 
         let slot = state.slot() - 1;
 
-        let contributions = harness.make_sync_contributions(
-            &state,
-            Hash256::zero(),
-            slot,
-        );
+        let contributions = harness.make_sync_contributions(&state, Hash256::zero(), slot);
 
-        for(_ , contribution_and_proof) in contributions {
+        for (_, contribution_and_proof) in contributions {
             dbg!("here");
-            let contribution = contribution_and_proof.expect("contribution exists for committee").message.contribution;
+            let contribution = contribution_and_proof
+                .expect("contribution exists for committee")
+                .message
+                .contribution;
             op_pool
-                .insert_sync_contribution(contribution.clone(), &state.fork(), state.genesis_validators_root(), spec)
+                .insert_sync_contribution(
+                    contribution.clone(),
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    spec,
+                )
                 .unwrap();
             op_pool
-                .insert_sync_contribution(contribution, &state.fork(), state.genesis_validators_root(), spec)
+                .insert_sync_contribution(
+                    contribution,
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    spec,
+                )
                 .unwrap();
         }
 
         assert_eq!(op_pool.sync_contributions.read().len(), 1);
-        assert_eq!(op_pool.num_sync_contributions(), SYNC_COMMITTEE_SUBNET_COUNT as usize);
+        assert_eq!(
+            op_pool.num_sync_contributions(),
+            SYNC_COMMITTEE_SUBNET_COUNT as usize
+        );
     }
 
     //FIXME(sean): add tests for these

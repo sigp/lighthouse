@@ -39,10 +39,12 @@ lazy_static! {
 
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::new_with_store_config(
+    let mut spec = E::default_spec();
+    spec.altair_fork_slot = Some(Slot::new(0));
+    let harness = BeaconChainHarness::new(
         MainnetEthSpec,
+        Some(spec),
         KEYPAIRS[0..validator_count].to_vec(),
-        StoreConfig::default(),
     );
 
     harness.advance_slot();
@@ -84,7 +86,9 @@ fn get_valid_sync_signature(
         signature.clone(),
         signature.validator_index as usize,
         subcommittee_position,
-        harness.validator_keypairs[signature.validator_index as usize].sk.clone(),
+        harness.validator_keypairs[signature.validator_index as usize]
+            .sk
+            .clone(),
         SyncSubnetId::new(0),
     )
 }
@@ -103,8 +107,7 @@ fn get_valid_sync_contribution(
         .head()
         .expect("should get head state")
         .beacon_block_root;
-    let sync_contributions =
-        harness.make_sync_contributions( &head_state, head_block_root, slot);
+    let sync_contributions = harness.make_sync_contributions(&head_state, head_block_root, slot);
 
     let (_, contribution_opt) = sync_contributions.get(0).unwrap();
     let contribution = contribution_opt.as_ref().cloned().unwrap();
