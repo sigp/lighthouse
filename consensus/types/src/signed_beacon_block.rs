@@ -93,9 +93,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         // compose with the other SSZ utils, so we duplicate some parts of `ssz_derive` here.
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-        // Register the message type as `BeaconBlockBase`, even though that isn't accurate.
-        // Really we just need some variable-length type to provide here.
-        builder.register_type::<BeaconBlockBase<E>>()?;
+        builder.register_anonymous_variable_length_item()?;
         builder.register_type::<Signature>()?;
 
         let mut decoder = builder.build()?;

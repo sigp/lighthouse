@@ -171,14 +171,14 @@ impl<T: EthSpec> PartialBeaconState<T> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
         let slot_offset = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
         let slot_len = <Slot as Decode>::ssz_fixed_len();
-        if bytes.len() < slot_offset + slot_len {
-            return Err(DecodeError::InvalidByteLength {
+        let slot_bytes = bytes.get(slot_offset..slot_offset + slot_len).ok_or(
+            DecodeError::InvalidByteLength {
                 len: bytes.len(),
                 expected: slot_offset + slot_len,
-            });
-        }
+            },
+        )?;
 
-        let slot = Slot::from_ssz_bytes(&bytes[slot_offset..slot_offset + slot_len])?;
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
 
         if spec
             .altair_fork_slot
