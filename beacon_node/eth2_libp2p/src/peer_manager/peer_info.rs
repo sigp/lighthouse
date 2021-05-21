@@ -311,6 +311,11 @@ impl<T: EthSpec> PeerInfo<T> {
             self.score.test_add(score)
         }
     }
+
+    #[cfg(test)]
+    pub fn set_gossipsub_score(&mut self, score: f64) {
+        self.score.set_gossipsub_score(score);
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
