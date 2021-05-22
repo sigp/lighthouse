@@ -698,16 +698,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // we attempt a connection if this peer is a subnet peer or if the max peer count
             // is not yet filled (including dialing peers)
             if (min_ttl.is_some() || connected_or_dialing + to_dial_peers.len() < self.max_peers)
-                && !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&peer_id)
-                && !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_banned_or_disconnected(&peer_id)
+                && self.network_globals.peers.read().should_dial(&peer_id)
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
