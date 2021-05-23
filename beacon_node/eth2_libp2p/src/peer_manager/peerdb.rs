@@ -221,7 +221,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
-    ///Connected outbound-only peers
+    /// Connected outbound-only peers
     pub fn connected_outbound_only_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -691,7 +691,7 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        //create peer with no connections
+        // Create peer with no connections.
         let _p3 = PeerId::random();
 
         pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
@@ -699,8 +699,8 @@ mod tests {
         pdb.connect_outgoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
         pdb.connect_outgoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
 
-        // we should only have one outbound-only peer (p2).
-        // peers that are inbound-only, have both types of connections, or no connections should not be counted
+        // We should only have one outbound-only peer (p2).
+        // Peers that are inbound-only, have both types of connections, or no connections should not be counted.
         assert_eq!(pdb.connected_outbound_only_peers().count(), 1);
     }
 

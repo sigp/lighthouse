@@ -945,8 +945,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let connected_peer_count = self.network_globals.connected_peers();
         if connected_peer_count > self.target_peers {
-            //remove excess peers with the worst scores, but keep subnet peers
-            //must also ensure that the outbound-only peer count does not go below the minimum threshold
+            // Remove excess peers with the worst scores, but keep subnet peers.
+            // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
             let mut peers_removed = 0;
             let mut n_outbound_removed = 0;
             for (peer_id, info) in self
@@ -968,8 +968,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     }
                 }
                 peers_removed += 1;
-                //only add healthy peers to disconnect,
-                //update_peer_scores would have already disconnected unhealthy peers
+                // Only add healthy peers to disconnect,
+                // update_peer_scores would have already disconnected unhealthy peers.
                 if info.score_state() == ScoreState::Healthy {
                     disconnecting_peers.push(**peer_id);
                 }
@@ -1136,8 +1136,8 @@ mod tests {
     async fn test_peer_manager_disconnects_correctly_during_heartbeat() {
         let mut peer_manager = build_peer_manager(3).await;
 
-        //create 5 peers to connect too
-        //2 will be outbound-only, and have the lowest score.
+        // Create 5 peers to connect to.
+        // 2 will be outbound-only, and have the lowest score.
         let peer0 = PeerId::random();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
@@ -1150,7 +1150,7 @@ mod tests {
         peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_outgoing(&outbound_only_peer2, "/ip4/0.0.0.0".parse().unwrap());
 
-        //set the outbound-only peers to have the lowest score
+        // Set the outbound-only peers to have the lowest score.
         peer_manager
             .network_globals
             .peers
@@ -1167,14 +1167,14 @@ mod tests {
             .unwrap()
             .add_to_score(-2.0);
 
-        //check initial connected peers
+        // Check initial connected peers.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 5);
 
         peer_manager.heartbeat();
 
-        //check that we disconnected from two peers
-        //check that one outbound-only peer was removed because it had the worst score
-        //and that we did not disconnect the other outbound peer due to the minimum outbound quota
+        // Check that we disconnected from two peers.
+        // Check that one outbound-only peer was removed because it had the worst score
+        // and that we did not disconnect the other outbound peer due to the minimum outbound quota.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
         assert!(peer_manager
             .network_globals
@@ -1189,7 +1189,7 @@ mod tests {
 
         peer_manager.heartbeat();
 
-        //check that if we are at target number of peers who are all healthy, we do not disconnect any
+        // Check that if we are at target number of peers who are all healthy, we do not disconnect any.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 
@@ -1197,14 +1197,14 @@ mod tests {
     async fn test_peer_manager_not_enough_outbound_peers_no_panic_during_heartbeat() {
         let mut peer_manager = build_peer_manager(20).await;
 
-        //connect to 20 ingoing-only peers
+        // Connect to 20 ingoing-only peers.
         for _i in 0..19 {
             let peer = PeerId::random();
             peer_manager.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap());
         }
 
-        //connect an outbound-only peer
-        //give it the lowest score so that it is evaluated first in the disconnect list iterator
+        // Connect an outbound-only peer.
+        // Give it the lowest score so that it is evaluated first in the disconnect list iterator.
         let outbound_only_peer = PeerId::random();
         peer_manager.connect_ingoing(&outbound_only_peer, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
@@ -1214,8 +1214,8 @@ mod tests {
             .peer_info_mut(&(outbound_only_peer))
             .unwrap()
             .add_to_score(-1.0);
-        //after heartbeat, we will have removed one peer.
-        //having less outbound-only peers than minimum won't cause panic when the outbound-only peer is being considered for disconnection
+        // After heartbeat, we will have removed one peer.
+        // Having less outbound-only peers than minimum won't cause panic when the outbound-only peer is being considered for disconnection.
         peer_manager.heartbeat();
         assert_eq!(
             peer_manager.network_globals.connected_or_dialing_peers(),
@@ -1227,8 +1227,8 @@ mod tests {
     async fn test_peer_manager_removes_unhealthy_peers_during_heartbeat() {
         let mut peer_manager = build_peer_manager(3).await;
 
-        //create 3 peers to connect too
-        //one pair will be unhealthy inbound only and outbound only peers
+        // Create 3 peers to connect to.
+        // One pair will be unhealthy inbound only and outbound only peers.
         let peer0 = PeerId::random();
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
@@ -1236,7 +1236,7 @@ mod tests {
         peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_outgoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
 
-        //connect to two peers that are on the threshold of being disconnected
+        // Connect to two peers that are on the threshold of being disconnected.
         peer_manager.connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
@@ -1253,11 +1253,10 @@ mod tests {
             .peer_info_mut(&(outbound_only_peer1))
             .unwrap()
             .add_to_score(-19.9);
-        //update the gossipsub scores to induce connection downgrade
-        //during the heartbeat, update_peer_scores will downgrade the score from -19.9 to at least -20
-        //this will then trigger a disconnection.
-        //if we changed the peer scores to -20 before the heartbeat, update_peer_scores will mark the previous score status as disconnected.
-        //then handle_state_transitions will not change the connection status to disconnected because the score state has not changed.
+        // Update the gossipsub scores to induce connection downgrade
+        // during the heartbeat, update_peer_scores will downgrade the score from -19.9 to at least -20, this will then trigger a disconnection.
+        // If we changed the peer scores to -20 before the heartbeat, update_peer_scores will mark the previous score status as disconnected,
+        // then handle_state_transitions will not change the connection status to disconnected because the score state has not changed.
         peer_manager
             .network_globals
             .peers
@@ -1275,8 +1274,8 @@ mod tests {
 
         peer_manager.heartbeat();
 
-        //checks that update_peer_score peer disconnection and the disconnecting_peers logic
-        //work together to remove the correct number of peers
+        // Checks that update_peer_score peer disconnection and the disconnecting_peers logic
+        // work together to remove the correct number of peers.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 1);
     }
 
@@ -1284,8 +1283,8 @@ mod tests {
     async fn test_peer_manager_remove_unhealthy_peers_brings_peers_below_target() {
         let mut peer_manager = build_peer_manager(3).await;
 
-        //create 4 peers to connect too
-        //one pair will be unhealthy inbound only and outbound only peers
+        // Create 4 peers to connect to.
+        // One pair will be unhealthy inbound only and outbound only peers.
         let peer0 = PeerId::random();
         let peer1 = PeerId::random();
         let inbound_only_peer1 = PeerId::random();
@@ -1294,7 +1293,7 @@ mod tests {
         peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
 
-        //connect to two peers that are on the threshold of being disconnected
+        // Connect to two peers that are on the threshold of being disconnected.
         peer_manager.connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
@@ -1326,8 +1325,8 @@ mod tests {
             .unwrap()
             .set_gossipsub_score(-85.0);
         peer_manager.heartbeat();
-        //tests that when we are over the target peer limit, after disconnecting two unhealthy peers,
-        //the loop to check for disconnecting peers will stop because we have removed enough peers (only needed to remove 1 to reach target)
+        // Tests that when we are over the target peer limit, after disconnecting two unhealthy peers,
+        // the loop to check for disconnecting peers will stop because we have removed enough peers (only needed to remove 1 to reach target).
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 2);
     }
 
@@ -1335,8 +1334,8 @@ mod tests {
     async fn test_peer_manager_removes_enough_peers_when_one_is_unhealthy() {
         let mut peer_manager = build_peer_manager(3).await;
 
-        //create 5 peers to connect too
-        //one will be unhealthy inbound only and outbound only peers
+        // Create 5 peers to connect to.
+        // One will be unhealthy inbound only and outbound only peers.
         let peer0 = PeerId::random();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
@@ -1347,7 +1346,7 @@ mod tests {
         peer_manager.connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
-        //have one peer be on the verge of disconnection
+        // Have one peer be on the verge of disconnection.
         peer_manager.connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
             .network_globals
@@ -1365,8 +1364,8 @@ mod tests {
             .set_gossipsub_score(-85.0);
 
         peer_manager.heartbeat();
-        //tests that when we are over the target peer limit, even though one peer was already disconnected for being unhealthy,
-        //the loop to check for disconnecting peers will still remove the correct amount of peers
+        // Tests that when we are over the target peer limit, even though one peer was already disconnected for being unhealthy,
+        // the loop to check for disconnecting peers will still remove the correct amount of peers.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 }

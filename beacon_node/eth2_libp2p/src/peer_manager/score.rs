@@ -217,8 +217,8 @@ impl RealScore {
     }
 
     #[cfg(test)]
-    //set the gossipsub_score to a specific f64
-    //used in testing to induce score status changes during a heartbeat
+    // Set the gossipsub_score to a specific f64.
+    // Used in testing to induce score status changes during a heartbeat.
     pub fn set_gossipsub_score(&mut self, score: f64) {
         self.gossipsub_score = score;
     }
