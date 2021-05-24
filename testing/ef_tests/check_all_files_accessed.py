@@ -10,7 +10,7 @@ import os
 import sys
 
 # First argument should the path to a file which contains a list of accessed file names.
-passed_tests_filename = sys.argv[1]
+accessed_files_filename = sys.argv[1]
 
 # Second argument should be the path to the eth2.0-spec-tests directory.
 tests_dir_filename = sys.argv[2]
@@ -71,13 +71,13 @@ def normalize_path(path):
 
 # Determine the list of filenames which were accessed during tests.
 passed = set()
-for line in open(passed_tests_filename, 'r').readlines():
+for line in open(accessed_files_filename, 'r').readlines():
     file = normalize_path(line.strip().strip('"'))
     passed.add(file)
 
 missed = set()
-passed_tests = 0
-excluded_tests = 0
+accessed_files = 0
+excluded_files = 0
 
 # Iterate all files in the tests directory, ensure that all files were either accessed
 # or intentionally missed.
@@ -91,14 +91,14 @@ for root, dirs, files in os.walk(tests_dir_filename):
                   excluded = True
                   break
           if excluded:
-              excluded_tests += 1
+              excluded_files += 1
           else:
               print(name)
               missed.add(name)
       else:
-          passed_tests += 1
+          accessed_files += 1
 
 # Exit with an error if there were any files missed.
-assert len(missed) == 0, "{} missed tests".format(len(missed))
+assert len(missed) == 0, "{} missed files".format(len(missed))
 
-print("Passed {} tests ({} intentionally excluded)".format(passed_tests, excluded_tests))
+print("Accessed {} files ({} intentionally excluded)".format(accessed_files, excluded_files))
