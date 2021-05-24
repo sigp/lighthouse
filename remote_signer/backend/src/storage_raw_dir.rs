@@ -83,12 +83,12 @@ mod get_keys {
         add_key_files(&tmp_dir);
 
         // All good and fancy, let's make the dir innacessible now.
-        set_permissions(tmp_dir.path(), 0o40311);
+        restrict_permissions(tmp_dir.path());
 
         let result = storage.get_keys();
 
         // Give permissions back, we want the tempdir to be deleted.
-        set_permissions(tmp_dir.path(), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
 
         assert_eq!(
             result.unwrap_err().to_string(),
@@ -141,13 +141,13 @@ mod get_secret_key {
         let (storage, tmp_dir) = new_storage_with_tmp_dir();
         add_key_files(&tmp_dir);
 
-        set_permissions(tmp_dir.path(), 0o40311);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40311);
+        restrict_permissions(tmp_dir.path());
+        restrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         let result = storage.get_secret_key(PUBLIC_KEY_1);
 
-        set_permissions(tmp_dir.path(), 0o40755);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
+        unrestrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         assert_eq!(
             result.unwrap_err().to_string(),

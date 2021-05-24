@@ -1,5 +1,3 @@
-#![cfg(not(debug_assertions))]
-
 use account_manager::{
     validator::{
         create::*,
@@ -35,8 +33,8 @@ use validator_dir::ValidatorDir;
 
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
-    let target_dir = env!("CARGO_BIN_EXE_lighthouse");
-    let path = target_dir
+    let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
+    let path = lighthouse_bin
         .parse::<PathBuf>()
         .expect("should parse CARGO_TARGET_DIR");
 

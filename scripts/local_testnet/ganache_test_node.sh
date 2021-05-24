@@ -9,5 +9,5 @@ ganache-cli \
 	--mnemonic "$ETH1_NETWORK_MNEMONIC" \
 	--port 8545 \
 	--blockTime 3 \
-	--networkId 4242 \
-	--chainId 4242
+	--networkId "$NETWORK_ID" \
+	--chainId "$NETWORK_ID"
