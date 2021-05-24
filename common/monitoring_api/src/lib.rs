@@ -123,7 +123,7 @@ impl MonitoringHttpClient {
     }
 
     /// Gets beacon metrics and updates the metrics struct
-    pub async fn get_beacon_metrics(&self) -> Result<MonitoringMetrics, Error> {
+    pub fn get_beacon_metrics(&self) -> Result<MonitoringMetrics, Error> {
         let db_path = self.db_path.as_ref().ok_or_else(|| {
             Error::BeaconMetricsFailed("Beacon metrics require db path".to_string())
         })?;
@@ -140,7 +140,7 @@ impl MonitoringHttpClient {
     }
 
     /// Gets validator process metrics by querying the validator metrics endpoint
-    pub async fn get_validator_metrics(&self) -> Result<MonitoringMetrics, Error> {
+    pub fn get_validator_metrics(&self) -> Result<MonitoringMetrics, Error> {
         let metrics = gather_validator_metrics().map_err(Error::BeaconMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::Validator),
@@ -149,7 +149,7 @@ impl MonitoringHttpClient {
     }
 
     /// Gets system metrics by observing capturing the SystemHealth metrics.
-    pub async fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
+    pub fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
         let system_health = SystemHealth::observe().map_err(Error::SystemMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::System),
@@ -163,9 +163,9 @@ impl MonitoringHttpClient {
         process_type: &ProcessType,
     ) -> Result<MonitoringMetrics, Error> {
         match process_type {
-            ProcessType::BeaconNode => self.get_beacon_metrics().await,
-            ProcessType::System => self.get_system_metrics().await,
-            ProcessType::Validator => self.get_validator_metrics().await,
+            ProcessType::BeaconNode => self.get_beacon_metrics(),
+            ProcessType::System => self.get_system_metrics(),
+            ProcessType::Validator => self.get_validator_metrics(),
         }
     }
 

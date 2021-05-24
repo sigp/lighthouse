@@ -113,8 +113,8 @@ pub struct SystemMetrics {
 
 impl From<SystemHealth> for SystemMetrics {
     fn from(health: SystemHealth) -> Self {
-        // Beaconcha.in uses 3 letter os names
-        let misc_os = health.misc_os[..3].to_string();
+        // Export format uses 3 letter os names
+        let misc_os = health.misc_os.get(0..3).unwrap_or("unk").to_string();
         Self {
             cpu_cores: health.cpu_cores,
             cpu_threads: health.cpu_threads,
