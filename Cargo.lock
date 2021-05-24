@@ -1787,6 +1787,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "ethereum-types",
+ "fs2",
  "hex",
  "parking_lot",
  "rayon",
