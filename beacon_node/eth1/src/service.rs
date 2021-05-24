@@ -439,7 +439,7 @@ impl Default for Config {
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 60_000,
             blocks_per_log_query: 1_000,
-            max_log_requests_per_update: Some(100),
+            max_log_requests_per_update: Some(5_000),
             max_blocks_per_update: Some(8_192),
             purge_cache: false,
         }
