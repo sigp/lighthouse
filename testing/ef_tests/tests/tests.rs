@@ -363,3 +363,11 @@ fn genesis_validity() {
     GenesisValidityHandler::<MinimalEthSpec>::default().run();
     // Note: there are no genesis validity tests for mainnet
 }
+
+#[test]
+fn rewards() {
+    for handler in &["basic", "leak", "random"] {
+        RewardsHandler::<MinimalEthSpec>::new(handler).run();
+        RewardsHandler::<MainnetEthSpec>::new(handler).run();
+    }
+}

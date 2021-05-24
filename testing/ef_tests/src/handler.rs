@@ -16,7 +16,7 @@ pub trait Handler {
 
     fn runner_name() -> &'static str;
 
-    fn handler_name() -> String;
+    fn handler_name(&self) -> String;
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         Self::Case::is_enabled_for_fork(fork_name)
@@ -25,12 +25,12 @@ pub trait Handler {
     fn run(&self) {
         for fork_name in ForkName::list_all() {
             if self.is_enabled_for_fork(fork_name) {
-                Self::run_for_fork(fork_name)
+                self.run_for_fork(fork_name)
             }
         }
     }
 
-    fn run_for_fork(fork_name: ForkName) {
+    fn run_for_fork(&self, fork_name: ForkName) {
         let fork_name_str = match fork_name {
             ForkName::Base => "phase0",
             ForkName::Altair => "altair",
@@ -42,7 +42,7 @@ pub trait Handler {
             .join(Self::config_name())
             .join(fork_name_str)
             .join(Self::runner_name())
-            .join(Self::handler_name());
+            .join(self.handler_name());
 
         // Iterate through test suites
         let test_cases = fs::read_dir(&handler_path)
@@ -67,7 +67,7 @@ pub trait Handler {
             "{}/{}/{}",
             fork_name_str,
             Self::runner_name(),
-            Self::handler_name()
+            self.handler_name()
         );
         crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
@@ -90,7 +90,7 @@ macro_rules! bls_handler {
                 "bls"
             }
 
-            fn handler_name() -> String {
+            fn handler_name(&self) -> String {
                 $handler_name.into()
             }
         }
@@ -165,7 +165,7 @@ where
         "ssz_static"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         T::name().into()
     }
 
@@ -188,7 +188,7 @@ where
         "ssz_static"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
     }
 }
@@ -209,7 +209,7 @@ where
         "ssz_static"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         T::name().into()
     }
 }
@@ -229,7 +229,7 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
         "shuffling"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "core".into()
     }
 
@@ -253,7 +253,7 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
         "sanity"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "blocks".into()
     }
 
@@ -279,7 +279,7 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
         "sanity"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "slots".into()
     }
 }
@@ -299,8 +299,38 @@ impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHa
         "epoch_processing"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         T::name().into()
+    }
+}
+
+pub struct RewardsHandler<E: EthSpec> {
+    handler_name: &'static str,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> RewardsHandler<E> {
+    pub fn new(handler_name: &'static str) -> Self {
+        Self {
+            handler_name,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
+    type Case = cases::RewardsTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "rewards"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.to_string()
     }
 }
 
@@ -319,7 +349,7 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
         "fork"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "fork".into()
     }
 }
@@ -340,7 +370,7 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
         "finality"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "finality".into()
     }
 }
@@ -360,7 +390,7 @@ impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
         "genesis"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "validity".into()
     }
 }
@@ -380,7 +410,7 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
         "genesis"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         "initialization".into()
     }
 }
@@ -400,7 +430,7 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
         "operations"
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         O::handler_name()
     }
 }
@@ -425,7 +455,7 @@ impl<H: TypeName> Handler for SszGenericHandler<H> {
         fork_name == ForkName::Base
     }
 
-    fn handler_name() -> String {
+    fn handler_name(&self) -> String {
         H::name().into()
     }
 }

@@ -6,34 +6,7 @@ use types::consts::altair::{
 use types::{BeaconState, ChainSpec, EthSpec};
 
 use crate::common::{altair::get_base_reward, decrease_balance, increase_balance};
-use crate::per_epoch_processing::Error;
-
-/// Use to track the changes to a validators balance.
-#[derive(Default, Clone)]
-pub struct Delta {
-    rewards: u64,
-    penalties: u64,
-}
-
-impl Delta {
-    /// Reward the validator with the `reward`.
-    pub fn reward(&mut self, reward: u64) -> Result<(), Error> {
-        self.rewards = self.rewards.safe_add(reward)?;
-        Ok(())
-    }
-
-    /// Penalize the validator with the `penalty`.
-    pub fn penalize(&mut self, penalty: u64) -> Result<(), Error> {
-        self.penalties = self.penalties.safe_add(penalty)?;
-        Ok(())
-    }
-
-    /// Combine two deltas.
-    fn combine(&mut self, other: Delta) -> Result<(), Error> {
-        self.reward(other.rewards)?;
-        self.penalize(other.penalties)
-    }
-}
+use crate::per_epoch_processing::{Delta, Error};
 
 /// Apply attester and proposer rewards.
 ///
@@ -76,9 +49,9 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 /// Return the deltas for a given flag index by scanning through the participation flags.
 ///
 /// Spec v1.1.0
-fn get_flag_index_deltas<T: EthSpec>(
+pub fn get_flag_index_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
-    state: &mut BeaconState<T>,
+    state: &BeaconState<T>,
     flag_index: u32,
     weight: u64,
     total_active_balance: u64,
@@ -119,7 +92,7 @@ fn get_flag_index_deltas<T: EthSpec>(
     Ok(())
 }
 
-fn get_inactivity_penalty_deltas<T: EthSpec>(
+pub fn get_inactivity_penalty_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
     total_active_balance: u64,
