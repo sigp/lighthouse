@@ -12,6 +12,7 @@ of the immaturity of the slasher UX and the extra resources required.
 * Quad-core CPU
 * 16 GB RAM
 * 256 GB solid state storage (in addition to space for the beacon node DB)
+* ⚠️ **If you are running natively on Windows**: LMDB will pre-allocate the entire 256 GB for the slasher database
 
 ## How to Run
 
