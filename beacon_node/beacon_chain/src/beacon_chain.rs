@@ -1358,6 +1358,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect::<Vec<_>>();
 
         for (i, block) in chain_segment.into_iter().enumerate() {
+            // Ensure the block is the correct structure for the fork at `block.slot()`.
+            if let Err(e) = block.fork_name(&self.spec) {
+                return ChainSegmentResult::Failed {
+                    imported_blocks,
+                    error: BlockError::InconsistentFork(e),
+                };
+            }
+
             let block_root = get_block_root(&block);
 
             if let Some((child_parent_root, child_slot)) = children.get(i) {

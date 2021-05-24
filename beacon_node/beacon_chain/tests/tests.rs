@@ -25,6 +25,7 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::new_with_store_config(
         MinimalEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
@@ -37,7 +38,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 #[test]
 fn massive_skips() {
     let harness = get_harness(8);
-    let spec = &MinimalEthSpec::default_spec();
+    let spec = &harness.chain.spec;
     let mut state = harness.chain.head().expect("should get head").beacon_state;
 
     // Run per_slot_processing until it returns an error.

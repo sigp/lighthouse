@@ -77,6 +77,7 @@ impl ApiTester {
     pub fn new() -> Self {
         let mut harness = BeaconChainHarness::new(
             MainnetEthSpec,
+            None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 
@@ -230,6 +231,7 @@ impl ApiTester {
     pub fn new_from_genesis() -> Self {
         let harness = BeaconChainHarness::new(
             MainnetEthSpec,
+            None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 

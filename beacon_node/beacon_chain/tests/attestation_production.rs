@@ -27,6 +27,7 @@ fn produces_attestations() {
 
     let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
+        None,
         KEYPAIRS[..].to_vec(),
         StoreConfig::default(),
     );

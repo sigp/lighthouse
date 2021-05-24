@@ -22,6 +22,7 @@ pub mod validator_statuses;
 pub mod weigh_justification_and_finalization;
 
 /// Provides a summary of validator participation during the epoch.
+#[derive(PartialEq, Debug)]
 pub struct EpochProcessingSummary {
     pub total_balances: TotalBalances,
     pub statuses: Vec<ValidatorStatus>,
@@ -35,6 +36,11 @@ pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary, Error> {
+    // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
+    state
+        .fork_name(spec)
+        .map_err(Error::InconsistentStateFork)?;
+
     match state {
         BeaconState::Base(_) => base::process_epoch(state, spec),
         BeaconState::Altair(_) => altair::process_epoch(state, spec),

@@ -330,6 +330,7 @@ mod test {
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
         let harness = BeaconChainHarness::new_with_store_config(
             MainnetEthSpec,
+            None,
             types::test_utils::generate_deterministic_keypairs(validator_count),
             StoreConfig::default(),
         );

@@ -58,6 +58,7 @@ fn get_harness<E: EthSpec>(
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         E::default(),
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );

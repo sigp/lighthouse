@@ -34,6 +34,7 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_target_aggregators(
         MainnetEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
         // not all.
