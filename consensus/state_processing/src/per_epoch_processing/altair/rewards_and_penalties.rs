@@ -1,7 +1,6 @@
 use safe_arith::SafeArith;
 use types::consts::altair::{
-    FLAG_INDICES_AND_WEIGHTS, INACTIVITY_PENALTY_QUOTIENT_ALTAIR, INACTIVITY_SCORE_BIAS,
-    TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
+    FLAG_INDICES_AND_WEIGHTS, TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
 };
 use types::{BeaconState, ChainSpec, EthSpec};
 
@@ -120,8 +119,9 @@ pub fn get_inactivity_penalty_deltas<T: EthSpec>(
                     .get_validator(index)?
                     .effective_balance
                     .safe_mul(state.get_inactivity_score(index)?)?;
-                let penalty_denominator =
-                    INACTIVITY_SCORE_BIAS.safe_mul(INACTIVITY_PENALTY_QUOTIENT_ALTAIR)?;
+                let penalty_denominator = spec
+                    .inactivity_score_bias
+                    .safe_mul(spec.inactivity_penalty_quotient_altair)?;
                 delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
             }
             deltas
