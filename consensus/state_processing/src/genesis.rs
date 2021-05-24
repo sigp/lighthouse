@@ -42,7 +42,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // To support testnets with Altair enabled from genesis, perform a possible state upgrade here.
     // This must happen *after* deposits and activations are processed or the calculation of sync
     // committees during the upgrade will fail.
-    if spec.altair_fork_slot == Some(spec.genesis_slot) {
+    if spec.fork_name_at_slot(state.slot()) == ForkName::Altair {
         state.upgrade_to_altair(spec)?;
 
         //FIXME(sean): this breaks EF tests (until the next version is released?)

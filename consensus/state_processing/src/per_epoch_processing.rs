@@ -4,6 +4,7 @@
 pub use base::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 use errors::EpochProcessingError as Error;
 pub use registry_updates::process_registry_updates;
+use safe_arith::SafeArith;
 pub use slashings::process_slashings;
 use types::{BeaconState, ChainSpec, EthSpec};
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
@@ -43,5 +44,32 @@ pub fn process_epoch<T: EthSpec>(
     match state {
         BeaconState::Base(_) => base::process_epoch(state, spec),
         BeaconState::Altair(_) => altair::process_epoch(state, spec),
+    }
+}
+
+/// Used to track the changes to a validator's balance.
+#[derive(Default, Clone)]
+pub struct Delta {
+    pub rewards: u64,
+    pub penalties: u64,
+}
+
+impl Delta {
+    /// Reward the validator with the `reward`.
+    pub fn reward(&mut self, reward: u64) -> Result<(), Error> {
+        self.rewards = self.rewards.safe_add(reward)?;
+        Ok(())
+    }
+
+    /// Penalize the validator with the `penalty`.
+    pub fn penalize(&mut self, penalty: u64) -> Result<(), Error> {
+        self.penalties = self.penalties.safe_add(penalty)?;
+        Ok(())
+    }
+
+    /// Combine two deltas.
+    fn combine(&mut self, other: Delta) -> Result<(), Error> {
+        self.reward(other.rewards)?;
+        self.penalize(other.penalties)
     }
 }

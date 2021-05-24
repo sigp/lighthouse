@@ -2,40 +2,48 @@ use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
 use crate::per_epoch_processing::validator_statuses::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
-use crate::per_epoch_processing::Error;
+use crate::per_epoch_processing::{Delta, Error};
 use safe_arith::SafeArith;
+use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
 
-/// Use to track the changes to a validators balance.
+/// Combination of several deltas for different components of an attestation reward.
+///
+/// Exists only for compatibility with EF rewards tests.
 #[derive(Default, Clone)]
-pub struct Delta {
-    rewards: u64,
-    penalties: u64,
+pub struct AttestationDelta {
+    pub source_delta: Delta,
+    pub target_delta: Delta,
+    pub head_delta: Delta,
+    pub inclusion_delay_delta: Delta,
+    pub inactivity_penalty_delta: Delta,
 }
 
-impl Delta {
-    /// Reward the validator with the `reward`.
-    pub fn reward(&mut self, reward: u64) -> Result<(), Error> {
-        self.rewards = self.rewards.safe_add(reward)?;
-        Ok(())
-    }
-
-    /// Penalize the validator with the `penalty`.
-    pub fn penalize(&mut self, penalty: u64) -> Result<(), Error> {
-        self.penalties = self.penalties.safe_add(penalty)?;
-        Ok(())
-    }
-
-    /// Combine two deltas.
-    fn combine(&mut self, other: Delta) -> Result<(), Error> {
-        self.reward(other.rewards)?;
-        self.penalize(other.penalties)
+impl AttestationDelta {
+    /// Flatten into a single delta.
+    pub fn flatten(self) -> Result<Delta, Error> {
+        let AttestationDelta {
+            source_delta,
+            target_delta,
+            head_delta,
+            inclusion_delay_delta,
+            inactivity_penalty_delta,
+        } = self;
+        let mut result = Delta::default();
+        for delta in ArrayIter::new([
+            source_delta,
+            target_delta,
+            head_delta,
+            inclusion_delay_delta,
+            inactivity_penalty_delta,
+        ]) {
+            result.combine(delta)?;
+        }
+        Ok(result)
     }
 }
 
 /// Apply attester and proposer rewards.
-///
-/// Spec v0.12.1
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_statuses: &mut ValidatorStatuses,
@@ -56,28 +64,27 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
-    for (i, delta) in deltas.iter().enumerate() {
-        increase_balance(state, i, delta.rewards)?;
-        decrease_balance(state, i, delta.penalties)?;
+    for (i, delta) in deltas.into_iter().enumerate() {
+        let combined_delta = delta.flatten()?;
+        increase_balance(state, i, combined_delta.rewards)?;
+        decrease_balance(state, i, combined_delta.penalties)?;
     }
 
     Ok(())
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
-///
-/// Spec v0.12.1
-fn get_attestation_deltas<T: EthSpec>(
+pub fn get_attestation_deltas<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
-) -> Result<Vec<Delta>, Error> {
+) -> Result<Vec<AttestationDelta>, Error> {
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
         .as_u64();
 
-    let mut deltas = vec![Delta::default(); state.validators().len()];
+    let mut deltas = vec![AttestationDelta::default(); state.validators().len()];
 
     let total_balances = &validator_statuses.total_balances;
 
@@ -106,16 +113,19 @@ fn get_attestation_deltas<T: EthSpec>(
         let delta = deltas
             .get_mut(index)
             .ok_or(Error::DeltaOutOfBounds(index))?;
-        delta.combine(source_delta)?;
-        delta.combine(target_delta)?;
-        delta.combine(head_delta)?;
-        delta.combine(inclusion_delay_delta)?;
-        delta.combine(inactivity_penalty_delta)?;
+        delta.source_delta.combine(source_delta)?;
+        delta.target_delta.combine(target_delta)?;
+        delta.head_delta.combine(head_delta)?;
+        delta.inclusion_delay_delta.combine(inclusion_delay_delta)?;
+        delta
+            .inactivity_penalty_delta
+            .combine(inactivity_penalty_delta)?;
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
             deltas
                 .get_mut(proposer_index)
                 .ok_or(Error::ValidatorStatusesInconsistent)?
+                .inclusion_delay_delta
                 .combine(proposer_delta)?;
         }
     }
