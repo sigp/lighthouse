@@ -1455,7 +1455,6 @@ mod release_tests {
         let contributions = harness.make_sync_contributions(&state, Hash256::zero(), slot);
 
         for (_, contribution_and_proof) in contributions {
-            dbg!("here");
             let contribution = contribution_and_proof
                 .expect("contribution exists for committee")
                 .message
@@ -1515,7 +1514,6 @@ mod release_tests {
         let contributions = harness.make_sync_contributions(&state, Hash256::zero(), slot);
 
         for (_, contribution_and_proof) in contributions {
-            dbg!("here");
             let contribution = contribution_and_proof
                 .expect("contribution exists for committee")
                 .message

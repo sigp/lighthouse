@@ -221,7 +221,9 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
             }
         } else {
             if self.map.len() >= MAX_SYNC_CONTRIBUTIONS_PER_SLOT {
-                return Err(Error::ReachedMaxItemsPerSlot(MAX_SYNC_CONTRIBUTIONS_PER_SLOT));
+                return Err(Error::ReachedMaxItemsPerSlot(
+                    MAX_SYNC_CONTRIBUTIONS_PER_SLOT,
+                ));
             }
 
             self.map.insert(sync_data_root, a.clone());
@@ -488,7 +490,7 @@ mod tests {
         a.data.slot = slot
     }
 
-    fn attestation_block_root_comparator(a: &Attestation<E>, block_root:Hash256) -> bool {
+    fn attestation_block_root_comparator(a: &Attestation<E>, block_root: Hash256) -> bool {
         a.data.beacon_block_root == block_root
     }
 
@@ -507,7 +509,10 @@ mod tests {
         a.slot = slot
     }
 
-    fn sync_contribution_block_root_comparator(a: &SyncCommitteeContribution<E>, block_root:Hash256) -> bool {
+    fn sync_contribution_block_root_comparator(
+        a: &SyncCommitteeContribution<E>,
+        block_root: Hash256,
+    ) -> bool {
         a.beacon_block_root == block_root
     }
 

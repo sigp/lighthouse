@@ -224,7 +224,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     ///
     /// This pool accepts `SyncCommitteeContribution` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `SyncCommitteeContribution` for some `SyncCommitteeContributionData`.
-    pub naive_sync_aggregation_pool: RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
+    pub naive_sync_aggregation_pool:
+        RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
     /// Contains a store of sync contributions which have been observed by the beacon chain.
@@ -1138,12 +1139,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
-        let banana = VerifiedSyncContribution::verify(sync_contribution, self);
-        if let Err(ref e) = banana {
-            banana
-        } else {
-            banana
-        }
+        VerifiedSyncContribution::verify(sync_contribution, self)
         //FIXME(sean): verify events in the api spec
 
         //     .map(|v| {

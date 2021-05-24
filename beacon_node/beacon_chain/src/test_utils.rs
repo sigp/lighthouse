@@ -801,14 +801,14 @@ where
                             subnet_id, slot, committee_signatures.len()
                         ));
 
-                    let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, 0)
+                    let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, *subcommittee_position)
                         .expect("should derive sync contribution");
 
-                    // TODO: could update this to use the naive aggregation pool like with attestations
+                    // FIXME(sean): could update this to use the naive aggregation pool like with attestations
                     let aggregate =
-                            committee_signatures.iter().enumerate().skip(1)
-                                .fold(default, |mut agg, (i, sig)| {
-                                    let contribution = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, i)
+                            committee_signatures.iter().skip(1)
+                                .fold(default, |mut agg, (sig, position)| {
+                                    let contribution = SyncCommitteeContribution::from_signature(sig, subnet_id as u64, *position)
                                         .expect("should derive sync contribution");
                                     agg.aggregate(&contribution);
                                     agg

@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
@@ -16,6 +16,8 @@ use safe_arith::SafeArith;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
+use std::collections::HashSet;
+use store::chain_spec::Domain::ContributionAndProof;
 use store::config::StoreConfig;
 use store::{SignedContributionAndProof, SyncCommitteeContribution, SyncCommitteeSignature};
 use tree_hash::TreeHash;
@@ -283,8 +285,30 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
+     * The subcommittee index is in the allowed range,
+     * i.e. `contribution.subcommittee_index < SYNC_COMMITTEE_SUBNET_COUNT`.
+     */
+
+    assert_invalid!(
+        "subcommittee index out of range",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.contribution.subcommittee_index = SYNC_COMMITTEE_SUBNET_COUNT + 1;
+            a
+        },
+       SyncCommitteeError::InvalidSubcommittee {
+                subcommittee_index,
+                subcommittee_size,
+            }
+            if subcommittee_index == SYNC_COMMITTEE_SUBNET_COUNT + 1 && subcommittee_size == SYNC_COMMITTEE_SUBNET_COUNT
+
+    );
+
+    /*
+     * The following test ensures:
+     *
      * The attestation has participants.
-     * Fixme(sean): this isn't in the spec
+     * Fixme(sean): this one isn't in the spec, do we want this anyways?
      */
 
     assert_invalid!(
@@ -321,8 +345,8 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * The aggregate_and_proof.selection_proof is a valid signature of the aggregate.data.slot by
-     * the validator with index aggregate_and_proof.aggregator_index.
+     * The aggregate_and_proof.selection_proof is a valid signature of the `SyncAggregatorSelectionData`
+     * derived from the contribution by the validator with index `contribution_and_proof.aggregator_index`.
      */
 
     assert_invalid!(
@@ -353,7 +377,9 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * The signature of aggregate is valid.
+     * The aggregate signature is valid for the message `beacon_block_root` and aggregate pubkey
+     * derived from the participation info in `aggregation_bits` for the subcommittee specified by
+     * the `contribution.subcommittee_index`.
      */
 
     assert_invalid!(
@@ -389,23 +415,19 @@ fn aggregated_gossip_verification() {
      * committee -- i.e. state.validators[contribution_and_proof.aggregator_index].pubkey in
      * get_sync_subcommittee_pubkeys(state, contribution.subcommittee_index).
      */
-    // assert_invalid!(
-    //     "aggregate with unknown aggregator index",
-    //     {
-    //         let mut a = valid_aggregate.clone();
-    //         a.message.contribution.subcommittee_index += 1;
-    //         a
-    //     },
-    //     // Naively we should think this condition would trigger this error:
-    //     //
-    //     // AttnError::AggregatorPubkeyUnknown(unknown_validator)
-    //     //
-    //     // However the following error is triggered first:
-    //     SyncCommitteeError::AggregatorNotInCommittee {
-    //         aggregator_index
-    //     }
-    //     if subcommittee_index == non_aggregator_index as u64
-    // );
+
+    assert_invalid!(
+        "aggregate with unknown aggregator index",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.contribution.subcommittee_index +=1;
+            a
+        },
+        SyncCommitteeError::AggregatorNotInCommittee {
+            aggregator_index
+        }
+        if aggregator_index == valid_aggregate.message.aggregator_index as u64
+    );
 
     /*
      * The following test ensures:
@@ -413,6 +435,7 @@ fn aggregated_gossip_verification() {
      * `contribution_and_proof.selection_proof` selects the validator as an aggregator for the
      *  slot -- i.e. is_sync_committee_aggregator(contribution_and_proof.selection_proof) returns True.
      */
+
     let (non_aggregator_index, non_aggregator_sk) = get_non_aggregator(&harness, current_slot);
     assert_invalid!(
         "aggregate from non-aggregator",
@@ -433,7 +456,7 @@ fn aggregated_gossip_verification() {
         if index == non_aggregator_index as u64
     );
 
-    // NOTE: from here on, the tests are stateful, and rely on the valid attestation having been
+    // NOTE: from here on, the tests are stateful, and rely on the valid sync contribution having been
     // seen. A refactor to give each test case its own state might be nice at some point
     harness
         .chain
@@ -443,31 +466,28 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * Spec v0.12.1
-     *
-     * The valid aggregate attestation defined by hash_tree_root(aggregate) has not already been
-     * seen (via aggregate gossip, within a block, or through the creation of an equivalent
-     * aggregate locally).
+     * The sync committee contribution is the first valid contribution received for the aggregator
+     * with index contribution_and_proof.aggregator_index for the slot contribution.slot and
+     * subcommittee index contribution.subcommittee_index.
      */
 
     assert_invalid!(
         "aggregate that has already been seen",
         valid_aggregate.clone(),
-        SyncCommitteeError::AttestationAlreadyKnown(hash)
+        SyncCommitteeError::SyncContributionAlreadyKnown(hash)
         if hash == valid_aggregate.message.contribution.tree_hash_root()
     );
 
     /*
      * The following test ensures:
      *
-     * Spec v0.12.1
-     *
-     * The aggregate is the first valid aggregate received for the aggregator with index
-     * aggregate_and_proof.aggregator_index for the epoch aggregate.data.target.epoch.
+     * The sync committee contribution is the first valid contribution received for the aggregator
+     * with index `contribution_and_proof.aggregator_index` for the slot `contribution.slot` and
+     * subcommittee index `contribution.subcommittee_index`.
      */
 
     assert_invalid!(
-        "aggregate from aggregator that has already been seen",
+        "aggregate from aggregator and subcommittee that has already been seen",
         {
             let mut a = valid_aggregate.clone();
             a.message.contribution.beacon_block_root = Hash256::from_low_u64_le(42);
@@ -476,9 +496,12 @@ fn aggregated_gossip_verification() {
         SyncCommitteeError::AggregatorAlreadyKnown(index)
         if index == aggregator_index as u64
     );
+
+    //FIXME(sean): add a test ensuring that we will accept a aggregates from the same aggregator_index
+    // on different subcommittees
 }
 
-/// Tests the verification conditions for an unaggregated attestation on the gossip network.
+/// Tests the verification conditions for sync committee signatures on the gossip network.
 #[test]
 fn unaggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -533,7 +556,8 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * The subnet_id is valid for the given validator, i.e. subnet_id in compute_subnets_for_sync_committee(state, sync_committee_signature.validator_index).
+     * The subnet_id is valid for the given validator, i.e. subnet_id in
+     * compute_subnets_for_sync_committee(state, sync_committee_signature.validator_index).
      */
     let id: u64 = subnet_id.into();
     let invalid_subnet_id = SyncSubnetId::new(id + 1);
@@ -598,7 +622,8 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures that:
      *
-     * The block being signed over (sync_committee_signature.beacon_block_root) has been seen (via both gossip and non-gossip sources).
+     * The block being signed over (sync_committee_signature.beacon_block_root) has been seen
+     * (via both gossip and non-gossip sources).
      */
 
     let unknown_root = Hash256::from_low_u64_le(424242); // No one wants one of these
@@ -619,7 +644,8 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures that:
      *
-     * The signature is valid for the message beacon_block_root for the validator referenced by validator_index.
+     * The signature is valid for the message beacon_block_root for the validator referenced by
+     * validator_index.
      */
     assert_invalid!(
         "attestation with bad signature",
@@ -642,7 +668,8 @@ fn unaggregated_gossip_verification() {
     /*
      * The following test ensures that:
      *
-     * There has been no other valid sync committee signature for the declared slot for the validator referenced by sync_committee_signature.validator_index.
+     * There has been no other valid sync committee signature for the declared slot for the
+     * validator referenced by sync_committee_signature.validator_index.
      */
     assert_invalid!(
         "attestation that has already been seen",
@@ -655,74 +682,3 @@ fn unaggregated_gossip_verification() {
         if validator_index == expected_validator_index as u64 && slot == current_slot
     );
 }
-//
-// /// Ensures that an attestation that skips epochs can still be processed.
-// ///
-// /// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
-// #[test]
-// fn attestation_that_skips_epochs() {
-//     let harness = get_harness(VALIDATOR_COUNT);
-//
-//     // Extend the chain out a few epochs so we have some chain depth to play with.
-//     harness.extend_chain(
-//         MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
-//         BlockStrategy::OnCanonicalHead,
-//         AttestationStrategy::SomeValidators(vec![]),
-//     );
-//
-//     let current_slot = harness.chain.slot().expect("should get slot");
-//     let current_epoch = harness.chain.epoch().expect("should get epoch");
-//
-//     let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
-//     let earlier_block = harness
-//         .chain
-//         .block_at_slot(earlier_slot)
-//         .expect("should not error getting block at slot")
-//         .expect("should find block at slot");
-//
-//     let mut state = harness
-//         .chain
-//         .get_state(&earlier_block.state_root(), Some(earlier_slot))
-//         .expect("should not error getting state")
-//         .expect("should find state");
-//
-//     while state.slot() < current_slot {
-//         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
-//     }
-//
-//     let state_root = state.update_tree_hash_cache().unwrap();
-//
-//     let (attestation, subnet_id) = harness
-//         .get_unaggregated_attestations(
-//             &AttestationStrategy::AllValidators,
-//             &state,
-//             state_root,
-//             earlier_block.canonical_root(),
-//             current_slot,
-//         )
-//         .first()
-//         .expect("should have at least one committee")
-//         .first()
-//         .cloned()
-//         .expect("should have at least one attestation in committee");
-//
-//     let block_root = attestation.data.beacon_block_root;
-//     let block_slot = harness
-//         .chain
-//         .store
-//         .get_block(&block_root)
-//         .expect("should not error getting block")
-//         .expect("should find attestation block")
-//         .message()
-//         .slot();
-//
-//     assert!(
-//         attestation.data.slot - block_slot > E::slots_per_epoch() * 2,
-//         "the attestation must skip more than two epochs"
-//     );
-//
-//     harness
-//         .chain
-//         .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
-//         .expect("should gossip verify attestation that skips slots");
-// }

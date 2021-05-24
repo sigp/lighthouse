@@ -12,15 +12,15 @@
 
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
-
 use std::marker::PhantomData;
-
+use crate::store::attestation::SlotData;
+use std::hash::Hash;
 use types::{Epoch, EthSpec, Slot, Unsigned};
-
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
-pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<SlotHashSet, E>;
+pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<Slot, SlotHashSet, E>;
 pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
-pub type ObservedSyncAggregators<E> = AutoPruningSlotContainer<SlotHashSet, E>;
+pub type ObservedSyncAggregators<E> =
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, SlotHashSet, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -343,13 +343,13 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
-pub struct AutoPruningSlotContainer<T, E: EthSpec> {
+pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, V, E: EthSpec> {
     lowest_permissible_slot: Slot,
-    items: HashMap<Slot, T>,
+    items: HashMap<K, V>,
     _phantom: PhantomData<E>,
 }
 
-impl<T, E: EthSpec> Default for AutoPruningSlotContainer<T, E> {
+impl<K: SlotData + Eq + Hash, V, E: EthSpec> Default for AutoPruningSlotContainer<K, V, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
@@ -359,7 +359,7 @@ impl<T, E: EthSpec> Default for AutoPruningSlotContainer<T, E> {
     }
 }
 
-impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
+impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V, E> {
     /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
     /// previously been observed for `validator_index`.
     ///
@@ -367,30 +367,31 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
-    pub fn observe_validator(&mut self, slot: Slot, validator_index: usize) -> Result<bool, Error> {
+    pub fn observe_validator(&mut self, key: K, validator_index: usize) -> Result<bool, Error> {
+        let slot = key.get_slot();
         self.sanitize_request(slot, validator_index)?;
 
         self.prune(slot);
 
-        if let Some(item) = self.items.get_mut(&slot) {
+        if let Some(item) = self.items.get_mut(&key) {
             Ok(item.insert(validator_index))
         } else {
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
-            // by obtaining the mean size of all items in earlier epoch.
+            // by obtaining the mean size of all items in earlier slot.
             let (count, sum) = self
                 .items
                 .iter()
-                // Only include epochs that are less than the given slot in the average. This should
-                // generally avoid including recent epochs that are still "filling up".
-                .filter(|(item_epoch, _item)| **item_epoch < slot)
+                // Only include slots that are less than the given slot in the average. This should
+                // generally avoid including recent slots that are still "filling up".
+                .filter(|(item_epoch, _item)| key.get_slot() < slot)
                 .map(|(_epoch, item)| item.len())
                 .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
 
-            let initial_capacity = sum.checked_div(count).unwrap_or_else(T::default_capacity);
+            let initial_capacity = sum.checked_div(count).unwrap_or_else(V::default_capacity);
 
-            let mut item = T::with_capacity(initial_capacity);
+            let mut item = V::with_capacity(initial_capacity);
             item.insert(validator_index);
-            self.items.insert(slot, item);
+            self.items.insert(key, item);
 
             Ok(false)
         }
@@ -405,14 +406,14 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
     /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
     pub fn validator_has_been_observed(
         &self,
-        slot: Slot,
+        key: K,
         validator_index: usize,
     ) -> Result<bool, Error> {
-        self.sanitize_request(slot, validator_index)?;
+        self.sanitize_request(key.get_slot(), validator_index)?;
 
         let exists = self
             .items
-            .get(&slot)
+            .get(&key)
             .map_or(false, |item| item.contains(validator_index));
 
         Ok(exists)
@@ -420,8 +421,8 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
 
     /// Returns the number of validators that have been observed at the given `epoch`. Returns
     /// `None` if `self` does not have a cache for that epoch.
-    pub fn observed_validator_count(&self, slot: Slot) -> Option<usize> {
-        self.items.get(&slot).map(|item| item.validator_count())
+    pub fn observed_validator_count(&self, key: K) -> Option<usize> {
+        self.items.get(&key).map(|item| item.validator_count())
     }
 
     fn sanitize_request(&self, slot: Slot, validator_index: usize) -> Result<(), Error> {
@@ -468,7 +469,7 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
         self.lowest_permissible_slot = lowest_permissible_slot;
 
         self.items
-            .retain(|slot, _item| *slot >= lowest_permissible_slot);
+            .retain(|key, _item| key.get_slot() >= lowest_permissible_slot);
     }
 
     /// Returns the `lowest_permissible_slot`
@@ -477,17 +478,38 @@ impl<T: Item, E: EthSpec> AutoPruningSlotContainer<T, E> {
     }
 }
 
+#[derive(Eq, PartialEq, Hash, Clone, Copy, PartialOrd, Ord, Debug)]
+pub struct SlotSubcommitteeIndex {
+    slot: Slot,
+    subcommittee_index: u64,
+}
+
+impl SlotData for SlotSubcommitteeIndex {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
+
+impl SlotSubcommitteeIndex {
+    pub fn new(slot: Slot, subcommittee_index: u64) -> Self {
+        Self {
+            slot,
+            subcommittee_index,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    type E = types::MainnetEthSpec;
 
     macro_rules! test_suite {
         ($mod_name: ident, $type: ident, $period_type: ident) => {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
-
-                type E = types::MainnetEthSpec;
 
                 fn single_period_test(store: &mut $type<E>, period: $period_type) {
                     let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
@@ -643,5 +665,272 @@ mod tests {
     test_suite!(observed_attesters, ObservedAttesters, Epoch);
     test_suite!(observed_sync_contributors, ObservedSyncContributors, Slot);
     test_suite!(observed_aggregators, ObservedAggregators, Epoch);
-    test_suite!(observed_sync_aggregators, ObservedSyncAggregators, Slot);
+
+    fn single_period_test(store: &mut ObservedSyncAggregators<E>, key: SlotSubcommitteeIndex) {
+        let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
+
+        for &i in &validator_indices {
+            assert_eq!(
+                store.validator_has_been_observed(key, i),
+                Ok(false),
+                "should indicate an unknown attestation is unknown"
+            );
+            assert_eq!(
+                store.observe_validator(key, i),
+                Ok(false),
+                "should observe new attestation"
+            );
+        }
+
+        for &i in &validator_indices {
+            assert_eq!(
+                store.validator_has_been_observed(key, i),
+                Ok(true),
+                "should indicate a known attestation is known"
+            );
+            assert_eq!(
+                store.observe_validator(key, i),
+                Ok(true),
+                "should acknowledge an existing attestation"
+            );
+        }
+    }
+
+    #[test]
+    fn single_period() {
+        let mut store = ObservedSyncAggregators::default();
+
+        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 0));
+
+        assert_eq!(store.items.len(), 1, "should have a single bitfield stored");
+    }
+
+    #[test]
+    fn single_period_multiple_subcommittees() {
+        let mut store = ObservedSyncAggregators::default();
+
+        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 0));
+        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 1));
+        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 2));
+
+        assert_eq!(store.items.len(), 3, "should have three hash sets stored");
+    }
+
+    #[test]
+    fn mulitple_contiguous_periods_same_subcommittee() {
+        let mut store = ObservedSyncAggregators::default();
+        let max_cap = store.max_capacity();
+
+        for i in 0..max_cap * 3 {
+            let period = SlotSubcommitteeIndex::new(Slot::new(i), 0);
+
+            single_period_test(&mut store, period);
+
+            /*
+             * Ensure that the number of sets is correct.
+             */
+
+            if i < max_cap {
+                assert_eq!(
+                    store.items.len(),
+                    i as usize + 1,
+                    "should have a {} items stored",
+                    i + 1
+                );
+            } else {
+                assert_eq!(
+                    store.items.len(),
+                    max_cap as usize,
+                    "should have max_capacity items stored"
+                );
+            }
+
+            /*
+             *  Ensure that all the sets have the expected slots
+             */
+
+            let mut store_periods = store
+                .items
+                .iter()
+                .map(|(period, _set)| *period)
+                .collect::<Vec<_>>();
+
+            assert!(
+                store_periods.len() <= store.max_capacity() as usize,
+                "store size should not exceed max"
+            );
+
+            store_periods.sort_unstable();
+
+            let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
+                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), 0))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                expected_periods, store_periods,
+                "should have expected slots"
+            );
+        }
+    }
+
+    #[test]
+    fn mulitple_non_contiguous_periods_same_subcommitte() {
+        let mut store = ObservedSyncAggregators::default();
+        let max_cap = store.max_capacity();
+
+        let to_skip = vec![1_u64, 3, 4, 5];
+        let periods = (0..max_cap * 3)
+            .into_iter()
+            .filter(|i| !to_skip.contains(i))
+            .collect::<Vec<_>>();
+
+        for &i in &periods {
+            if to_skip.contains(&i) {
+                continue;
+            }
+
+            let period = SlotSubcommitteeIndex::new(Slot::from(i), 0);
+
+            single_period_test(&mut store, period);
+
+            /*
+             *  Ensure that all the sets have the expected slots
+             */
+
+            let mut store_periods = store
+                .items
+                .iter()
+                .map(|(period, _)| *period)
+                .collect::<Vec<_>>();
+
+            store_periods.sort_unstable();
+
+            assert!(
+                store_periods.len() <= store.max_capacity() as usize,
+                "store size should not exceed max"
+            );
+
+            let lowest = store.get_lowest_permissible().as_u64();
+            let highest = period.slot.as_u64();
+            let expected_periods = (lowest..=highest)
+                .filter(|i| !to_skip.contains(i))
+                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), 0))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                expected_periods,
+                &store_periods[..],
+                "should have expected epochs"
+            );
+        }
+    }
+
+    #[test]
+    fn mulitple_contiguous_periods_different_subcommittee() {
+        let mut store = ObservedSyncAggregators::default();
+        let max_cap = store.max_capacity();
+
+        for i in 0..max_cap * 3 {
+            let period = SlotSubcommitteeIndex::new(Slot::new(i), i);
+
+            single_period_test(&mut store, period);
+
+            /*
+             * Ensure that the number of sets is correct.
+             */
+
+            if i < max_cap {
+                assert_eq!(
+                    store.items.len(),
+                    i as usize + 1,
+                    "should have a {} items stored",
+                    i + 1
+                );
+            } else {
+                assert_eq!(
+                    store.items.len(),
+                    max_cap as usize,
+                    "should have max_capacity items stored"
+                );
+            }
+
+            /*
+             *  Ensure that all the sets have the expected slots
+             */
+
+            let mut store_periods = store
+                .items
+                .iter()
+                .map(|(period, _set)| *period)
+                .collect::<Vec<_>>();
+
+            assert!(
+                store_periods.len() <= store.max_capacity() as usize,
+                "store size should not exceed max"
+            );
+
+            store_periods.sort_unstable();
+
+            let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
+                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), i))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                expected_periods, store_periods,
+                "should have expected slots"
+            );
+        }
+    }
+
+    #[test]
+    fn mulitple_non_contiguous_periods_different_subcommitte() {
+        let mut store = ObservedSyncAggregators::default();
+        let max_cap = store.max_capacity();
+
+        let to_skip = vec![1_u64, 3, 4, 5];
+        let periods = (0..max_cap * 3)
+            .into_iter()
+            .filter(|i| !to_skip.contains(i))
+            .collect::<Vec<_>>();
+
+        for &i in &periods {
+            if to_skip.contains(&i) {
+                continue;
+            }
+
+            let period = SlotSubcommitteeIndex::new(Slot::from(i), i);
+
+            single_period_test(&mut store, period);
+
+            /*
+             *  Ensure that all the sets have the expected slots
+             */
+
+            let mut store_periods = store
+                .items
+                .iter()
+                .map(|(period, _)| *period)
+                .collect::<Vec<_>>();
+
+            store_periods.sort_unstable();
+
+            assert!(
+                store_periods.len() <= store.max_capacity() as usize,
+                "store size should not exceed max"
+            );
+
+            let lowest = store.get_lowest_permissible().as_u64();
+            let highest = period.slot.as_u64();
+            let expected_periods = (lowest..=highest)
+                .filter(|i| !to_skip.contains(i))
+                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), i))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                expected_periods,
+                &store_periods[..],
+                "should have expected epochs"
+            );
+        }
+    }
 }

@@ -13,6 +13,12 @@ pub trait SlotData {
     fn get_slot(&self) -> Slot;
 }
 
+impl SlotData for Slot {
+    fn get_slot(&self) -> Slot {
+        *self
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),

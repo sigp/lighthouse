@@ -28,9 +28,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-
 use strum::AsRefStr;
-
 use bls::verify_signature_sets;
 use eth2::lighthouse_vc::types::attestation::SlotData;
 use proto_array::Block as ProtoBlock;
@@ -49,7 +47,7 @@ use types::{
     SignedContributionAndProof, Slot, SyncCommitteeContribution, SyncCommitteeSignature,
     SyncSelectionProof, SyncSubnetId, Unsigned,
 };
-
+use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
     beacon_chain::{
         HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
@@ -118,14 +116,14 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
-    /// The attestation has been seen before; either in a block, on the gossip network or from a
+    /// The sync contribution has been seen before; either in a block, on the gossip network or from a
     /// local validator.
     ///
     /// ## Peer scoring
     ///
-    /// It's unclear if this attestation is valid, however we have already observed it and do not
+    /// It's unclear if this sync contribution is valid, however we have already observed it and do not
     /// need to observe it again.
-    AttestationAlreadyKnown(Hash256),
+    SyncContributionAlreadyKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -145,7 +143,7 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    UnknowValidatorIndex(usize),
+    UnknownValidatorIndex(usize),
     /// The `attestation.data.beacon_block_root` block is unknown.
     ///
     /// ## Peer scoring
@@ -277,7 +275,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         let aggregator_index = signed_aggregate.message.aggregator_index;
         let contribution = &signed_aggregate.message.contribution;
 
-        // Ensure sync committee signature is within the MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance.
+        // Ensure sync committee contribution is within the MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance.
         verify_propagation_slot_range(chain, contribution)?;
 
         // Validate subcommittee index.
@@ -288,7 +286,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             });
         }
 
-        // Ensure the valid aggregated attestation has not already been seen locally.
+        // Ensure the valid sync contribution has not already been seen locally.
         let contribution_root = contribution.tree_hash_root();
         if chain
             .observed_sync_contributions
@@ -296,16 +294,18 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .is_known(contribution, contribution_root)
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::AttestationAlreadyKnown(contribution_root));
+            return Err(Error::SyncContributionAlreadyKnown(contribution_root));
         }
 
         // Ensure there has been no other observed aggregate for the given `aggregator_index`.
         //
-        // Note: do not observe yet, only observe once the attestation has been verified.
+        // Note: do not observe yet, only observe once the sync contribution has been verified.
+        let observed_key =
+            SlotSubcommitteeIndex::new(contribution.slot, contribution.subcommittee_index);
         match chain
             .observed_sync_aggregators
             .read()
-            .validator_has_been_observed(contribution.slot, aggregator_index as usize)
+            .validator_has_been_observed(observed_key, aggregator_index as usize)
         {
             Ok(true) => Err(Error::AggregatorAlreadyKnown(aggregator_index)),
             Ok(false) => Ok(()),
@@ -315,16 +315,16 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             Err(e) => Err(BeaconChainError::from(e).into()),
         }?;
 
-        // Ensure the block being voted for (attestation.data.beacon_block_root) passes validation.
+        // Ensure the block being voted for (contribution.beacon_block_root) passes validation.
         // Don't enforce the skip slot restriction for aggregates.
         //
-        // This indirectly checks to see if the `attestation.data.beacon_block_root` is in our fork
+        // This indirectly checks to see if the `contribution.beacon_block_root` is in our fork
         // choice. Any known, non-finalized, processed block should be in fork choice, so this
-        // check immediately filters out attestations that attest to a block that has not been
-        // processed.
+        // check immediately filters out sync committee contributions that attest to a block that
+        // has not been processed.
         //
-        // Attestations must be for a known block. If the block is unknown, we simply drop the
-        // attestation and do not delay consideration for later.
+        // Sync committee contributions must be for a known block. If the block is unknown, we
+        // simply drop the sync committee contribution and do not delay consideration for later.
         let _head_block =
             verify_head_block_is_known(chain, contribution, contribution.beacon_block_root, None)?;
 
@@ -332,6 +332,25 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         if contribution.aggregation_bits.is_zero() {
             return Err(Error::EmptyAggregationBitfield);
         }
+
+        // Ensure the aggregator's pubkey is in the declared subcommittee of the current sync committee
+        let pubkey_bytes = chain
+            .validator_pubkey_bytes(aggregator_index as usize)?
+            .ok_or(Error::UnknownValidatorIndex(aggregator_index as usize))?;
+
+        let current_sync_committee = chain.head_current_sync_committee()?;
+        let subcommittee_index = contribution.subcommittee_index as usize;
+
+        let sync_subcommittee_size =
+            T::EthSpec::sync_committee_size().safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
+        let start_subcommittee = subcommittee_index.safe_mul(sync_subcommittee_size)?;
+        let end_subcommittee = start_subcommittee.safe_add(sync_subcommittee_size)?;
+
+        if !current_sync_committee.pubkeys[start_subcommittee..end_subcommittee]
+            .contains(&pubkey_bytes)
+        {
+            return Err(Error::AggregatorNotInCommittee { aggregator_index });
+        };
 
         // Note: this clones the signature which is known to be a relatively slow operation.
         //
@@ -346,26 +365,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             return Err(Error::InvalidSelectionProof { aggregator_index });
         }
 
-        // Ensure the aggregator's pubkey is in the declared subcommittee of the current sync committee
-        let pubkey_bytes = chain
-            .validator_pubkey_bytes(aggregator_index as usize)?
-            .ok_or(Error::UnknowValidatorIndex(aggregator_index as usize))?;
-        let current_sync_committee = chain.head_current_sync_committee()?;
-
-        let subcommittee_index = contribution.subcommittee_index as usize;
-
-        let sync_subcommittee_size =
-            T::EthSpec::sync_committee_size().safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
-        let start_subcommittee = subcommittee_index.safe_mul(sync_subcommittee_size)?;
-        let end_subcommittee = start_subcommittee.safe_add(sync_subcommittee_size)?;
-
-        if !current_sync_committee.pubkeys[start_subcommittee..end_subcommittee]
-            .contains(&pubkey_bytes)
-        {
-            return Err(Error::AggregatorNotInCommittee { aggregator_index });
-        };
-
-        // only iter through the correct partition
+        // Gather all validator indices that signed this contribution.
         let participant_indices = current_sync_committee.pubkeys
             [start_subcommittee..end_subcommittee]
             .iter()
@@ -374,7 +374,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
                 bit.then::<Result<usize, Error>, _>(|| {
                     chain
                         .validator_index(&pubkey)?
-                        .ok_or(Error::UnknowValidatorIndex(aggregator_index as usize))
+                        .ok_or(Error::UnknownValidatorIndex(aggregator_index as usize))
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -407,7 +407,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .observe_item(contribution, Some(contribution_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::AttestationAlreadyKnown(contribution_root));
+            return Err(Error::SyncContributionAlreadyKnown(contribution_root));
         }
 
         // Observe the aggregator so we don't process another aggregate from them.
@@ -417,7 +417,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         if chain
             .observed_sync_aggregators
             .write()
-            .observe_validator(contribution.slot, aggregator_index as usize)
+            .observe_validator(observed_key, aggregator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorSyncSignatureKnown {
@@ -476,7 +476,7 @@ impl VerifiedSyncSignature {
                 .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
         let pubkey = chain
             .validator_pubkey_bytes(sync_signature.validator_index as usize)?
-            .ok_or(Error::UnknowValidatorIndex(
+            .ok_or(Error::UnknownValidatorIndex(
                 sync_signature.validator_index as usize,
             ))?;
 
