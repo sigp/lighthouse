@@ -419,7 +419,7 @@ mod tests {
     use store::BitVector;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
-        AggregateSignature, Domain, Fork, Hash256, SignedRoot, SyncCommitteeSignature,
+        Fork, Hash256, SyncCommitteeSignature,
     };
 
     type E = types::MainnetEthSpec;

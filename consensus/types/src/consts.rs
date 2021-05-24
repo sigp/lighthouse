@@ -10,7 +10,7 @@ pub mod altair {
     pub const WEIGHT_DENOMINATOR: u64 = 64;
     //FIXME(sean): updated in the latest spec
     pub const SYNC_COMMITTEE_SUBNET_COUNT: u64 = 8;
-    pub const TARGET_AGGREGATORS_PER_SYNC_COMMITTEE: u64 = 4;
+    pub const TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE: u64 = 4;
 
     pub const FLAG_INDICES_AND_WEIGHTS: [(u32, u64); NUM_FLAG_INDICES] = [
         (TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT),

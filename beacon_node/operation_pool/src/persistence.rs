@@ -8,6 +8,11 @@ use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
 
+type PersistedSyncContributions<T> = Vec<(
+    SyncAggregateId,
+    (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>),
+)>;
+
 /// SSZ-serializable version of `OperationPool`.
 ///
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
@@ -21,10 +26,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
     //FIXME(sean): think about whether we should store the SyncContributionId
-    sync_contributions: Vec<(
-        SyncAggregateId,
-        (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>),
-    )>,
+    sync_contributions: PersistedSyncContributions<T>,
     /// Attester slashings.
     attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Proposer slashings.

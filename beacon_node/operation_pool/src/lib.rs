@@ -12,12 +12,9 @@ use crate::sync_aggregate_id::SyncAggregateId;
 use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
-use itertools::Itertools;
 use max_cover::{maximum_cover, MaxCover};
 use parking_lot::RwLock;
-use state_processing::per_block_processing::errors::{
-    AttestationValidationError, SyncSignatureValidationError,
-};
+use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
     VerifySignatures,
@@ -26,7 +23,6 @@ use state_processing::SigVerifiedOp;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
-use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttesterSlashing,
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256,
@@ -34,14 +30,16 @@ use types::{
     SyncCommitteeContribution, Validator,
 };
 
+type SyncContributions<T> =
+    RwLock<HashMap<SyncAggregateId, (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>)>>;
+
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
     /// Map from sync aggregate ID to the current `SyncAggregate` and the best
     /// `SyncCommitteeContribution`s seen for that ID
-    sync_contributions:
-        RwLock<HashMap<SyncAggregateId, (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>)>>,
+    sync_contributions: SyncContributions<T>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
     /// Map from proposer index to slashing.
@@ -95,7 +93,7 @@ impl<T: EthSpec> OperationPool<T> {
             Entry::Vacant(entry) => {
                 // If no contributions or aggregate exist for these keys, insert both.
                 let contributions = vec![contribution];
-                let mut aggregate = SyncAggregate::from_contributions(contributions.as_slice())?;
+                let aggregate = SyncAggregate::from_contributions(contributions.as_slice())?;
                 entry.insert((contributions, aggregate));
             }
             Entry::Occupied(mut entry) => {
@@ -115,7 +113,7 @@ impl<T: EthSpec> OperationPool<T> {
                             < contribution.aggregation_bits.len()
                         {
                             existing_contributions.0[position] = contribution;
-                            let mut aggregate = SyncAggregate::from_contributions(
+                            let aggregate = SyncAggregate::from_contributions(
                                 existing_contributions.0.as_slice(),
                             )?;
                             existing_contributions.1 = aggregate;
@@ -125,7 +123,7 @@ impl<T: EthSpec> OperationPool<T> {
                         // If there has been no previous sync contribution for this subcommittee index,
                         // add it and recalculate the aggregate.
                         existing_contributions.0.push(contribution);
-                        let mut aggregate =
+                        let aggregate =
                             SyncAggregate::from_contributions(existing_contributions.0.as_slice())?;
                         existing_contributions.1 = aggregate;
                     }

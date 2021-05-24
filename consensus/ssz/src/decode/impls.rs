@@ -282,7 +282,7 @@ impl<T: Decode> Decode for Arc<T> {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        T::from_ssz_bytes(bytes).map(|t| Arc::new(t))
+        T::from_ssz_bytes(bytes).map(Arc::new)
     }
 }
 

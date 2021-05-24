@@ -3,29 +3,18 @@
 #[macro_use]
 extern crate lazy_static;
 
+use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{
-    sync_committee_verification::Error as SyncCommitteeError, BeaconChain, BeaconChainTypes,
-};
-use bls::generics::GenericSignature;
-use bls::impls::fake_crypto::Signature;
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
-use state_processing::{
-    per_block_processing::errors::AttestationValidationError, per_slot_processing,
-};
-use std::collections::HashSet;
-use store::chain_spec::Domain::ContributionAndProof;
-use store::config::StoreConfig;
-use store::{SignedContributionAndProof, SyncCommitteeContribution, SyncCommitteeSignature};
+use store::{SignedContributionAndProof, SyncCommitteeSignature};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
-    BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SignedAggregateAndProof, Slot,
-    SubnetId, SyncSelectionProof, SyncSubnetId, Unsigned,
+    AggregateSignature, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
+    SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -190,13 +179,6 @@ fn aggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (
-        valid_sync_signature,
-        _attester_index,
-        _attester_committee_index,
-        validator_sk,
-        _subnet_id,
-    ) = get_valid_sync_signature(&harness, current_slot);
     let (valid_aggregate, aggregator_index, aggregator_sk) =
         get_valid_sync_contribution(&harness, current_slot);
 
@@ -335,7 +317,7 @@ fn aggregated_gossip_verification() {
         {
             let mut a = valid_aggregate.clone();
 
-            a.signature = validator_sk.sign(Hash256::from_low_u64_be(42));
+            a.signature = aggregator_sk.sign(Hash256::from_low_u64_be(42));
 
             a
         },
@@ -361,7 +343,7 @@ fn aggregated_gossip_verification() {
             let mut i: u64 = 0;
             a.message.selection_proof = loop {
                 i += 1;
-                let proof: SyncSelectionProof = validator_sk
+                let proof: SyncSelectionProof = aggregator_sk
                     .sign(Hash256::from_slice(&int_to_bytes32(i)))
                     .into();
                 if proof.is_aggregator::<E>().unwrap() {
@@ -489,7 +471,7 @@ fn aggregated_gossip_verification() {
     assert_invalid!(
         "aggregate from aggregator and subcommittee that has already been seen",
         {
-            let mut a = valid_aggregate.clone();
+            let mut a = valid_aggregate;
             a.message.contribution.beacon_block_root = Hash256::from_low_u64_le(42);
             a
         },
@@ -517,8 +499,6 @@ fn unaggregated_gossip_verification() {
     harness.advance_slot();
 
     let current_slot = harness.chain.slot().expect("should get slot");
-    let current_epoch = harness.chain.epoch().expect("should get epoch");
-
     assert_eq!(
         current_slot % E::slots_per_epoch(),
         0,
@@ -528,7 +508,7 @@ fn unaggregated_gossip_verification() {
     let (
         valid_sync_signature,
         expected_validator_index,
-        validator_subcommittee_position,
+        _validator_subcommittee_position,
         validator_sk,
         subnet_id,
     ) = get_valid_sync_signature(&harness, current_slot);
@@ -673,7 +653,7 @@ fn unaggregated_gossip_verification() {
      */
     assert_invalid!(
         "attestation that has already been seen",
-        valid_sync_signature.clone(),
+        valid_sync_signature,
         subnet_id,
         SyncCommitteeError::PriorSyncSignatureKnown {
             validator_index,

@@ -1,4 +1,3 @@
-use crate::attestation_id::DOMAIN_BYTES_LEN;
 use serde_derive::{Deserialize, Serialize};
 use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
@@ -40,9 +39,5 @@ impl SyncAggregateId {
         spec: &ChainSpec,
     ) -> Hash256 {
         spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root)
-    }
-
-    pub fn domain_bytes_match(&self, domain_bytes: &Hash256) -> bool {
-        &self.v[self.v.len() - DOMAIN_BYTES_LEN..] == domain_bytes.as_bytes()
     }
 }

@@ -20,6 +20,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
+use safe_arith::SafeArith;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -31,21 +32,18 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
+use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use types::sync_selection_proof::SyncSelectionProof;
+pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
     typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
     Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
-    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeSignature, Unsigned,
-    VariableList, VoluntaryExit,
+    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeSignature, VariableList,
+    VoluntaryExit,
 };
-
-use safe_arith::SafeArith;
-use store::sync_subnet_id::SyncSubnetId;
-use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use types::sync_selection_proof::SyncSelectionProof;
-pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -630,7 +628,7 @@ where
                 subcommittee
                     .iter()
                     .enumerate()
-                    .filter_map(|(subcommittee_position, pubkey)| {
+                    .map(|(subcommittee_position, pubkey)| {
                         let validator_index = self
                             .chain
                             .validator_index(pubkey)
@@ -647,7 +645,7 @@ where
                             &self.spec,
                         );
 
-                        Some((sync_signature, subcommittee_position))
+                        (sync_signature, subcommittee_position)
                     })
                     .collect()
             })

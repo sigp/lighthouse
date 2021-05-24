@@ -99,12 +99,12 @@ impl Epoch {
 
     /// Compute the `base_epoch` used by sync committees.
     pub fn sync_committee_base_epoch(&self, spec: &ChainSpec) -> Result<Epoch, ArithError> {
-        Ok(std::cmp::max(
+        std::cmp::max(
             self.safe_div(spec.epochs_per_sync_committee_period)?,
             Epoch::new(1),
         )
         .safe_sub(1)?
-        .safe_mul(spec.epochs_per_sync_committee_period)?)
+        .safe_mul(spec.epochs_per_sync_committee_period)
     }
 }
 

@@ -26,9 +26,16 @@
 //!                  impl SignatureVerifiedSyncContribution
 //! ```
 
-use std::borrow::Cow;
-use std::collections::HashMap;
-use strum::AsRefStr;
+use crate::observed_attesters::SlotSubcommitteeIndex;
+use crate::{
+    beacon_chain::{
+        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    },
+    metrics,
+    observed_aggregates::ObserveOutcome,
+    observed_attesters::Error as ObservedAttestersError,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
+};
 use bls::verify_signature_sets;
 use eth2::lighthouse_vc::types::attestation::SlotData;
 use proto_array::Block as ProtoBlock;
@@ -40,22 +47,15 @@ use state_processing::signature_sets::{
     signed_sync_aggregate_selection_proof_signature_set, signed_sync_aggregate_signature_set,
     sync_committee_contribution_signature_set_from_pubkeys,
 };
+use std::borrow::Cow;
+use std::collections::HashMap;
+use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, EthSpec, Hash256,
     SignedContributionAndProof, Slot, SyncCommitteeContribution, SyncCommitteeSignature,
     SyncSelectionProof, SyncSubnetId, Unsigned,
-};
-use crate::observed_attesters::SlotSubcommitteeIndex;
-use crate::{
-    beacon_chain::{
-        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
-    metrics,
-    observed_aggregates::ObserveOutcome,
-    observed_attesters::Error as ObservedAttestersError,
-    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for

@@ -32,8 +32,8 @@ impl SyncSelectionProof {
             genesis_validators_root,
         );
         let message = SyncAggregatorSelectionData {
-            subcommittee_index,
             slot,
+            subcommittee_index,
         }
         .signing_root(domain);
 

@@ -10,11 +10,11 @@
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same slot
 
+use crate::store::attestation::SlotData;
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
-use crate::store::attestation::SlotData;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<Slot, SlotHashSet, E>;
@@ -329,8 +329,9 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
             .retain(|epoch, _item| *epoch >= lowest_permissible_epoch);
     }
 
-    /// Returns the `lowest_permissible_epoch`
-    pub fn get_lowest_permissible(&self) -> Epoch {
+    #[allow(dead_code)]
+    /// Returns the `lowest_permissible_epoch`. Used in tests.
+    pub(crate) fn get_lowest_permissible(&self) -> Epoch {
         self.lowest_permissible_epoch
     }
 }
@@ -383,8 +384,8 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
                 .iter()
                 // Only include slots that are less than the given slot in the average. This should
                 // generally avoid including recent slots that are still "filling up".
-                .filter(|(item_epoch, _item)| key.get_slot() < slot)
-                .map(|(_epoch, item)| item.len())
+                .filter(|(item_key, _item)| item_key.get_slot() < slot)
+                .map(|(_, item)| item.len())
                 .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
 
             let initial_capacity = sum.checked_div(count).unwrap_or_else(V::default_capacity);
@@ -419,6 +420,8 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
         Ok(exists)
     }
 
+    //FIXME(sean): remove the clippy allowance when we start using this for metrics
+    #[allow(dead_code)]
     /// Returns the number of validators that have been observed at the given `epoch`. Returns
     /// `None` if `self` does not have a cache for that epoch.
     pub fn observed_validator_count(&self, key: K) -> Option<usize> {
@@ -472,8 +475,9 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
             .retain(|key, _item| key.get_slot() >= lowest_permissible_slot);
     }
 
-    /// Returns the `lowest_permissible_slot`
-    pub fn get_lowest_permissible(&self) -> Slot {
+    #[allow(dead_code)]
+    /// Returns the `lowest_permissible_slot`. Used in tests.
+    pub(crate) fn get_lowest_permissible(&self) -> Slot {
         self.lowest_permissible_slot
     }
 }

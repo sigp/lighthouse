@@ -58,7 +58,7 @@ impl<T: EthSpec> SyncAggregate<T> {
                     sync_aggregate
                         .sync_committee_bits
                         .set(participant_index, true)
-                        .map_err(|e| Error::SszTypesError(e))?;
+                        .map_err(Error::SszTypesError)?;
                 }
             }
             sync_aggregate

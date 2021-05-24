@@ -675,7 +675,6 @@ mod bitvector {
     pub type BitVector4 = BitVector<typenum::U4>;
     pub type BitVector8 = BitVector<typenum::U8>;
     pub type BitVector16 = BitVector<typenum::U16>;
-    pub type BitVector32 = BitVector<typenum::U32>;
     pub type BitVector64 = BitVector<typenum::U64>;
 
     #[test]

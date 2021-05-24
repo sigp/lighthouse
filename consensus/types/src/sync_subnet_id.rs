@@ -1,6 +1,6 @@
 //! Identifies each shard by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use crate::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use crate::{ChainSpec, CommitteeIndex, EthSpec, Slot};
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};

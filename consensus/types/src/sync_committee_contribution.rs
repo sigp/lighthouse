@@ -36,7 +36,7 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
         bits.set(validator_sync_committee_index, true)
-            .map_err(|e| Error::SszTypesError(e))?;
+            .map_err(Error::SszTypesError)?;
         Ok(Self {
             slot: signature.slot,
             beacon_block_root: signature.beacon_block_root,
