@@ -6,13 +6,10 @@ use crate::{
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
-use psutil::cpu::os::linux::CpuTimesExt;
-use psutil::memory::os::linux::VirtualMemoryExt;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
-use std::time::UNIX_EPOCH;
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -79,7 +76,10 @@ pub struct ValidatorInclusionData {
 }
 
 #[cfg(target_os = "linux")]
-use {procinfo::pid, psutil::process::Process};
+use {
+    procinfo::pid, psutil::cpu::os::linux::CpuTimesExt,
+    psutil::memory::os::linux::VirtualMemoryExt, psutil::process::Process,
+};
 
 /// Reports on the health of the Lighthouse instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,7 +180,7 @@ impl SystemHealth {
 
         let boot_time = psutil::host::boot_time()
             .map_err(|e| format!("Unable to get system boot time: {:?}", e))?
-            .duration_since(UNIX_EPOCH)
+            .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| format!("Boot time is lower than unix epoch: {}", e))?
             .as_secs();
 
