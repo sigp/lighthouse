@@ -68,14 +68,14 @@ mod get_keys {
         add_non_key_files(&tmp_dir);
 
         // Somebody tripped over a wire.
-        set_permissions(tmp_dir.path(), 0o40311);
+        restrict_permissions(tmp_dir.path());
 
         let url = format!("{}/keys", test_signer.address);
 
         let resp = http_get(&url);
 
         // Be able to delete the tempdir afterward, regardless of this test result.
-        set_permissions(tmp_dir.path(), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
 
         assert_error(resp, 500, "Storage error: PermissionDenied");
 
