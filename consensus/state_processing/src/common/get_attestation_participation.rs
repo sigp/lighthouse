@@ -9,12 +9,13 @@ use types::{
 };
 use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 
-/// Get the participation flags for a **valid** attestation.
+/// Get the participation flags for a valid attestation.
 ///
-/// You must have called `verify_attestation_for_block_inclusion` or similar before
+/// You should have called `verify_attestation_for_block_inclusion` or similar before
 /// calling this function, in order to ensure that the attestation's source is correct.
 ///
-/// This function is extracted from `process_attestation`
+/// This function will return an error if the source of the attestation doesn't match the
+/// state's relevant justified checkpoint.
 pub fn get_attestation_participation_flag_indices<T: EthSpec>(
     state: &BeaconState<T>,
     data: &AttestationData,
