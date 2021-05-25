@@ -12,14 +12,11 @@ pub fn get_base_reward<T: EthSpec>(
     total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    if total_active_balance == 0 {
-        Ok(0)
-    } else {
-        Ok(state
-            .get_effective_balance(index)?
-            .safe_div(spec.effective_balance_increment)?
-            .safe_mul(get_base_reward_per_increment(total_active_balance, spec)?)?)
-    }
+    state
+        .get_effective_balance(index)?
+        .safe_div(spec.effective_balance_increment)?
+        .safe_mul(get_base_reward_per_increment(total_active_balance, spec)?)
+        .map_err(Into::into)
 }
 
 /// Returns the base reward for some validator.
