@@ -85,7 +85,6 @@ fn get_valid_sync_signature(
 
 fn get_valid_sync_contribution(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-    slot: Slot,
 ) -> (SignedContributionAndProof<E>, usize, SecretKey) {
     let head_state = harness
         .chain
@@ -179,8 +178,7 @@ fn aggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_aggregate, aggregator_index, aggregator_sk) =
-        get_valid_sync_contribution(&harness, current_slot);
+    let (valid_aggregate, aggregator_index, aggregator_sk) = get_valid_sync_contribution(&harness);
 
     macro_rules! assert_invalid {
         ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {

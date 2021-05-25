@@ -629,18 +629,17 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 
 #[cfg(all(test, not(debug_assertions)))]
 mod release_tests {
-    use lazy_static::lazy_static;
-
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use lazy_static::lazy_static;
     use state_processing::{
         common::{base::get_base_reward, get_attesting_indices},
         VerifyOperation,
     };
     use std::collections::BTreeSet;
     use std::iter::FromIterator;
-    use store::StoreConfig;
+    use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
 
     pub const MAX_VALIDATOR_COUNT: usize = 4 * 32 * 128;
@@ -675,9 +674,16 @@ mod release_tests {
         let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
 
         // advance until we have finalized and justified epochs
-        for _ in 0..slot_offset {
-            harness.advance_slot();
-        }
+        let state = harness.get_current_state();
+        harness.add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            (1..slot_offset)
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..num_validators).collect::<Vec<_>>().as_slice(),
+        );
 
         (harness, spec)
     }
@@ -697,9 +703,16 @@ mod release_tests {
         let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
 
         // advance until we have finalized and justified epochs
-        for _ in 0..slot_offset {
-            harness.advance_slot();
-        }
+        let state = harness.get_current_state();
+        harness.add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            (1..slot_offset)
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..num_validators).collect::<Vec<_>>().as_slice(),
+        );
 
         (harness, spec)
     }
@@ -708,7 +721,7 @@ mod release_tests {
     fn test_earliest_attestation() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
         let mut state = harness.get_current_state();
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -779,7 +792,7 @@ mod release_tests {
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let mut state = harness.get_current_state();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -816,7 +829,6 @@ mod release_tests {
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
-        *state.slot_mut() -= 1;
         assert_eq!(
             op_pool
                 .get_attestations(&state, |_| true, |_| true, spec)
@@ -859,13 +871,15 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        dbg!("here");
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
             .into_iter()
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
+        dbg!("here");
 
         let num_validators =
             MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
@@ -876,6 +890,7 @@ mod release_tests {
             SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
+        dbg!("here");
 
         for (_, aggregate) in attestations {
             let att = aggregate.unwrap().message.aggregate;
@@ -891,6 +906,7 @@ mod release_tests {
                 .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
                 .unwrap();
         }
+        dbg!("here");
 
         assert_eq!(op_pool.num_attestations(), committees.len());
     }
@@ -905,7 +921,7 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -1002,7 +1018,7 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -1091,7 +1107,7 @@ mod release_tests {
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -1448,11 +1464,14 @@ mod release_tests {
         let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = harness.get_current_state();
+        let state = harness.get_current_state();
 
-        let slot = state.slot() - 1;
-
-        let contributions = harness.make_sync_contributions(&state, Hash256::zero(), slot);
+        let block_root = *state
+            .get_block_root(state.slot() - Slot::new(1))
+            .ok()
+            .expect("block root should exist at slot");
+        let contributions =
+            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
 
         for (_, contribution_and_proof) in contributions {
             let contribution = contribution_and_proof
@@ -1476,7 +1495,7 @@ mod release_tests {
         );
 
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state, Hash256::zero(), spec)
+            .get_sync_aggregate(&state, spec)
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.len(),
@@ -1484,20 +1503,20 @@ mod release_tests {
         );
 
         // Prune sync contributions shouldn't do anything at this point.
+        op_pool.prune_sync_contributions(state.slot() - Slot::new(1));
+        assert_eq!(
+            op_pool.num_sync_contributions(),
+            SYNC_COMMITTEE_SUBNET_COUNT as usize
+        );
         op_pool.prune_sync_contributions(state.slot());
         assert_eq!(
             op_pool.num_sync_contributions(),
             SYNC_COMMITTEE_SUBNET_COUNT as usize
         );
-        op_pool.prune_sync_contributions(state.slot() + Slot::new(1));
-        assert_eq!(
-            op_pool.num_sync_contributions(),
-            SYNC_COMMITTEE_SUBNET_COUNT as usize
-        );
 
-        // But once we advance to more than two slots after the contribution, it should prune it
+        // But once we advance to more than one slot after the contribution, it should prune it
         // out of existence.
-        op_pool.prune_sync_contributions(state.slot() + Slot::new(2));
+        op_pool.prune_sync_contributions(state.slot() + Slot::new(1));
         assert_eq!(op_pool.num_sync_contributions(), 0);
     }
 
@@ -1507,11 +1526,13 @@ mod release_tests {
         let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = harness.get_current_state();
-
-        let slot = state.slot() - 1;
-
-        let contributions = harness.make_sync_contributions(&state, Hash256::zero(), slot);
+        let state = harness.get_current_state();
+        let block_root = *state
+            .get_block_root(state.slot() - Slot::new(1))
+            .ok()
+            .expect("block root should exist at slot");
+        let contributions =
+            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
 
         for (_, contribution_and_proof) in contributions {
             let contribution = contribution_and_proof
