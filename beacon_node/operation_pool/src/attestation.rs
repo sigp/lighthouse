@@ -1,6 +1,6 @@
 use crate::max_cover::MaxCover;
 use state_processing::common::{
-    altair, base, get_attestation_participation, get_attesting_indices,
+    altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
 };
 use std::collections::HashMap;
 use types::{
@@ -86,7 +86,10 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             return None;
         };
 
-        let att_participation_flags = get_attestation_participation(&att.data, state, spec).ok()?;
+        let inclusion_delay = state.slot().as_u64().checked_sub(att.data.slot.as_u64())?;
+        let att_participation_flags =
+            get_attestation_participation_flag_indices(state, &att.data, inclusion_delay, spec)
+                .ok()?;
 
         let fresh_validators_rewards = attesting_indices
             .iter()

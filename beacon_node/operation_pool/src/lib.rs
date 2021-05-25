@@ -250,7 +250,6 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_slashings(
         &self,
         state: &BeaconState<T>,
-        _spec: &ChainSpec,
     ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing<T>>) {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
@@ -1091,10 +1090,7 @@ mod release_tests {
             .insert_proposer_slashing(slashing2.clone().validate(&state, &harness.spec).unwrap());
 
         // Should only get the second slashing back.
-        assert_eq!(
-            op_pool.get_slashings(&state, &harness.spec).0,
-            vec![slashing2]
-        );
+        assert_eq!(op_pool.get_slashings(&state).0, vec![slashing2]);
     }
 
     // Sanity check on the pruning of proposer slashings
@@ -1107,10 +1103,7 @@ mod release_tests {
         let slashing = harness.make_proposer_slashing(0);
         op_pool.insert_proposer_slashing(slashing.clone().validate(&state, &harness.spec).unwrap());
         op_pool.prune_proposer_slashings(&state);
-        assert_eq!(
-            op_pool.get_slashings(&state, &harness.spec).0,
-            vec![slashing]
-        );
+        assert_eq!(op_pool.get_slashings(&state).0, vec![slashing]);
     }
 
     // Sanity check on the pruning of attester slashings
@@ -1127,7 +1120,7 @@ mod release_tests {
             state.fork(),
         );
         op_pool.prune_attester_slashings(&state);
-        assert_eq!(op_pool.get_slashings(&state, spec).1, vec![slashing]);
+        assert_eq!(op_pool.get_slashings(&state).1, vec![slashing]);
     }
 
     // Check that we get maximum coverage for attester slashings (highest qty of validators slashed)
@@ -1160,7 +1153,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state, spec);
+        let best_slashings = op_pool.get_slashings(&state);
         assert_eq!(best_slashings.1, vec![slashing_4, slashing_3]);
     }
 
@@ -1194,7 +1187,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state, spec);
+        let best_slashings = op_pool.get_slashings(&state);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
     }
 
@@ -1225,7 +1218,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state, spec);
+        let best_slashings = op_pool.get_slashings(&state);
         assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
     }
 
@@ -1257,7 +1250,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state, spec);
+        let best_slashings = op_pool.get_slashings(&state);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
     }
 
@@ -1289,7 +1282,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state, spec);
+        let best_slashings = op_pool.get_slashings(&state);
         assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
     }
 }

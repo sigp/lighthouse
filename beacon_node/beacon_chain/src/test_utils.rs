@@ -471,7 +471,7 @@ where
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
     /// caches are built but before the generated block is processed.
-    pub fn make_block_return_original_state(
+    pub fn make_block_return_pre_state(
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
@@ -874,7 +874,7 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, state) = self.make_block_return_original_state(state, slot);
+        let (block, state) = self.make_block_return_pre_state(state, slot);
         let (mut block, _) = block.deconstruct();
 
         block_modifier(&mut block);

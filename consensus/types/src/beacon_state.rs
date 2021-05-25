@@ -99,6 +99,8 @@ pub enum Error {
         deposit_count: u64,
         deposit_index: u64,
     },
+    /// Attestation slipped through block processing with a non-matching source.
+    IncorrectAttestationSource,
     /// An arithmetic operation occurred which would have overflowed or divided by 0.
     ///
     /// This represents a serious bug in either the spec or Lighthouse!
