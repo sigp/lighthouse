@@ -133,15 +133,17 @@ impl<T: EthSpec> OperationPool<T> {
         Ok(())
     }
 
-    /// Get the a sync aggregate for inclusion in a block.
+    /// Get the best sync aggregate for inclusion in a block.
     pub fn get_sync_aggregate(
         &self,
         state: &BeaconState<T>,
-        block_root: Hash256,
         spec: &ChainSpec,
     ) -> Option<SyncAggregate<T>> {
+        // Sync aggregates are formed from the contributions from the previous slot.
+        let slot = state.slot().saturating_sub(1u64);
+        let block_root = *state.get_block_root(slot).ok()?;
         let id = SyncAggregateId::from_data::<T>(
-            state.slot(),
+            slot,
             block_root,
             &state.fork(),
             state.genesis_validators_root(),
