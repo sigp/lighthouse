@@ -547,9 +547,16 @@ mod release_tests {
         let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
 
         // advance until we have finalized and justified epochs
-        for _ in 0..slot_offset {
-            harness.advance_slot();
-        }
+        let state = harness.get_current_state();
+        harness.add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            (1..slot_offset)
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..num_validators).collect::<Vec<_>>().as_slice(),
+        );
 
         (harness, spec)
     }
@@ -558,7 +565,7 @@ mod release_tests {
     fn test_earliest_attestation() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
         let mut state = harness.get_current_state();
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -629,7 +636,7 @@ mod release_tests {
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let mut state = harness.get_current_state();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -666,7 +673,6 @@ mod release_tests {
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
-        *state.slot_mut() -= 1;
         assert_eq!(
             op_pool
                 .get_attestations(&state, |_| true, |_| true, spec)
@@ -709,7 +715,7 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -755,7 +761,7 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -852,7 +858,7 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
@@ -941,7 +947,7 @@ mod release_tests {
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        let slot = state.slot() - 1;
+        let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
             .unwrap()
