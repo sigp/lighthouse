@@ -21,6 +21,7 @@ pub enum EpochProcessingError {
     SszTypesError(ssz_types::Error),
     ArithError(safe_arith::ArithError),
     InconsistentStateFork(InconsistentFork),
+    InvalidJustificationBit(ssz_types::Error),
 }
 
 impl From<InclusionError> for EpochProcessingError {
