@@ -70,6 +70,7 @@ impl SyncSelectionProof {
     pub fn verify<T: EthSpec>(
         &self,
         slot: Slot,
+        subcommittee_index: u64,
         pubkey: &PublicKey,
         fork: &Fork,
         genesis_validators_root: Hash256,
@@ -81,7 +82,11 @@ impl SyncSelectionProof {
             fork,
             genesis_validators_root,
         );
-        let message = slot.signing_root(domain);
+        let message = SyncAggregatorSelectionData {
+            slot,
+            subcommittee_index,
+        }
+        .signing_root(domain);
 
         self.0.verify(pubkey, message)
     }
@@ -96,5 +101,39 @@ impl Into<Signature> for SyncSelectionProof {
 impl From<Signature> for SyncSelectionProof {
     fn from(sig: Signature) -> Self {
         Self(sig)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::MainnetEthSpec;
+    use eth2_interop_keypairs::keypair;
+
+    #[test]
+    fn proof_sign_and_verify() {
+        let slot = Slot::new(1000);
+        let subcommittee_index = 12;
+        let key = keypair(1);
+        let fork = &Fork::default();
+        let genesis_validators_root = Hash256::zero();
+        let spec = &ChainSpec::mainnet();
+
+        let proof = SyncSelectionProof::new::<MainnetEthSpec>(
+            slot,
+            subcommittee_index,
+            &key.sk,
+            fork,
+            genesis_validators_root,
+            spec,
+        );
+        assert!(proof.verify::<MainnetEthSpec>(
+            slot,
+            subcommittee_index,
+            &key.pk,
+            fork,
+            genesis_validators_root,
+            spec
+        ));
     }
 }
