@@ -6,6 +6,7 @@ use types::{Epoch, Hash256};
 pub enum Error {
     DatabaseError(lmdb::Error),
     DatabaseIOError(io::Error),
+    DatabasePermissionsError(filesystem::Error),
     SszDecodeError(ssz::DecodeError),
     BincodeError(bincode::Error),
     ArithError(safe_arith::ArithError),
