@@ -58,6 +58,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
+use task_executor::ShutdownReason;
 use types::beacon_state::CloneConfig;
 use types::*;
 
@@ -254,7 +255,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
-    pub shutdown_sender: Sender<&'static str>,
+    pub shutdown_sender: Sender<ShutdownReason>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -520,14 +521,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
+    /// Returns `Ok(None)` if the given `Slot` was skipped.
     ///
     /// ## Errors
     ///
     /// May return a database error.
     pub fn block_root_at_slot(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
         process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root)
+            let root_opt = iter
+                .find(|(_, this_slot)| *this_slot == slot)
+                .map(|(root, _)| root);
+            if let (Some(root), Some((prev_root, _))) = (root_opt, iter.next()) {
+                return (prev_root != root).then(|| root);
+            }
+            root_opt
         })
     }
 
@@ -1160,6 +1167,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(signed_aggregate)
     }
 
+    /// Filter an attestation from the op pool for shuffling compatibility.
+    ///
+    /// Use the provided `filter_cache` map to memoize results.
+    pub fn filter_op_pool_attestation(
+        &self,
+        filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
+        att: &Attestation<T::EthSpec>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> bool {
+        *filter_cache
+            .entry((att.data.beacon_block_root, att.data.target.epoch))
+            .or_insert_with(|| {
+                self.shuffling_is_compatible(
+                    &att.data.beacon_block_root,
+                    att.data.target.epoch,
+                    &state,
+                )
+            })
+    }
+
     /// Check that the shuffling at `block_root` is equal to one of the shufflings of `state`.
     ///
     /// The `target_epoch` argument determines which shuffling to check compatibility with, it
@@ -1673,7 +1700,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "error" => ?e,
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
-                    shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                    shutdown_sender
+                        .try_send(ShutdownReason::Failure(
+                            "Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint."
+                        ))
                         .map_err(|err| BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
                     return Err(BlockError::WeakSubjectivityConflict);
                 }
@@ -1968,21 +1998,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?
             .into();
 
-        // Map from attestation head block root to shuffling compatibility.
-        // Used to memoize the `attestation_shuffling_is_compatible` function.
-        let mut shuffling_filter_cache = HashMap::new();
-        let attestation_filter = |att: &&Attestation<T::EthSpec>| -> bool {
-            *shuffling_filter_cache
-                .entry((att.data.beacon_block_root, att.data.target.epoch))
-                .or_insert_with(|| {
-                    self.shuffling_is_compatible(
-                        &att.data.beacon_block_root,
-                        att.data.target.epoch,
-                        &state,
-                    )
-                })
-        };
-
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.
         let unagg_import_timer =
@@ -2012,9 +2027,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+
+        let mut prev_filter_cache = HashMap::new();
+        let prev_attestation_filter = |att: &&Attestation<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut prev_filter_cache, *att, &state)
+        };
+        let mut curr_filter_cache = HashMap::new();
+        let curr_attestation_filter = |att: &&Attestation<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut curr_filter_cache, *att, &state)
+        };
+
         let attestations = self
             .op_pool
-            .get_attestations(&state, attestation_filter, &self.spec)
+            .get_attestations(
+                &state,
+                prev_attestation_filter,
+                curr_attestation_filter,
+                &self.spec,
+            )
             .map_err(BlockProductionError::OpPoolError)?
             .into();
         drop(attestation_packing_timer);
@@ -2214,11 +2244,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(update_head_timer);
 
+        let block_delay = get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock);
+
         // Observe the delay between the start of the slot and when we set the block as head.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
-            get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock),
+            block_delay,
         );
+
+        // If the block was enshrined as head too late for attestations to be created for it, log a
+        // debug warning and increment a metric.
+        //
+        // Don't create this log if the block was > 4 slots old, this helps prevent noise during
+        // sync.
+        if block_delay >= self.slot_clock.unagg_attestation_production_delay()
+            && block_delay < self.slot_clock.slot_duration() * 4
+        {
+            metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
+            debug!(
+                self.log,
+                "Delayed head block";
+                "delay" => ?block_delay,
+                "root" => ?beacon_block_root,
+                "slot" => head_slot,
+            );
+        }
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -2765,7 +2815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Get a channel to request shutting down.
-    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+    pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.shutdown_sender.clone()
     }
 

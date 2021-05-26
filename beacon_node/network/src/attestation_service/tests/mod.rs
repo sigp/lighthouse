@@ -13,7 +13,6 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
-use tempfile::tempdir;
 use types::{CommitteeIndex, EthSpec, MinimalEthSpec};
 
 const SLOT_DURATION_MILLIS: u64 = 400;
@@ -32,7 +31,6 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = MinimalEthSpec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(1);
@@ -48,7 +46,6 @@ impl TestBeaconChain {
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
-                .data_dir(data_dir.path().to_path_buf())
                 .genesis_state(
                     interop_genesis_state::<MinimalEthSpec>(&keypairs, 0, &spec)
                         .expect("should generate interop state"),

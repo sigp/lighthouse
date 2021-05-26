@@ -327,6 +327,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn notify_dial_failure(&mut self, peer_id: &PeerId) {
         if !self.network_globals.peers.read().is_connected(peer_id) {
             self.notify_disconnect(peer_id);
+            // set peer as disconnected in discovery DHT
+            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+            self.discovery.disconnect_peer(peer_id);
         }
     }
 
@@ -665,18 +668,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
                 let peers = self.network_globals.peers.read();
-                if predicate(enr)
-                    && !peers.is_connected_or_dialing(peer_id)
-                    && !peers.is_banned(peer_id)
-                {
+                if predicate(enr) && peers.should_dial(peer_id) {
                     Some(*peer_id)
                 } else {
                     None
                 }
             })
             .collect();
-        for peer in &peers_to_dial {
-            self.dial_peer(peer);
+        for peer_id in &peers_to_dial {
+            debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            self.dial_peer(peer_id);
         }
     }
 
@@ -695,16 +696,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // we attempt a connection if this peer is a subnet peer or if the max peer count
             // is not yet filled (including dialing peers)
             if (min_ttl.is_some() || connected_or_dialing + to_dial_peers.len() < self.max_peers)
-                && !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&peer_id)
-                && !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_banned_or_disconnected(&peer_id)
+                && self.network_globals.peers.read().should_dial(&peer_id)
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed

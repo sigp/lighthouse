@@ -3,7 +3,10 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-pub use enr::{build_enr, create_enr_builder_from_config, use_or_load_enr, CombinedKey, Eth2Enr};
+pub use enr::{
+    build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
+    Eth2Enr,
+};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::{Keypair, PublicKey};
 
@@ -508,6 +511,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         for ip_address in ip_addresses {
             self.discv5.permit_ip(ip_address);
+        }
+    }
+
+    // mark node as disconnected in DHT, freeing up space for other nodes
+    pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
+        if let Ok(node_id) = peer_id_to_node_id(peer_id) {
+            self.discv5.disconnect_node(&node_id);
         }
     }
 

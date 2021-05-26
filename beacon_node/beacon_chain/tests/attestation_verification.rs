@@ -277,6 +277,23 @@ fn aggregated_gossip_verification() {
     );
 
     /*
+     * The following test ensures:
+     *
+     * The aggregate attestation's epoch matches its target -- i.e. `aggregate.data.target.epoch ==
+     *   compute_epoch_at_slot(attestation.data.slot)`
+     *
+     */
+
+    assert_invalid!(
+        "attestation with invalid target epoch",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.target.epoch += 1;
+            a
+        },
+        AttnError::InvalidTargetEpoch { .. }
+    );
+    /*
      * This is not in the specification for aggregate attestations (only unaggregates), but we
      * check it anyway to avoid weird edge cases.
      */

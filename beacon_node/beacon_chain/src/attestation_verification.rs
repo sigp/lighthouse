@@ -399,6 +399,16 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         // We do not queue future attestations for later processing.
         verify_propagation_slot_range(chain, attestation)?;
 
+        // Check the attestation's epoch matches its target.
+        if attestation.data.slot.epoch(T::EthSpec::slots_per_epoch())
+            != attestation.data.target.epoch
+        {
+            return Err(Error::InvalidTargetEpoch {
+                slot: attestation.data.slot,
+                epoch: attestation.data.target.epoch,
+            });
+        }
+
         // Ensure the valid aggregated attestation has not already been seen locally.
         let attestation_root = attestation.tree_hash_root();
         if chain

@@ -22,10 +22,10 @@ use slasher::Slasher;
 use slog::{crit, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{HotColdDB, ItemStore};
+use task_executor::ShutdownReason;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
@@ -76,9 +76,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
-    shutdown_sender: Option<Sender<&'static str>>,
+    shutdown_sender: Option<Sender<ShutdownReason>>,
     head_tracker: Option<HeadTracker>,
-    data_dir: Option<PathBuf>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
@@ -116,7 +115,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            data_dir: None,
             disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
@@ -171,14 +169,6 @@ where
     /// Should generally be called early in the build chain.
     pub fn logger(mut self, log: Logger) -> Self {
         self.log = Some(log);
-        self
-    }
-
-    /// Sets the location to the pubkey cache file.
-    ///
-    /// Should generally be called early in the build chain.
-    pub fn data_dir(mut self, path: PathBuf) -> Self {
-        self.data_dir = Some(path);
         self
     }
 
@@ -316,8 +306,8 @@ where
             })?;
 
         let genesis = BeaconSnapshot {
-            beacon_block_root,
             beacon_block,
+            beacon_block_root,
             beacon_state,
         };
 
@@ -360,7 +350,7 @@ where
     }
 
     /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
-    pub fn shutdown_sender(mut self, sender: Sender<&'static str>) -> Self {
+    pub fn shutdown_sender(mut self, sender: Sender<ShutdownReason>) -> Self {
         self.shutdown_sender = Some(sender);
         self
     }
@@ -673,7 +663,6 @@ mod test {
     use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
-    use tempfile::tempdir;
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
@@ -696,7 +685,6 @@ mod test {
         > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
             .unwrap();
         let spec = MinimalEthSpec::default_spec();
-        let data_dir = tempdir().expect("should create temporary data_dir");
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -710,7 +698,6 @@ mod test {
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
-            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()

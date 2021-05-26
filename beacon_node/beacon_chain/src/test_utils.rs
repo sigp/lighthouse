@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::{
@@ -115,7 +116,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
-    pub shutdown_receiver: Receiver<&'static str>,
+    pub shutdown_receiver: Receiver<ShutdownReason>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -186,7 +187,6 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             .custom_spec(spec.clone())
             .store(Arc::new(store))
             .store_migrator_config(MigratorConfig::default().blocking())
-            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
@@ -236,7 +236,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .import_max_skip_slots(None)
             .store(store)
             .store_migrator_config(MigratorConfig::default().blocking())
-            .data_dir(data_dir.path().to_path_buf())
             .genesis_state(
                 interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
                     .expect("should generate interop state"),
@@ -281,7 +280,6 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
             .import_max_skip_slots(None)
             .store(store)
             .store_migrator_config(MigratorConfig::default().blocking())
-            .data_dir(data_dir.path().to_path_buf())
             .resume_from_db()
             .expect("should resume beacon chain from db")
             .dummy_eth1_backend()

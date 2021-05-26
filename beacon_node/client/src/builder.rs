@@ -14,6 +14,7 @@ use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
@@ -122,7 +123,6 @@ where
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
-        let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
@@ -141,7 +141,6 @@ where
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
-            .data_dir(data_dir)
             .custom_spec(spec.clone())
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
@@ -374,6 +373,22 @@ where
             .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_service_ctxt".into());
         SlasherService::new(beacon_chain, network_send).run(&context.executor)
+    }
+
+    /// Start the explorer client which periodically sends beacon
+    /// and system metrics to the configured endpoint.
+    pub fn monitoring_client(self, config: &monitoring_api::Config) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or("monitoring_client requires a runtime_context")?
+            .service_context("monitoring_client".into());
+        let monitoring_client = MonitoringHttpClient::new(config, context.log().clone())?;
+        monitoring_client.auto_update(
+            context.executor,
+            vec![ProcessType::BeaconNode, ProcessType::System],
+        );
+        Ok(self)
     }
 
     /// Immediately starts the service that periodically logs information each slot.

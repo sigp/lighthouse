@@ -3,6 +3,7 @@
 //!
 //! These files are required for some `include_bytes` calls used in this crate.
 
+use reqwest::Url;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -26,10 +27,41 @@ const TESTNET_BYTECODE_CHECKSUM: &str =
     "2b054e7d134e2d66566ba074c8a18a3a67841d67c8ef6175fc95f1639ee73a89";
 
 fn spec_url() -> String {
-    format!("https://raw.githubusercontent.com/ethereum/eth2.0-specs/{}/deposit_contract/contracts/validator_registration.json", TAG)
+    env::var("LIGHTHOUSE_DEPOSIT_CONTRACT_SPEC_URL")
+    .unwrap_or(format!("https://raw.githubusercontent.com/ethereum/eth2.0-specs/{}/deposit_contract/contracts/validator_registration.json", TAG))
 }
 fn testnet_url() -> String {
-    format!("https://raw.githubusercontent.com/sigp/unsafe-eth2-deposit-contract/{}/unsafe_validator_registration.json", UNSAFE_TAG)
+    env::var("LIGHTHOUSE_DEPOSIT_CONTRACT_TESTNET_URL")
+    .unwrap_or(format!("https://raw.githubusercontent.com/sigp/unsafe-eth2-deposit-contract/{}/unsafe_validator_registration.json", UNSAFE_TAG))
+}
+
+fn read_contract_file_from_url(url: Url) -> Result<Value, String> {
+    if url.scheme() == "file" {
+        let path = url
+            .to_file_path()
+            .map_err(|e| format!("Unable to get file path from url: {:?}", e))?;
+
+        let file = File::open(path).map_err(|e| format!("Unable to open json file: {:?}", e))?;
+
+        let contract: Value = serde_json::from_reader(file)
+            .map_err(|e| format!("Unable to read from jeson file: {:?}", e))?;
+        Ok(contract)
+    } else {
+        match reqwest::blocking::get(url) {
+            Ok(response) => {
+                let contract: Value = response
+                    .json()
+                    .map_err(|e| format!("Respsonse is not a valid json {:?}", e))?;
+                Ok(contract)
+            }
+            Err(e) => {
+                return Err(format!(
+                    "No abi file found. Failed to download from github: {:?}",
+                    e
+                ))
+            }
+        }
+    }
 }
 
 fn main() {
@@ -69,50 +101,39 @@ pub fn download_deposit_contract(
 ) -> Result<(), String> {
     let abi_file = abi_dir().join(format!("{}_{}", TAG, abi_file));
     let bytecode_file = abi_dir().join(format!("{}_{}", TAG, bytecode_file));
+    let url = reqwest::Url::parse(url).map_err(|e| format!("Unable to parse url: {}", e))?;
 
     if abi_file.exists() {
         // Nothing to do.
     } else {
-        match reqwest::blocking::get(url) {
-            Ok(response) => {
-                let mut abi_file = File::create(abi_file)
-                    .map_err(|e| format!("Failed to create local abi file: {:?}", e))?;
-                let mut bytecode_file = File::create(bytecode_file)
-                    .map_err(|e| format!("Failed to create local bytecode file: {:?}", e))?;
+        let contract = read_contract_file_from_url(url)?;
 
-                let contract: Value = response
-                    .json()
-                    .map_err(|e| format!("Respsonse is not a valid json {:?}", e))?;
+        let mut abi_file = File::create(abi_file)
+            .map_err(|e| format!("Failed to create local abi file: {:?}", e))?;
+        let mut bytecode_file = File::create(bytecode_file)
+            .map_err(|e| format!("Failed to create local bytecode file: {:?}", e))?;
 
-                let abi = contract
-                    .get("abi")
-                    .ok_or("Response does not contain key: abi")?
-                    .to_string();
+        let abi = contract
+            .get("abi")
+            .ok_or("Response does not contain key: abi")?
+            .to_string();
 
-                verify_checksum(abi.as_bytes(), abi_checksum);
+        verify_checksum(abi.as_bytes(), abi_checksum);
 
-                abi_file
-                    .write(abi.as_bytes())
-                    .map_err(|e| format!("Failed to write http response to abi file: {:?}", e))?;
+        abi_file
+            .write(abi.as_bytes())
+            .map_err(|e| format!("Failed to write http response to abi file: {:?}", e))?;
 
-                let bytecode = contract
-                    .get("bytecode")
-                    .ok_or("Response does not contain key: bytecode")?
-                    .to_string();
+        let bytecode = contract
+            .get("bytecode")
+            .ok_or("Response does not contain key: bytecode")?
+            .to_string();
 
-                verify_checksum(bytecode.as_bytes(), bytecode_checksum);
+        verify_checksum(bytecode.as_bytes(), bytecode_checksum);
 
-                bytecode_file.write(bytecode.as_bytes()).map_err(|e| {
-                    format!("Failed to write http response to bytecode file: {:?}", e)
-                })?;
-            }
-            Err(e) => {
-                return Err(format!(
-                    "No abi file found. Failed to download from github: {:?}",
-                    e
-                ))
-            }
-        }
+        bytecode_file
+            .write(bytecode.as_bytes())
+            .map_err(|e| format!("Failed to write http response to bytecode file: {:?}", e))?;
     }
 
     Ok(())

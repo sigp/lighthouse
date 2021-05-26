@@ -1355,7 +1355,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let heads = chain
                     .heads()
                     .into_iter()
-                    .map(|(root, slot)| api_types::ChainHeadData { root, slot })
+                    .map(|(root, slot)| api_types::ChainHeadData { slot, root })
                     .collect::<Vec<_>>();
                 Ok(api_types::GenericResponse::from(heads))
             })
@@ -1623,10 +1623,10 @@ pub fn serve<T: BeaconChainTypes>(
                     });
 
                 Ok(api_types::GenericResponse::from(api_types::PeerCount {
-                    disconnecting,
-                    connecting,
                     connected,
+                    connecting,
                     disconnected,
+                    disconnecting,
                 }))
             })
         });
