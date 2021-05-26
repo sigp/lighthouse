@@ -109,8 +109,10 @@ impl<T: EthSpec> OperationPool<T> {
                     }) {
                     Some(position) => {
                         // Only need to recalculate if the new contribution has more bits set.
-                        if existing_contributions.0[position].aggregation_bits.len()
-                            < contribution.aggregation_bits.len()
+                        if existing_contributions.0[position]
+                            .aggregation_bits
+                            .num_set_bits()
+                            < contribution.aggregation_bits.num_set_bits()
                         {
                             existing_contributions.0[position] = contribution;
                             let aggregate = SyncAggregate::from_contributions(
@@ -871,7 +873,6 @@ mod release_tests {
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
-        dbg!("here");
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -879,7 +880,6 @@ mod release_tests {
             .into_iter()
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
-        dbg!("here");
 
         let num_validators =
             MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
@@ -890,7 +890,6 @@ mod release_tests {
             SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
-        dbg!("here");
 
         for (_, aggregate) in attestations {
             let att = aggregate.unwrap().message.aggregate;
@@ -906,7 +905,6 @@ mod release_tests {
                 .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
                 .unwrap();
         }
-        dbg!("here");
 
         assert_eq!(op_pool.num_attestations(), committees.len());
     }
@@ -1498,7 +1496,7 @@ mod release_tests {
             .get_sync_aggregate(&state, spec)
             .expect("Should have block sync aggregate");
         assert_eq!(
-            sync_aggregate.sync_committee_bits.len(),
+            sync_aggregate.sync_committee_bits.num_set_bits(),
             MainnetEthSpec::sync_committee_size()
         );
 
@@ -1564,8 +1562,179 @@ mod release_tests {
         );
     }
 
-    //FIXME(sean): add tests for these
-    // sync contributions with different signatures but the same number of signed bits
-    // sync contributions with different signatures one set of bits is higher
-    // sync contributions with different subcommittees signatures one set of bits is higher (no change)
+    /// Adding a sync contribution already in the pool with more bits set should increase the
+    /// number of bits set in the aggregate.
+    #[test]
+    fn sync_contribution_with_more_bits() {
+        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let state = harness.get_current_state();
+        let block_root = *state
+            .get_block_root(state.slot() - Slot::new(1))
+            .ok()
+            .expect("block root should exist at slot");
+        let contributions =
+            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
+
+        let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
+        let mut first_contribution = contributions[0]
+            .1
+            .as_ref()
+            .unwrap()
+            .message
+            .contribution
+            .clone();
+
+        // Add all contributions, but unset the first two bits of each.
+        for (_, contribution_and_proof) in contributions {
+            let mut contribution_fewer_bits = contribution_and_proof
+                .expect("contribution exists for committee")
+                .message
+                .contribution;
+
+            // Unset the first two bits of each contribution.
+            contribution_fewer_bits
+                .aggregation_bits
+                .set(0, false)
+                .expect("set bit");
+            contribution_fewer_bits
+                .aggregation_bits
+                .set(1, false)
+                .expect("set bit");
+
+            op_pool
+                .insert_sync_contribution(
+                    contribution_fewer_bits,
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    spec,
+                )
+                .unwrap();
+        }
+
+        let sync_aggregate = op_pool
+            .get_sync_aggregate(&state, spec)
+            .expect("Should have block sync aggregate");
+        assert_eq!(
+            sync_aggregate.sync_committee_bits.num_set_bits(),
+            expected_bits
+        );
+
+        // Unset the first bit of the first contribution and re-insert it. This should increase the
+        // number of bits set in the sync aggregate by one.
+        first_contribution
+            .aggregation_bits
+            .set(0, false)
+            .expect("set bit");
+        op_pool
+            .insert_sync_contribution(
+                first_contribution,
+                &state.fork(),
+                state.genesis_validators_root(),
+                spec,
+            )
+            .unwrap();
+
+        // The sync aggregate should now include the additional set bit.
+        let sync_aggregate = op_pool
+            .get_sync_aggregate(&state, spec)
+            .expect("Should have block sync aggregate");
+        assert_eq!(
+            sync_aggregate.sync_committee_bits.num_set_bits(),
+            expected_bits + 1
+        );
+    }
+
+    /// Adding a sync contribution already in the pool with fewer bits set should not increase the
+    /// number of bits set in the aggregate.
+    #[test]
+    fn sync_contribution_with_fewer_bits() {
+        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let state = harness.get_current_state();
+        let block_root = *state
+            .get_block_root(state.slot() - Slot::new(1))
+            .ok()
+            .expect("block root should exist at slot");
+        let contributions =
+            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
+
+        let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
+        let mut first_contribution = contributions[0]
+            .1
+            .as_ref()
+            .unwrap()
+            .message
+            .contribution
+            .clone();
+
+        // Add all contributions, but unset the first two bits of each.
+        for (_, contribution_and_proof) in contributions {
+            let mut contribution_fewer_bits = contribution_and_proof
+                .expect("contribution exists for committee")
+                .message
+                .contribution;
+
+            // Unset the first two bits of each contribution.
+            contribution_fewer_bits
+                .aggregation_bits
+                .set(0, false)
+                .expect("set bit");
+            contribution_fewer_bits
+                .aggregation_bits
+                .set(1, false)
+                .expect("set bit");
+
+            op_pool
+                .insert_sync_contribution(
+                    contribution_fewer_bits,
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    spec,
+                )
+                .unwrap();
+        }
+
+        let sync_aggregate = op_pool
+            .get_sync_aggregate(&state, spec)
+            .expect("Should have block sync aggregate");
+        assert_eq!(
+            sync_aggregate.sync_committee_bits.num_set_bits(),
+            expected_bits
+        );
+
+        // Unset the first three bits of the first contribution and re-insert it. This should
+        // not affect the number of bits set in the sync aggregate.
+        first_contribution
+            .aggregation_bits
+            .set(0, false)
+            .expect("set bit");
+        first_contribution
+            .aggregation_bits
+            .set(1, false)
+            .expect("set bit");
+        first_contribution
+            .aggregation_bits
+            .set(2, false)
+            .expect("set bit");
+        op_pool
+            .insert_sync_contribution(
+                first_contribution,
+                &state.fork(),
+                state.genesis_validators_root(),
+                spec,
+            )
+            .unwrap();
+
+        // The sync aggregate should now include the additional set bit.
+        let sync_aggregate = op_pool
+            .get_sync_aggregate(&state, spec)
+            .expect("Should have block sync aggregate");
+        assert_eq!(
+            sync_aggregate.sync_committee_bits.num_set_bits(),
+            expected_bits
+        );
+    }
 }
