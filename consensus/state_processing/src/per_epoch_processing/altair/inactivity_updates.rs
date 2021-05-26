@@ -2,6 +2,7 @@ use crate::EpochProcessingError;
 use core::result::Result;
 use core::result::Result::Ok;
 use safe_arith::SafeArith;
+use std::collections::HashSet;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
 use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
@@ -12,12 +13,16 @@ pub fn process_inactivity_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
-    for index in state.get_eligible_validator_indices()? {
-        let unslashed_indices = state.get_unslashed_participating_indices(
+    let unslashed_indices: HashSet<usize> = state
+        .get_unslashed_participating_indices(
             TIMELY_TARGET_FLAG_INDEX,
             state.previous_epoch(),
             spec,
-        )?;
+        )?
+        .into_iter()
+        .collect();
+
+    for index in state.get_eligible_validator_indices()? {
         if unslashed_indices.contains(&index) {
             let inactivity_score = state.get_inactivity_score_mut(index)?;
             if *inactivity_score > 0 {
