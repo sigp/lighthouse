@@ -1,4 +1,6 @@
+use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
+use lighthouse_metrics::set_gauge;
 use slog::{error, info, Logger};
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
@@ -39,7 +41,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
 ) {
     let num_available = duties_service.beacon_nodes.num_available().await;
     let num_synced = duties_service.beacon_nodes.num_synced().await;
-    let num_total = duties_service.beacon_nodes.num_total().await;
+    let num_total = duties_service.beacon_nodes.num_total();
     if num_synced > 0 {
         info!(
             log,
@@ -56,6 +58,12 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             "available" => num_available,
             "synced" => num_synced,
         )
+    }
+    let num_synced_fallback = duties_service.beacon_nodes.num_synced_fallback().await;
+    if num_synced_fallback > 0 {
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
+    } else {
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
     }
 
     if let Some(slot) = duties_service.slot_clock.now() {

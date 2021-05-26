@@ -77,6 +77,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             let head_slot = head_info.slot;
+
+            metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
+
             let current_slot = match beacon_chain.slot() {
                 Ok(slot) => slot,
                 Err(e) => {
@@ -123,6 +126,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             // Log if we are syncing
             if sync_state.is_syncing() {
+                metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 let distance = format!(
                     "{} slots ({})",
                     head_distance.as_u64(),
@@ -151,6 +155,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     );
                 }
             } else if sync_state.is_synced() {
+                metrics::set_gauge(&metrics::IS_SYNCED, 1);
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
@@ -167,6 +172,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "slot" => current_slot,
                 );
             } else {
+                metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     log,
                     "Searching for peers";

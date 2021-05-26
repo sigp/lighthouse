@@ -651,6 +651,7 @@ dependencies = [
  "hyper 0.14.7",
  "lighthouse_version",
  "logging",
+ "monitoring_api",
  "node_test_rig",
  "rand 0.7.3",
  "sensitive_url",
@@ -1100,6 +1101,7 @@ dependencies = [
  "http_metrics",
  "lazy_static",
  "lighthouse_metrics",
+ "monitoring_api",
  "network",
  "parking_lot",
  "prometheus",
@@ -4034,6 +4036,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "monitoring_api"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "futures 0.3.14",
+ "lazy_static",
+ "lighthouse_metrics",
+ "lighthouse_version",
+ "regex",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "store",
+ "task_executor",
+ "tokio 1.5.0",
 ]
 
 [[package]]
@@ -7135,6 +7158,7 @@ dependencies = [
  "lighthouse_version",
  "lockfile",
  "logging",
+ "monitoring_api",
  "parking_lot",
  "rand 0.7.3",
  "rayon",

@@ -40,6 +40,7 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/fallback",
+    "common/monitoring_api",
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",

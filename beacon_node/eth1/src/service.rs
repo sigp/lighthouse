@@ -94,6 +94,9 @@ impl EndpointsCache {
                 &crate::metrics::ENDPOINT_ERRORS,
                 &[&endpoint.0.to_string()],
             );
+            crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 0);
+        } else {
+            crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 1);
         }
         state
     }
@@ -730,6 +733,7 @@ impl Service {
 
         let mut interval = interval_at(Instant::now(), update_interval);
 
+        let num_fallbacks = self.config().endpoints.len() - 1;
         let update_future = async move {
             loop {
                 interval.tick().await;
@@ -737,6 +741,15 @@ impl Service {
             }
         };
 
+        // Set the number of configured eth1 servers
+        metrics::set_gauge(&metrics::ETH1_FALLBACK_CONFIGURED, num_fallbacks as i64);
+        // Since we lazily update eth1 fallbacks, it's not possible to know connection status of fallback.
+        // Hence, we set it to 1 if we have atleast one configured fallback.
+        if num_fallbacks > 0 {
+            metrics::set_gauge(&metrics::ETH1_FALLBACK_CONNECTED, 1);
+        } else {
+            metrics::set_gauge(&metrics::ETH1_FALLBACK_CONNECTED, 0);
+        }
         handle.spawn(update_future, "eth1");
     }
 

@@ -44,4 +44,5 @@ hyper = "0.14.4"
 lighthouse_version = { path = "../common/lighthouse_version" }
 hex = "0.4.2"
 slasher = { path = "../slasher" }
+monitoring_api = { path = "../common/monitoring_api" }
 sensitive_url = { path = "../common/sensitive_url" }
