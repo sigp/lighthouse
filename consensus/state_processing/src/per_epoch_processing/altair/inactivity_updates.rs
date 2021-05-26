@@ -12,12 +12,13 @@ pub fn process_inactivity_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
+    let unslashed_indices = state.get_unslashed_participating_indices(
+        TIMELY_TARGET_FLAG_INDEX,
+        state.previous_epoch(),
+        spec,
+    )?;
+
     for index in state.get_eligible_validator_indices()? {
-        let unslashed_indices = state.get_unslashed_participating_indices(
-            TIMELY_TARGET_FLAG_INDEX,
-            state.previous_epoch(),
-            spec,
-        )?;
         if unslashed_indices.contains(&index) {
             let inactivity_score = state.get_inactivity_score_mut(index)?;
             if *inactivity_score > 0 {

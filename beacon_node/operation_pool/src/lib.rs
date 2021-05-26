@@ -153,7 +153,7 @@ impl<T: EthSpec> OperationPool<T> {
             .get_cached_active_validator_indices(RelativeEpoch::Current)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
         let total_active_balance = state
-            .get_total_balance(&active_indices, spec)
+            .get_total_balance(active_indices, spec)
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
 
         // Split attestations for the previous & current epochs, so that we
@@ -1022,7 +1022,7 @@ mod release_tests {
         let active_indices = state
             .get_cached_active_validator_indices(RelativeEpoch::Current)
             .unwrap();
-        let total_active_balance = state.get_total_balance(&active_indices, spec).unwrap();
+        let total_active_balance = state.get_total_balance(active_indices, spec).unwrap();
 
         // Set of indices covered by previous attestations in `best_attestations`.
         let mut seen_indices = BTreeSet::new();
