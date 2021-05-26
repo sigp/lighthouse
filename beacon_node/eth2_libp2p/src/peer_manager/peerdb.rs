@@ -351,7 +351,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
 
         if let Err(e) = info.dialing_peer() {
-            error!(self.log, "{}", e);
+            error!(self.log, "{}", e; "peer_id" => %peer_id);
         }
     }
 
