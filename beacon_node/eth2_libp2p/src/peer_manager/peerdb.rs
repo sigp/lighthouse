@@ -153,6 +153,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         )
     }
 
+    /// Returns true if the peer should be dialed. This checks the connection state and the
+    /// score state and determines if the peer manager should dial this peer.
+    pub fn should_dial(&self, peer_id: &PeerId) -> bool {
+        matches!(
+            self.connection_status(peer_id),
+            Some(PeerConnectionStatus::Disconnected { .. })
+                | Some(PeerConnectionStatus::Unknown { .. })
+        ) && !self.is_banned_or_disconnected(peer_id)
+    }
+
     /// Returns true if the peer is synced at least to our current head.
     pub fn is_synced(&self, peer_id: &PeerId) -> bool {
         match self.peers.get(peer_id).map(|info| &info.sync_status) {
@@ -341,7 +351,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
 
         if let Err(e) = info.dialing_peer() {
-            error!(self.log, "{}", e);
+            error!(self.log, "{}", e; "peer_id" => %peer_id);
         }
     }
 
