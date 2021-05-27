@@ -5,11 +5,9 @@ pub use local_signer_test_data::*;
 pub use mock::*;
 use remote_signer_client::Client;
 pub use remote_signer_test_data::*;
-use std::fs;
 use std::fs::{create_dir, File};
 use std::io::Write;
 use std::net::IpAddr::{V4, V6};
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tempfile::TempDir;
 use types::{
@@ -18,6 +16,32 @@ use types::{
     Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, Signature, SignatureBytes,
     SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, Unsigned, VariableList, VoluntaryExit,
 };
+#[cfg(windows)]
+use winapi::um::winnt::{
+    FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_READ_ATTRIBUTES, FILE_READ_EA, READ_CONTROL,
+    STANDARD_RIGHTS_ALL, SYNCHRONIZE, WRITE_DAC,
+};
+
+/// This is the security identifier in Windows for the owner of a file. See:
+/// - https://docs.microsoft.com/en-us/troubleshoot/windows-server/identity/security-identifiers-in-windows#well-known-sids-all-versions-of-windows
+#[cfg(windows)]
+const OWNER_SID_STR: &str = "S-1-3-4";
+/// We don't need any of the `AceFlags` listed here:
+/// - https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-ace_header
+#[cfg(windows)]
+const OWNER_ACL_ENTRY_FLAGS: u8 = 0;
+/// See here for explanation:
+///  - https://docs.microsoft.com/en-us/windows/win32/wmisdk/file-and-directory-access-rights-constants
+#[cfg(windows)]
+const OWNER_ACL_ENTRY_RESTRICT_MASK: u32 =
+    FILE_READ_ATTRIBUTES | FILE_READ_EA | READ_CONTROL | WRITE_DAC | SYNCHRONIZE;
+/// Generic Rights:
+///  - https://docs.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
+/// STANDARD_RIGHTS_ALL
+///  - https://docs.microsoft.com/en-us/windows/win32/secauthz/access-mask
+#[cfg(windows)]
+const OWNER_ACL_ENTRY_UNRESTRICT_MASK: u32 =
+    FILE_GENERIC_READ | FILE_GENERIC_WRITE | STANDARD_RIGHTS_ALL;
 
 pub fn get_address(client: &Client) -> String {
     let listening_address = client.get_listening_address();
@@ -29,11 +53,78 @@ pub fn get_address(client: &Client) -> String {
     format!("http://{}:{}", ip, listening_address.port())
 }
 
-pub fn set_permissions(path: &Path, perm_octal: u32) {
-    let metadata = fs::metadata(path).unwrap();
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(perm_octal);
-    fs::set_permissions(path, permissions).unwrap();
+pub fn restrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = fs::metadata(path).unwrap();
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o0311); // set to '*-wx--x--x'
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(windows)]
+    {
+        use winapi::um::winnt::PSID;
+        use windows_acl::acl::{AceType, ACL};
+
+        let path_str = path.to_str().unwrap();
+        let mut acl = ACL::from_file_path(&path_str, false).unwrap();
+
+        let owner_sid = windows_acl::helper::string_to_sid(OWNER_SID_STR).unwrap();
+        let entries = acl.all().unwrap();
+        // remove all AccessAllow entries
+        for entry in &entries {
+            if let Some(ref entry_sid) = entry.sid {
+                acl.remove(entry_sid.as_ptr() as PSID, Some(AceType::AccessAllow), None)
+                    .unwrap();
+            }
+        }
+        // add single entry for minimal access to file owner
+        // allowing them only to read attributes of the file
+        // and read/modify permissions
+        acl.add_entry(
+            owner_sid.as_ptr() as PSID,
+            AceType::AccessAllow,
+            OWNER_ACL_ENTRY_FLAGS,
+            OWNER_ACL_ENTRY_RESTRICT_MASK,
+        )
+        .unwrap();
+    }
+}
+
+pub fn unrestrict_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let metadata = fs::metadata(path).unwrap();
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o0755); // set to '*rwxr-xr-x'
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[cfg(windows)]
+    {
+        use winapi::um::winnt::PSID;
+        use windows_acl::acl::{AceType, ACL};
+
+        let path_str = path.to_str().unwrap();
+        let mut acl = ACL::from_file_path(&path_str, false).unwrap();
+
+        let owner_sid = windows_acl::helper::string_to_sid(OWNER_SID_STR).unwrap();
+        // add single entry for file owner
+        acl.add_entry(
+            owner_sid.as_ptr() as PSID,
+            AceType::AccessAllow,
+            OWNER_ACL_ENTRY_FLAGS,
+            OWNER_ACL_ENTRY_UNRESTRICT_MASK,
+        )
+        .unwrap();
+    }
 }
 
 pub fn add_key_files(tmp_dir: &TempDir) {

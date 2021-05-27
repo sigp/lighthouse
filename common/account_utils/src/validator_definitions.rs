@@ -36,7 +36,7 @@ pub enum Error {
     /// The config file could not be serialized as YAML.
     UnableToEncodeFile(serde_yaml::Error),
     /// The config file or temp file could not be written to the filesystem.
-    UnableToWriteFile(io::Error),
+    UnableToWriteFile(filesystem::Error),
     /// The public key from the keystore is invalid.
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.

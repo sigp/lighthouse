@@ -17,6 +17,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::{fmt, mem};
 use superstruct::superstruct;
@@ -99,6 +100,8 @@ pub enum Error {
         deposit_count: u64,
         deposit_index: u64,
     },
+    /// Attestation slipped through block processing with a non-matching source.
+    IncorrectAttestationSource,
     /// An arithmetic operation occurred which would have overflowed or divided by 0.
     ///
     /// This represents a serious bug in either the spec or Lighthouse!
@@ -1180,12 +1183,12 @@ impl<T: EthSpec> BeaconState<T> {
     /// Implementation of `get_total_balance`, matching the spec.
     ///
     /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
-    pub fn get_total_balance(
-        &self,
-        validator_indices: &[usize],
+    pub fn get_total_balance<'a, I: IntoIterator<Item = &'a usize>>(
+        &'a self,
+        validator_indices: I,
         spec: &ChainSpec,
     ) -> Result<u64, Error> {
-        let total_balance = validator_indices.iter().try_fold(0_u64, |acc, i| {
+        let total_balance = validator_indices.into_iter().try_fold(0_u64, |acc, i| {
             self.get_effective_balance(*i)
                 .and_then(|bal| Ok(acc.safe_add(bal)?))
         })?;
@@ -1565,7 +1568,7 @@ impl<T: EthSpec> BeaconState<T> {
         flag_index: u32,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<Vec<usize>, Error> {
+    ) -> Result<HashSet<usize>, Error> {
         let epoch_participation = if epoch == self.current_epoch() {
             self.current_epoch_participation()?
         } else if epoch == self.previous_epoch() {

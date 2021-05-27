@@ -81,12 +81,19 @@ mod test {
     fn new_lock() {
         let temp = tempdir().unwrap();
         let path = temp.path().join("lockfile");
-
         let _lock = Lockfile::new(path.clone()).unwrap();
-        assert!(matches!(
-            Lockfile::new(path).unwrap_err(),
-            LockfileError::FileLocked(..)
-        ));
+        if cfg!(windows) {
+            assert!(matches!(
+                Lockfile::new(path).unwrap_err(),
+                // windows returns an IoError because the lockfile is already open :/
+                LockfileError::IoError(..),
+            ));
+        } else {
+            assert!(matches!(
+                Lockfile::new(path).unwrap_err(),
+                LockfileError::FileLocked(..)
+            ));
+        }
     }
 
     #[test]

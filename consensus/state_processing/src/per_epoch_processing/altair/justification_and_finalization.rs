@@ -28,8 +28,8 @@ pub fn process_justification_and_finalization<T: EthSpec>(
             .as_slice(),
         spec,
     )?;
-    let previous_target_balance = state.get_total_balance(previous_indices.as_slice(), spec)?;
-    let current_target_balance = state.get_total_balance(current_indices.as_slice(), spec)?;
+    let previous_target_balance = state.get_total_balance(&previous_indices, spec)?;
+    let current_target_balance = state.get_total_balance(&current_indices, spec)?;
     weigh_justification_and_finalization(
         state,
         total_active_balance,

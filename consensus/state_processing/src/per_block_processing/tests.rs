@@ -60,7 +60,7 @@ fn valid_block_ok() {
     let state = harness.get_current_state();
 
     let slot = state.slot();
-    let (block, mut state) = harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let (block, mut state) = harness.make_block_return_pre_state(state, slot + Slot::new(1));
 
     let result = per_block_processing(
         &mut state,
@@ -81,7 +81,7 @@ fn invalid_block_header_state_slot() {
     let state = harness.get_current_state();
     let slot = state.slot() + Slot::new(1);
 
-    let (signed_block, mut state) = harness.make_block_return_original_state(state, slot);
+    let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot);
     let (mut block, signature) = signed_block.deconstruct();
     *block.slot_mut() = slot + Slot::new(1);
 
@@ -109,8 +109,7 @@ fn invalid_parent_block_root() {
     let state = harness.get_current_state();
     let slot = state.slot();
 
-    let (signed_block, mut state) =
-        harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot + Slot::new(1));
     let (mut block, signature) = signed_block.deconstruct();
     *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
@@ -140,8 +139,7 @@ fn invalid_block_signature() {
 
     let state = harness.get_current_state();
     let slot = state.slot();
-    let (signed_block, mut state) =
-        harness.make_block_return_original_state(state, slot + Slot::new(1));
+    let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot + Slot::new(1));
     let (block, _) = signed_block.deconstruct();
 
     let result = per_block_processing(

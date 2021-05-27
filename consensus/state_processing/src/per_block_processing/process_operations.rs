@@ -1,6 +1,6 @@
 use super::*;
 use crate::common::{
-    altair::get_base_reward, get_attestation_participation, increase_balance,
+    altair::get_base_reward, get_attestation_participation_flag_indices, increase_balance,
     initiate_validator_exit, slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
@@ -112,7 +112,9 @@ pub mod altair {
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
-        let participation_flag_indices = get_attestation_participation(data, state, spec)?;
+        let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+        let participation_flag_indices =
+            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
         let total_active_balance = state.get_total_active_balance(spec)?;

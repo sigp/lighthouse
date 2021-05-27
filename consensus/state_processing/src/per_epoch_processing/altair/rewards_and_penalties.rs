@@ -60,7 +60,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
         state.get_unslashed_participating_indices(flag_index, state.previous_epoch(), spec)?;
     let increment = spec.effective_balance_increment; //Factored out from balances to avoid uint64 overflow
     let unslashed_participating_increments = state
-        .get_total_balance(unslashed_participating_indices.as_slice(), spec)?
+        .get_total_balance(&unslashed_participating_indices, spec)?
         .safe_div(increment)?;
     let active_increments = total_active_balance.safe_div(increment)?;
 

@@ -10,13 +10,10 @@ pub fn get_base_reward<T: EthSpec>(
     total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<u64, BeaconStateError> {
-    if total_active_balance == 0 {
-        Ok(0)
-    } else {
-        Ok(state
-            .get_effective_balance(index)?
-            .safe_mul(spec.base_reward_factor)?
-            .safe_div(total_active_balance.integer_sqrt())?
-            .safe_div(spec.base_rewards_per_epoch)?)
-    }
+    state
+        .get_effective_balance(index)?
+        .safe_mul(spec.base_reward_factor)?
+        .safe_div(total_active_balance.integer_sqrt())?
+        .safe_div(spec.base_rewards_per_epoch)
+        .map_err(Into::into)
 }
