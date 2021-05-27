@@ -673,20 +673,6 @@ mod release_tests {
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
         let harness = get_harness::<E>(num_validators, None);
 
-        let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
-
-        // advance until we have finalized and justified epochs
-        let state = harness.get_current_state();
-        harness.add_attested_blocks_at_slots(
-            state,
-            Hash256::zero(),
-            (1..slot_offset)
-                .map(Slot::new)
-                .collect::<Vec<_>>()
-                .as_slice(),
-            (0..num_validators).collect::<Vec<_>>().as_slice(),
-        );
-
         (harness, spec)
     }
 
@@ -702,17 +688,12 @@ mod release_tests {
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
         let harness = get_harness::<E>(num_validators, Some(spec.clone()));
 
-        let slot_offset = 5 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
-
         // advance until we have finalized and justified epochs
         let state = harness.get_current_state();
         harness.add_attested_blocks_at_slots(
             state,
             Hash256::zero(),
-            (1..slot_offset)
-                .map(Slot::new)
-                .collect::<Vec<_>>()
-                .as_slice(),
+            &[Slot::new(1)],
             (0..num_validators).collect::<Vec<_>>().as_slice(),
         );
 

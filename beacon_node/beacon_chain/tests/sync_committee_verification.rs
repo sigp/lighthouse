@@ -96,7 +96,8 @@ fn get_valid_sync_contribution(
         .head()
         .expect("should get head state")
         .beacon_block_root;
-    let sync_contributions = harness.make_sync_contributions(&head_state, head_block_root, slot);
+    let sync_contributions =
+        harness.make_sync_contributions(&head_state, head_block_root, head_state.slot());
 
     let (_, contribution_opt) = sync_contributions.get(0).unwrap();
     let contribution = contribution_opt.as_ref().cloned().unwrap();
@@ -181,24 +182,24 @@ fn aggregated_gossip_verification() {
     let (valid_aggregate, aggregator_index, aggregator_sk) = get_valid_sync_contribution(&harness);
 
     macro_rules! assert_invalid {
-        ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
-            assert!(
-                matches!(
-                    harness
-                        .chain
-                        .verify_sync_contribution_for_gossip($attn_getter)
-                        .err()
-                        .expect(&format!(
-                            "{} should error during verify_sync_contribution_for_gossip",
-                            $desc
-                        )),
-                    $( $error ) |+ $( if $guard )?
-                ),
-                "case: {}",
-                $desc,
-            );
-        };
-    }
+            ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+                assert!(
+                    matches!(
+                        harness
+                            .chain
+                            .verify_sync_contribution_for_gossip($attn_getter)
+                            .err()
+                            .expect(&format!(
+                                "{} should error during verify_sync_contribution_for_gossip",
+                                $desc
+                            )),
+                        $( $error ) |+ $( if $guard )?
+                    ),
+                    "case: {}",
+                    $desc,
+                );
+            };
+        }
 
     /*
      * The following two tests ensure:
@@ -512,24 +513,24 @@ fn unaggregated_gossip_verification() {
     ) = get_valid_sync_signature(&harness, current_slot);
 
     macro_rules! assert_invalid {
-        ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
-            assert!(
-                matches!(
-                    harness
-                        .chain
-                        .verify_sync_signature_for_gossip($attn_getter, Some($subnet_getter))
-                        .err()
-                        .expect(&format!(
-                            "{} should error during verify_sync_signature_for_gossip",
-                            $desc
-                        )),
-                    $( $error ) |+ $( if $guard )?
-                ),
-                "case: {}",
-                $desc,
-            );
-        };
-    }
+            ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+                assert!(
+                    matches!(
+                        harness
+                            .chain
+                            .verify_sync_signature_for_gossip($attn_getter, Some($subnet_getter))
+                            .err()
+                            .expect(&format!(
+                                "{} should error during verify_sync_signature_for_gossip",
+                                $desc
+                            )),
+                        $( $error ) |+ $( if $guard )?
+                    ),
+                    "case: {}",
+                    $desc,
+                );
+            };
+        }
 
     /*
      * The following test ensures:
