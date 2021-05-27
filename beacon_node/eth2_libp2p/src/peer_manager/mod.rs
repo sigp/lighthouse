@@ -920,12 +920,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
     ///
     /// It will request discovery queries if the peer count has not reached the desired number of
-    /// peers.
+    /// overall peers, as well as the desired number of outbound-only peers.
     ///
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
         let peer_count = self.network_globals.connected_or_dialing_peers();
-        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let mut outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
         let min_outbound_only_target =
             (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
@@ -947,7 +947,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if connected_peer_count > self.target_peers {
             // Remove excess peers with the worst scores, but keep subnet peers.
             // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
-            let mut peers_removed = 0;
+            outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
             let mut n_outbound_removed = 0;
             for (peer_id, info) in self
                 .network_globals
@@ -957,7 +957,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .iter()
                 .filter(|(_, info)| !info.has_future_duty())
             {
-                if peers_removed == connected_peer_count - self.target_peers {
+                if disconnecting_peers.len() == connected_peer_count - self.target_peers {
                     break;
                 }
                 if info.is_outbound_only() {
@@ -967,12 +967,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         continue;
                     }
                 }
-                peers_removed += 1;
-                // Only add healthy peers to disconnect,
-                // update_peer_scores would have already disconnected unhealthy peers.
-                if info.score_state() == ScoreState::Healthy {
-                    disconnecting_peers.push(**peer_id);
-                }
+                disconnecting_peers.push(**peer_id);
             }
         }
 
@@ -1189,7 +1184,7 @@ mod tests {
 
         peer_manager.heartbeat();
 
-        // Check that if we are at target number of peers who are all healthy, we do not disconnect any.
+        // Check that if we are at target number of peers, we do not disconnect any.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 
@@ -1228,7 +1223,6 @@ mod tests {
         let mut peer_manager = build_peer_manager(3).await;
 
         // Create 3 peers to connect to.
-        // One pair will be unhealthy inbound only and outbound only peers.
         let peer0 = PeerId::random();
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
@@ -1274,8 +1268,6 @@ mod tests {
 
         peer_manager.heartbeat();
 
-        // Checks that update_peer_score peer disconnection and the disconnecting_peers logic
-        // work together to remove the correct number of peers.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 1);
     }
 
@@ -1364,8 +1356,8 @@ mod tests {
             .set_gossipsub_score(-85.0);
 
         peer_manager.heartbeat();
-        // Tests that when we are over the target peer limit, even though one peer was already disconnected for being unhealthy,
-        // the loop to check for disconnecting peers will still remove the correct amount of peers.
+        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
+        // the number of connected peers updates and we will not remove too many peers.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 }
