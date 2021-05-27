@@ -639,11 +639,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the current sync committee at the head of the canonical chain.
     ///
     /// See `Self::head` for more information.
-    pub fn head_current_sync_committee(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
-        self.with_head(|s| {
-            //TODO: handle base
-            Ok(s.beacon_state.as_altair()?.current_sync_committee.clone())
-        })
+    pub fn head_current_sync_committee(&self) -> Result<SyncCommittee<T::EthSpec>, Error> {
+        self.with_head(|s| Ok(s.beacon_state.current_sync_committee()?.clone()))
     }
 
     /// Returns info representing the head block and state.

@@ -18,7 +18,7 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
-use std::{fmt, mem, sync::Arc};
+use std::{fmt, mem};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
@@ -250,7 +250,7 @@ where
 
     // Light-client sync committees
     #[superstruct(only(Altair))]
-    pub current_sync_committee: Arc<SyncCommittee<T>>,
+    pub current_sync_committee: SyncCommittee<T>,
     #[superstruct(only(Altair))]
     pub next_sync_committee: SyncCommittee<T>,
 
@@ -1530,8 +1530,8 @@ impl<T: EthSpec> BeaconState<T> {
             // Inactivity
             inactivity_scores,
             // Sync committees
-            current_sync_committee: Arc::new(SyncCommittee::temporary()?), // not read
-            next_sync_committee: SyncCommittee::temporary()?,              // not read
+            current_sync_committee: SyncCommittee::temporary()?, // not read
+            next_sync_committee: SyncCommittee::temporary()?,    // not read
             // Caches
             committee_caches: mem::take(&mut pre.committee_caches),
             pubkey_cache: mem::take(&mut pre.pubkey_cache),
@@ -1541,7 +1541,7 @@ impl<T: EthSpec> BeaconState<T> {
 
         // Fill in sync committees
         post.as_altair_mut()?.current_sync_committee =
-            Arc::new(post.get_sync_committee(post.current_epoch(), spec)?);
+            post.get_sync_committee(post.current_epoch(), spec)?;
         post.as_altair_mut()?.next_sync_committee = post.get_sync_committee(
             post.current_epoch()
                 .safe_add(spec.epochs_per_sync_committee_period)?,
