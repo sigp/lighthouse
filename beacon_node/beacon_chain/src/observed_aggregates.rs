@@ -120,23 +120,23 @@ impl SlotHashSet {
 /// these have previously been seen on the network.
 pub struct ObservedAggregates<T: TreeHash, E: EthSpec> {
     lowest_permissible_slot: Slot,
+    max_capacity: u64,
     sets: Vec<SlotHashSet>,
     _phantom_spec: PhantomData<E>,
     _phantom_tree_hash: PhantomData<T>,
 }
 
-impl<T: TreeHash, E: EthSpec> Default for ObservedAggregates<T, E> {
-    fn default() -> Self {
+impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
+    pub fn new(max_capacity: u64) -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
+            max_capacity,
             sets: vec![],
             _phantom_spec: PhantomData,
             _phantom_tree_hash: PhantomData,
         }
     }
-}
 
-impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
     /// Store the root of `a` in `self`.
     ///
     /// `root` must equal `a.tree_hash_root()`.
@@ -166,18 +166,11 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
             .and_then(|set| set.is_known(item, root))
     }
 
-    /// The maximum number of slots that items are stored for.
-    fn max_capacity(&self) -> u64 {
-        // We add `2` in order to account for one slot either side of the range due to
-        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-        E::slots_per_epoch() + 2
-    }
-
     /// Removes any items with a slot lower than `current_slot` and bars any future
     /// item with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&mut self, current_slot: Slot) {
         // Taking advantage of saturating subtraction on `Slot`.
-        let lowest_permissible_slot = current_slot - (self.max_capacity() - 1);
+        let lowest_permissible_slot = current_slot - (self.max_capacity - 1);
 
         self.sets.retain(|set| set.slot >= lowest_permissible_slot);
 
@@ -187,7 +180,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
     /// Returns the index of `self.set` that matches `slot`.
     ///
     /// If there is no existing set for this slot one will be created. If `self.sets.len() >=
-    /// Self::max_capacity()`, the set with the lowest slot will be replaced.
+    /// self.max_capacity`, the set with the lowest slot will be replaced.
     fn get_set_index(&mut self, slot: Slot) -> Result<usize, Error> {
         let lowest_permissible_slot = self.lowest_permissible_slot;
 
@@ -199,7 +192,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
         }
 
         // Prune the pool if this attestation indicates that the current slot has advanced.
-        if lowest_permissible_slot + self.max_capacity() < slot + 1 {
+        if lowest_permissible_slot + self.max_capacity < slot + 1 {
             self.prune(slot)
         }
 
@@ -222,7 +215,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
         // but considering it's approx. 128 * 32 bytes we're not wasting much.
         let initial_capacity = sum.checked_div(count).unwrap_or(128);
 
-        if self.sets.len() < self.max_capacity() as usize || self.sets.is_empty() {
+        if self.sets.len() < self.max_capacity as usize || self.sets.is_empty() {
             let index = self.sets.len();
             self.sets.push(SlotHashSet::new(slot, initial_capacity));
             return Ok(index);
@@ -322,7 +315,7 @@ mod tests {
                 #[test]
                 fn mulitple_contiguous_slots() {
                     let mut store = $type::default();
-                    let max_cap = store.max_capacity();
+                    let max_cap = store.max_capacity;
 
                     for i in 0..max_cap * 3 {
                         let slot = Slot::new(i);
@@ -368,7 +361,7 @@ mod tests {
                             store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
 
                         assert!(
-                            store_slots.len() <= store.max_capacity() as usize,
+                            store_slots.len() <= store.max_capacity as usize,
                             "store size should not exceed max"
                         );
 
@@ -385,7 +378,7 @@ mod tests {
                 #[test]
                 fn mulitple_non_contiguous_slots() {
                     let mut store = $type::default();
-                    let max_cap = store.max_capacity();
+                    let max_cap = store.max_capacity;
 
                     let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
                     let slots = (0..max_cap * 3)
@@ -424,7 +417,7 @@ mod tests {
                         store_slots.sort_unstable();
 
                         assert!(
-                            store_slots.len() <= store.max_capacity() as usize,
+                            store_slots.len() <= store.max_capacity as usize,
                             "store size should not exceed max"
                         );
 

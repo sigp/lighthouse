@@ -30,6 +30,7 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
 };
+use crate::observed_aggregates::{ObservedAggregateAttestations, ObservedSyncAggregates};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -508,9 +509,13 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             naive_sync_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
-            observed_attestations: <_>::default(),
+            // We add `2` in order to account for one slot either side of the range due to
+            // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+            observed_attestations: RwLock::new(ObservedAggregateAttestations::new(TEthSpec::slots_per_epoch() + 2)),
             // TODO: allow for persisting and loading the pool from disk.
-            observed_sync_contributions: <_>::default(),
+            // We add `2` in order to account for one slot either side of the range due to
+            // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+            observed_sync_contributions: RwLock::new(ObservedSyncAggregates::new(3)),
             // TODO: allow for persisting and loading the pool from disk.
             observed_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
