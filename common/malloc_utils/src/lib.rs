@@ -27,7 +27,6 @@ pub use interface::*;
 #[cfg(all(target_os = "linux", not(target_env = "musl")))]
 mod interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
-    pub use crate::glibc::eprintln_malloc_stats as eprintln_allocator_stats;
     pub use crate::glibc::scrape_mallinfo_metrics as scrape_allocator_metrics;
 }
 
@@ -37,9 +36,6 @@ mod interface {
     pub fn configure_memory_allocator() -> Result<(), String> {
         Ok(())
     }
-
-    #[allow(dead_code)]
-    pub fn eprintln_allocator_stats() {}
 
     #[allow(dead_code)]
     pub fn scrape_allocator_metrics() {}
