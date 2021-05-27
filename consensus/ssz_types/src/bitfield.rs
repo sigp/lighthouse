@@ -282,7 +282,7 @@ impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
         result
     }
 
-    /// Compute the union of two fixed-length `Bitfield`s..
+    /// Compute the union of two fixed-length `Bitfield`s.
     ///
     /// Return a new fixed-length `Bitfield`.
     pub fn union(&self, other: &Self) -> Self {
