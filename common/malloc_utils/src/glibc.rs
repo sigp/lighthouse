@@ -92,6 +92,9 @@ pub fn scrape_mallinfo_metrics() {
     // The docs for this function say it is thread-unsafe since it may return inconsistent results.
     // Since these are just metrics it's not a concern to us if they're sometimes inconsistent.
     //
+    // There exists a `malloc2` function, however it was release in February 2021 and this seems too
+    // recent to rely on.
+    //
     // Docs:
     //
     // https://man7.org/linux/man-pages/man3/mallinfo.3.html
