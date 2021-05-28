@@ -13,12 +13,13 @@ use std::result::Result;
 
 /// The value to be provided to `malloc_mmap_threshold`.
 ///
-/// Value chosen so that values of the validators tree hash cache will be allocated via `mmap`.
+/// Value chosen so that values of the validators tree hash cache will *not* be allocated via
+/// `mmap`.
 ///
 /// The size of a single chunk is:
 ///
 /// NODES_PER_VALIDATOR * VALIDATORS_PER_ARENA * 32 = 15 * 4096 * 32 = 1.875 MiB
-const OPTIMAL_MMAP_THRESHOLD: c_int = 1 * 1_024 * 1_024;
+const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 
 /// The maximum number of arenas allowed to be created by malloc.
 ///
