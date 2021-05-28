@@ -4,11 +4,11 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
-use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient};
+use eth2_libp2p::discv5::enr::{CombinedKey, EnrBuilder};
 use eth2_libp2p::{
     rpc::methods::MetaData,
     types::{EnrBitfield, SyncState},
