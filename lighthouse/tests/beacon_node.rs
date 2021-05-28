@@ -800,6 +800,14 @@ fn slasher_broadcast_flag() {
         });
 }
 #[test]
+pub fn malloc_tuning_flag() {
+    CommandLineTest::new()
+        .flag("disable-malloc-tuning", None)
+        // Simply ensure that the node can start with this flag, it's very difficult to observe the
+        // effects of it.
+        .run();
+}
+#[test]
 #[should_panic]
 fn ensure_panic_on_failed_launch() {
     CommandLineTest::new()
