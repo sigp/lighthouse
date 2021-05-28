@@ -6,6 +6,7 @@
 //! These functions are generally only suitable for Linux systems.
 use lazy_static::lazy_static;
 use lighthouse_metrics::*;
+use parking_lot::Mutex;
 use std::env;
 use std::os::raw::c_int;
 use std::result::Result;
@@ -44,6 +45,10 @@ enum ArenaMaxSetting {
     Fixed(c_int),
     /// Read the number of CPUs at runtime and use that value.
     NumCpus,
+}
+
+lazy_static! {
+    pub static ref GLOBAL_LOCK: Mutex<()> = <_>::default();
 }
 
 // Metrics for the malloc. For more information, see:
@@ -98,7 +103,7 @@ pub fn scrape_mallinfo_metrics() {
     // Docs:
     //
     // https://man7.org/linux/man-pages/man3/mallinfo.3.html
-    let mallinfo = unsafe { libc::mallinfo() };
+    let mallinfo = mallinfo();
 
     set_gauge(&MALLINFO_ARENA, mallinfo.arena as i64);
     set_gauge(&MALLINFO_ORDBLKS, mallinfo.ordblks as i64);
@@ -151,7 +156,7 @@ fn env_var_present(name: &str) -> bool {
 ///
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
 fn malloc_arena_max(num_arenas: c_int) -> Result<(), c_int> {
-    unsafe { into_result(ffi::mallopt(M_ARENA_MAX, num_arenas)) }
+    into_result(mallopt(M_ARENA_MAX, num_arenas))
 }
 
 /// Uses `mallopt` to set the `M_MMAP_THRESHOLD` value, specifying the threshold where objects of this
@@ -161,16 +166,19 @@ fn malloc_arena_max(num_arenas: c_int) -> Result<(), c_int> {
 ///
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
 fn malloc_mmap_threshold(num_arenas: c_int) -> Result<(), c_int> {
-    unsafe { into_result(ffi::mallopt(M_MMAP_THRESHOLD, num_arenas)) }
+    into_result(mallopt(M_MMAP_THRESHOLD, num_arenas))
 }
 
-mod ffi {
-    extern "C" {
-        pub fn mallopt(
-            __param: ::std::os::raw::c_int,
-            __val: ::std::os::raw::c_int,
-        ) -> ::std::os::raw::c_int;
-    }
+fn mallopt(param: c_int, val: c_int) -> c_int {
+    // Prevent this function from being called in parallel with any other non-thread-safe function.
+    let _lock = GLOBAL_LOCK.lock();
+    unsafe { libc::mallopt(param, val) }
+}
+
+fn mallinfo() -> libc::mallinfo {
+    // Prevent this function from being called in parallel with any other non-thread-safe function.
+    let _lock = GLOBAL_LOCK.lock();
+    unsafe { libc::mallinfo() }
 }
 
 fn into_result(result: c_int) -> Result<(), c_int> {
