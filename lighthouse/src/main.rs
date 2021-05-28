@@ -2,10 +2,12 @@ mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
+use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
+use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
 use std::fs::File;
 use std::path::PathBuf;
@@ -144,12 +146,35 @@ fn main() {
                     Used for testing only, DO NOT USE IN PRODUCTION.")
                 .global(true)
         )
+        .arg(
+            Arg::with_name(DISABLE_MALLOC_TUNING_FLAG)
+                .long(DISABLE_MALLOC_TUNING_FLAG)
+                .help(
+                    "If present, do not configure the system allocator. Providing this flag will \
+                    generally increase memory usage, it should only be provided when debugging \
+                    specific memory allocation issues."
+                )
+                .global(true),
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(remote_signer::cli_app())
         .get_matches();
+
+    // Configure the allocator early in the process, before it has the chance to use the default values for
+    // anything important.
+    if !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        if let Err(e) = configure_memory_allocator() {
+            eprintln!(
+                "Unable to configure the memory allocator: {} \n\
+                Try providing the --{} flag",
+                e, DISABLE_MALLOC_TUNING_FLAG
+            );
+            exit(1)
+        }
+    }
 
     // Debugging output for libp2p and external crates.
     if matches.is_present("env_log") {

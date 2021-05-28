@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use clap_utils::BAD_TESTNET_DIR_MESSAGE;
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
@@ -154,6 +154,11 @@ pub fn get_config<E: EthSpec>(
             log,
             "Running HTTP server on port {}", client_config.http_api.listen_port
         );
+    }
+
+    // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
+    if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        client_config.http_metrics.allocator_metrics_enabled = false;
     }
 
     /*

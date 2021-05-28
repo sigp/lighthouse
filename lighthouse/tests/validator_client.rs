@@ -344,3 +344,11 @@ fn metrics_allow_origin_all_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
 }
+#[test]
+pub fn malloc_tuning_flag() {
+    CommandLineTest::new()
+        .flag("disable-malloc-tuning", None)
+        // Simply ensure that the node can start with this flag, it's very difficult to observe the
+        // effects of it.
+        .run();
+}

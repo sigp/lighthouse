@@ -800,6 +800,15 @@ fn slasher_broadcast_flag() {
         });
 }
 #[test]
+pub fn malloc_tuning_flag() {
+    CommandLineTest::new()
+        .flag("disable-malloc-tuning", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.http_metrics.allocator_metrics_enabled);
+        });
+}
+#[test]
 #[should_panic]
 fn ensure_panic_on_failed_launch() {
     CommandLineTest::new()

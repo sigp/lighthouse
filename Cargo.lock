@@ -2897,6 +2897,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
+ "malloc_utils",
  "prometheus",
  "reqwest",
  "serde",
@@ -3748,6 +3749,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "logging",
+ "malloc_utils",
  "remote_signer",
  "serde_json",
  "slashing_protection",
@@ -3874,6 +3876,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "malloc_utils"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "lighthouse_metrics",
+ "num_cpus",
+ "parking_lot",
 ]
 
 [[package]]

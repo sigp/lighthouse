@@ -46,6 +46,7 @@ lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 serde_json = "1.0.59"
 task_executor = { path = "../common/task_executor" }
+malloc_utils = { path = "../common/malloc_utils" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
