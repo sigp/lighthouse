@@ -19,6 +19,7 @@ dependencies = [
  "eth2_ssz_derive",
  "eth2_wallet",
  "eth2_wallet_manager",
+ "filesystem",
  "futures 0.3.15",
  "hex",
  "libc",
@@ -44,6 +45,7 @@ dependencies = [
  "directory",
  "eth2_keystore",
  "eth2_wallet",
+ "filesystem",
  "rand 0.7.3",
  "regex",
  "rpassword",
@@ -598,6 +600,7 @@ dependencies = [
  "hyper 0.14.8",
  "lighthouse_version",
  "logging",
+ "monitoring_api",
  "node_test_rig",
  "rand 0.7.3",
  "sensitive_url",
@@ -1044,6 +1047,7 @@ dependencies = [
  "http_metrics",
  "lazy_static",
  "lighthouse_metrics",
+ "monitoring_api",
  "network",
  "parking_lot",
  "prometheus",
@@ -2183,6 +2187,24 @@ dependencies = [
  "bitvec 0.20.4",
  "rand_core 0.6.2",
  "subtle 2.4.0",
+]
+
+[[package]]
+name = "field-offset"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e1c54951450cbd39f3dbcf1005ac413b49487dabf18a720ad2383eccfeffb92"
+dependencies = [
+ "memoffset",
+ "rustc_version 0.3.3",
+]
+
+[[package]]
+name = "filesystem"
+version = "0.1.0"
+dependencies = [
+ "winapi 0.3.9",
+ "windows-acl",
 ]
 
 [[package]]
@@ -3994,6 +4016,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "monitoring_api"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "futures 0.3.15",
+ "lazy_static",
+ "lighthouse_metrics",
+ "lighthouse_version",
+ "regex",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "store",
+ "task_executor",
+ "tokio 1.6.0",
+]
+
+[[package]]
 name = "multihash"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5183,6 +5226,8 @@ dependencies = [
  "tempfile",
  "tokio 1.6.0",
  "types",
+ "winapi 0.3.9",
+ "windows-acl",
 ]
 
 [[package]]
@@ -5792,6 +5837,7 @@ dependencies = [
  "byteorder",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "filesystem",
  "flate2",
  "lazy_static",
  "lighthouse_metrics",
@@ -5834,6 +5880,7 @@ dependencies = [
 name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
+ "filesystem",
  "parking_lot",
  "r2d2",
  "r2d2_sqlite",
@@ -7151,6 +7198,7 @@ dependencies = [
  "eth2_ssz_derive",
  "exit-future",
  "fallback",
+ "filesystem",
  "futures 0.3.15",
  "hex",
  "hyper 0.14.8",
@@ -7161,6 +7209,7 @@ dependencies = [
  "lighthouse_version",
  "lockfile",
  "logging",
+ "monitoring_api",
  "parking_lot",
  "rand 0.7.3",
  "rayon",
@@ -7195,6 +7244,7 @@ dependencies = [
  "deposit_contract",
  "derivative",
  "eth2_keystore",
+ "filesystem",
  "hex",
  "lockfile",
  "rand 0.7.3",
@@ -7562,6 +7612,18 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windows-acl"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "177b1723986bcb4c606058e77f6e8614b51c7f9ad2face6f6fd63dd5c8b3cec3"
+dependencies = [
+ "field-offset",
+ "libc",
+ "widestring",
+ "winapi 0.3.9",
+]
 
 [[package]]
 name = "winreg"

@@ -136,6 +136,17 @@ pub fn get_config<E: EthSpec>(
         client_config.http_metrics.allow_origin = Some(allow_origin.to_string());
     }
 
+    /*
+     * Explorer metrics
+     */
+    if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        client_config.monitoring_api = Some(monitoring_api::Config {
+            db_path: None,
+            freezer_db_path: None,
+            monitoring_endpoint: monitoring_endpoint.to_string(),
+        });
+    }
+
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
     if cli_args.is_present("staking") {
