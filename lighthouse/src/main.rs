@@ -2,6 +2,7 @@ mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
+use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
@@ -16,9 +17,6 @@ use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
-
-// CLI flags:
-pub const DISABLE_MALLOC_TUNING: &str = "disable-malloc-tuning";
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -149,8 +147,8 @@ fn main() {
                 .global(true)
         )
         .arg(
-            Arg::with_name(DISABLE_MALLOC_TUNING)
-                .long(DISABLE_MALLOC_TUNING)
+            Arg::with_name(DISABLE_MALLOC_TUNING_FLAG)
+                .long(DISABLE_MALLOC_TUNING_FLAG)
                 .help(
                     "If present, do not configure the system allocator. Providing this flag will \
                     generally increase memory usage, it should only be provided when debugging \
@@ -167,12 +165,12 @@ fn main() {
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
-    if !matches.is_present(DISABLE_MALLOC_TUNING) {
+    if !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
         if let Err(e) = configure_memory_allocator() {
             eprintln!(
                 "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
-                e, DISABLE_MALLOC_TUNING
+                e, DISABLE_MALLOC_TUNING_FLAG
             );
             exit(1)
         }

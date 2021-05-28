@@ -803,9 +803,10 @@ fn slasher_broadcast_flag() {
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
-        // Simply ensure that the node can start with this flag, it's very difficult to observe the
-        // effects of it.
-        .run();
+        .run()
+        .with_config(|config| {
+            assert!(!config.http_metrics.allocator_metrics_enabled);
+        });
 }
 #[test]
 #[should_panic]

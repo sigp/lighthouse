@@ -42,7 +42,11 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
 
     warp_utils::metrics::scrape_health_metrics();
 
-    scrape_allocator_metrics();
+    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
+    // using glibc and this function causes panics.
+    if ctx.config.allocator_metrics_enabled {
+        scrape_allocator_metrics();
+    }
 
     encoder
         .encode(&lighthouse_metrics::gather(), &mut buffer)
