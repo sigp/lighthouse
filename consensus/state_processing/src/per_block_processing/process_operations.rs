@@ -6,7 +6,7 @@ use crate::common::{
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use safe_arith::SafeArith;
-use types::consts::altair::{FLAG_INDICES_AND_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -122,7 +122,7 @@ pub mod altair {
         for index in &indexed_attestation.attesting_indices {
             let index = *index as usize;
 
-            for &(flag_index, weight) in FLAG_INDICES_AND_WEIGHTS.iter() {
+            for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                 let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
                 let validator_participation = epoch_participation
                     .get_mut(index)

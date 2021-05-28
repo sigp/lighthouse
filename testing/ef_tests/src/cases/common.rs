@@ -71,3 +71,11 @@ impl<T> SszStaticType for T where
     T: serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
 {
 }
+
+/// Return the fork immediately prior to a fork.
+pub fn previous_fork(fork_name: ForkName) -> ForkName {
+    match fork_name {
+        ForkName::Base => ForkName::Base,
+        ForkName::Altair => ForkName::Base,
+    }
+}

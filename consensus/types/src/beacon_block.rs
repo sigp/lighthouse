@@ -58,7 +58,7 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.altair_fork_slot == Some(spec.genesis_slot) {
+        if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {
             Self::Base(BeaconBlockBase::empty(spec))
@@ -171,10 +171,11 @@ impl<T: EthSpec> BeaconBlock<T> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let epoch = slot.epoch(T::slots_per_epoch());
 
         if spec
-            .altair_fork_slot
-            .map_or(true, |altair_slot| slot < altair_slot)
+            .altair_fork_epoch
+            .map_or(true, |altair_epoch| epoch < altair_epoch)
         {
             BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
         } else {

@@ -21,6 +21,7 @@ pub mod per_block_processing;
 pub mod per_epoch_processing;
 pub mod per_slot_processing;
 pub mod state_advance;
+pub mod upgrade;
 pub mod verify_operation;
 
 pub use genesis::{

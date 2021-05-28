@@ -54,6 +54,11 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
 }
 
 impl<E: EthSpec> Case for GenesisInitialization<E> {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        // Altair genesis and later requires real crypto.
+        fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto"))
+    }
+
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
 

@@ -124,12 +124,13 @@ pub struct ChainSpec {
     pub proportional_slashing_multiplier_altair: u64,
     pub epochs_per_sync_committee_period: Epoch,
     pub inactivity_score_bias: u64,
+    pub inactivity_score_recovery_rate: u64,
     domain_sync_committee: u32,
     domain_sync_committee_selection_proof: u32,
     domain_contribution_and_proof: u32,
     pub altair_fork_version: [u8; 4],
-    /// The Altair fork slot is optional, with `None` representing "Altair never happens".
-    pub altair_fork_slot: Option<Slot>,
+    /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
+    pub altair_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -180,9 +181,14 @@ impl ChainSpec {
     }
 
     /// Returns the name of the fork which is active at `slot`.
-    pub fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
-        match self.altair_fork_slot {
-            Some(fork_slot) if slot >= fork_slot => ForkName::Altair,
+    pub fn fork_name_at_slot<E: EthSpec>(&self, slot: Slot) -> ForkName {
+        self.fork_name_at_epoch(slot.epoch(E::slots_per_epoch()))
+    }
+
+    /// Returns the name of the fork which is active at `epoch`.
+    pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
+        match self.altair_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
             _ => ForkName::Base,
         }
     }
@@ -395,12 +401,13 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_altair: 2,
             inactivity_score_bias: 4,
-            epochs_per_sync_committee_period: Epoch::new(256),
+            inactivity_score_recovery_rate: 16,
+            epochs_per_sync_committee_period: Epoch::new(512),
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_slot: Some(Slot::new(u64::MAX)),
+            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
 
             /*
              * Network specific
@@ -439,7 +446,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_slot: Some(Slot::new(u64::MAX)),
+            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -504,7 +511,6 @@ impl StandardConfig {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BaseConfig {
-    pub config_name: String,
     // ChainSpec
     #[serde(with = "serde_utils::quoted_u64")]
     max_committees_per_slot: u64,
@@ -637,23 +643,19 @@ impl Default for BaseConfig {
 }
 
 impl BaseConfig {
-    /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
+    /// Maps `self` to an identifier for an `EthSpec` instance.
     ///
     /// Returns `None` if there is no match.
     pub fn eth_spec_id(&self) -> Option<EthSpecId> {
-        Some(match self.config_name.as_str() {
-            "mainnet" => EthSpecId::Mainnet,
-            "minimal" => EthSpecId::Minimal,
-            "toledo" => EthSpecId::Mainnet,
-            "prater" => EthSpecId::Mainnet,
-            "pyrmont" => EthSpecId::Mainnet,
-            _ => return None,
-        })
+        match self.slots_per_epoch {
+            8 => Some(EthSpecId::Minimal),
+            32 => Some(EthSpecId::Mainnet),
+            _ => None,
+        }
     }
 
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
-            config_name: T::spec_name().to_string(),
             // ChainSpec
             max_committees_per_slot: spec.max_committees_per_slot as u64,
             target_committee_size: spec.target_committee_size as u64,
@@ -829,12 +831,13 @@ impl BaseConfig {
             proportional_slashing_multiplier_altair: chain_spec
                 .proportional_slashing_multiplier_altair,
             inactivity_score_bias: chain_spec.inactivity_score_bias,
+            inactivity_score_recovery_rate: chain_spec.inactivity_score_recovery_rate,
             epochs_per_sync_committee_period: chain_spec.epochs_per_sync_committee_period,
             domain_sync_committee: chain_spec.domain_sync_committee,
             domain_sync_committee_selection_proof: chain_spec.domain_sync_committee_selection_proof,
             domain_contribution_and_proof: chain_spec.domain_contribution_and_proof,
             altair_fork_version: chain_spec.altair_fork_version,
-            altair_fork_slot: chain_spec.altair_fork_slot,
+            altair_fork_epoch: chain_spec.altair_fork_epoch,
             /*
              * Lighthouse-specific parameters
              *
@@ -871,9 +874,9 @@ pub struct AltairConfig {
     #[serde(with = "serde_utils::quoted_u64")]
     sync_committee_size: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    sync_pubkeys_per_aggregate: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    inactivity_score_recovery_rate: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     epochs_per_sync_committee_period: Epoch,
     #[serde(with = "serde_utils::u32_hex")]
@@ -884,7 +887,7 @@ pub struct AltairConfig {
     domain_contribution_and_proof: u32,
     #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
-    altair_fork_slot: Option<MaybeQuoted<Slot>>,
+    altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
     // FIXME(altair): sync protocol params?
 }
 
@@ -903,19 +906,17 @@ impl AltairConfig {
             min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair,
             sync_committee_size,
-            sync_pubkeys_per_aggregate,
             inactivity_score_bias,
+            inactivity_score_recovery_rate,
             epochs_per_sync_committee_period,
             domain_sync_committee,
             domain_sync_committee_selection_proof,
             domain_contribution_and_proof,
             altair_fork_version,
-            altair_fork_slot,
+            altair_fork_epoch,
         } = self;
 
-        if sync_committee_size != T::SyncCommitteeSize::to_u64()
-            || sync_pubkeys_per_aggregate != T::SyncPubkeysPerAggregate::to_u64()
-        {
+        if sync_committee_size != T::SyncCommitteeSize::to_u64() {
             return None;
         }
 
@@ -924,12 +925,13 @@ impl AltairConfig {
             min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair,
             inactivity_score_bias,
+            inactivity_score_recovery_rate,
             epochs_per_sync_committee_period,
             domain_sync_committee,
             domain_sync_committee_selection_proof,
             domain_contribution_and_proof,
             altair_fork_version,
-            altair_fork_slot: altair_fork_slot.map(|q| q.value),
+            altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
             ..chain_spec.clone()
         })
     }
@@ -940,15 +942,15 @@ impl AltairConfig {
             min_slashing_penalty_quotient_altair: spec.min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair: spec.proportional_slashing_multiplier_altair,
             sync_committee_size: T::SyncCommitteeSize::to_u64(),
-            sync_pubkeys_per_aggregate: T::SyncPubkeysPerAggregate::to_u64(),
             inactivity_score_bias: spec.inactivity_score_bias,
+            inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
             epochs_per_sync_committee_period: spec.epochs_per_sync_committee_period,
             domain_sync_committee: spec.domain_sync_committee,
             domain_sync_committee_selection_proof: spec.domain_sync_committee_selection_proof,
             domain_contribution_and_proof: spec.domain_contribution_and_proof,
             altair_fork_version: spec.altair_fork_version,
-            altair_fork_slot: spec
-                .altair_fork_slot
+            altair_fork_epoch: spec
+                .altair_fork_epoch
                 .map(|slot| MaybeQuoted { value: slot }),
         }
     }

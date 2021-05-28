@@ -61,6 +61,10 @@ pub struct HistoricalRootsUpdate;
 pub struct ParticipationRecordUpdates;
 #[derive(Debug)]
 pub struct SyncCommitteeUpdates;
+#[derive(Debug)]
+pub struct InactivityUpdates;
+#[derive(Debug)]
+pub struct ParticipationFlagUpdates;
 
 type_name!(
     JustificationAndFinalization,
@@ -76,6 +80,8 @@ type_name!(RandaoMixesReset, "randao_mixes_reset");
 type_name!(HistoricalRootsUpdate, "historical_roots_update");
 type_name!(ParticipationRecordUpdates, "participation_record_updates");
 type_name!(SyncCommitteeUpdates, "sync_committee_updates");
+type_name!(InactivityUpdates, "inactivity_updates");
+type_name!(ParticipationFlagUpdates, "participation_flag_updates");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
@@ -188,19 +194,30 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
     }
 }
 
+impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        match state {
+            BeaconState::Base(_) => Ok(()),
+            BeaconState::Altair(_) => altair::process_inactivity_updates(state, spec),
+        }
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
+    fn run(state: &mut BeaconState<E>, _: &ChainSpec) -> Result<(), EpochProcessingError> {
+        match state {
+            BeaconState::Base(_) => Ok(()),
+            BeaconState::Altair(_) => altair::process_participation_flag_updates(state),
+        }
+    }
+}
+
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = &testing_spec::<E>(fork_name);
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
-        } else if T::name() == "sync_committee_updates" {
-            // FIXME(altair): this is a hack because the epoch tests are missing metadata
-            // and the sync aggregate tests need real BLS
-            Metadata {
-                description: None,
-                bls_setting: Some(BlsSetting::Required),
-            }
         } else {
             Metadata::default()
         };
@@ -232,8 +249,12 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         match fork_name {
-            // No sync committee tests for genesis fork.
-            ForkName::Base => T::name() != "sync_committee_updates",
+            // No Altair tests for genesis fork.
+            ForkName::Base => {
+                T::name() != "sync_committee_updates"
+                    && T::name() != "inactivity_updates"
+                    && T::name() != "participation_flag_updates"
+            }
             ForkName::Altair => true,
         }
     }

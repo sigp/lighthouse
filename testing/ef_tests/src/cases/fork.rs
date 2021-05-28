@@ -1,7 +1,9 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
+use state_processing::upgrade::upgrade_to_altair;
 use types::{BeaconState, ForkName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -11,17 +13,7 @@ pub struct Metadata {
 
 impl Metadata {
     fn fork_name(&self) -> ForkName {
-        match self.fork.as_str() {
-            "altair" => ForkName::Altair,
-            _ => panic!("unknown fork: {}", self.fork),
-        }
-    }
-}
-
-fn previous_fork(fork_name: ForkName) -> ForkName {
-    match fork_name {
-        ForkName::Base => ForkName::Base,
-        ForkName::Altair => ForkName::Base,
+        self.fork.parse().unwrap()
     }
 }
 
@@ -66,7 +58,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
         let spec = &E::default_spec();
 
         let mut result = match fork_name {
-            ForkName::Altair => result_state.upgrade_to_altair(spec).map(|_| result_state),
+            ForkName::Altair => upgrade_to_altair(&mut result_state, spec).map(|_| result_state),
             _ => panic!("unknown fork: {:?}", fork_name),
         };
 
