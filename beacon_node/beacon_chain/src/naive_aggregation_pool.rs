@@ -10,8 +10,8 @@ type SyncDataRoot = Hash256;
 
 /// The number of slots that will be stored in the pool.
 ///
-/// For example, if `SLOTS_RETAINED == 3` and the pool is pruned at slot `6`, then all attestations
-/// at slots less than `4` will be dropped and any future attestation with a slot less than `4`
+/// For example, if `SLOTS_RETAINED == 3` and the pool is pruned at slot `6`, then all items
+/// at slots less than `4` will be dropped and any future item with a slot less than `4`
 /// will be refused.
 const SLOTS_RETAINED: usize = 3;
 
@@ -20,20 +20,15 @@ const SLOTS_RETAINED: usize = 3;
 /// This is a DoS protection measure.
 const MAX_ATTESTATIONS_PER_SLOT: usize = 16_384;
 
-/// The maximum number of distinct `SyncCommitteeData` that will be stored in each slot.
-///
-/// This is a DoS protection measure.
-const MAX_SYNC_CONTRIBUTIONS_PER_SLOT: usize = 16_384;
-
-/// Returned upon successfully inserting an attestation into the pool.
+/// Returned upon successfully inserting an item into the pool.
 #[derive(Debug, PartialEq)]
 pub enum InsertOutcome {
     /// The item had not been seen before and was added to the pool.
     NewItemInserted { committee_index: usize },
-    /// A validator signature for the given `attestation.data` was already known. No changes were
+    /// A validator signature for the given item's `Data` was already known. No changes were
     /// made.
     SignatureAlreadyKnown { committee_index: usize },
-    /// The `attestation.data` was known, but a signature for the given validator was not yet
+    /// The item's `Data` was known, but a signature for the given validator was not yet
     /// known. The signature was aggregated into the pool.
     SignatureAggregated { committee_index: usize },
 }
@@ -61,17 +56,47 @@ pub enum Error {
     IncorrectSlot { expected: Slot, actual: Slot },
 }
 
-//FIXME(sean): add docs
+/// Implemented for items in the `NaiveAggregationPool`. Requires that items implement `SlotData`,
+/// which means they have an associated slot. This handles aggregation of items that are inserted.
 pub trait AggregateMap {
+    /// `Key` should be a hash of `Data`.
     type Key;
+
+    /// The item stored in the map
     type Value: Clone + SlotData;
+
+    /// The unique fields of `Value`, hashed to create `Key`.
     type Data: SlotData;
+
+    /// Create a new `AggregateMap` with capacity `initial_capacity`.
     fn new(initial_capacity: usize) -> Self;
-    fn insert(&mut self, a: &Self::Value) -> Result<InsertOutcome, Error>;
+
+    /// Insert a `Value` into `Self`, returning a result.
+    fn insert(&mut self, value: &Self::Value) -> Result<InsertOutcome, Error>;
+
+    /// Get a `Value` from `Self` based on `Data`.
     fn get(&self, data: &Self::Data) -> Option<Self::Value>;
+
+    /// Get a reference to the inner `HashMap`.
     fn get_map(&self) -> &HashMap<Self::Key, Self::Value>;
+
+    /// Get a `Value` from `Self` based on `Key`, which is a hash of `Data`.
     fn get_by_root(&self, root: &Self::Key) -> Option<&Self::Value>;
+
+    /// The number of items store in `Self`.
     fn len(&self) -> usize;
+
+    /// Start a timer observing inserts.
+    fn start_insert_timer() -> Option<metrics::HistogramTimer>;
+
+    /// Start a timer observing the time spent waiting for a write lock.
+    fn start_write_lock_timer() -> Option<metrics::HistogramTimer>;
+
+    /// Start a timer observing the time it takes to create a new map for a new slot.
+    fn start_create_map_timer() -> Option<metrics::HistogramTimer>;
+
+    /// Start a timer observing the time it takes to prune the pool.
+    fn start_prune_timer() -> Option<metrics::HistogramTimer>;
 }
 
 /// A collection of `Attestation` objects, keyed by their `attestation.data`. Enforces that all
@@ -159,6 +184,22 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
     fn len(&self) -> usize {
         self.map.len()
     }
+
+    fn start_insert_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT)
+    }
+
+    fn start_write_lock_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK)
+    }
+
+    fn start_create_map_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CREATE_MAP)
+    }
+
+    fn start_prune_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_PRUNE)
+    }
 }
 
 /// A collection of `SyncCommitteeContribution`, keyed by their `SyncContributionData`. Enforces that all
@@ -179,15 +220,17 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
         }
     }
 
-    //FIXME(sean): should this accept `SyncCommitteeSignature` instead?
-    /// Insert a sync committee signature into `self`, aggregating it into the pool.
+    /// Insert a sync committee contribution into `self`, aggregating it into the pool.
     ///
-    /// The given sync committee (`a`) must only have one signature.
-    fn insert(&mut self, a: &SyncCommitteeContribution<E>) -> Result<InsertOutcome, Error> {
-        //FIXME(sean): fix metrics
-        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CORE_INSERT);
+    /// The given sync contribution must only have one signature.
+    fn insert(
+        &mut self,
+        contribution: &SyncCommitteeContribution<E>,
+    ) -> Result<InsertOutcome, Error> {
+        let _timer =
+            metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_CORE_INSERT);
 
-        let set_bits = a
+        let set_bits = contribution
             .aggregation_bits
             .iter()
             .enumerate()
@@ -204,7 +247,7 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
             return Err(Error::MoreThanOneAggregationBitSet(set_bits.len()));
         }
 
-        let sync_data_root = SyncContributionData::from_contribution(a).tree_hash_root();
+        let sync_data_root = SyncContributionData::from_contribution(contribution).tree_hash_root();
 
         if let Some(existing_contribution) = self.map.get_mut(&sync_data_root) {
             if existing_contribution
@@ -214,19 +257,18 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
             {
                 Ok(InsertOutcome::SignatureAlreadyKnown { committee_index })
             } else {
-                let _timer =
-                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_AGGREGATION);
-                existing_contribution.aggregate(a);
+                let _timer = metrics::start_timer(
+                    &metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_AGGREGATION,
+                );
+                existing_contribution.aggregate(contribution);
                 Ok(InsertOutcome::SignatureAggregated { committee_index })
             }
         } else {
-            if self.map.len() >= MAX_SYNC_CONTRIBUTIONS_PER_SLOT {
-                return Err(Error::ReachedMaxItemsPerSlot(
-                    MAX_SYNC_CONTRIBUTIONS_PER_SLOT,
-                ));
+            if self.map.len() >= E::sync_committee_size() {
+                return Err(Error::ReachedMaxItemsPerSlot(E::sync_committee_size()));
             }
 
-            self.map.insert(sync_data_root, a.clone());
+            self.map.insert(sync_data_root, contribution.clone());
             Ok(InsertOutcome::NewItemInserted { committee_index })
         }
     }
@@ -250,28 +292,44 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
     fn len(&self) -> usize {
         self.map.len()
     }
+
+    fn start_insert_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_INSERT)
+    }
+
+    fn start_write_lock_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK)
+    }
+
+    fn start_create_map_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_CREATE_MAP)
+    }
+
+    fn start_prune_timer() -> Option<metrics::HistogramTimer> {
+        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_PRUNE)
+    }
 }
 
-/// A pool of `Attestation` that is specially designed to store "unaggregated" attestations from
-/// the native aggregation scheme.
+/// A pool of `Attestation` or `SyncCommitteeContribution` that is specially designed to store
+/// "unaggregated" messages from the native aggregation scheme.
 ///
-/// **The `NaiveAggregationPool` does not do any signature or attestation verification. It assumes
-/// that all `Attestation` objects provided are valid.**
+/// **The `NaiveAggregationPool` does not do any verification. It assumes that all `Attestation`
+/// or `SyncCommitteeContribution` objects provided are valid.**
 ///
 /// ## Details
 ///
-/// The pool sorts the `Attestation` by `attestation.data.slot`, then by `attestation.data`.
+/// The pool sorts the items by `slot`, then by `Data`.
 ///
-/// As each unaggregated attestation is added it is aggregated with any existing `attestation` with
-/// the same `AttestationData`. Considering that the pool only accepts attestations with a single
+/// As each item is added it is aggregated with any existing item with the same `Data`. Considering
+/// that the pool only accepts attestations or sync contributions with a single
 /// signature, there should only ever be a single aggregated `Attestation` for any given
-/// `AttestationData`.
+/// `AttestationData` or a single `SyncCommitteeContribution` for any given `SyncContributionData`.
 ///
-/// The pool has a capacity for `SLOTS_RETAINED` slots, when a new `attestation.data.slot` is
+/// The pool has a capacity for `SLOTS_RETAINED` slots, when a new `slot` is
 /// provided, the oldest slot is dropped and replaced with the new slot. The pool can also be
-/// pruned by supplying a `current_slot`; all existing attestations with a slot lower than
-/// `current_slot - SLOTS_RETAINED` will be removed and any future attestation with a slot lower
-/// than that will also be refused. Pruning is done automatically based upon the attestations it
+/// pruned by supplying a `current_slot`; all existing items with a slot lower than
+/// `current_slot - SLOTS_RETAINED` will be removed and any future item with a slot lower
+/// than that will also be refused. Pruning is done automatically based upon the items it
 /// receives and it can be triggered manually.
 pub struct NaiveAggregationPool<T: AggregateMap> {
     lowest_permissible_slot: Slot,
@@ -288,19 +346,19 @@ impl<T: AggregateMap> Default for NaiveAggregationPool<T> {
 }
 
 impl<T: AggregateMap> NaiveAggregationPool<T> {
-    /// Insert an attestation into `self`, aggregating it into the pool.
+    /// Insert an item into `self`, aggregating it into the pool.
     ///
-    /// The given attestation (`a`) must only have one signature and have an
-    /// `attestation.data.slot` that is not lower than `self.lowest_permissible_slot`.
+    /// The given item must only have one signature and have an
+    /// `slot` that is not lower than `self.lowest_permissible_slot`.
     ///
-    /// The pool may be pruned if the given `attestation.data` has a slot higher than any
+    /// The pool may be pruned if the given item has a slot higher than any
     /// previously seen.
     pub fn insert(&mut self, item: &T::Value) -> Result<InsertOutcome, Error> {
-        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT);
+        let _timer = T::start_insert_timer();
         let slot = item.get_slot();
         let lowest_permissible_slot = self.lowest_permissible_slot;
 
-        // Reject any attestations that are too old.
+        // Reject any items that are too old.
         if slot < lowest_permissible_slot {
             return Err(Error::SlotTooLow {
                 slot,
@@ -308,14 +366,13 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
             });
         }
 
-        let lock_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK);
+        let lock_timer = T::start_write_lock_timer();
         drop(lock_timer);
 
         let outcome = if let Some(map) = self.maps.get_mut(&slot) {
             map.insert(item)
         } else {
-            let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CREATE_MAP);
+            let _timer = T::start_create_map_timer();
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier epoch.
             let (count, sum) = self
@@ -342,26 +399,26 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
         outcome
     }
 
-    /// Returns the total number of attestations stored in `self`.
+    /// Returns the total number of items stored in `self`.
     pub fn num_items(&self) -> usize {
         self.maps.iter().map(|(_, map)| map.len()).sum()
     }
 
-    /// Returns an aggregated `Attestation` with the given `data`, if any.
+    /// Returns an aggregated `T::Value` with the given `T::Data`, if any.
     pub fn get(&self, data: &T::Data) -> Option<T::Value> {
         self.maps
             .get(&data.get_slot())
             .and_then(|map| map.get(data))
     }
 
-    /// Returns an aggregated `Attestation` with the given `data`, if any.
+    /// Returns an aggregated `T::Value` with the given `slot` and `root`, if any.
     pub fn get_by_slot_and_root(&self, slot: Slot, root: &T::Key) -> Option<T::Value> {
         self.maps
             .get(&slot)
             .and_then(|map| map.get_by_root(root).cloned())
     }
 
-    /// Iterate all attestations in all slots of `self`.
+    /// Iterate all items in all slots of `self`.
     pub fn iter(&self) -> impl Iterator<Item = &T::Value> {
         self.maps
             .iter()
@@ -369,13 +426,12 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
             .flatten()
     }
 
-    /// Removes any attestations with a slot lower than `current_slot` and bars any future
-    /// attestations with a slot lower than `current_slot - SLOTS_RETAINED`.
+    /// Removes any items with a slot lower than `current_slot` and bars any future
+    /// items with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&mut self, current_slot: Slot) {
-        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_PRUNE);
+        let _timer = T::start_prune_timer();
 
-        // Taking advantage of saturating subtraction on `Slot`.
-        let lowest_permissible_slot = current_slot - Slot::from(SLOTS_RETAINED);
+        let lowest_permissible_slot = current_slot.saturating_sub(Slot::from(SLOTS_RETAINED));
 
         // No need to prune if the lowest permissible slot has not changed and the queue length is
         // less than the maximum
@@ -521,7 +577,18 @@ mod tests {
     }
 
     macro_rules! test_suite {
-        ($mod_name: ident, $get_method_name: ident, $sign_method_name: ident, $unset_method_name: ident, $block_root_mutator: ident, $slot_mutator: ident, $block_root_comparator: ident, $key_getter: ident, $map_type: ident, $item_limit: ident) => {
+        (
+            $mod_name: ident,
+            $get_method_name: ident,
+            $sign_method_name: ident,
+            $unset_method_name: ident,
+            $block_root_mutator: ident,
+            $slot_mutator: ident,
+            $block_root_comparator: ident,
+            $key_getter: ident,
+            $map_type: ident,
+            $item_limit: ident
+        ) => {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
@@ -704,9 +771,28 @@ mod tests {
     }
 
     test_suite! {
-        attestation_tests, get_attestation, sign_attestation, unset_attestation_bit, mutate_attestation_block_root, mutate_attestation_slot, attestation_block_root_comparator, key_from_attestation, AggregatedAttestationMap, MAX_ATTESTATIONS_PER_SLOT
+        attestation_tests,
+        get_attestation,
+        sign_attestation,
+        unset_attestation_bit,
+        mutate_attestation_block_root,
+        mutate_attestation_slot,
+        attestation_block_root_comparator,
+        key_from_attestation,
+        AggregatedAttestationMap,
+        MAX_ATTESTATIONS_PER_SLOT
     }
+
     test_suite! {
-        sync_contribution_tests, get_sync_contribution, sign_sync_contribution, unset_sync_contribution_bit, mutate_sync_contribution_block_root, mutate_sync_contribution_slot, sync_contribution_block_root_comparator, key_from_sync_contribution, SyncContributionAggregateMap, MAX_SYNC_CONTRIBUTIONS_PER_SLOT
+        sync_contribution_tests,
+        get_sync_contribution,
+        sign_sync_contribution,
+        unset_sync_contribution_bit,
+        mutate_sync_contribution_block_root,
+        mutate_sync_contribution_slot,
+        sync_contribution_block_root_comparator,
+        key_from_sync_contribution,
+        SyncContributionAggregateMap,
+        E::sync_committee_size(),
     }
 }

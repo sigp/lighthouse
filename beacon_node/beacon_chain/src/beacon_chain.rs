@@ -1096,59 +1096,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
+    /// Accepts some `SyncCommitteeSignature` from the network and attempts to verify it, returning `Ok(_)` if
     /// it is valid to be (re)broadcast on the gossip network.
-    ///
-    /// The attestation must be "unaggregated", that is it must have exactly one
-    /// aggregation bit set.
     pub fn verify_sync_signature_for_gossip(
         &self,
         sync_signature: SyncCommitteeSignature,
         subnet_id: Option<SyncSubnetId>,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
-        metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
-        let _timer =
-            metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
+        metrics::inc_counter(&metrics::SYNC_SIGNATURE_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_SIGNATURE_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedSyncSignature::verify(sync_signature, subnet_id, self)
-        //FIXME(sean): verify events in the api spec
-
-        //     .map(
-        //     |v| {
-        //         // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-        //         if let Some(event_handler) = self.event_handler.as_ref() {
-        //             if event_handler.has_attestation_subscribers() {
-        //                 event_handler.register(EventKind::Attestation(v.attestation().clone()));
-        //             }
-        //         }
-        //         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-        //         v
-        //     },
-        // )
+        VerifiedSyncSignature::verify(sync_signature, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_SIGNATURE_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
-    /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
+    /// Accepts some `SignedContributionAndProof` from the network and attempts to verify it,
     /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
     pub fn verify_sync_contribution_for_gossip(
         &self,
         sync_contribution: SignedContributionAndProof<T::EthSpec>,
     ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
-        metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
-        let _timer =
-            metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
-        VerifiedSyncContribution::verify(sync_contribution, self)
-        //FIXME(sean): verify events in the api spec
-
-        //     .map(|v| {
-        //     // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-        //     if let Some(event_handler) = self.event_handler.as_ref() {
-        //         if event_handler.has_attestation_subscribers() {
-        //             event_handler.register(EventKind::Attestation(v.attestation().clone()));
-        //         }
-        //     }
-        //     metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-        //     v
-        // })
+        metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_GOSSIP_VERIFICATION_TIMES);
+        VerifiedSyncContribution::verify(sync_contribution, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some attestation-type object and attempts to verify it in the context of fork

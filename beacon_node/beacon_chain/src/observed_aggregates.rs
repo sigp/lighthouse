@@ -62,7 +62,7 @@ impl SlotHashSet {
         }
     }
 
-    /// Store the attestation in self so future observations recognise its existence.
+    /// Store the items in self so future observations recognise its existence.
     pub fn observe_item<T: SlotData>(
         &mut self,
         item: &T,
@@ -82,7 +82,7 @@ impl SlotHashSet {
             //
             // The resulting behaviour is that we are no longer able to successfully observe new
             // items, however we will continue to return `is_known` values. We could also
-            // disable `is_known`, however then we would stop forwarding attestations across the
+            // disable `is_known`, however then we would stop forwarding items across the
             // gossip network and I think that this is a worse case than sending some invalid ones.
             // The underlying libp2p network is responsible for removing duplicate messages, so
             // this doesn't risk a broadcast loop.
@@ -98,7 +98,7 @@ impl SlotHashSet {
         }
     }
 
-    /// Indicates if `a` has been observed before.
+    /// Indicates if `item` has been observed before.
     pub fn is_known<T: SlotData>(&self, item: &T, root: Hash256) -> Result<bool, Error> {
         if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
@@ -137,9 +137,9 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
         }
     }
 
-    /// Store the root of `a` in `self`.
+    /// Store the root of `item` in `self`.
     ///
-    /// `root` must equal `a.tree_hash_root()`.
+    /// `root` must equal `item.tree_hash_root()`.
     pub fn observe_item(
         &mut self,
         item: &T,
@@ -154,7 +154,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
             .and_then(|set| set.observe_item(item, root))
     }
 
-    /// Check to see if the `root` of `a` is in self.
+    /// Check to see if the `root` of `item` is in self.
     ///
     /// `root` must equal `a.tree_hash_root()`.
     pub fn is_known(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
@@ -169,8 +169,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
     /// Removes any items with a slot lower than `current_slot` and bars any future
     /// item with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&mut self, current_slot: Slot) {
-        // Taking advantage of saturating subtraction on `Slot`.
-        let lowest_permissible_slot = current_slot - (self.max_capacity - 1);
+        let lowest_permissible_slot = current_slot.saturating_sub(self.max_capacity - 1);
 
         self.sets.retain(|set| set.slot >= lowest_permissible_slot);
 
@@ -191,7 +190,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
             });
         }
 
-        // Prune the pool if this attestation indicates that the current slot has advanced.
+        // Prune the pool if this item indicates that the current slot has advanced.
         if lowest_permissible_slot + self.max_capacity < slot + 1 {
             self.prune(slot)
         }
