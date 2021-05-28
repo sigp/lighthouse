@@ -5,13 +5,18 @@
 //! Presently, only configuration for "The GNU Allocator" from `glibc` is supported. All other
 //! allocators are ignored.
 //!
-//! It is assumed that if the following two statements are correct, then we should expect to
+//! It is assumed that if the following two statements are correct then we should expect to
 //! configure `glibc`:
 //!
 //! - `target_os = linux`
 //! - `target_env != musl`
 //!
-//! In all other cases this library will not attempt to do anything (i.e., all functions are no-ops).
+//! In all other cases this library will not attempt to do anything (i.e., all functions are
+//! no-ops).
+//!
+//! If the above conditions are fulfilled but `glibc` still isn't present at runtime then a panic
+//! may be triggered. It is understood that there's no way to be certain that a compatible `glibc`
+//! is present: https://github.com/rust-lang/rust/issues/33244.
 //!
 //! ## Notes
 //!

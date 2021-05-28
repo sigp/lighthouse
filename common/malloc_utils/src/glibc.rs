@@ -17,10 +17,7 @@ const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 
 /// The maximum number of arenas allowed to be created by malloc.
 ///
-/// When set to `Some(0)`, the limit on the number of arenas is determined by the number of CPU cores
-/// online.
-///
-/// When set to `None`, the parameter is not set using this program (i.e., it is left as default).
+/// See `ArenaMaxSetting` docs for details.
 const OPTIMAL_ARENA_MAX: ArenaMaxSetting = ArenaMaxSetting::NumCpus;
 
 /// Constants used to configure malloc internals.
@@ -111,15 +108,16 @@ pub fn scrape_mallinfo_metrics() {
     set_gauge(&MALLINFO_KEEPCOST, mallinfo.keepcost as i64);
 }
 
+/// Perform all configuration routines.
 pub fn configure_glibc_malloc() -> Result<(), String> {
-    let arena_max = match OPTIMAL_ARENA_MAX {
-        ArenaMaxSetting::DoNotSet => None,
-        ArenaMaxSetting::Fixed(n) => Some(n),
-        ArenaMaxSetting::NumCpus => Some(num_cpus::get() as c_int),
-    };
+    if !env_var_present(ENV_VAR_ARENA_MAX) {
+        let arena_max = match OPTIMAL_ARENA_MAX {
+            ArenaMaxSetting::DoNotSet => None,
+            ArenaMaxSetting::Fixed(n) => Some(n),
+            ArenaMaxSetting::NumCpus => Some(num_cpus::get() as c_int),
+        };
 
-    if let Some(max) = arena_max {
-        if !env_var_present(ENV_VAR_ARENA_MAX) {
+        if let Some(max) = arena_max {
             if let Err(e) = malloc_arena_max(max) {
                 return Err(format!("failed (code {}) to set malloc max arena count", e));
             }
