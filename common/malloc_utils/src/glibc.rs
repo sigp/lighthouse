@@ -186,4 +186,9 @@ mod tests {
     fn malloc_arena_max_does_not_panic() {
         malloc_arena_max(2).unwrap();
     }
+
+    #[test]
+    fn malloc_mmap_threshold_does_not_panic() {
+        malloc_mmap_threshold(OPTIMAL_MMAP_THRESHOLD).unwrap();
+    }
 }
