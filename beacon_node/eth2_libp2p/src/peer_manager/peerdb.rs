@@ -160,6 +160,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             self.connection_status(peer_id),
             Some(PeerConnectionStatus::Disconnected { .. })
                 | Some(PeerConnectionStatus::Unknown { .. })
+                | None
         ) && !self.is_banned_or_disconnected(peer_id)
     }
 
