@@ -85,6 +85,11 @@ pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 
+pub enum Skips {
+    None,
+    Prev,
+}
+
 /// The result of a chain segment processing.
 pub enum ChainSegmentResult<T: EthSpec> {
     /// Processing this chain segment finished successfully.
@@ -496,10 +501,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         slot: Slot,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let root = process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root)
-        })?;
+        let root = self.block_root_at_slot(slot, Skips::Prev)?;
 
         if let Some(block_root) = root {
             Ok(self.store.get_item(&block_root)?)
@@ -520,21 +522,64 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn block_root_at_slot(
+        &self,
+        target_slot: Slot,
+        skips: Skips,
+    ) -> Result<Option<Hash256>, Error> {
+        match skips {
+            Skips::None => self.block_root_at_slot_skips_none(target_slot),
+            Skips::Prev => self.block_root_at_slot_skips_prev(target_slot),
+        }
+    }
+
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
     /// Returns `Ok(None)` if the given `Slot` was skipped.
     ///
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn block_root_at_slot(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            let root_opt = iter
-                .find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root);
-            if let (Some(root), Some((prev_root, _))) = (root_opt, iter.next()) {
-                return (prev_root != root).then(|| root);
+    pub fn block_root_at_slot_skips_none(
+        &self,
+        target_slot: Slot,
+    ) -> Result<Option<Hash256>, Error> {
+        if target_slot == self.spec.genesis_slot {
+            return Ok(Some(self.genesis_block_root));
+        }
+
+        let start_slot = target_slot.saturating_sub(1_u64);
+        let mut prev_root_opt = None;
+
+        process_results(self.forwards_iter_block_roots(start_slot)?, |iter| {
+            for (curr_root, curr_slot) in iter {
+                if let Some(prev_root) = prev_root_opt {
+                    if curr_slot == target_slot {
+                        return (curr_root != prev_root).then(|| curr_root);
+                    }
+                }
+                prev_root_opt = Some(curr_root);
             }
-            root_opt
+
+            None
+        })
+    }
+
+    /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
+    /// Returns the root at the previous non-skipped slot if the given `Slot` was skipped.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn block_root_at_slot_skips_prev(
+        &self,
+        target_slot: Slot,
+    ) -> Result<Option<Hash256>, Error> {
+        if target_slot == self.spec.genesis_slot {
+            return Ok(Some(self.genesis_block_root));
+        }
+
+        process_results(self.forwards_iter_block_roots(target_slot)?, |mut iter| {
+            iter.next().map(|(root, _)| root)
         })
     }
 
@@ -823,16 +868,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         Ok(map)
-    }
-
-    /// Returns the block canonical root of the current canonical chain at a given slot.
-    ///
-    /// Returns `None` if the given slot doesn't exist in the chain.
-    pub fn root_at_slot(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, slot)| *slot == target_slot)
-                .map(|(root, _)| root)
-        })
     }
 
     /// Returns the block canonical root of the current canonical chain at a given slot, starting from the given state.
@@ -2324,10 +2359,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_head_subscribers() {
                 if let Ok(Some(current_duty_dependent_root)) =
-                    self.root_at_slot(target_epoch_start_slot - 1)
+                    self.block_root_at_slot(target_epoch_start_slot - 1, Skips::Prev)
                 {
                     if let Ok(Some(previous_duty_dependent_root)) =
-                        self.root_at_slot(prev_target_epoch_start_slot - 1)
+                        self.block_root_at_slot(prev_target_epoch_start_slot - 1, Skips::Prev)
                     {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,
