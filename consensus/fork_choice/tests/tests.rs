@@ -2,7 +2,7 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
+    BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError, Skips,
     StateSkipConfig,
 };
 use fork_choice::{
@@ -872,7 +872,7 @@ fn invalid_attestation_future_block() {
             MutationDelay::Blocks(1),
             |attestation, chain| {
                 attestation.data.beacon_block_root = chain
-                    .block_at_slot(chain.slot().unwrap())
+                    .block_at_slot(chain.slot().unwrap(), Skips::Prev)
                     .unwrap()
                     .unwrap()
                     .canonical_root();
@@ -901,7 +901,7 @@ fn invalid_attestation_inconsistent_ffg_vote() {
             MutationDelay::NoDelay,
             |attestation, chain| {
                 attestation.data.target.root = chain
-                    .block_at_slot(Slot::new(1))
+                    .block_at_slot(Slot::new(1), Skips::Prev)
                     .unwrap()
                     .unwrap()
                     .canonical_root();
@@ -909,7 +909,7 @@ fn invalid_attestation_inconsistent_ffg_vote() {
                 *attestation_opt.lock().unwrap() = Some(attestation.data.target.root);
                 *local_opt.lock().unwrap() = Some(
                     chain
-                        .block_at_slot(Slot::new(0))
+                        .block_at_slot(Slot::new(0), Skips::Prev)
                         .unwrap()
                         .unwrap()
                         .canonical_root(),

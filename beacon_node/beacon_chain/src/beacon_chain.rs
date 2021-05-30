@@ -85,8 +85,15 @@ pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 
+/// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum Skips {
+    /// If the slot is a skip slot, return `None`.
+    ///
+    /// This is how the HTTP API behaves.
     None,
+    /// If the slot it a skip slot, return previous non-skipped block.
+    ///
+    /// This is generally how the specification behaves.
     Prev,
 }
 
@@ -482,14 +489,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
     ///
+    /// Use the `skips` parameter to define the behaviour when `target_slot` is a skipped slot.
+    ///
     /// ## Errors
     ///
     /// May return a database error.
     pub fn block_at_slot(
         &self,
-        slot: Slot,
+        target_slot: Slot,
+        skips: Skips,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let root = self.block_root_at_slot(slot, Skips::Prev)?;
+        let root = self.block_root_at_slot(target_slot, skips)?;
 
         if let Some(block_root) = root {
             Ok(self.store.get_item(&block_root)?)
@@ -510,6 +520,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
+    ///
+    /// Use the `skips` parameter to define the behaviour when `target_slot` is a skipped slot.
     pub fn block_root_at_slot(
         &self,
         target_slot: Slot,
@@ -527,10 +540,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn block_root_at_slot_skips_none(
-        &self,
-        target_slot: Slot,
-    ) -> Result<Option<Hash256>, Error> {
+    fn block_root_at_slot_skips_none(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
         if target_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
         }
@@ -558,10 +568,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn block_root_at_slot_skips_prev(
-        &self,
-        target_slot: Slot,
-    ) -> Result<Option<Hash256>, Error> {
+    fn block_root_at_slot_skips_prev(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
         if target_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
         }

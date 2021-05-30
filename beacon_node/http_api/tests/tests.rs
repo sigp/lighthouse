@@ -819,7 +819,11 @@ impl ApiTester {
             }
 
             let root = root.unwrap();
-            let block = self.chain.block_at_slot(slot).unwrap().unwrap();
+            let block = self
+                .chain
+                .block_at_slot(slot, Skips::Prev)
+                .unwrap()
+                .unwrap();
             let header = BlockHeaderData {
                 root,
                 canonical: true,
