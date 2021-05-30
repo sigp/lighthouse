@@ -447,18 +447,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|result| result.map_err(|e| e.into())))
     }
 
-    /// Traverse backwards from `block_root` to find the root of the ancestor block at `slot`.
-    pub fn get_ancestor_block_root(
-        &self,
-        block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots_from(block_root)?, |mut iter| {
-            iter.find(|(_, ancestor_slot)| *ancestor_slot == slot)
-                .map(|(ancestor_block_root, _)| ancestor_block_root)
-        })
-    }
-
     /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
     /// the earliest reachable ancestor (may or may not be genesis).
     ///
