@@ -9,7 +9,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    Skips,
+    WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -643,22 +643,22 @@ fn block_roots_skip_slot_behaviour() {
             assert!(
                 harness
                     .chain
-                    .block_root_at_slot(target_slot.into(), Skips::None)
+                    .block_root_at_slot(target_slot.into(), WhenSlotSkipped::None)
                     .unwrap()
                     .is_none(),
-                "Skips::None should return None on a skip slot"
+                "WhenSlotSkipped::None should return None on a skip slot"
             );
 
             let skipped_root = harness
                 .chain
-                .block_root_at_slot(target_slot.into(), Skips::Prev)
+                .block_root_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
                 .unwrap()
-                .expect("Skips::Prev should always return Some");
+                .expect("WhenSlotSkipped::Prev should always return Some");
 
             assert_eq!(
                 skipped_root,
                 prev_unskipped_root.expect("test is badly formed"),
-                "Skips::Prev should accurately return the prior skipped block"
+                "WhenSlotSkipped::Prev should accurately return the prior skipped block"
             );
 
             let expected_block = harness.chain.get_block(&skipped_root).unwrap().unwrap();
@@ -666,7 +666,7 @@ fn block_roots_skip_slot_behaviour() {
             assert_eq!(
                 harness
                     .chain
-                    .block_at_slot(target_slot.into(), Skips::Prev)
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
                     .unwrap()
                     .unwrap(),
                 expected_block,
@@ -675,10 +675,10 @@ fn block_roots_skip_slot_behaviour() {
             assert!(
                 harness
                     .chain
-                    .block_at_slot(target_slot.into(), Skips::None)
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::None)
                     .unwrap()
                     .is_none(),
-                "Skips::None should return None on a skip slot"
+                "WhenSlotSkipped::None should return None on a skip slot"
             );
         } else {
             /*
@@ -686,17 +686,17 @@ fn block_roots_skip_slot_behaviour() {
              */
             let skips_none = harness
                 .chain
-                .block_root_at_slot(target_slot.into(), Skips::None)
+                .block_root_at_slot(target_slot.into(), WhenSlotSkipped::None)
                 .unwrap()
-                .expect("Skips::None should return Some for non-skipped block");
+                .expect("WhenSlotSkipped::None should return Some for non-skipped block");
             let skips_prev = harness
                 .chain
-                .block_root_at_slot(target_slot.into(), Skips::Prev)
+                .block_root_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
                 .unwrap()
-                .expect("Skips::Prev should always return Some");
+                .expect("WhenSlotSkipped::Prev should always return Some");
             assert_eq!(
                 skips_none, skips_prev,
-                "Skips::None and Skips::Prev should be equal on non-skipped slot"
+                "WhenSlotSkipped::None and WhenSlotSkipped::Prev should be equal on non-skipped slot"
             );
 
             let expected_block = harness.chain.get_block(&skips_prev).unwrap().unwrap();
@@ -704,7 +704,7 @@ fn block_roots_skip_slot_behaviour() {
             assert_eq!(
                 harness
                     .chain
-                    .block_at_slot(target_slot.into(), Skips::Prev)
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
                     .unwrap()
                     .unwrap(),
                 expected_block
@@ -713,7 +713,7 @@ fn block_roots_skip_slot_behaviour() {
             assert_eq!(
                 harness
                     .chain
-                    .block_at_slot(target_slot.into(), Skips::None)
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::None)
                     .unwrap()
                     .unwrap(),
                 expected_block

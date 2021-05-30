@@ -86,7 +86,7 @@ pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
-pub enum Skips {
+pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
     ///
     /// This is how the HTTP API behaves.
@@ -497,7 +497,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn block_at_slot(
         &self,
         target_slot: Slot,
-        skips: Skips,
+        skips: WhenSlotSkipped,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
         let root = self.block_root_at_slot(target_slot, skips)?;
 
@@ -526,11 +526,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn block_root_at_slot(
         &self,
         target_slot: Slot,
-        skips: Skips,
+        skips: WhenSlotSkipped,
     ) -> Result<Option<Hash256>, Error> {
         match skips {
-            Skips::None => self.block_root_at_slot_skips_none(target_slot),
-            Skips::Prev => self.block_root_at_slot_skips_prev(target_slot),
+            WhenSlotSkipped::None => self.block_root_at_slot_skips_none(target_slot),
+            WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(target_slot),
         }
     }
 
@@ -2354,10 +2354,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_head_subscribers() {
                 if let Ok(Some(current_duty_dependent_root)) =
-                    self.block_root_at_slot(target_epoch_start_slot - 1, Skips::Prev)
+                    self.block_root_at_slot(target_epoch_start_slot - 1, WhenSlotSkipped::Prev)
                 {
-                    if let Ok(Some(previous_duty_dependent_root)) =
-                        self.block_root_at_slot(prev_target_epoch_start_slot - 1, Skips::Prev)
+                    if let Ok(Some(previous_duty_dependent_root)) = self
+                        .block_root_at_slot(prev_target_epoch_start_slot - 1, WhenSlotSkipped::Prev)
                     {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,

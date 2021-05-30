@@ -16,7 +16,8 @@ use beacon_chain::{
     attestation_verification::SignatureVerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes, Skips,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
@@ -751,7 +752,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let block = BlockId::from_root(root).block(&chain)?;
 
                 let canonical = chain
-                    .block_root_at_slot(block.slot(), Skips::None)
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .map_or(false, |canonical| root == canonical);
 
