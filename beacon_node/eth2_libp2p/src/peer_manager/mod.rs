@@ -579,14 +579,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
             // port is removed, which is assumed to be associated with the discv5 protocol (and
             // therefore irrelevant for other libp2p components).
-            let mut out_list = enr.multiaddr();
-            out_list.retain(|addr| {
-                addr.iter()
-                    .find(|v| matches!(v, MProtocol::Udp(_)))
-                    .is_none()
-            });
-
-            out_list
+            enr.multiaddr_tcp()
         } else {
             // PeerId is not known
             Vec::new()

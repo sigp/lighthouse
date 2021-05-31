@@ -502,6 +502,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
     }
 
+    /// Unbans the peer in discovery.
     pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
@@ -514,11 +515,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
     }
 
-    // mark node as disconnected in DHT, freeing up space for other nodes
+    ///  Marks node as disconnected in the DHT, freeing up space for other nodes, this also removes
+    ///  nodes from the cached ENR list.
     pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             self.discv5.disconnect_node(&node_id);
         }
+        // Remove the peer from the cached list, to prevent redialing disconnected
+        // peers.
+        self.cached_enrs.pop(peer_id);
     }
 
     /* Internal Functions */
