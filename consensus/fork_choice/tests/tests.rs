@@ -159,7 +159,7 @@ impl ForkChoiceTest {
         self
     }
 
-    /// WhenSlotSkipped `count` slots, without producing a block.
+    /// Skips `count` slots, without producing a block.
     pub fn skip_slots(self, count: usize) -> Self {
         for _ in 0..count {
             self.harness.advance_slot();
