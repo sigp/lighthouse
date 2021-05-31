@@ -2,7 +2,7 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use environment::null_logger;
 use eth2::Error;
@@ -791,7 +791,10 @@ impl ApiTester {
                     .current_justified_checkpoint
                     .root,
             ),
-            BlockId::Slot(slot) => self.chain.block_root_at_slot(slot).unwrap(),
+            BlockId::Slot(slot) => self
+                .chain
+                .block_root_at_slot(slot, WhenSlotSkipped::None)
+                .unwrap(),
             BlockId::Root(root) => Some(root),
         }
     }
@@ -812,14 +815,21 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let root = self.chain.block_root_at_slot(slot).unwrap();
+            let root = self
+                .chain
+                .block_root_at_slot(slot, WhenSlotSkipped::None)
+                .unwrap();
 
             if root.is_none() && result.is_none() {
                 continue;
             }
 
             let root = root.unwrap();
-            let block = self.chain.block_at_slot(slot).unwrap().unwrap();
+            let block = self
+                .chain
+                .block_at_slot(slot, WhenSlotSkipped::Prev)
+                .unwrap()
+                .unwrap();
             let header = BlockHeaderData {
                 root,
                 canonical: true,
@@ -900,7 +910,7 @@ impl ApiTester {
             let block_root = block_root_opt.unwrap();
             let canonical = self
                 .chain
-                .block_root_at_slot(block.slot())
+                .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                 .unwrap()
                 .map_or(false, |canonical| block_root == canonical);
 
@@ -1532,7 +1542,10 @@ impl ApiTester {
 
                 let dependent_root = self
                     .chain
-                    .root_at_slot((epoch - 1).start_slot(E::slots_per_epoch()) - 1)
+                    .block_root_at_slot(
+                        (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                        WhenSlotSkipped::Prev,
+                    )
                     .unwrap()
                     .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
@@ -1604,7 +1617,10 @@ impl ApiTester {
 
             let dependent_root = self
                 .chain
-                .root_at_slot(epoch.start_slot(E::slots_per_epoch()) - 1)
+                .block_root_at_slot(
+                    epoch.start_slot(E::slots_per_epoch()) - 1,
+                    WhenSlotSkipped::Prev,
+                )
                 .unwrap()
                 .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
@@ -2186,7 +2202,7 @@ impl ApiTester {
             current_duty_dependent_root,
             previous_duty_dependent_root: self
                 .chain
-                .root_at_slot(current_slot - E::slots_per_epoch())
+                .block_root_at_slot(current_slot - E::slots_per_epoch(), WhenSlotSkipped::Prev)
                 .unwrap()
                 .unwrap(),
             epoch_transition: true,
@@ -2195,7 +2211,7 @@ impl ApiTester {
         let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
             block: self
                 .chain
-                .root_at_slot(next_slot - finalization_distance)
+                .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
                 .unwrap()
                 .unwrap(),
             state: self
