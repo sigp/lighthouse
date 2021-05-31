@@ -1,5 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::cmp::max;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
@@ -45,6 +46,11 @@ pub struct Interchange {
     pub data: Vec<InterchangeData>,
 }
 
+#[derive(Debug, Clone)]
+pub enum InterchangeError {
+    MinAndMaxInconsistent,
+}
+
 impl Interchange {
     pub fn from_json_str(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
@@ -77,5 +83,76 @@ impl Interchange {
     /// Is the `data` part of the interchange completely empty?
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Minify an interchange by constructing a synthetic block & attestation for each validator.
+    pub fn minify(&self) -> Result<Self, InterchangeError> {
+        // Map from pubkey to optional max block and max attestation.
+        let mut validator_data =
+            HashMap::<PublicKeyBytes, (Option<SignedBlock>, Option<SignedAttestation>)>::new();
+
+        for data in self.data.iter() {
+            // Existing maximum attestation and maximum block.
+            let (max_block, max_attestation) = validator_data
+                .entry(data.pubkey)
+                .or_insert_with(|| (None, None));
+
+            // Find maximum source and target epochs.
+            let max_source_epoch = data
+                .signed_attestations
+                .iter()
+                .map(|attestation| attestation.source_epoch)
+                .max();
+            let max_target_epoch = data
+                .signed_attestations
+                .iter()
+                .map(|attestation| attestation.target_epoch)
+                .max();
+
+            match (max_source_epoch, max_target_epoch) {
+                (Some(source_epoch), Some(target_epoch)) => {
+                    if let Some(prev_max) = max_attestation {
+                        prev_max.source_epoch = max(prev_max.source_epoch, source_epoch);
+                        prev_max.target_epoch = max(prev_max.target_epoch, target_epoch);
+                    } else {
+                        *max_attestation = Some(SignedAttestation {
+                            source_epoch,
+                            target_epoch,
+                            signing_root: None,
+                        });
+                    }
+                }
+                (None, None) => {}
+                _ => return Err(InterchangeError::MinAndMaxInconsistent),
+            };
+
+            // Find maximum block slot.
+            let max_block_slot = data.signed_blocks.iter().map(|block| block.slot).max();
+
+            if let Some(max_slot) = max_block_slot {
+                if let Some(prev_max) = max_block {
+                    prev_max.slot = max(prev_max.slot, max_slot);
+                } else {
+                    *max_block = Some(SignedBlock {
+                        slot: max_slot,
+                        signing_root: None,
+                    });
+                }
+            }
+        }
+
+        let data = validator_data
+            .into_iter()
+            .map(|(pubkey, (maybe_block, maybe_att))| InterchangeData {
+                pubkey,
+                signed_blocks: maybe_block.into_iter().collect(),
+                signed_attestations: maybe_att.into_iter().collect(),
+            })
+            .collect();
+
+        Ok(Self {
+            metadata: self.metadata.clone(),
+            data,
+        })
     }
 }

@@ -15,6 +15,8 @@ pub const EXPORT_CMD: &str = "export";
 pub const IMPORT_FILE_ARG: &str = "IMPORT-FILE";
 pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 
+pub const MINIFY_FLAG: &str = "minify";
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("Import or export slashing protection data to or from another client")
@@ -26,6 +28,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .value_name("FILE")
                         .help("The slashing protection interchange file to import (.json)"),
+                )
+                .arg(
+                    Arg::with_name(MINIFY_FLAG)
+                        .long(MINIFY_FLAG)
+                        .takes_value(true)
+                        .default_value("true")
+                        .possible_values(&["false", "true"])
+                        .help(
+                            "Minify the input file before processing. This is *much* faster, \
+                             but will not detect slashable data in the input.",
+                        ),
                 ),
         )
         .subcommand(
@@ -36,6 +49,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .value_name("FILE")
                         .help("The filename to export the interchange file to"),
+                )
+                .arg(
+                    Arg::with_name(MINIFY_FLAG)
+                        .long(MINIFY_FLAG)
+                        .takes_value(true)
+                        .default_value("false")
+                        .possible_values(&["false", "true"])
+                        .help(
+                            "Minify the output file. This will make it smaller and faster to \
+                             import, but not faster to generate.",
+                        ),
                 ),
         )
 }
@@ -64,6 +88,7 @@ pub fn cli_run<T: EthSpec>(
     match matches.subcommand() {
         (IMPORT_CMD, Some(matches)) => {
             let import_filename: PathBuf = clap_utils::parse_required(&matches, IMPORT_FILE_ARG)?;
+            let minify: bool = clap_utils::parse_required(&matches, MINIFY_FLAG)?;
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -73,9 +98,17 @@ pub fn cli_run<T: EthSpec>(
             })?;
 
             eprintln!("Loading JSON file into memory & deserializing");
-            let interchange = Interchange::from_json_reader(&import_file)
+            let mut interchange = Interchange::from_json_reader(&import_file)
                 .map_err(|e| format!("Error parsing file for import: {:?}", e))?;
-            eprintln!("JSON load complete - performing import");
+            eprintln!("JSON load complete");
+
+            if minify {
+                eprintln!("Minifying input file for faster loading");
+                interchange = interchange
+                    .minify()
+                    .map_err(|e| format!("Minification failed: {:?}", e))?;
+                eprintln!("Minification complete");
+            }
 
             let slashing_protection_database =
                 SlashingDatabase::open_or_create(&slashing_protection_db_path).map_err(|e| {
@@ -149,6 +182,7 @@ pub fn cli_run<T: EthSpec>(
         }
         (EXPORT_CMD, Some(matches)) => {
             let export_filename: PathBuf = clap_utils::parse_required(&matches, EXPORT_FILE_ARG)?;
+            let minify: bool = clap_utils::parse_required(&matches, MINIFY_FLAG)?;
 
             if !slashing_protection_db_path.exists() {
                 return Err(format!(
@@ -166,9 +200,16 @@ pub fn cli_run<T: EthSpec>(
                     )
                 })?;
 
-            let interchange = slashing_protection_database
+            let mut interchange = slashing_protection_database
                 .export_interchange_info(genesis_validators_root)
                 .map_err(|e| format!("Error during export: {:?}", e))?;
+
+            if minify {
+                eprintln!("Minifying output file");
+                interchange = interchange
+                    .minify()
+                    .map_err(|e| format!("Unable to minify output: {:?}", e))?;
+            }
 
             let output_file = File::create(export_filename)
                 .map_err(|e| format!("Error creating output file: {:?}", e))?;

@@ -58,16 +58,23 @@ impl MultiTestCase {
         self
     }
 
-    pub fn run(&self) {
+    pub fn run(&self, minify: bool) {
         let dir = tempdir().unwrap();
         let slashing_db_file = dir.path().join("slashing_protection.sqlite");
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
+        // If minification is used, false positives are allowed, i.e. there may be some situations
+        // in which signing is safe but the minified file prevents it.
+        let allow_false_positives = minify;
+
         for test_case in &self.steps {
-            match slashing_db.import_interchange_info(
-                test_case.interchange.clone(),
-                self.genesis_validators_root,
-            ) {
+            let interchange = if minify {
+                test_case.interchange.minify().unwrap()
+            } else {
+                test_case.interchange.clone()
+            };
+
+            match slashing_db.import_interchange_info(interchange, self.genesis_validators_root) {
                 Ok(import_outcomes) => {
                     let failed_records = import_outcomes
                         .iter()
@@ -107,7 +114,7 @@ impl MultiTestCase {
                             i, self.name, safe
                         );
                     }
-                    Err(e) if block.should_succeed => {
+                    Err(e) if block.should_succeed && !allow_false_positives => {
                         panic!(
                             "block {} from `{}` failed when it should have succeeded: {:?}",
                             i, self.name, e
@@ -130,7 +137,7 @@ impl MultiTestCase {
                             i, self.name, safe
                         );
                     }
-                    Err(e) if att.should_succeed => {
+                    Err(e) if att.should_succeed && !allow_false_positives => {
                         panic!(
                             "attestation {} from `{}` failed when it should have succeeded: {:?}",
                             i, self.name, e

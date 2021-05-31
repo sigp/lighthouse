@@ -344,8 +344,10 @@ fn main() {
     let output_dir = Path::new(&args[1]);
     fs::create_dir_all(output_dir).unwrap();
 
+    let minify = false;
+
     for test in tests {
-        test.run();
+        test.run(minify);
         let f = File::create(output_dir.join(format!("{}.json", test.name))).unwrap();
         serde_json::to_writer_pretty(&f, &test).unwrap();
         writeln!(&f).unwrap();
