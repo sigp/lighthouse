@@ -54,17 +54,16 @@ pub enum EndpointError {
 
 type EndpointState = Result<(), EndpointError>;
 
-#[derive(Clone)]
 pub struct EndpointWithState {
     endpoint: SensitiveUrl,
-    state: Arc<TRwLock<Option<EndpointState>>>,
+    state: TRwLock<Option<EndpointState>>,
 }
 
 impl EndpointWithState {
     pub fn new(endpoint: SensitiveUrl) -> Self {
         Self {
             endpoint,
-            state: Arc::new(TRwLock::new(None)),
+            state: TRwLock::new(None),
         }
     }
 }
@@ -80,7 +79,6 @@ async fn get_state(endpoint: &EndpointWithState) -> Option<EndpointState> {
 /// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
 /// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
 /// is not usable.
-#[derive(Clone)]
 pub struct EndpointsCache {
     pub fallback: Fallback<EndpointWithState>,
     pub config_network_id: Eth1Id,
@@ -639,16 +637,16 @@ impl Service {
     }
 
     /// Builds a new `EndpointsCache` with empty states.
-    pub fn init_endpoints(&self) -> EndpointsCache {
+    pub fn init_endpoints(&self) -> Arc<EndpointsCache> {
         let endpoints = self.config().endpoints.clone();
         let config_network_id = self.config().network_id.clone();
         let config_chain_id = self.config().chain_id.clone();
-        let new_cache = EndpointsCache {
+        let new_cache = Arc::new(EndpointsCache {
             fallback: Fallback::new(endpoints.into_iter().map(EndpointWithState::new).collect()),
             config_network_id,
             config_chain_id,
             log: self.log.clone(),
-        };
+        });
 
         let mut endpoints_cache = self.inner.endpoints_cache.write();
         *endpoints_cache = Some(new_cache.clone());
@@ -656,7 +654,7 @@ impl Service {
     }
 
     /// Returns the cached `EndpointsCache` if it exists or builds a new one.
-    pub fn get_endpoints(&self) -> EndpointsCache {
+    pub fn get_endpoints(&self) -> Arc<EndpointsCache> {
         let endpoints_cache = self.inner.endpoints_cache.read();
         if let Some(cache) = endpoints_cache.clone() {
             cache
