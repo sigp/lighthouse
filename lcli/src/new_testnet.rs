@@ -49,8 +49,8 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.genesis_fork_version = v;
     }
 
-    if let Some(fork_slot) = parse_optional(matches, "altair-fork-slot")? {
-        spec.altair_fork_slot = Some(fork_slot);
+    if let Some(fork_epoch) = parse_optional(matches, "altair-fork-epoch")? {
+        spec.altair_fork_epoch = Some(fork_epoch);
     }
 
     let testnet = Eth2NetworkConfig {

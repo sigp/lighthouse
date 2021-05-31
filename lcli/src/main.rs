@@ -378,12 +378,12 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("altair-fork-slot")
-                        .long("altair-fork-slot")
-                        .value_name("SLOT")
+                    Arg::with_name("altair-fork-epoch")
+                        .long("altair-fork-epoch")
+                        .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The slot at which to enable the Altair hard fork",
+                            "The epoch at which to enable the Altair hard fork",
                         ),
                 )
         )

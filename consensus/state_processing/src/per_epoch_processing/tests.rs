@@ -52,7 +52,7 @@ mod release_tests {
         let mut spec = MainnetEthSpec::default_spec();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
         // The Altair fork happens at epoch 1.
-        spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+        spec.altair_fork_epoch = Some(Epoch::new(1));
 
         let altair_state = {
             let harness = BeaconChainHarness::new(
@@ -87,7 +87,7 @@ mod release_tests {
             .expect("state passes intial slot processing");
 
         // Modify the spec so altair never happens.
-        spec.altair_fork_slot = None;
+        spec.altair_fork_epoch = None;
 
         let expected_err = InconsistentFork {
             fork_at_slot: ForkName::Base,
@@ -110,7 +110,7 @@ mod release_tests {
         let mut spec = MainnetEthSpec::default_spec();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
         // The Altair fork never happens.
-        spec.altair_fork_slot = None;
+        spec.altair_fork_epoch = None;
 
         let base_state = {
             let harness = BeaconChainHarness::new(
@@ -145,7 +145,7 @@ mod release_tests {
             .expect("state passes intial slot processing");
 
         // Modify the spec so Altair happens at the first epoch.
-        spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+        spec.altair_fork_epoch = Some(Epoch::new(1));
 
         let expected_err = InconsistentFork {
             fork_at_slot: ForkName::Altair,
