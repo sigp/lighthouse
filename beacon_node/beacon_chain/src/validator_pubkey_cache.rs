@@ -10,6 +10,8 @@ use std::path::Path;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 
+/// The volatile components of the `ValidatorPubkeyCache` (i.e., not the non-volatile database or
+/// file-backing).
 pub struct VolatilePubkeyCache {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
@@ -167,10 +169,16 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             return Ok(());
         };
 
+        /*
+         * First Phase:
+         *
+         * Update the backing and decompress the public keys whilst still allowing read-access to
+         * the volatile components of the cache.
+         */
+
         let mut new_pubkeys = Vec::with_capacity(num_new);
         for (i, pubkey) in validator_keys.enumerate().skip(num_current_pubkeys) {
-            // The item is written to disk _before_ it is written into
-            // the local struct.
+            // The item is written to disk _before_ it is written into the volatile struct.
             //
             // This means that a pubkey cache read from disk will always be equivalent to or
             // _later than_ the cache that was running in the previous instance of Lighthouse.
@@ -197,6 +205,13 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             new_pubkeys.push((i, pubkey, pubkey_decompressed));
         }
 
+        /*
+         * Second Phase:
+         *
+         * Update the volatile components, preventing read-access to the cache for as little time as
+         * possible.
+         */
+
         let mut volatile = self.volatile.write();
 
         volatile.pubkey_bytes.reserve(num_new);
@@ -207,10 +222,8 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             if volatile.indices.contains_key(&pubkey_compressed) {
                 return Err(BeaconChainError::DuplicateValidatorPublicKey);
             }
-
             volatile.pubkeys.push(pubkey_decompressed);
             volatile.pubkey_bytes.push(pubkey_compressed);
-
             volatile.indices.insert(pubkey_compressed, i);
         }
 
