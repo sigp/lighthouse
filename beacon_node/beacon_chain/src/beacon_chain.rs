@@ -91,7 +91,7 @@ pub enum WhenSlotSkipped {
     ///
     /// This is how the HTTP API behaves.
     None,
-    /// If the slot it a skip slot, return previous non-skipped block.
+    /// If the slot it a skip slot, return the previous non-skipped block.
     ///
     /// This is generally how the specification behaves.
     Prev,
@@ -522,7 +522,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
     ///
-    /// Use the `skips` parameter to define the behaviour when `target_slot` is a skipped slot.
+    /// ## Notes
+    ///
+    /// - Use the `skips` parameter to define the behaviour when `target_slot` is a skipped slot.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
     pub fn block_root_at_slot(
         &self,
         target_slot: Slot,
@@ -535,13 +538,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
-    /// Returns `Ok(None)` if the given `Slot` was skipped.
+    ///
+    /// ## Notes
+    ///
+    /// - Returns `Ok(None)` if the given `Slot` was skipped.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
     ///
     /// ## Errors
     ///
     /// May return a database error.
     fn block_root_at_slot_skips_none(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if target_slot == self.spec.genesis_slot {
+        if target_slot > self.slot()? {
+            return Ok(None);
+        } else if target_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
         }
 
@@ -563,14 +572,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
-    /// Returns the root at the previous non-skipped slot if the given `Slot` was skipped.
+    ///
+    /// ## Notes
+    ///
+    /// - Returns the root at the previous non-skipped slot if the given `Slot` was skipped.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
     ///
     /// ## Errors
     ///
     /// May return a database error.
     fn block_root_at_slot_skips_prev(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if target_slot == self.spec.genesis_slot {
+        if target_slot > self.slot()? {
+            return Ok(None);
+        } else if target_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
+        }
+
+        // If the head is equal to or less than the target slot, simply return the head block root.
+        let head_root_opt = self.with_head(|head| {
+            Ok::<_, Error>(
+                (head.beacon_block.slot() <= target_slot).then(|| head.beacon_block_root),
+            )
+        })?;
+        if let Some(head_root) = head_root_opt {
+            return Ok(Some(head_root));
         }
 
         process_results(self.forwards_iter_block_roots(target_slot)?, |mut iter| {

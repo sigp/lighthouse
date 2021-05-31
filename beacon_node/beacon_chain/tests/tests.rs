@@ -616,10 +616,14 @@ fn block_roots_skip_slot_behaviour() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     let chain_length = 16;
-    let skipped_slots = [1, 6, 7, 10];
+    let skipped_slots = [1, 6, 7, 10, 16];
 
     // Build a chain with some skip slots.
-    for _ in 0..chain_length {
+    for i in 1..=chain_length {
+        if i > 1 {
+            harness.advance_slot();
+        }
+
         let slot = harness.chain.slot().unwrap().as_u64();
 
         if !skipped_slots.contains(&slot) {
@@ -629,8 +633,6 @@ fn block_roots_skip_slot_behaviour() {
                 AttestationStrategy::AllValidators,
             );
         }
-
-        harness.advance_slot();
     }
 
     let mut prev_unskipped_root = None;
@@ -722,4 +724,31 @@ fn block_roots_skip_slot_behaviour() {
             prev_unskipped_root = Some(skips_prev);
         }
     }
+
+    /*
+     * A future, non-existent slot.
+     */
+
+    let future_slot = harness.chain.slot().unwrap() + 1;
+    assert_eq!(
+        harness.chain.head().unwrap().beacon_block.slot(),
+        future_slot - 2,
+        "test precondition"
+    );
+    assert!(
+        harness
+            .chain
+            .block_root_at_slot(future_slot, WhenSlotSkipped::None)
+            .unwrap()
+            .is_none(),
+        "WhenSlotSkipped::None should return None on a future slot"
+    );
+    assert!(
+        harness
+            .chain
+            .block_root_at_slot(future_slot, WhenSlotSkipped::Prev)
+            .unwrap()
+            .is_none(),
+        "WhenSlotSkipped::Prev should return None on a future slot"
+    );
 }
