@@ -560,19 +560,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let fast_lookup: Option<Option<Hash256>> = self.with_head(|head| {
             let state = &head.beacon_state;
 
-            if state.slot == target_slot {
+            // Try find the root for the `target_slot`.
+            let target_root_opt = match state.slot.cmp(&target_slot) {
+                // It's always a skip slot if the head is less than the target slot, return early.
+                Ordering::Less => return Ok(Some(None)),
                 // The target slot is the head slot.
-                return Ok(Some(Some(head.beacon_block_root)));
-            } else if target_slot > state.slot {
-                // It's always a skip slot if the target slot is higher than the head.
-                return Ok(Some(None));
-            }
+                Ordering::Equal => Some(head.beacon_block_root),
+                // Try find the target slot in the state.
+                Ordering::Greater => state.get_block_root(target_slot).ok().copied(),
+            };
 
-            // If the previous and target roots are available in the state, read them and return
-            // Some/None depending on if there is a skip slot.
-            if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                if let Ok(target_root) = state.get_block_root(target_slot) {
-                    return Ok(Some((prev_root != target_root).then(|| *target_root)));
+            if let Some(target_root) = target_root_opt {
+                if let Ok(prev_root) = state.get_block_root(prev_slot) {
+                    return Ok(Some((*prev_root != target_root).then(|| target_root)));
                 }
             }
 
