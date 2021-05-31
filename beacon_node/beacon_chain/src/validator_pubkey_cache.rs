@@ -1,5 +1,6 @@
 use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use ssz::{Decode, DecodeError, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -8,6 +9,34 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
+
+pub struct VolatilePubkeyCache {
+    pubkeys: Vec<PublicKey>,
+    indices: HashMap<PublicKeyBytes, usize>,
+    pubkey_bytes: Vec<PublicKeyBytes>,
+}
+
+impl VolatilePubkeyCache {
+    /// Get the public key for a validator with index `i`.
+    pub fn get(&self, i: usize) -> Option<&PublicKey> {
+        self.pubkeys.get(i)
+    }
+
+    /// Get the public key (in bytes form) for a validator with index `i`.
+    pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
+        self.pubkey_bytes.get(i)
+    }
+
+    /// Get the index of a validator with `pubkey`.
+    pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<usize> {
+        self.indices.get(pubkey).copied()
+    }
+
+    /// Returns the number of validators in the cache.
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+}
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -21,10 +50,8 @@ use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 /// The cache has a `backing` that it uses to maintain a persistent, on-disk
 /// copy of itself. This allows it to be restored between process invocations.
 pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
-    pubkeys: Vec<PublicKey>,
-    indices: HashMap<PublicKeyBytes, usize>,
-    pubkey_bytes: Vec<PublicKeyBytes>,
-    backing: PubkeyCacheBacking<T>,
+    volatile: RwLock<VolatilePubkeyCache>,
+    backing: Mutex<PubkeyCacheBacking<T>>,
 }
 
 /// Abstraction over on-disk backing.
@@ -44,11 +71,13 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         state: &BeaconState<T::EthSpec>,
         store: BeaconStore<T>,
     ) -> Result<Self, BeaconChainError> {
-        let mut cache = Self {
-            pubkeys: vec![],
-            indices: HashMap::new(),
-            pubkey_bytes: vec![],
-            backing: PubkeyCacheBacking::Database(store),
+        let cache = Self {
+            volatile: RwLock::new(VolatilePubkeyCache {
+                pubkeys: vec![],
+                indices: HashMap::new(),
+                pubkey_bytes: vec![],
+            }),
+            backing: Mutex::new(PubkeyCacheBacking::Database(store)),
         };
 
         cache.import_new_pubkeys(state)?;
@@ -75,10 +104,12 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         }
 
         Ok(ValidatorPubkeyCache {
-            pubkeys,
-            indices,
-            pubkey_bytes,
-            backing: PubkeyCacheBacking::Database(store),
+            volatile: RwLock::new(VolatilePubkeyCache {
+                pubkeys,
+                indices,
+                pubkey_bytes,
+            }),
+            backing: Mutex::new(PubkeyCacheBacking::Database(store)),
         })
     }
 
@@ -93,13 +124,16 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     ///
     /// This will write all of the keys from `existing_cache` to `store`.
     pub fn convert(existing_cache: Self, store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
-        let mut result = ValidatorPubkeyCache {
-            pubkeys: Vec::with_capacity(existing_cache.pubkeys.len()),
-            indices: HashMap::with_capacity(existing_cache.indices.len()),
-            pubkey_bytes: Vec::with_capacity(existing_cache.indices.len()),
-            backing: PubkeyCacheBacking::Database(store),
+        let volatile = existing_cache.volatile.read();
+        let result = ValidatorPubkeyCache {
+            volatile: RwLock::new(VolatilePubkeyCache {
+                pubkeys: Vec::with_capacity(volatile.pubkeys.len()),
+                indices: HashMap::with_capacity(volatile.indices.len()),
+                pubkey_bytes: Vec::with_capacity(volatile.indices.len()),
+            }),
+            backing: Mutex::new(PubkeyCacheBacking::Database(store)),
         };
-        result.import(existing_cache.pubkeys.iter().map(PublicKeyBytes::from))?;
+        result.import(volatile.pubkeys.iter().map(PublicKeyBytes::from))?;
         Ok(result)
     }
 
@@ -107,36 +141,34 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     ///
     /// Does not delete any keys from `self` if they don't appear in `state`.
     pub fn import_new_pubkeys(
-        &mut self,
+        &self,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
-        if state.validators().len() > self.pubkeys.len() {
-            self.import(
-                state.validators()[self.pubkeys.len()..]
-                    .iter()
-                    .map(|v| v.pubkey),
-            )
-        } else {
-            Ok(())
-        }
+        self.import(state.validators.iter().map(|v| v.pubkey))
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I) -> Result<(), BeaconChainError>
+    fn import<I>(&self, validator_keys: I) -> Result<(), BeaconChainError>
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
-        self.pubkey_bytes.reserve(validator_keys.len());
-        self.pubkeys.reserve(validator_keys.len());
-        self.indices.reserve(validator_keys.len());
+        // Lock the backing to prevent modification from another thread.
+        let mut backing = self.backing.lock();
 
-        for pubkey in validator_keys {
-            let i = self.pubkeys.len();
+        let num_current_pubkeys = self.volatile.read().pubkeys.len();
+        let num_new = if let Some(new) = validator_keys
+            .len()
+            .checked_sub(num_current_pubkeys)
+            .filter(|n| *n > 0)
+        {
+            new
+        } else {
+            // Nothing to do.
+            return Ok(());
+        };
 
-            if self.indices.contains_key(&pubkey) {
-                return Err(BeaconChainError::DuplicateValidatorPublicKey);
-            }
-
+        let mut new_pubkeys = Vec::with_capacity(num_new);
+        for (i, pubkey) in validator_keys.enumerate().skip(num_current_pubkeys) {
             // The item is written to disk _before_ it is written into
             // the local struct.
             //
@@ -146,7 +178,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             // The motivation behind this ordering is that we do not want to have states that
             // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
             // that are never referenced in a state.
-            match &mut self.backing {
+            match &mut *backing {
                 PubkeyCacheBacking::File(persistence_file) => {
                     persistence_file.append(i, &pubkey)?;
                 }
@@ -155,14 +187,31 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 }
             }
 
-            self.pubkeys.push(
-                (&pubkey)
-                    .try_into()
-                    .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
-            );
-            self.pubkey_bytes.push(pubkey);
+            // Do the decompression *before* taking the write-lock on the volatile components. This
+            // ensures other components can still read from the existing cache whilst lengthy
+            // decompression is happening.
+            let pubkey_decompressed = (&pubkey)
+                .try_into()
+                .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
 
-            self.indices.insert(pubkey, i);
+            new_pubkeys.push((i, pubkey, pubkey_decompressed));
+        }
+
+        let mut volatile = self.volatile.write();
+
+        volatile.pubkey_bytes.reserve(num_new);
+        volatile.pubkeys.reserve(num_new);
+        volatile.indices.reserve(num_new);
+
+        for (i, pubkey_compressed, pubkey_decompressed) in new_pubkeys {
+            if volatile.indices.contains_key(&pubkey_compressed) {
+                return Err(BeaconChainError::DuplicateValidatorPublicKey);
+            }
+
+            volatile.pubkeys.push(pubkey_decompressed);
+            volatile.pubkey_bytes.push(pubkey_compressed);
+
+            volatile.indices.insert(pubkey_compressed, i);
         }
 
         Ok(())
@@ -193,6 +242,10 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Returns the number of validators in the cache.
     pub fn len(&self) -> usize {
         self.indices.len()
+    }
+
+    pub fn volatile_cache(&self) -> RwLockReadGuard<VolatilePubkeyCache> {
+        self.volatile.read()
     }
 }
 
@@ -303,10 +356,12 @@ impl ValidatorPubkeyCacheFile {
         }
 
         Ok(ValidatorPubkeyCache {
-            pubkeys,
-            indices,
-            pubkey_bytes,
-            backing: PubkeyCacheBacking::File(self),
+            volatile: RwLock::new(VolatilePubkeyCache {
+                pubkeys,
+                indices,
+                pubkey_bytes,
+            }),
+            backing: Mutex::new(PubkeyCacheBacking::File(self)),
         })
     }
 }
@@ -359,7 +414,8 @@ mod test {
 
         for i in 0..validator_count + 1 {
             if i < validator_count {
-                let pubkey = cache.get(i).expect("pubkey should be present");
+                let volatile_cache = cache.volatile_cache();
+                let pubkey = volatile_cache.get(i).expect("pubkey should be present");
                 assert_eq!(pubkey, &keypairs[i].pk, "pubkey should match cache");
 
                 let pubkey_bytes: PublicKeyBytes = pubkey.clone().into();
@@ -367,13 +423,14 @@ mod test {
                 assert_eq!(
                     i,
                     cache
+                        .volatile_cache()
                         .get_index(&pubkey_bytes)
                         .expect("should resolve index"),
                     "index should match cache"
                 );
             } else {
                 assert_eq!(
-                    cache.get(i),
+                    cache.volatile_cache().get(i),
                     None,
                     "should not get pubkey for out of bounds index",
                 );
@@ -387,7 +444,7 @@ mod test {
 
         let store = get_store();
 
-        let mut cache = ValidatorPubkeyCache::new(&state, store).expect("should create cache");
+        let cache = ValidatorPubkeyCache::new(&state, store).expect("should create cache");
 
         check_cache_get(&cache, &keypairs[..]);
 
@@ -425,7 +482,7 @@ mod test {
         drop(cache);
 
         // Re-init the cache from the file.
-        let mut cache =
+        let cache =
             ValidatorPubkeyCache::load_from_store(store.clone()).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
 

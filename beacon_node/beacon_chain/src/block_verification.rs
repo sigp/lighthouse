@@ -45,12 +45,9 @@ use crate::execution_payload::{
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::VolatilePubkeyCache;
 use crate::{
-    beacon_chain::{
-        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
+    beacon_chain::{BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY},
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
@@ -476,7 +473,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
-    let pubkey_cache = get_validator_pubkey_cache(chain)?;
+    let pubkey_cache = get_validator_pubkey_cache(chain);
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
     for (block_root, block) in &chain_segment {
@@ -739,7 +736,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         };
 
         let signature_is_valid = {
-            let pubkey_cache = get_validator_pubkey_cache(chain)?;
+            let pubkey_cache = get_validator_pubkey_cache(chain);
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
@@ -841,7 +838,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let pubkey_cache = get_validator_pubkey_cache(chain);
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
@@ -887,7 +884,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             &chain.spec,
         )?;
 
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let pubkey_cache = get_validator_pubkey_cache(chain);
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
@@ -1578,21 +1575,17 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
 fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
-    chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
-        .map_err(BlockError::BeaconChainError)
+) -> RwLockReadGuard<VolatilePubkeyCache> {
+    chain.validator_pubkey_cache.volatile_cache()
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.
 ///
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
-fn get_signature_verifier<'a, T: BeaconChainTypes>(
-    state: &'a BeaconState<T::EthSpec>,
-    validator_pubkey_cache: &'a ValidatorPubkeyCache<T>,
+fn get_signature_verifier<'a, E: EthSpec>(
+    state: &'a BeaconState<E>,
+    validator_pubkey_cache: &'a VolatilePubkeyCache,
     spec: &'a ChainSpec,
 ) -> BlockSignatureVerifier<
     'a,
@@ -1628,7 +1621,7 @@ fn verify_header_signature<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    let proposer_pubkey = get_validator_pubkey_cache(chain)?
+    let proposer_pubkey = get_validator_pubkey_cache(chain)
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
