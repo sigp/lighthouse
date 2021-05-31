@@ -3,9 +3,14 @@ use std::time::Instant;
 use types::SubnetId;
 
 /// Represents a subnet on an attestation or sync committee `SubnetId`.
+///
+/// Used for subscribing to the appropriate gossipsub subnets and mark
+/// appropriate metadata bitfields.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub enum Subnet {
+    /// Represents a gossipsub attestation subnet and the metadata `attnets` field.
     Attestation(SubnetId),
+    /// Represents a gossipsub sync committee subnet and the metadata `syncnets` field.
     SyncCommittee(SubnetId),
 }
 
