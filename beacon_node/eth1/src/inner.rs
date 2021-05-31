@@ -7,6 +7,7 @@ use crate::{
 use parking_lot::RwLock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use types::ChainSpec;
 
 #[derive(Default)]
@@ -29,7 +30,7 @@ impl DepositUpdater {
 pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
-    pub endpoints_cache: RwLock<Option<EndpointsCache>>,
+    pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,
     pub spec: ChainSpec,
