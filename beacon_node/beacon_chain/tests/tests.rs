@@ -9,6 +9,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
+    WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -608,4 +609,148 @@ fn produces_and_processes_with_genesis_skip_slots() {
     for i in 0..MinimalEthSpec::slots_per_epoch() * 4 {
         run_skip_slot_test(i)
     }
+}
+
+#[test]
+fn block_roots_skip_slot_behaviour() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Test should be longer than the block roots to ensure a DB lookup is triggered.
+    let chain_length = harness.chain.head().unwrap().beacon_state.block_roots.len() as u64 * 3;
+
+    let skipped_slots = [1, 6, 7, 10, chain_length];
+
+    // Build a chain with some skip slots.
+    for i in 1..=chain_length {
+        if i > 1 {
+            harness.advance_slot();
+        }
+
+        let slot = harness.chain.slot().unwrap().as_u64();
+
+        if !skipped_slots.contains(&slot) {
+            harness.extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            );
+        }
+    }
+
+    let mut prev_unskipped_root = None;
+
+    for target_slot in 0..=chain_length {
+        if skipped_slots.contains(&target_slot) {
+            /*
+             * A skip slot
+             */
+            assert!(
+                harness
+                    .chain
+                    .block_root_at_slot(target_slot.into(), WhenSlotSkipped::None)
+                    .unwrap()
+                    .is_none(),
+                "WhenSlotSkipped::None should return None on a skip slot"
+            );
+
+            let skipped_root = harness
+                .chain
+                .block_root_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
+                .unwrap()
+                .expect("WhenSlotSkipped::Prev should always return Some");
+
+            assert_eq!(
+                skipped_root,
+                prev_unskipped_root.expect("test is badly formed"),
+                "WhenSlotSkipped::Prev should accurately return the prior skipped block"
+            );
+
+            let expected_block = harness.chain.get_block(&skipped_root).unwrap().unwrap();
+
+            assert_eq!(
+                harness
+                    .chain
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
+                    .unwrap()
+                    .unwrap(),
+                expected_block,
+            );
+
+            assert!(
+                harness
+                    .chain
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::None)
+                    .unwrap()
+                    .is_none(),
+                "WhenSlotSkipped::None should return None on a skip slot"
+            );
+        } else {
+            /*
+             * Not a skip slot
+             */
+            let skips_none = harness
+                .chain
+                .block_root_at_slot(target_slot.into(), WhenSlotSkipped::None)
+                .unwrap()
+                .expect("WhenSlotSkipped::None should return Some for non-skipped block");
+            let skips_prev = harness
+                .chain
+                .block_root_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
+                .unwrap()
+                .expect("WhenSlotSkipped::Prev should always return Some");
+            assert_eq!(
+                skips_none, skips_prev,
+                "WhenSlotSkipped::None and WhenSlotSkipped::Prev should be equal on non-skipped slot"
+            );
+
+            let expected_block = harness.chain.get_block(&skips_prev).unwrap().unwrap();
+
+            assert_eq!(
+                harness
+                    .chain
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::Prev)
+                    .unwrap()
+                    .unwrap(),
+                expected_block
+            );
+
+            assert_eq!(
+                harness
+                    .chain
+                    .block_at_slot(target_slot.into(), WhenSlotSkipped::None)
+                    .unwrap()
+                    .unwrap(),
+                expected_block
+            );
+
+            prev_unskipped_root = Some(skips_prev);
+        }
+    }
+
+    /*
+     * A future, non-existent slot.
+     */
+
+    let future_slot = harness.chain.slot().unwrap() + 1;
+    assert_eq!(
+        harness.chain.head().unwrap().beacon_block.slot(),
+        future_slot - 2,
+        "test precondition"
+    );
+    assert!(
+        harness
+            .chain
+            .block_root_at_slot(future_slot, WhenSlotSkipped::None)
+            .unwrap()
+            .is_none(),
+        "WhenSlotSkipped::None should return None on a future slot"
+    );
+    assert!(
+        harness
+            .chain
+            .block_root_at_slot(future_slot, WhenSlotSkipped::Prev)
+            .unwrap()
+            .is_none(),
+        "WhenSlotSkipped::Prev should return None on a future slot"
+    );
 }
