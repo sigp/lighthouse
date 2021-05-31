@@ -97,6 +97,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "cipher 0.3.0",
  "cpufeatures",
+ "ctr 0.7.0",
  "opaque-debug 0.3.0",
 ]
 
@@ -564,7 +565,7 @@ dependencies = [
  "serde_yaml",
  "slasher",
  "slog",
- "sloggers",
+ "sloggers 1.0.1",
  "slot_clock",
  "smallvec",
  "state_processing",
@@ -801,7 +802,7 @@ dependencies = [
  "slog-scope",
  "slog-stdlog",
  "slog-term",
- "sloggers",
+ "sloggers 1.0.1",
  "tokio 1.6.1",
  "types",
 ]
@@ -1059,7 +1060,7 @@ dependencies = [
  "slasher_service",
  "slog",
  "slog-async",
- "sloggers",
+ "sloggers 1.0.1",
  "slot_clock",
  "store",
  "task_executor",
@@ -1243,9 +1244,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52fb27eab85b17fbb9f6fd667089e07d6a2eb8743d02639ee7f6a7a7729c9c94"
+checksum = "4ec02e091aa634e2c3ada4a392989e7c3116673ef0ac5b72232439094d73b7fd"
 dependencies = [
  "cfg-if 1.0.0",
  "crossbeam-utils",
@@ -1256,11 +1257,10 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4feb231f0d4d6af81aed15928e58ecf5816aa62a2393e2c82f46973e92a9a278"
+checksum = "d82cfc11ce7f2c3faef78d8a684447b40d503d9681acebed6cb728d45940c4db"
 dependencies = [
- "autocfg 1.0.1",
  "cfg-if 1.0.0",
  "lazy_static",
 ]
@@ -1606,10 +1606,9 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64398d706a4be74770d79f8445dadace705bb91d47496bfe5c6324982ef9ad4a"
+source = "git+https://github.com/sigp/discv5?branch=feature-update-patches#79287075ec2454e8668e28273449b29733a77360"
 dependencies = [
- "aes-ctr",
+ "aes",
  "aes-gcm",
  "arrayvec 0.7.0",
  "digest 0.9.0",
@@ -1810,7 +1809,7 @@ dependencies = [
  "slog-async",
  "slog-json",
  "slog-term",
- "sloggers",
+ "sloggers 1.0.1",
  "task_executor",
  "tokio 1.6.1",
  "types",
@@ -1849,7 +1848,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "sloggers",
+ "sloggers 1.0.1",
  "state_processing",
  "task_executor",
  "tokio 1.6.1",
@@ -3718,7 +3717,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "sloggers",
+ "sloggers 1.0.1",
  "task_executor",
  "tempfile",
  "tokio 1.6.1",
@@ -4174,7 +4173,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "sloggers",
+ "sloggers 1.0.1",
  "slot_clock",
  "smallvec",
  "state_processing",
@@ -5185,7 +5184,7 @@ dependencies = [
  "regex",
  "remote_signer_test",
  "slog",
- "sloggers",
+ "sloggers 1.0.1",
  "tempfile",
  "types",
  "zeroize",
@@ -5864,7 +5863,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
- "sloggers",
+ "sloggers 2.0.0",
  "tempfile",
  "tree_hash",
  "tree_hash_derive",
@@ -5991,6 +5990,27 @@ checksum = "f01d37507aa6f37490cfa08d71e2639b16906e84c285ae4b9f7ec7ca35756d69"
 dependencies = [
  "chrono",
  "libflate",
+ "regex",
+ "serde",
+ "slog",
+ "slog-async",
+ "slog-kvfilter",
+ "slog-scope",
+ "slog-stdlog",
+ "slog-term",
+ "trackable",
+]
+
+[[package]]
+name = "sloggers"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92ee08a52260ed355f96069884bf8873f2439231f8754cbd545291d647ebbd75"
+dependencies = [
+ "chrono",
+ "libc",
+ "libflate",
+ "once_cell",
  "regex",
  "serde",
  "slog",
@@ -6224,7 +6244,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
- "sloggers",
+ "sloggers 1.0.1",
  "state_processing",
  "tempfile",
  "tree_hash",
