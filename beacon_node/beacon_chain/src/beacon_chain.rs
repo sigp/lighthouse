@@ -555,22 +555,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let prev_slot = target_slot.saturating_sub(1_u64);
-        let mut prev_root_opt = None;
 
         // Try an optimized path of reading the root directly from the head state.
         let fast_lookup: Option<Option<Hash256>> = self.with_head(|head| {
             let state = &head.beacon_state;
 
-            // It's always a skip slot if the target slot is higher than the head.
-            if target_slot > state.slot {
+            if state.slot == target_slot {
+                // The target slot is the head slot.
+                return Ok(Some(Some(head.beacon_block_root)));
+            } else if target_slot > state.slot {
+                // It's always a skip slot if the target slot is higher than the head.
                 return Ok(Some(None));
             }
 
             // If the previous and target roots are available in the state, read them and return
             // Some/None depending on if there is a skip slot.
             if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                if let Ok(curr_root) = state.get_block_root(target_slot) {
-                    return Ok(Some((prev_root != curr_root).then(|| *curr_root)));
+                if let Ok(target_root) = state.get_block_root(target_slot) {
+                    return Ok(Some((prev_root != target_root).then(|| *target_root)));
                 }
             }
 
@@ -581,6 +583,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(root_opt);
         }
 
+        let mut prev_root_opt = None;
         process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
             for (curr_root, curr_slot) in iter {
                 if let Some(prev_root) = prev_root_opt {
@@ -613,7 +616,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Try an optimized path of reading the root directly from the head state.
-        let fast_lookup = self.with_head(|head| {
+        let fast_lookup: Option<Hash256> = self.with_head(|head| {
             if head.beacon_block.slot() <= target_slot {
                 // Return the head root if all slots between the target and the head are skipped.
                 Ok(Some(head.beacon_block_root))
