@@ -232,6 +232,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Connected outbound-only peers
+    pub fn connected_outbound_only_peers(&self) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(|(_, info)| info.is_outbound_only())
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives the `peer_id` of all known connected and synced peers.
     pub fn synced_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
@@ -686,6 +694,25 @@ mod tests {
         assert_eq!(pdb.disconnected_peers, 0);
         assert!(peer_info.unwrap().is_connected());
         assert_eq!(peer_info.unwrap().connections(), (n_in, n_out));
+    }
+
+    #[test]
+    fn test_outbound_only_peers_counted_correctly() {
+        let mut pdb = get_db();
+        let p0 = PeerId::random();
+        let p1 = PeerId::random();
+        let p2 = PeerId::random();
+        // Create peer with no connections.
+        let _p3 = PeerId::random();
+
+        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_outgoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_outgoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+        // We should only have one outbound-only peer (p2).
+        // Peers that are inbound-only, have both types of connections, or no connections should not be counted.
+        assert_eq!(pdb.connected_outbound_only_peers().count(), 1);
     }
 
     #[test]
