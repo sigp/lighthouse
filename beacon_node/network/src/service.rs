@@ -1,10 +1,11 @@
 use crate::persisted_dht::{load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
+use crate::subnet_service::SyncCommitteeService;
+use crate::{error, metrics};
 use crate::{
-    attestation_service::{AttServiceMessage, AttestationService},
+    subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
-use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
@@ -105,6 +106,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     libp2p: LibP2PService<T::EthSpec>,
     /// An attestation and subnet manager service.
     attestation_service: AttestationService<T>,
+    /// A sync committeee subnet manager service.
+    sync_committee_service: SyncCommitteeService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The sending channel for the network service to send messages to be routed throughout
@@ -217,9 +220,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_log.clone(),
         )?;
 
-        // attestation service
+        // attestation subnet service
         let attestation_service =
             AttestationService::new(beacon_chain.clone(), &config, &network_log);
+
+        // sync committee subnet service
+        let sync_committee_service =
+            SyncCommitteeService::new(beacon_chain.clone(), &config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -233,6 +240,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain,
             libp2p,
             attestation_service,
+            sync_committee_service,
             network_recv,
             router_send,
             store,
@@ -472,29 +480,59 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any attestation service events
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
-                        AttServiceMessage::Subscribe(subnet_id) => {
+                        SubnetServiceMessage::Subscribe(subnet_id) => {
                             let subnet = Subnet::Attestation(subnet_id);
                             for fork_digest in service.required_gossip_fork_digests() {
                                 let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.subscribe(topic);
                             }
                         }
-                        AttServiceMessage::Unsubscribe(subnet_id) => {
+                        SubnetServiceMessage::Unsubscribe(subnet_id) => {
                             let subnet = Subnet::Attestation(subnet_id);
                             for fork_digest in service.required_gossip_fork_digests() {
                                 let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.unsubscribe(topic);
                             }
                         }
-                        AttServiceMessage::EnrAdd(subnet_id) => {
+                        SubnetServiceMessage::EnrAdd(subnet_id) => {
                             let subnet = Subnet::Attestation(subnet_id);
                             service.libp2p.swarm.update_enr_subnet(subnet, true);
                         }
-                        AttServiceMessage::EnrRemove(subnet_id) => {
+                        SubnetServiceMessage::EnrRemove(subnet_id) => {
                             let subnet = Subnet::Attestation(subnet_id);
                             service.libp2p.swarm.update_enr_subnet(subnet, false);
                         }
-                        AttServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                        SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                            service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
+                        }
+                    }
+                }
+                // process any sync committee service events
+                Some(sync_committee_service_message) = service.sync_committee_service.next() => {
+                    match sync_committee_service_message {
+                        SubnetServiceMessage::Subscribe(subnet_id) => {
+                            let subnet = Subnet::SyncCommittee(subnet_id);
+                            for fork_digest in service.required_gossip_fork_digests() {
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                service.libp2p.swarm.subscribe(topic);
+                            }
+                        }
+                        SubnetServiceMessage::Unsubscribe(subnet_id) => {
+                            let subnet = Subnet::SyncCommittee(subnet_id);
+                            for fork_digest in service.required_gossip_fork_digests() {
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                service.libp2p.swarm.unsubscribe(topic);
+                            }
+                        }
+                        SubnetServiceMessage::EnrAdd(subnet_id) => {
+                            let subnet = Subnet::SyncCommittee(subnet_id);
+                            service.libp2p.swarm.update_enr_subnet(subnet, true);
+                        }
+                        SubnetServiceMessage::EnrRemove(subnet_id) => {
+                            let subnet = Subnet::SyncCommittee(subnet_id);
+                            service.libp2p.swarm.update_enr_subnet(subnet, false);
+                        }
+                        SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
                             service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
                         }
                     }

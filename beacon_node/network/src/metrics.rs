@@ -155,12 +155,20 @@ lazy_static! {
      * Attestation subnet subscriptions
      */
     pub static ref SUBNET_SUBSCRIPTION_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "gossipsub_subnet_subscriptions_total",
-        "Count of validator subscription requests."
+        "gossipsub_attestation_subnet_subscriptions_total",
+        "Count of validator attestation subscription requests."
     );
     pub static ref SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "gossipsub_subnet_subscriptions_aggregator_total",
         "Count of validator subscription requests where the subscriber is an aggregator."
+    );
+
+    /*
+     * Sync committee subnet subscriptions
+     */
+     pub static ref SYNC_COMMITTEE_SUBSCRIPTION_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "gossipsub_sync_committee_subnet_subscriptions_total",
+        "Count of validator sync committee subscription requests."
     );
 
     /*

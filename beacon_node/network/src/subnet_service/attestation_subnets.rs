@@ -2,6 +2,7 @@
 //! given time. It schedules subscriptions to shard subnets, requests peer discoveries and
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
+use super::SubnetServiceMessage;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -20,9 +21,6 @@ use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
 use crate::metrics;
 
-#[cfg(test)]
-mod tests;
-
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
 /// slot is less than this number, skip the peer discovery process.
 /// Subnet discovery query takes atmost 30 secs, 2 slots take 24s.
@@ -30,7 +28,6 @@ const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 /// The time (in slots) before a last seen validator is considered absent and we unsubscribe from the random
 /// gossip topics that we subscribed to due to the validator connection.
 const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
-// 30 mins at a 12s slot time
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
 /// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
@@ -38,46 +35,6 @@ const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 /// The default number of slots before items in hash delay sets used by this class should expire.
 ///  36s at 12s slot time
 const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
-
-#[derive(Debug, Clone)]
-pub enum AttServiceMessage {
-    /// Subscribe to the specified subnet id.
-    Subscribe(SubnetId),
-    /// Unsubscribe to the specified subnet id.
-    Unsubscribe(SubnetId),
-    /// Add the `SubnetId` to the ENR bitfield.
-    EnrAdd(SubnetId),
-    /// Remove the `SubnetId` from the ENR bitfield.
-    EnrRemove(SubnetId),
-    /// Discover peers for a list of `SubnetDiscovery`.
-    DiscoverPeers(Vec<SubnetDiscovery>),
-}
-
-/// Note: This `PartialEq` impl is for use only in tests.
-/// The `DiscoverPeers` comparison is good enough for testing only.
-#[cfg(test)]
-impl PartialEq for AttServiceMessage {
-    fn eq(&self, other: &AttServiceMessage) -> bool {
-        match (self, other) {
-            (AttServiceMessage::Subscribe(a), AttServiceMessage::Subscribe(b)) => a == b,
-            (AttServiceMessage::Unsubscribe(a), AttServiceMessage::Unsubscribe(b)) => a == b,
-            (AttServiceMessage::EnrAdd(a), AttServiceMessage::EnrAdd(b)) => a == b,
-            (AttServiceMessage::EnrRemove(a), AttServiceMessage::EnrRemove(b)) => a == b,
-            (AttServiceMessage::DiscoverPeers(a), AttServiceMessage::DiscoverPeers(b)) => {
-                if a.len() != b.len() {
-                    return false;
-                }
-                for i in 0..a.len() {
-                    if a[i].subnet != b[i].subnet || a[i].min_ttl != b[i].min_ttl {
-                        return false;
-                    }
-                }
-                true
-            }
-            _ => false,
-        }
-    }
-}
 
 /// A particular subnet at a given slot.
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
@@ -90,13 +47,13 @@ pub struct ExactSubnet {
 
 pub struct AttestationService<T: BeaconChainTypes> {
     /// Queued events to return to the driving service.
-    events: VecDeque<AttServiceMessage>,
+    events: VecDeque<SubnetServiceMessage>,
 
     /// A reference to the beacon chain to process received attestations.
-    beacon_chain: Arc<BeaconChain<T>>,
+    pub(crate) beacon_chain: Arc<BeaconChain<T>>,
 
     /// The collection of currently subscribed random subnets mapped to their expiry deadline.
-    random_subnets: HashSetDelay<SubnetId>,
+    pub(crate) random_subnets: HashSetDelay<SubnetId>,
 
     /// The collection of all currently subscribed subnets (long-lived **and** short-lived).
     subscriptions: HashSet<SubnetId>,
@@ -349,7 +306,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         if !discovery_subnets.is_empty() {
             self.events
-                .push_back(AttServiceMessage::DiscoverPeers(discovery_subnets));
+                .push_back(SubnetServiceMessage::DiscoverPeers(discovery_subnets));
         }
         Ok(())
     }
@@ -474,7 +431,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // However, subscribing to random subnets ideally shouldn't happen very often (once in ~27 hours) and
             // this makes it easier to deterministically test the attestations service.
             self.events
-                .push_back(AttServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                .push_back(SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
                     subnet: Subnet::Attestation(subnet_id),
                     min_ttl: None,
                 }]));
@@ -484,11 +441,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 self.subscriptions.insert(subnet_id);
                 debug!(self.log, "Subscribing to random subnet"; "subnet_id" => ?subnet_id);
                 self.events
-                    .push_back(AttServiceMessage::Subscribe(subnet_id));
+                    .push_back(SubnetServiceMessage::Subscribe(subnet_id));
             }
 
             // add the subnet to the ENR bitfield
-            self.events.push_back(AttServiceMessage::EnrAdd(subnet_id));
+            self.events
+                .push_back(SubnetServiceMessage::EnrAdd(subnet_id));
         }
     }
 
@@ -525,7 +483,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "target_slot" => exact_subnet.slot.as_u64());
                 self.subscriptions.insert(exact_subnet.subnet_id);
                 self.events
-                    .push_back(AttServiceMessage::Subscribe(exact_subnet.subnet_id));
+                    .push_back(SubnetServiceMessage::Subscribe(exact_subnet.subnet_id));
             }
         }
     }
@@ -544,7 +502,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         self.subscriptions.remove(&exact_subnet.subnet_id);
         self.events
-            .push_back(AttServiceMessage::Unsubscribe(exact_subnet.subnet_id));
+            .push_back(SubnetServiceMessage::Unsubscribe(exact_subnet.subnet_id));
     }
 
     /// A random subnet has expired.
@@ -568,12 +526,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // we are not at capacity, unsubscribe from the current subnet.
             debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
             self.events
-                .push_back(AttServiceMessage::Unsubscribe(subnet_id));
+                .push_back(SubnetServiceMessage::Unsubscribe(subnet_id));
         }
 
         // Remove the ENR bitfield bit and choose a new random on from the available subnets
         self.events
-            .push_back(AttServiceMessage::EnrRemove(subnet_id));
+            .push_back(SubnetServiceMessage::EnrRemove(subnet_id));
         // Subscribe to a new random subnet
         self.subscribe_to_random_subnets(1);
     }
@@ -608,19 +566,19 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .is_none()
             {
                 self.events
-                    .push_back(AttServiceMessage::Unsubscribe(*subnet_id));
+                    .push_back(SubnetServiceMessage::Unsubscribe(*subnet_id));
             }
             // as the long lasting subnet subscription is being removed, remove the subnet_id from
             // the ENR bitfield
             self.events
-                .push_back(AttServiceMessage::EnrRemove(*subnet_id));
+                .push_back(SubnetServiceMessage::EnrRemove(*subnet_id));
             self.random_subnets.remove(subnet_id);
         }
     }
 }
 
 impl<T: BeaconChainTypes> Stream for AttestationService<T> {
-    type Item = AttServiceMessage;
+    type Item = SubnetServiceMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // update the waker if needed

@@ -2,6 +2,7 @@
 use crate::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::Unsigned;
 use std::ops::{Deref, DerefMut};
 
 const MAX_SUBNET_ID: usize = 64;
@@ -70,6 +71,20 @@ impl SubnetId {
             .safe_add(committee_index)?
             .safe_rem(spec.attestation_subnet_count)?
             .into())
+    }
+
+    // TODO(pawan): move this into sync committee subnet id struct after rebase.
+    pub fn compute_subnets_for_sync_committee<T: EthSpec>(
+        sync_committee_indices: Vec<u64>,
+        spec: &ChainSpec,
+    ) -> Result<Vec<SubnetId>, ArithError> {
+        let subnet_size =
+            T::SyncCommitteeSize::to_u64().safe_div(spec.sync_committee_subnet_count)?;
+
+        sync_committee_indices
+            .into_iter()
+            .map(|index| index.safe_div(subnet_size).map(SubnetId::new))
+            .collect::<Result<_, _>>()
     }
 }
 
