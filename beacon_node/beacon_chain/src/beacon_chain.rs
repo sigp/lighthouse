@@ -489,17 +489,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
     ///
-    /// Use the `skips` parameter to define the behaviour when `target_slot` is a skipped slot.
+    /// Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
     ///
     /// ## Errors
     ///
     /// May return a database error.
     pub fn block_at_slot(
         &self,
-        target_slot: Slot,
+        request_slot: Slot,
         skips: WhenSlotSkipped,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let root = self.block_root_at_slot(target_slot, skips)?;
+        let root = self.block_root_at_slot(request_slot, skips)?;
 
         if let Some(block_root) = root {
             Ok(self.store.get_item(&block_root)?)
@@ -524,16 +524,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// - Use the `skips` parameter to define the behaviour when `target_slot` is a skipped slot.
+    /// - Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
     /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
     pub fn block_root_at_slot(
         &self,
-        target_slot: Slot,
+        request_slot: Slot,
         skips: WhenSlotSkipped,
     ) -> Result<Option<Hash256>, Error> {
         match skips {
-            WhenSlotSkipped::None => self.block_root_at_slot_skips_none(target_slot),
-            WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(target_slot),
+            WhenSlotSkipped::None => self.block_root_at_slot_skips_none(request_slot),
+            WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(request_slot),
         }
     }
 
@@ -547,32 +547,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    fn block_root_at_slot_skips_none(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if target_slot > self.slot()? {
+    fn block_root_at_slot_skips_none(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        if request_slot > self.slot()? {
             return Ok(None);
-        } else if target_slot == self.spec.genesis_slot {
+        } else if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
         }
 
-        let prev_slot = target_slot.saturating_sub(1_u64);
+        let prev_slot = request_slot.saturating_sub(1_u64);
 
         // Try an optimized path of reading the root directly from the head state.
         let fast_lookup: Option<Option<Hash256>> = self.with_head(|head| {
             let state = &head.beacon_state;
 
-            // Try find the root for the `target_slot`.
-            let target_root_opt = match state.slot.cmp(&target_slot) {
-                // It's always a skip slot if the head is less than the target slot, return early.
+            // Try find the root for the `request_slot`.
+            let request_root_opt = match state.slot.cmp(&request_slot) {
+                // It's always a skip slot if the head is less than the request slot, return early.
                 Ordering::Less => return Ok(Some(None)),
-                // The target slot is the head slot.
+                // The request slot is the head slot.
                 Ordering::Equal => Some(head.beacon_block_root),
-                // Try find the target slot in the state.
-                Ordering::Greater => state.get_block_root(target_slot).ok().copied(),
+                // Try find the request slot in the state.
+                Ordering::Greater => state.get_block_root(request_slot).ok().copied(),
             };
 
-            if let Some(target_root) = target_root_opt {
+            if let Some(request_root) = request_root_opt {
                 if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                    return Ok(Some((*prev_root != target_root).then(|| target_root)));
+                    return Ok(Some((*prev_root != request_root).then(|| request_root)));
                 }
             }
 
@@ -587,7 +587,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
             for (curr_root, curr_slot) in iter {
                 if let Some(prev_root) = prev_root_opt {
-                    if curr_slot == target_slot {
+                    if curr_slot == request_slot {
                         return (curr_root != prev_root).then(|| curr_root);
                     }
                 }
@@ -608,19 +608,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    fn block_root_at_slot_skips_prev(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if target_slot > self.slot()? {
+    fn block_root_at_slot_skips_prev(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        if request_slot > self.slot()? {
             return Ok(None);
-        } else if target_slot == self.spec.genesis_slot {
+        } else if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_block_root));
         }
 
         // Try an optimized path of reading the root directly from the head state.
         let fast_lookup: Option<Hash256> = self.with_head(|head| {
-            if head.beacon_block.slot() <= target_slot {
-                // Return the head root if all slots between the target and the head are skipped.
+            if head.beacon_block.slot() <= request_slot {
+                // Return the head root if all slots between the request and the head are skipped.
                 Ok(Some(head.beacon_block_root))
-            } else if let Ok(root) = head.beacon_state.get_block_root(target_slot) {
+            } else if let Ok(root) = head.beacon_state.get_block_root(request_slot) {
                 // Return the root if it's easily accessible from the head state.
                 Ok(Some(*root))
             } else {
@@ -632,7 +632,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(Some(root));
         }
 
-        process_results(self.forwards_iter_block_roots(target_slot)?, |mut iter| {
+        process_results(self.forwards_iter_block_roots(request_slot)?, |mut iter| {
             iter.next().map(|(root, _)| root)
         })
     }
