@@ -596,9 +596,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot: curr_slot,
                 });
             }
-            return Ok((curr_root != prev_root).then(|| curr_root));
+            Ok((curr_root != prev_root).then(|| curr_root))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
