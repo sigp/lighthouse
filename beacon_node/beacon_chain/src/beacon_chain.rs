@@ -36,6 +36,7 @@ use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
+use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use slasher::Slasher;
@@ -583,19 +584,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(root_opt);
         }
 
-        let mut prev_root_opt = None;
-        process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
-            for (curr_root, curr_slot) in iter {
-                if let Some(prev_root) = prev_root_opt {
-                    if curr_slot == request_slot {
-                        return (curr_root != prev_root).then(|| curr_root);
-                    }
-                }
-                prev_root_opt = Some(curr_root);
+        if let Some(((prev_root, _), (curr_root, curr_slot))) =
+            process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
+                iter.tuple_windows().next()
+            })?
+        {
+            // Sanity check.
+            if curr_slot != request_slot {
+                return Err(Error::InconsistentForwardsIter {
+                    request_slot,
+                    slot: curr_slot,
+                });
             }
-
-            None
-        })
+            return Ok((curr_root != prev_root).then(|| curr_root));
+        } else {
+            return Ok(None);
+        }
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
@@ -633,8 +637,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         process_results(self.forwards_iter_block_roots(request_slot)?, |mut iter| {
-            iter.next().map(|(root, _)| root)
-        })
+            if let Some((root, slot)) = iter.next() {
+                if slot == request_slot {
+                    Ok(Some(root))
+                } else {
+                    // Sanity check.
+                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                }
+            } else {
+                Ok(None)
+            }
+        })?
     }
 
     /// Returns the block at the given root, if any.
