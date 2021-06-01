@@ -385,14 +385,14 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     }
 }
 
-/// A container that stores some number of `T` items.
+/// A container that stores some number of `V` items.
 ///
 /// This container is "auto-pruning" since it gets an idea of the current slot by which
 /// attestations are provided to it and prunes old entries based upon that. For example, if
-/// `Self::max_capacity == 32` and an attestation with `data.slot` is supplied, then all
-/// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
+/// `Self::max_capacity == 3` and an attestation with `data.slot` is supplied, then all
+/// attestations with an epoch prior to `a.data.slot - 3` will be cleared from the cache.
 ///
-/// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
+/// `V` should be set to a `SyncAggregatorSlotHashSet` or a `SyncContributorSlotHashSet`.
 pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, V, E: EthSpec> {
     lowest_permissible_slot: Slot,
     items: HashMap<K, V>,
