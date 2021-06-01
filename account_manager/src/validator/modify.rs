@@ -57,10 +57,12 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let (enabled, sub_matches) = match matches.subcommand() {
         (ENABLE, Some(sub_matches)) => (true, sub_matches),
         (DISABLE, Some(sub_matches)) => (false, sub_matches),
-        (unknown, _) => Err(format!(
-            "{} does not have a {} command. See --help",
-            CMD, unknown
-        ))?,
+        (unknown, _) => {
+            return Err(format!(
+                "{} does not have a {} command. See --help",
+                CMD, unknown
+            ))
+        }
     };
     let mut defs = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
         format!(
