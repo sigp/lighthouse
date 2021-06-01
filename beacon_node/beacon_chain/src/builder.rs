@@ -2,6 +2,7 @@ use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
+use crate::observed_aggregates::{ObservedAggregateAttestations, ObservedSyncAggregates};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
@@ -30,7 +31,6 @@ use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
     SignedBeaconBlock, Slot,
 };
-use crate::observed_aggregates::{ObservedAggregateAttestations, ObservedSyncAggregates};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -511,7 +511,9 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             // We add `2` in order to account for one slot either side of the range due to
             // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-            observed_attestations: RwLock::new(ObservedAggregateAttestations::new(TEthSpec::slots_per_epoch() + 2)),
+            observed_attestations: RwLock::new(ObservedAggregateAttestations::new(
+                TEthSpec::slots_per_epoch() + 2,
+            )),
             // TODO: allow for persisting and loading the pool from disk.
             // We add `2` in order to account for one slot either side of the range due to
             // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.

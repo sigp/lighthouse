@@ -1,15 +1,15 @@
 use serde_derive::{Deserialize, Serialize};
-use ssz::ssz_encode;
 use ssz_derive::{Decode, Encode};
-use types::sync_committee_contribution::SyncAggregateData;
-use types::{ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Slot};
+use types::{ChainSpec, Domain, EthSpec, Fork, Hash256, Slot};
 
-/// Serialized `SyncAggregateData` augmented with a domain to encode the fork info.
+/// Used to key `SyncAggregate`s in the `naive_sync_aggregation_pool`.
 #[derive(
     PartialEq, Eq, Clone, Hash, Debug, PartialOrd, Ord, Encode, Decode, Serialize, Deserialize,
 )]
 pub struct SyncAggregateId {
-    v: Vec<u8>,
+    pub slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub domain: Hash256,
 }
 
 impl SyncAggregateId {
@@ -20,24 +20,13 @@ impl SyncAggregateId {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let mut bytes = ssz_encode(&SyncAggregateData {
+        let epoch = slot.epoch(T::slots_per_epoch());
+        let domain = spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root);
+
+        Self {
             slot,
             beacon_block_root,
-        });
-        let epoch = slot.epoch(T::slots_per_epoch());
-        bytes.extend_from_slice(
-            SyncAggregateId::compute_domain_bytes(epoch, fork, genesis_validators_root, spec)
-                .as_bytes(),
-        );
-        SyncAggregateId { v: bytes }
-    }
-
-    pub fn compute_domain_bytes(
-        epoch: Epoch,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Hash256 {
-        spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root)
+            domain,
+        }
     }
 }

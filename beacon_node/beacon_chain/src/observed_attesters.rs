@@ -3,19 +3,25 @@
 //!
 //! - `ObservedAttesters`: allows filtering unaggregated attestations from the same validator in
 //!   the same epoch.
-//! - `ObservedSyncContributors`: allows filtering sync committee signatures from the same validator in
-//!   the same slot.
 //! - `ObservedAggregators`: allows filtering aggregated attestations from the same aggregators in
 //!   the same epoch
+//!
+//! Provides an additional two structs that help us filter out sync committee signature and
+//! contribution gossip from validators that have already published messages this slot:
+//!
+//! - `ObservedSyncContributors`: allows filtering sync committee signatures from the same validator in
+//!   the same slot.
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
-//!   the same slot
+//!   the same slot and in the same subcommittee.
 
 use crate::store::attestation::SlotData;
+use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use types::{Epoch, EthSpec, Slot, Unsigned};
+
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<Slot, SlotHashSet, E>;
 pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
@@ -166,7 +172,8 @@ impl Item for SlotHashSet {
 
     /// Defaults to the `SYNC_COMMITTEE_SUBNET_COUNT`.
     fn default_capacity() -> usize {
-        8
+        //FIXME(sean): this is wrong
+        SYNC_COMMITTEE_SUBNET_COUNT as usize
     }
 
     fn len(&self) -> usize {
@@ -220,7 +227,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     /// ## Errors
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
-    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
+    /// - `a.data.target.slot` is earlier than `self.lowest_permissible_slot`.
     pub fn observe_validator(
         &mut self,
         epoch: Epoch,
@@ -260,7 +267,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     /// ## Errors
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
-    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
+    /// - `a.data.target.slot` is earlier than `self.lowest_permissible_slot`.
     pub fn validator_has_been_observed(
         &self,
         epoch: Epoch,
@@ -361,13 +368,13 @@ impl<K: SlotData + Eq + Hash, V, E: EthSpec> Default for AutoPruningSlotContaine
 }
 
 impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V, E> {
-    /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
-    /// previously been observed for `validator_index`.
+    /// Observe that `validator_index` has produced a sync committee message. Returns `Ok(true)` if
+    /// the sync committee message  has previously been observed for `validator_index`.
     ///
     /// ## Errors
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
-    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
+    /// - `key.slot` is earlier than `self.lowest_permissible_slot`.
     pub fn observe_validator(&mut self, key: K, validator_index: usize) -> Result<bool, Error> {
         let slot = key.get_slot();
         self.sanitize_request(slot, validator_index)?;
@@ -398,13 +405,12 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
         }
     }
 
-    /// Returns `Ok(true)` if the `validator_index` has produced an attestation conflicting with
-    /// `a`.
+    /// Returns `Ok(true)` if the `validator_index` has already produced a conflicting sync committee message.
     ///
     /// ## Errors
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
-    /// - `a.data.target.slot` is earlier than `self.earliest_permissible_slot`.
+    /// - `key.slot` is earlier than `self.lowest_permissible_slot`.
     pub fn validator_has_been_observed(
         &self,
         key: K,
@@ -420,10 +426,8 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
         Ok(exists)
     }
 
-    //FIXME(sean): remove the clippy allowance when we start using this for metrics
-    #[allow(dead_code)]
-    /// Returns the number of validators that have been observed at the given `epoch`. Returns
-    /// `None` if `self` does not have a cache for that epoch.
+    /// Returns the number of validators that have been observed at the given `slot`. Returns
+    /// `None` if `self` does not have a cache for that slot.
     pub fn observed_validator_count(&self, key: K) -> Option<usize> {
         self.items.get(&key).map(|item| item.validator_count())
     }
@@ -444,26 +448,18 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
         Ok(())
     }
 
-    /// The maximum number of epochs stored in `self`.
+    /// The maximum number of slots stored in `self`.
     fn max_capacity(&self) -> u64 {
-        // The next, current and previous epochs. We require the next epoch due to the
-        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the
-        // specification delcares:
-        //
-        // ```
-        // aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
-        //      >= current_slot >= aggregate.data.slot
-        // ```
-        //
-        // This means that during the current epoch we will always accept an attestation
-        // from at least one slot in the previous epoch.
+        // The next, current and previous slots. We require the next slot due to the
+        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+        //FIXME(sean): do we need the previous slot?
         3
     }
 
-    /// Updates `self` with the current epoch, removing all attestations that become expired
+    /// Updates `self` with the current slot, removing all sync committee messages that become expired
     /// relative to `Self::max_capacity`.
     ///
-    /// Also sets `self.lowest_permissible_epoch` with relation to `current_epoch` and
+    /// Also sets `self.lowest_permissible_slot` with relation to `current_slot` and
     /// `Self::max_capacity`.
     pub fn prune(&mut self, current_slot: Slot) {
         let lowest_permissible_slot =
@@ -482,6 +478,9 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
     }
 }
 
+/// This is used to key information about sync committee aggregators. We require the
+/// `subcommittee_index` because it is possible that a validator can aggregate for multiple
+/// subcommittees in the same slot.
 #[derive(Eq, PartialEq, Hash, Clone, Copy, PartialOrd, Ord, Debug)]
 pub struct SlotSubcommitteeIndex {
     slot: Slot,

@@ -54,12 +54,12 @@
 //! }
 //! ```
 
-use prometheus::{HistogramOpts, HistogramTimer, Opts};
+use prometheus::{HistogramOpts, Opts};
 use std::time::Duration;
 
 use prometheus::core::{Atomic, GenericGauge, GenericGaugeVec};
 pub use prometheus::{
-    Encoder, Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge,
     IntGaugeVec, Result, TextEncoder,
 };
 
