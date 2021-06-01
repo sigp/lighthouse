@@ -44,9 +44,9 @@ const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 
 /// A factor used to reduce the eth1 follow distance to account for discrepancies in the block time.
 const ETH1_BLOCK_TIME_TOLERANCE_FACTOR: u64 = 4;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum EndpointError {
-    NotReachable,
+    RequestFailed(String),
     WrongNetworkId,
     WrongChainId,
     FarBehind,
@@ -73,7 +73,7 @@ async fn reset_endpoint_state(endpoint: &EndpointWithState) {
 }
 
 async fn get_state(endpoint: &EndpointWithState) -> Option<EndpointState> {
-    *endpoint.state.read().await
+    endpoint.state.read().await.clone()
 }
 
 /// A cache structure to lazily check usability of endpoints. An endpoint is usable if it is
@@ -90,11 +90,11 @@ impl EndpointsCache {
     /// Checks the usability of an endpoint. Results get cached and therefore only the first call
     /// for each endpoint does the real check.
     async fn state(&self, endpoint: &EndpointWithState) -> EndpointState {
-        if let Some(result) = *endpoint.state.read().await {
+        if let Some(result) = endpoint.state.read().await.clone() {
             return result;
         }
         let mut value = endpoint.state.write().await;
-        if let Some(result) = *value {
+        if let Some(result) = value.clone() {
             return result;
         }
         crate::metrics::inc_counter_vec(
@@ -108,7 +108,7 @@ impl EndpointsCache {
             &self.log,
         )
         .await;
-        *value = Some(state);
+        *value = Some(state.clone());
         if state.is_err() {
             crate::metrics::inc_counter_vec(
                 &crate::metrics::ENDPOINT_ERRORS,
@@ -147,7 +147,7 @@ impl EndpointsCache {
                                     &[endpoint_str],
                                 );
                                 if let SingleEndpointError::EndpointError(e) = &t {
-                                    *endpoint.state.write().await = Some(Err(*e));
+                                    *endpoint.state.write().await = Some(Err(e.clone()));
                                 } else {
                                     // A non-`EndpointError` error occurred, so reset the state.
                                     reset_endpoint_state(endpoint).await;
@@ -181,14 +181,14 @@ async fn endpoint_state(
     config_chain_id: &Eth1Id,
     log: &Logger,
 ) -> EndpointState {
-    let error_connecting = |_| {
+    let error_connecting = |e| {
         warn!(
             log,
             "Error connecting to eth1 node endpoint";
             "endpoint" => %endpoint,
             "action" => "trying fallbacks"
         );
-        EndpointError::NotReachable
+        EndpointError::RequestFailed(e)
     };
     let network_id = get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
