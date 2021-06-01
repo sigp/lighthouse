@@ -1,8 +1,9 @@
 //! Identifies each shard by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use crate::{ChainSpec, CommitteeIndex, EthSpec, Slot};
+use crate::{ChainSpec, EthSpec};
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::Unsigned;
 use std::ops::{Deref, DerefMut};
 
 lazy_static! {
@@ -36,24 +37,18 @@ impl SyncSubnetId {
         id.into()
     }
 
-    /// Compute the subnet for an attestation with `attestation.data.slot == slot` and
-    /// `attestation.data.index == committee_index` where each slot in the attestation epoch
-    /// contains `committee_count_at_slot` committees.
-    pub fn compute_subnet<T: EthSpec>(
-        slot: Slot,
-        committee_index: CommitteeIndex,
-        committee_count_at_slot: u64,
+    // TODO(pawan): add docs
+    pub fn compute_subnets_for_sync_committee<T: EthSpec>(
+        sync_committee_indices: Vec<u64>,
         spec: &ChainSpec,
-    ) -> Result<SyncSubnetId, ArithError> {
-        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(T::slots_per_epoch())?;
+    ) -> Result<Vec<Self>, ArithError> {
+        let subnet_size =
+            T::SyncCommitteeSize::to_u64().safe_div(spec.sync_committee_subnet_count)?;
 
-        let committees_since_epoch_start =
-            committee_count_at_slot.safe_mul(slots_since_epoch_start)?;
-
-        Ok(committees_since_epoch_start
-            .safe_add(committee_index)?
-            .safe_rem(spec.attestation_subnet_count)?
-            .into())
+        sync_committee_indices
+            .into_iter()
+            .map(|index| index.safe_div(subnet_size).map(Self::new))
+            .collect::<Result<_, _>>()
     }
 }
 

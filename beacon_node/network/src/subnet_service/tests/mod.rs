@@ -17,8 +17,8 @@ use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use types::{
-    CommitteeIndex, Epoch, EthSpec, MinimalEthSpec, Slot, SyncCommitteeSubscription,
-    ValidatorSubscription,
+    CommitteeIndex, Epoch, EthSpec, MinimalEthSpec, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
@@ -210,8 +210,8 @@ mod attestation_service {
         )
         .unwrap();
         let expected = vec![
-            SubnetServiceMessage::Subscribe(subnet_id),
-            SubnetServiceMessage::Unsubscribe(subnet_id),
+            SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id)),
+            SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id)),
         ];
 
         // Wait for 1 slot duration to get the unsubscription event
@@ -307,7 +307,7 @@ mod attestation_service {
             ]
         );
 
-        let expected = SubnetServiceMessage::Subscribe(subnet_id1);
+        let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
 
         // Should be still subscribed to 1 long lived and 1 short lived subnet if both are different.
         if !attestation_service.random_subnets.contains(&subnet_id1) {
@@ -323,7 +323,9 @@ mod attestation_service {
         // If the long lived and short lived subnets are different, we should get an unsubscription event.
         if !attestation_service.random_subnets.contains(&subnet_id1) {
             assert_eq!(
-                [SubnetServiceMessage::Unsubscribe(subnet_id1)],
+                [SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                    subnet_id1
+                ))],
                 unsubscribe_event[..]
             );
         }
@@ -471,7 +473,7 @@ mod sync_committee_service {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
-        let subnet_id = SubnetId::compute_subnets_for_sync_committee::<MinimalEthSpec>(
+        let subnet_id = SyncSubnetId::compute_subnets_for_sync_committee::<MinimalEthSpec>(
             sync_committee_indices,
             &sync_committee_service.beacon_chain.spec,
         )
@@ -487,8 +489,8 @@ mod sync_committee_service {
         assert_eq!(
             events[..2],
             [
-                SubnetServiceMessage::Subscribe(subnet_id),
-                SubnetServiceMessage::EnrAdd(subnet_id)
+                SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(subnet_id)),
+                SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(subnet_id))
             ]
         );
         assert_matches!(

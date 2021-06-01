@@ -23,7 +23,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -83,7 +83,7 @@ pub struct PeerManager<TSpec: EthSpec> {
     /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
     /// discovery queries for subnet peers if we disconnect from existing sync
     /// committee subnet peers.
-    sync_committee_subnets: HashMap<SubnetId, Instant>,
+    sync_committee_subnets: HashMap<SyncSubnetId, Instant>,
     /// The discovery service.
     discovery: Discovery<TSpec>,
     /// The heartbeat interval to perform routine maintenance.

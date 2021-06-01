@@ -1,8 +1,7 @@
 pub mod attestation_subnets;
 pub mod sync_subnets;
 
-use eth2_libp2p::SubnetDiscovery;
-use types::SubnetId;
+use eth2_libp2p::{Subnet, SubnetDiscovery};
 
 pub use attestation_subnets::AttestationService;
 pub use sync_subnets::SyncCommitteeService;
@@ -13,13 +12,13 @@ mod tests;
 #[derive(Debug, Clone)]
 pub enum SubnetServiceMessage {
     /// Subscribe to the specified subnet id.
-    Subscribe(SubnetId),
+    Subscribe(Subnet),
     /// Unsubscribe to the specified subnet id.
-    Unsubscribe(SubnetId),
+    Unsubscribe(Subnet),
     /// Add the `SubnetId` to the ENR bitfield.
-    EnrAdd(SubnetId),
+    EnrAdd(Subnet),
     /// Remove the `SubnetId` from the ENR bitfield.
-    EnrRemove(SubnetId),
+    EnrRemove(Subnet),
     /// Discover peers for a list of `SubnetDiscovery`.
     DiscoverPeers(Vec<SubnetDiscovery>),
 }

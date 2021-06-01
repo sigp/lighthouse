@@ -441,12 +441,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 self.subscriptions.insert(subnet_id);
                 debug!(self.log, "Subscribing to random subnet"; "subnet_id" => ?subnet_id);
                 self.events
-                    .push_back(SubnetServiceMessage::Subscribe(subnet_id));
+                    .push_back(SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                        subnet_id,
+                    )));
             }
 
             // add the subnet to the ENR bitfield
             self.events
-                .push_back(SubnetServiceMessage::EnrAdd(subnet_id));
+                .push_back(SubnetServiceMessage::EnrAdd(Subnet::Attestation(subnet_id)));
         }
     }
 
@@ -483,7 +485,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "target_slot" => exact_subnet.slot.as_u64());
                 self.subscriptions.insert(exact_subnet.subnet_id);
                 self.events
-                    .push_back(SubnetServiceMessage::Subscribe(exact_subnet.subnet_id));
+                    .push_back(SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                        exact_subnet.subnet_id,
+                    )));
             }
         }
     }
@@ -502,7 +506,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         self.subscriptions.remove(&exact_subnet.subnet_id);
         self.events
-            .push_back(SubnetServiceMessage::Unsubscribe(exact_subnet.subnet_id));
+            .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                exact_subnet.subnet_id,
+            )));
     }
 
     /// A random subnet has expired.
@@ -526,12 +532,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // we are not at capacity, unsubscribe from the current subnet.
             debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
             self.events
-                .push_back(SubnetServiceMessage::Unsubscribe(subnet_id));
+                .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                    subnet_id,
+                )));
         }
 
         // Remove the ENR bitfield bit and choose a new random on from the available subnets
         self.events
-            .push_back(SubnetServiceMessage::EnrRemove(subnet_id));
+            .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
+                subnet_id,
+            )));
         // Subscribe to a new random subnet
         self.subscribe_to_random_subnets(1);
     }
@@ -566,12 +576,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .is_none()
             {
                 self.events
-                    .push_back(SubnetServiceMessage::Unsubscribe(*subnet_id));
+                    .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                        *subnet_id,
+                    )));
             }
             // as the long lasting subnet subscription is being removed, remove the subnet_id from
             // the ENR bitfield
             self.events
-                .push_back(SubnetServiceMessage::EnrRemove(*subnet_id));
+                .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
+                    *subnet_id,
+                )));
             self.random_subnets.remove(subnet_id);
         }
     }

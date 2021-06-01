@@ -43,7 +43,9 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, SignedBeaconBlock, Slot, SubnetId};
+use types::{
+    ChainSpec, EnrForkId, EthSpec, ForkContext, SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
+};
 
 mod gossipsub_scoring_parameters;
 mod handler;
@@ -952,7 +954,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 add(Attestation(SubnetId::new(id)));
             }
             for id in 0..sync_committee_subnet_count {
-                add(SyncCommitteeSignature(SubnetId::new(id)));
+                add(SyncCommitteeSignature(SyncSubnetId::new(id)));
             }
         }
         WhitelistSubscriptionFilter(possible_hashes)
