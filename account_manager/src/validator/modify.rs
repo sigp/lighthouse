@@ -33,7 +33,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .subcommand(
             App::new(DISABLE)
-                .about("Enable validator(s) in validator_definitions.yml.")
+                .about("Disable validator(s) in validator_definitions.yml.")
                 .arg(
                     Arg::with_name(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
