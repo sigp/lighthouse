@@ -398,7 +398,6 @@ where
     ))
 }
 
-//FIXME(sean): consolidate selection proof verification
 pub fn signed_sync_aggregate_selection_proof_signature_set<'a, T, F>(
     get_pubkey: F,
     signed_contribution_and_proof: &'a SignedContributionAndProof<T>,
