@@ -108,6 +108,16 @@ lazy_static::lazy_static! {
         "The number of beacon node requests for each endpoint",
         &["endpoint"]
     );
+
+    pub static ref ETH2_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth2_fallback_configured",
+        "The number of configured eth2 fallbacks",
+    );
+
+    pub static ref ETH2_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth2_fallback_connected",
+        "Set to 1 if connected to atleast one synced eth2 fallback node, otherwise set to 0",
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(
@@ -124,20 +134,6 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 let distance = now.as_secs() as i64 - genesis_time as i64;
                 set_gauge(&GENESIS_DISTANCE, distance);
             }
-        }
-
-        if let Some(validator_store) = &shared.validator_store {
-            let initialized_validators_lock = validator_store.initialized_validators();
-            let initialized_validators = initialized_validators_lock.read();
-
-            set_gauge(
-                &ENABLED_VALIDATORS_COUNT,
-                initialized_validators.num_enabled() as i64,
-            );
-            set_gauge(
-                &TOTAL_VALIDATORS_COUNT,
-                initialized_validators.num_total() as i64,
-            );
         }
 
         if let Some(duties_service) = &shared.duties_service {

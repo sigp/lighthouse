@@ -2,13 +2,13 @@
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
-use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
-use eth2::{types::*, BeaconNodeHttpClient, Url};
+use eth2::{types::*, BeaconNodeHttpClient};
+use eth2_libp2p::discv5::enr::{CombinedKey, EnrBuilder};
 use eth2_libp2p::{
     rpc::methods::MetaData,
     types::{EnrBitfield, SyncState},
@@ -18,6 +18,7 @@ use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{Config, Context};
 use network::NetworkMessage;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
@@ -200,7 +201,7 @@ impl ApiTester {
         tokio::spawn(async { server.await });
 
         let client = BeaconNodeHttpClient::new(
-            Url::parse(&format!(
+            SensitiveUrl::parse(&format!(
                 "http://{}:{}",
                 listening_socket.ip(),
                 listening_socket.port()
@@ -307,7 +308,7 @@ impl ApiTester {
         tokio::spawn(async { server.await });
 
         let client = BeaconNodeHttpClient::new(
-            Url::parse(&format!(
+            SensitiveUrl::parse(&format!(
                 "http://{}:{}",
                 listening_socket.ip(),
                 listening_socket.port()
@@ -790,7 +791,10 @@ impl ApiTester {
                     .current_justified_checkpoint
                     .root,
             ),
-            BlockId::Slot(slot) => self.chain.block_root_at_slot(slot).unwrap(),
+            BlockId::Slot(slot) => self
+                .chain
+                .block_root_at_slot(slot, WhenSlotSkipped::None)
+                .unwrap(),
             BlockId::Root(root) => Some(root),
         }
     }
@@ -811,14 +815,21 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let root = self.chain.block_root_at_slot(slot).unwrap();
+            let root = self
+                .chain
+                .block_root_at_slot(slot, WhenSlotSkipped::None)
+                .unwrap();
 
             if root.is_none() && result.is_none() {
                 continue;
             }
 
             let root = root.unwrap();
-            let block = self.chain.block_at_slot(slot).unwrap().unwrap();
+            let block = self
+                .chain
+                .block_at_slot(slot, WhenSlotSkipped::Prev)
+                .unwrap()
+                .unwrap();
             let header = BlockHeaderData {
                 root,
                 canonical: true,
@@ -880,6 +891,14 @@ impl ApiTester {
 
             let block_root_opt = self.get_block_root(block_id);
 
+            if let BlockId::Slot(slot) = block_id {
+                if block_root_opt.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
+
             let block_opt = block_root_opt.and_then(|root| self.chain.get_block(&root).unwrap());
 
             if block_opt.is_none() && result.is_none() {
@@ -891,7 +910,7 @@ impl ApiTester {
             let block_root = block_root_opt.unwrap();
             let canonical = self
                 .chain
-                .block_root_at_slot(block.slot())
+                .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                 .unwrap()
                 .map_or(false, |canonical| block_root == canonical);
 
@@ -924,7 +943,13 @@ impl ApiTester {
                 .map(|res| res.data.root);
 
             let expected = self.get_block_root(block_id);
-
+            if let BlockId::Slot(slot) = block_id {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
             assert_eq!(result, expected, "{:?}", block_id);
         }
 
@@ -962,6 +987,14 @@ impl ApiTester {
         for block_id in self.interesting_block_ids() {
             let expected = self.get_block(block_id);
 
+            if let BlockId::Slot(slot) = block_id {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
+
             let json_result = self
                 .client
                 .get_beacon_blocks(block_id)
@@ -989,6 +1022,14 @@ impl ApiTester {
             let expected = self
                 .get_block(block_id)
                 .map(|block| block.message.body.attestations.into());
+
+            if let BlockId::Slot(slot) = block_id {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
 
             assert_eq!(result, expected, "{:?}", block_id);
         }
@@ -1501,7 +1542,10 @@ impl ApiTester {
 
                 let dependent_root = self
                     .chain
-                    .root_at_slot((epoch - 1).start_slot(E::slots_per_epoch()) - 1)
+                    .block_root_at_slot(
+                        (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                        WhenSlotSkipped::Prev,
+                    )
                     .unwrap()
                     .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
@@ -1573,7 +1617,10 @@ impl ApiTester {
 
             let dependent_root = self
                 .chain
-                .root_at_slot(epoch.start_slot(E::slots_per_epoch()) - 1)
+                .block_root_at_slot(
+                    epoch.start_slot(E::slots_per_epoch()) - 1,
+                    WhenSlotSkipped::Prev,
+                )
                 .unwrap()
                 .unwrap_or(self.chain.head_beacon_block_root().unwrap());
 
@@ -2155,7 +2202,7 @@ impl ApiTester {
             current_duty_dependent_root,
             previous_duty_dependent_root: self
                 .chain
-                .root_at_slot(current_slot - E::slots_per_epoch())
+                .block_root_at_slot(current_slot - E::slots_per_epoch(), WhenSlotSkipped::Prev)
                 .unwrap()
                 .unwrap(),
             epoch_transition: true,
@@ -2164,7 +2211,7 @@ impl ApiTester {
         let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
             block: self
                 .chain
-                .root_at_slot(next_slot - finalization_distance)
+                .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
                 .unwrap()
                 .unwrap(),
             state: self

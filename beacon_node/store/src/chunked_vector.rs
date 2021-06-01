@@ -431,9 +431,15 @@ fn range_query<S: KeyValueStore<E>, E: EthSpec, T: Decode + Encode>(
     start_index: usize,
     end_index: usize,
 ) -> Result<Vec<Chunk<T>>, Error> {
-    let mut result = vec![];
+    let range = start_index..=end_index;
+    let len = range
+        .end()
+        // Add one to account for inclusive range.
+        .saturating_add(1)
+        .saturating_sub(*range.start());
+    let mut result = Vec::with_capacity(len);
 
-    for chunk_index in start_index..=end_index {
+    for chunk_index in range {
         let key = &chunk_key(chunk_index as u64)[..];
         let chunk = Chunk::load(store, column, key)?.ok_or(ChunkError::Missing { chunk_index })?;
         result.push(chunk);

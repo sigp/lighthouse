@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use std::str::FromStr;
 use types::{Hash256, SignedBeaconBlock, Slot};
@@ -37,7 +37,7 @@ impl BlockId {
                 .map(|head| head.current_justified_checkpoint.root)
                 .map_err(warp_utils::reject::beacon_chain_error),
             CoreBlockId::Slot(slot) => chain
-                .block_root_at_slot(*slot)
+                .block_root_at_slot(*slot, WhenSlotSkipped::None)
                 .map_err(warp_utils::reject::beacon_chain_error)
                 .and_then(|root_opt| {
                     root_opt.ok_or_else(|| {
@@ -60,6 +60,27 @@ impl BlockId {
             CoreBlockId::Head => chain
                 .head_beacon_block()
                 .map_err(warp_utils::reject::beacon_chain_error),
+            CoreBlockId::Slot(slot) => {
+                let root = self.root(chain)?;
+                chain
+                    .get_block(&root)
+                    .map_err(warp_utils::reject::beacon_chain_error)
+                    .and_then(|block_opt| match block_opt {
+                        Some(block) => {
+                            if block.slot() != *slot {
+                                return Err(warp_utils::reject::custom_not_found(format!(
+                                    "slot {} was skipped",
+                                    slot
+                                )));
+                            }
+                            Ok(block)
+                        }
+                        None => Err(warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))),
+                    })
+            }
             _ => {
                 let root = self.root(chain)?;
                 chain

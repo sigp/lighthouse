@@ -44,7 +44,7 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
 
 // A bit of hack to find an unused port.
 ///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// Does not guarantee that the given port is unused after the function exits, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
 pub fn unused_port(transport: &str) -> Result<u16, String> {
     let local_addr = match transport {
@@ -126,7 +126,7 @@ pub async fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    node.swarm.local_enr()
+    node.swarm.behaviour().local_enr()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
@@ -171,7 +171,7 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log).await;
 
-    let receiver_multiaddr = receiver.swarm.local_enr().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.swarm.behaviour_mut().local_enr().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {

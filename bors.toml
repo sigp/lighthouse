@@ -1,6 +1,7 @@
 status = [
     "cargo-fmt",
     "release-tests-ubuntu",
+    "release-tests-windows",
     "debug-tests-ubuntu",
     "state-transition-vectors-ubuntu",
     "ef-tests-ubuntu",

@@ -49,6 +49,7 @@ pub struct Config {
     pub listen_addr: Ipv4Addr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
+    pub allocator_metrics_enabled: bool,
 }
 
 impl Default for Config {
@@ -58,6 +59,7 @@ impl Default for Config {
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
             listen_port: 5054,
             allow_origin: None,
+            allocator_metrics_enabled: true,
         }
     }
 }

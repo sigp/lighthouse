@@ -12,6 +12,7 @@ eth2_ssz_derive = { path = "../consensus/ssz_derive" }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
+filesystem = { path = "../common/filesystem" }
 lmdb = "0.8"
 lmdb-sys = "0.8"
 parking_lot = "0.11.0"
