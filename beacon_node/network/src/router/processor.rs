@@ -10,10 +10,11 @@ use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::SyncCommitteeSignature;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
@@ -306,6 +307,36 @@ impl<T: BeaconChainTypes> Processor<T> {
             message_id,
             peer_id,
             attester_slashing,
+        ))
+    }
+
+    pub fn on_sync_committee_signature_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: SyncCommitteeSignature,
+        subnet_id: SyncSubnetId,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_signature(
+            message_id,
+            peer_id,
+            sync_signature,
+            subnet_id,
+            timestamp_now(),
+        ))
+    }
+
+    pub fn on_sync_committee_contribution_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_contribution(
+            message_id,
+            peer_id,
+            sync_contribution,
+            timestamp_now(),
         ))
     }
 

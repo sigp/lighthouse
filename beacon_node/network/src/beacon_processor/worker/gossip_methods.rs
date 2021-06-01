@@ -3,6 +3,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{
     attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
     observed_operations::ObservationOutcome,
+    sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
@@ -14,7 +15,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeSignature, SyncSubnetId,
 };
 
 use super::{super::block_delay_queue::QueuedBlock, Worker};
@@ -625,6 +627,137 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
+    /// Process the sync committee signature received from the gossip network and:
+    ///
+    /// - If it passes gossip propagation criteria, tell the network thread to forward it.
+    /// - Attempt to add it to the naive aggregation pool.
+    ///
+    /// Raises a log if there are errors.
+    pub fn process_gossip_sync_committee_signature(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: SyncCommitteeSignature,
+        subnet_id: SyncSubnetId,
+        _seen_timestamp: Duration,
+    ) {
+        let sync_signature = match self
+            .chain
+            .verify_sync_signature_for_gossip(sync_signature, Some(subnet_id))
+        {
+            Ok(sync_signature) => sync_signature,
+            Err(e) => {
+                self.handle_sync_committee_message_failure(
+                    peer_id,
+                    message_id,
+                    "sync_signature",
+                    e,
+                );
+                return;
+            }
+        };
+
+        /*TODO:
+        // Register the sync signature with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_unaggregated_attestation(
+                seen_timestamp,
+                attestation.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
+        */
+
+        // Indicate to the `Network` service that this message is valid and can be
+        // propagated on the gossip network.
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        /* TODO
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL);
+        */
+
+        if let Err(e) = self
+            .chain
+            .add_to_naive_sync_aggregation_pool(sync_signature)
+        {
+            debug!(
+                self.log,
+                "Sync committee signature invalid for agg pool";
+                "reason" => ?e,
+                "peer" => %peer_id,
+            )
+        }
+
+        /* TODO
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL);
+        */
+    }
+
+    /// Process the sync committee contribution received from the gossip network and:
+    ///
+    /// - If it passes gossip propagation criteria, tell the network thread to forward it.
+    /// - Attempt to add it to the block inclusion pool.
+    ///
+    /// Raises a log if there are errors.
+    pub fn process_sync_committee_contribution(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+        _seen_timestamp: Duration,
+    ) {
+        let sync_contribution = match self
+            .chain
+            .verify_sync_contribution_for_gossip(sync_contribution)
+        {
+            Ok(sync_contribution) => sync_contribution,
+            Err(e) => {
+                // Report the failure to gossipsub
+                self.handle_sync_committee_message_failure(
+                    peer_id,
+                    message_id,
+                    "sync_contribution",
+                    e,
+                );
+                return;
+            }
+        };
+
+        // Indicate to the `Network` service that this message is valid and can be
+        // propagated on the gossip network.
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        /* TODO
+        // Register the attestation with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_aggregated_attestation(
+                seen_timestamp,
+                aggregate.aggregate(),
+                aggregate.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
+        */
+
+        if let Err(e) = self
+            .chain
+            .add_contribution_to_block_inclusion_pool(sync_contribution)
+        {
+            debug!(
+                self.log,
+                "Sync contribution invalid for op pool";
+                "reason" => ?e,
+                "peer" => %peer_id,
+            )
+        }
+        /* TODO
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL);
+        */
+    }
+
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
     /// network.
     pub fn handle_attestation_verification_failure(
@@ -963,5 +1096,16 @@ impl<T: BeaconChainTypes> Worker<T> {
             "peer_id" => %peer_id,
             "type" => ?attestation_type,
         );
+    }
+
+    /// Handle an error whilst verifying a `SyncCommitteeSignature` or `SyncCommitteeContribution` from the
+    /// network.
+    pub fn handle_sync_committee_message_failure(
+        &self,
+        _peer_id: PeerId,
+        _message_id: MessageId,
+        _message_type: &str,
+        _error: SyncCommitteeError,
+    ) {
     }
 }

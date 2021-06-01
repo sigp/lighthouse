@@ -9,8 +9,8 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit, SubnetId, SyncAggregate,
-    SyncCommittee,
+    SignedBeaconBlock, SignedBeaconBlockBase, SignedContributionAndProof, SignedVoluntaryExit,
+    SubnetId, SyncCommitteeSignature, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,9 +28,9 @@ pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new attester slashing.
     AttesterSlashing(Box<AttesterSlashing<T>>),
     /// Gossipsub message providing notification of partially aggregated sync committee signatures.
-    SignedContributionAndProof(Box<SyncAggregate<T>>),
+    SignedContributionAndProof(Box<SignedContributionAndProof<T>>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
-    SyncCommitteeSignature(Box<(SubnetId, SyncCommittee<T>)>),
+    SyncCommitteeSignature(Box<(SyncSubnetId, SyncCommitteeSignature)>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -172,15 +172,15 @@ impl<T: EthSpec> PubsubMessage<T> {
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
                     GossipKind::SignedContributionAndProof => {
-                        let sync_aggregate =
-                            SyncAggregate::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                        let sync_aggregate = SignedContributionAndProof::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::SignedContributionAndProof(Box::new(
                             sync_aggregate,
                         )))
                     }
                     GossipKind::SyncCommitteeSignature(subnet_id) => {
-                        let sync_committee =
-                            SyncCommittee::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                        let sync_committee = SyncCommitteeSignature::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::SyncCommitteeSignature(Box::new((
                             *subnet_id,
                             sync_committee,
