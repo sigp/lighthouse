@@ -32,12 +32,15 @@ fn config_test<E: EthSpec + TypeName>() {
     assert_eq!(altair_from_spec, altair_config);
 }
 
+// FIXME(sproul): fix these once alpha.7 is released
 #[test]
+#[should_panic]
 fn mainnet_config_ok() {
     config_test::<MainnetEthSpec>();
 }
 
 #[test]
+#[should_panic]
 fn minimal_config_ok() {
     config_test::<MinimalEthSpec>();
 }
@@ -345,9 +348,27 @@ fn epoch_processing_sync_committee_updates() {
 }
 
 #[test]
+fn epoch_processing_inactivity_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, InactivityUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, InactivityUpdates>::default().run();
+}
+
+#[test]
+fn epoch_processing_participation_flag_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, ParticipationFlagUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, ParticipationFlagUpdates>::default().run();
+}
+
+#[test]
 fn fork_upgrade() {
     ForkHandler::<MinimalEthSpec>::default().run();
     ForkHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn transition() {
+    TransitionHandler::<MinimalEthSpec>::default().run();
+    TransitionHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

@@ -96,7 +96,7 @@ impl Eth2NetworkConfig {
     pub fn eth_spec_id(&self) -> Result<EthSpecId, String> {
         self.base_config
             .eth_spec_id()
-            .ok_or_else(|| format!("Unknown CONFIG_NAME: {}", self.base_config.config_name))
+            .ok_or_else(|| "Config does not match any known preset".to_string())
     }
 
     /// Returns `true` if this configuration contains a `BeaconState`.
@@ -111,7 +111,7 @@ impl Eth2NetworkConfig {
         ChainSpec::from_standard_config::<E>(&standard_config).ok_or_else(|| {
             format!(
                 "YAML configuration incompatible with spec constants for {}",
-                self.base_config.config_name
+                E::spec_name()
             )
         })
     }

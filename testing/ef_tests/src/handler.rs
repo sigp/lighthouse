@@ -356,6 +356,26 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct TransitionHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
+    type Case = cases::TransitionTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "transition"
+    }
+
+    fn handler_name(&self) -> String {
+        "core".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct FinalityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {

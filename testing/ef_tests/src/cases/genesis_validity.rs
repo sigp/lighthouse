@@ -6,8 +6,14 @@ use std::path::Path;
 use types::{BeaconState, EthSpec, ForkName};
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct Metadata {
+    description: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct GenesisValidity<E: EthSpec> {
+    pub metadata: Option<Metadata>,
     pub genesis: BeaconState<E>,
     pub is_valid: bool,
 }
@@ -17,8 +23,18 @@ impl<E: EthSpec> LoadCase for GenesisValidity<E> {
         let spec = &testing_spec::<E>(fork_name);
         let genesis = ssz_decode_state(&path.join("genesis.ssz_snappy"), spec)?;
         let is_valid = yaml_decode_file(&path.join("is_valid.yaml"))?;
+        let meta_path = path.join("meta.yaml");
+        let metadata = if meta_path.exists() {
+            Some(yaml_decode_file(&meta_path)?)
+        } else {
+            None
+        };
 
-        Ok(Self { genesis, is_valid })
+        Ok(Self {
+            metadata,
+            genesis,
+            is_valid,
+        })
     }
 }
 

@@ -866,7 +866,7 @@ fn add_base_block_to_altair_chain() {
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
 
     // The Altair fork happens at epoch 1.
-    spec.altair_fork_slot = Some(Epoch::new(1).start_slot(slots_per_epoch));
+    spec.altair_fork_epoch = Some(Epoch::new(1));
 
     let harness = BeaconChainHarness::new_with_chain_config(
         MainnetEthSpec,
@@ -986,7 +986,7 @@ fn add_altair_block_to_base_chain() {
     let mut spec = MainnetEthSpec::default_spec();
 
     // Altair never happens.
-    spec.altair_fork_slot = None;
+    spec.altair_fork_epoch = None;
 
     let harness = BeaconChainHarness::new_with_chain_config(
         MainnetEthSpec,

@@ -358,7 +358,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
-        let fork_at_slot = spec.fork_name_at_slot(self.slot());
+        let fork_at_slot = spec.fork_name_at_epoch(self.current_epoch());
         let object_fork = match self {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
@@ -389,10 +389,11 @@ impl<T: EthSpec> BeaconState<T> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let epoch = slot.epoch(T::slots_per_epoch());
 
         if spec
-            .altair_fork_slot
-            .map_or(true, |altair_slot| slot < altair_slot)
+            .altair_fork_epoch
+            .map_or(true, |altair_epoch| epoch < altair_epoch)
         {
             BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
         } else {
@@ -727,16 +728,6 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
-    /// Get the sync committee for the current or next period by computing it from scratch.
-    pub fn get_sync_committee(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<SyncCommittee<T>, Error> {
-        let sync_committee_indices = self.compute_sync_committee_indices(epoch, spec)?;
-        self.compute_sync_committee(&sync_committee_indices)
-    }
-
     /// Get the validator indices of all validators from `sync_committee` identified by
     /// `sync_committee_bits`.
     pub fn get_sync_committee_participant_indices(
@@ -761,22 +752,14 @@ impl<T: EthSpec> BeaconState<T> {
             .collect()
     }
 
-    /// Calculate the sync committee indices for the state's base epoch from scratch.
-    pub fn compute_sync_committee_indices(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Vec<usize>, Error> {
-        let base_epoch = self.sync_committee_base_epoch(epoch, spec)?;
+    /// Compute the sync committee indices for the next sync committee.
+    fn get_next_sync_committee_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
+        let epoch = self.current_epoch().safe_add(1)?;
 
-        if base_epoch > self.next_epoch()? {
-            return Err(Error::EpochOutOfBounds);
-        }
-
-        let active_validator_indices = self.get_active_validator_indices(base_epoch, spec)?;
+        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
         let active_validator_count = active_validator_indices.len();
 
-        let seed = self.get_seed(base_epoch, Domain::SyncCommittee, spec)?;
+        let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(T::SyncCommitteeSize::to_usize());
@@ -805,14 +788,9 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(sync_committee_indices)
     }
 
-    /// Compute the sync committee for a given list of indices.
-    pub fn compute_sync_committee(
-        &self,
-        sync_committee_indices: &[usize],
-    ) -> Result<SyncCommittee<T>, Error> {
-        if sync_committee_indices.len() != T::SyncCommitteeSize::to_usize() {
-            return Err(Error::InsufficientValidators);
-        }
+    /// Compute the next sync committee.
+    pub fn get_next_sync_committee(&self, spec: &ChainSpec) -> Result<SyncCommittee<T>, Error> {
+        let sync_committee_indices = self.get_next_sync_committee_indices(spec)?;
 
         let pubkeys = sync_committee_indices
             .iter()
@@ -823,38 +801,16 @@ impl<T: EthSpec> BeaconState<T> {
                     .ok_or(Error::UnknownValidator(index))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let pubkeys_per_aggregate = T::SyncPubkeysPerAggregate::to_usize();
-        let pubkey_aggregates = pubkeys
-            .chunks_exact(pubkeys_per_aggregate)
-            .map(|preaggregate| {
-                // Decompress the pubkeys and aggregate them
-                let decompressed_keys = preaggregate
-                    .iter()
-                    .map(|key_bytes| key_bytes.decompress())
-                    .collect::<Result<Vec<_>, _>>()?;
-                let agg_pk = AggregatePublicKey::aggregate(&decompressed_keys)?;
-                Ok(agg_pk.to_public_key().compress())
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
+        let decompressed_pubkeys = pubkeys
+            .iter()
+            .map(|pk| pk.decompress())
+            .collect::<Result<Vec<_>, _>>()?;
+        let aggregate_pubkey = AggregatePublicKey::aggregate(&decompressed_pubkeys)?;
 
         Ok(SyncCommittee {
             pubkeys: FixedVector::new(pubkeys)?,
-            pubkey_aggregates: FixedVector::new(pubkey_aggregates)?,
+            aggregate_pubkey: aggregate_pubkey.to_public_key().compress(),
         })
-    }
-
-    /// Compute the `base_epoch` used by sync committees.
-    pub fn sync_committee_base_epoch(
-        &self,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<Epoch, Error> {
-        Ok(std::cmp::max(
-            epoch.safe_div(spec.epochs_per_sync_committee_period)?,
-            Epoch::new(1),
-        )
-        .safe_sub(1)?
-        .safe_mul(spec.epochs_per_sync_committee_period)?)
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
@@ -1492,84 +1448,6 @@ impl<T: EthSpec> BeaconState<T> {
         res
     }
 
-    /// Transform a `Base` state into an `Altair` state.
-    pub fn upgrade_to_altair(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        let epoch = self.current_epoch();
-        let pre = if let BeaconState::Base(pre) = self {
-            pre
-        } else {
-            return Err(Error::IncorrectStateVariant);
-        };
-
-        let default_epoch_participation =
-            VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
-        let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
-
-        // Where possible, use something like `mem::take` to move fields from behind the &mut
-        // reference. For other fields that don't have a good default value, use `clone`.
-        //
-        // Fixed size vectors get cloned because replacing them would require the same size
-        // allocation as cloning.
-        let mut post = BeaconState::Altair(BeaconStateAltair {
-            // Versioning
-            genesis_time: pre.genesis_time,
-            genesis_validators_root: pre.genesis_validators_root,
-            slot: pre.slot,
-            fork: Fork {
-                previous_version: pre.fork.current_version,
-                current_version: spec.altair_fork_version,
-                epoch,
-            },
-            // History
-            latest_block_header: pre.latest_block_header.clone(),
-            block_roots: pre.block_roots.clone(),
-            state_roots: pre.state_roots.clone(),
-            historical_roots: mem::take(&mut pre.historical_roots),
-            // Eth1
-            eth1_data: pre.eth1_data.clone(),
-            eth1_data_votes: mem::take(&mut pre.eth1_data_votes),
-            eth1_deposit_index: pre.eth1_deposit_index,
-            // Registry
-            validators: mem::take(&mut pre.validators),
-            balances: mem::take(&mut pre.balances),
-            // Randomness
-            randao_mixes: pre.randao_mixes.clone(),
-            // Slashings
-            slashings: pre.slashings.clone(),
-            // `Participation
-            previous_epoch_participation: default_epoch_participation.clone(),
-            current_epoch_participation: default_epoch_participation,
-            // Finality
-            justification_bits: pre.justification_bits.clone(),
-            previous_justified_checkpoint: pre.previous_justified_checkpoint,
-            current_justified_checkpoint: pre.current_justified_checkpoint,
-            finalized_checkpoint: pre.finalized_checkpoint,
-            // Inactivity
-            inactivity_scores,
-            // Sync committees
-            current_sync_committee: SyncCommittee::temporary()?, // not read
-            next_sync_committee: SyncCommittee::temporary()?,    // not read
-            // Caches
-            committee_caches: mem::take(&mut pre.committee_caches),
-            pubkey_cache: mem::take(&mut pre.pubkey_cache),
-            exit_cache: mem::take(&mut pre.exit_cache),
-            tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
-        });
-
-        // Fill in sync committees
-        post.as_altair_mut()?.current_sync_committee =
-            post.get_sync_committee(post.current_epoch(), spec)?;
-        post.as_altair_mut()?.next_sync_committee = post.get_sync_committee(
-            post.current_epoch()
-                .safe_add(spec.epochs_per_sync_committee_period)?,
-            spec,
-        )?;
-
-        *self = post;
-
-        Ok(())
-    }
-
     pub fn clone_with_only_committee_caches(&self) -> Self {
         self.clone_with(CloneConfig::committee_caches_only())
     }
@@ -1579,7 +1457,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// The `self` state must be Altair or later.
     pub fn get_unslashed_participating_indices(
         &self,
-        flag_index: u32,
+        flag_index: usize,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<HashSet<usize>, Error> {

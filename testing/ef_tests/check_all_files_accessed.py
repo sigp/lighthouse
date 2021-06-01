@@ -19,15 +19,16 @@ tests_dir_filename = sys.argv[2]
 # following strings, we will assume they are to be ignored (i.e., we are purposefully *not* running
 # the spec tests).
 excluded_paths = [
-    # Things from future phases
+    # Configs from future phases
     "tests/mainnet/config/custody_game.yaml",
     "tests/mainnet/config/sharding.yaml",
     "tests/mainnet/config/merge.yaml",
     "tests/minimal/config/custody_game.yaml",
     "tests/minimal/config/sharding.yaml",
     "tests/minimal/config/merge.yaml",
-    # Genesis Validity
-    "tests/minimal/altair/genesis/validity",
+    # Merge tests
+    "tests/minimal/merge",
+    "tests/mainnet/merge",
     # Eth1Block
     #
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
@@ -59,6 +60,9 @@ excluded_paths = [
     # SyncCommitteeSigningData
     "tests/minimal/altair/ssz_static/SyncCommitteeSigningData",
     "tests/mainnet/altair/ssz_static/SyncCommitteeSigningData",
+    # SyncAggregatorSelectionData
+    "tests/minimal/altair/ssz_static/SyncAggregatorSelectionData",
+    "tests/mainnet/altair/ssz_static/SyncAggregatorSelectionData",
     # Fork choice
     "tests/mainnet/phase0/fork_choice",
     "tests/minimal/phase0/fork_choice",
