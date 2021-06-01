@@ -1,4 +1,4 @@
-use crate::{ChainSpec, Epoch};
+use crate::{ChainSpec, Epoch, EthSpec, Slot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ForkName {
@@ -24,6 +24,19 @@ impl ForkName {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec
             }
+        }
+    }
+
+    /// Returns the `ForkName` given the slot and depending if Altair is enabled in the `ChainSpec`.
+    pub fn from_slot<T: EthSpec>(slot: Slot, spec: &ChainSpec) -> Self {
+        if let Some(altair_fork_epoch) = spec.altair_fork_epoch {
+            if slot.epoch(T::slots_per_epoch()) >= altair_fork_epoch {
+                ForkName::Altair
+            } else {
+                ForkName::Base
+            }
+        } else {
+            ForkName::Base
         }
     }
 }

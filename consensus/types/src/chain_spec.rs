@@ -160,17 +160,31 @@ impl ChainSpec {
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
-    ///
-    /// Presently, we don't have any forks so we just ignore the slot. In the future this function
-    /// may return something different based upon the slot.
-    pub fn enr_fork_id(&self, _slot: Slot, genesis_validators_root: Hash256) -> EnrForkId {
+    pub fn enr_fork_id<T: EthSpec>(
+        &self,
+        slot: Slot,
+        genesis_validators_root: Hash256,
+    ) -> EnrForkId {
         EnrForkId {
-            fork_digest: Self::compute_fork_digest(
-                self.genesis_fork_version,
-                genesis_validators_root,
-            ),
+            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
             next_fork_version: self.genesis_fork_version,
             next_fork_epoch: self.far_future_epoch,
+        }
+    }
+
+    /// Returns the `ForkDigest` for the given slot.
+    ///
+    /// If `self.altair_fork_slot == None`, then this function returns the genesis fork digest
+    /// otherwise, returns the fork digest based on the slot.
+    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        if let Some(altair_fork_epoch) = self.altair_fork_epoch {
+            if slot.epoch(T::slots_per_epoch()) >= altair_fork_epoch {
+                Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
+            } else {
+                Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
+            }
+        } else {
+            Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
         }
     }
 

@@ -43,7 +43,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
+use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, SignedBeaconBlock, Slot, SubnetId};
 
 mod gossipsub_scoring_parameters;
 mod handler;
@@ -147,6 +147,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         net_conf: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
+        fork_context: Arc<ForkContext>,
         chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
@@ -219,7 +220,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(log.clone()),
+            eth2_rpc: RPC::new(fork_context, log.clone()),
             gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
