@@ -143,6 +143,7 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
+    pub sync_committee_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
 }
@@ -167,33 +168,47 @@ impl ChainSpec {
     ) -> EnrForkId {
         EnrForkId {
             fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.genesis_fork_version,
-            next_fork_epoch: self.far_future_epoch,
+            next_fork_version: self.next_fork_version(),
+            next_fork_epoch: self
+                .next_fork_epoch::<T>(slot)
+                .map(|(_, e)| e)
+                .unwrap_or(self.far_future_epoch),
         }
     }
 
     /// Returns the `ForkDigest` for the given slot.
     ///
-    /// If `self.altair_fork_slot == None`, then this function returns the genesis fork digest
+    /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
     /// otherwise, returns the fork digest based on the slot.
     pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        if let Some(altair_fork_epoch) = self.altair_fork_epoch {
-            if slot.epoch(T::slots_per_epoch()) >= altair_fork_epoch {
+        match self.fork_name_at_slot::<T>(slot) {
+            ForkName::Altair => {
                 Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
-            } else {
+            }
+            ForkName::Base => {
                 Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
             }
-        } else {
-            Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
         }
     }
 
-    /// Returns the epoch of the next scheduled change in the `fork.current_version`.
+    /// Returns the `next_fork_version`.
     ///
-    /// There are no future forks scheduled so this function always returns `None`. This may not
-    /// always be the case in the future, though.
-    pub fn next_fork_epoch(&self) -> Option<Epoch> {
-        None
+    /// Since `next_fork_version = current_fork_version` if no future fork is planned,
+    /// this function returns `altair_fork_version` until the next fork is planned.
+    pub fn next_fork_version(&self) -> [u8; 4] {
+        self.altair_fork_version
+    }
+
+    /// Returns the epoch of the next scheduled fork along with it's corresponding `ForkName`.
+    ///
+    /// If no future forks are scheduled, this function returns `None`.
+    pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
+        match self.fork_name_at_slot::<T>(slot) {
+            ForkName::Altair => None,
+            ForkName::Base => self
+                .altair_fork_epoch
+                .map(|epoch| (ForkName::Altair, epoch)),
+        }
     }
 
     /// Returns the name of the fork which is active at `slot`.
@@ -434,6 +449,7 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
+            sync_committee_subnet_count: 4,
             random_subnets_per_validator: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
@@ -868,6 +884,7 @@ impl BaseConfig {
             attestation_propagation_slot_range: chain_spec.attestation_propagation_slot_range,
             maximum_gossip_clock_disparity_millis: chain_spec.maximum_gossip_clock_disparity_millis,
             attestation_subnet_count: chain_spec.attestation_subnet_count,
+            sync_committee_subnet_count: chain_spec.sync_committee_subnet_count,
             /*
              * Constants, not configurable.
              */

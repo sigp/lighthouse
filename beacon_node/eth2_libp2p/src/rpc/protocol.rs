@@ -95,7 +95,7 @@ const TTFB_TIMEOUT: u64 = 5;
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Protocol names to be used.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Protocol {
     /// The Status protocol name.
     Status,
@@ -180,6 +180,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
         ]
     }
@@ -280,8 +281,8 @@ impl ProtocolId {
                 <Ping as Encode>::ssz_fixed_len(),
             ),
             Protocol::MetaData => RpcLimits::new(
-                <MetaData<T> as Encode>::ssz_fixed_len(),
-                <MetaData<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV1<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -443,11 +444,10 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::MetaData(_) => vec![ProtocolId::new(
-                Protocol::MetaData,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            RPCRequest::MetaData(_) => vec![
+                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ],
         }
     }
 

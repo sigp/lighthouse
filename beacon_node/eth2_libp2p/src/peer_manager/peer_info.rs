@@ -1,8 +1,8 @@
 use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
 use super::PeerSyncStatus;
-use crate::rpc::MetaData;
 use crate::Multiaddr;
+use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
 use serde::{
     ser::{SerializeStruct, Serializer},
@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use strum::AsRefStr;
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
@@ -40,7 +40,7 @@ pub struct PeerInfo<T: EthSpec> {
     /// connection.
     pub meta_data: Option<MetaData<T>>,
     /// Subnets the peer is connected to.
-    pub subnets: HashSet<SubnetId>,
+    pub subnets: HashSet<Subnet>,
     /// The time we would like to retain this peer. After this time, the peer is no longer
     /// necessary.
     #[serde(skip)]
@@ -84,17 +84,26 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Returns if the peer is subscribed to a given `SubnetId` from the metadata attnets field.
-    pub fn on_subnet_metadata(&self, subnet_id: SubnetId) -> bool {
+    /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
+    pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
-            return meta_data.attnets.get(*subnet_id as usize).unwrap_or(false);
+            match subnet {
+                Subnet::Attestation(id) => {
+                    return meta_data.attnets().get(**id as usize).unwrap_or(false)
+                }
+                Subnet::SyncCommittee(id) => {
+                    return meta_data
+                        .syncnets()
+                        .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
+                }
+            }
         }
         false
     }
 
-    /// Returns if the peer is subscribed to a given `SubnetId` from the gossipsub subscriptions.
-    pub fn on_subnet_gossipsub(&self, subnet_id: SubnetId) -> bool {
-        self.subnets.contains(&subnet_id)
+    /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
+    pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
+        self.subnets.contains(&subnet)
     }
 
     /// Returns the seen IP addresses of the peer.

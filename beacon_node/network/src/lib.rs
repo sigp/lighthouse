@@ -6,7 +6,6 @@ pub mod error;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod service;
 
-mod attestation_service;
 mod beacon_processor;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 mod metrics;
@@ -14,6 +13,7 @@ mod nat;
 mod persisted_dht;
 mod router;
 mod status;
+mod subnet_service;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 mod sync;
 
