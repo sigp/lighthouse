@@ -109,6 +109,7 @@ pub enum HotColdDBError {
     AttestationStateIsFinalized {
         split_slot: Slot,
         request_slot: Option<Slot>,
+        state_root: Hash256,
     },
 }
 
@@ -355,6 +356,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Err(HotColdDBError::AttestationStateIsFinalized {
                 split_slot,
                 request_slot: slot,
+                state_root: *state_root,
             }
             .into())
         } else {
