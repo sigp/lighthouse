@@ -13,10 +13,8 @@ pub trait ToStatusMessage {
 impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
     fn status_message(&self) -> Result<StatusMessage, BeaconChainError> {
         let head_info = self.head_info()?;
+        let fork_digest = self.enr_fork_id().fork_digest;
         let genesis_validators_root = self.genesis_validators_root;
-
-        let fork_digest =
-            ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
 
         Ok(StatusMessage {
             fork_digest,

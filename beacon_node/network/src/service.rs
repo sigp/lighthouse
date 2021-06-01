@@ -186,6 +186,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &beacon_chain.spec,
         ));
 
+        info!(
+            network_log,
+            "Initialized fork context";
+            "current_fork_name" => ?fork_context.current_fork(),
+            "current_fork_digest" => ?fork_context.to_context_bytes(fork_context.current_fork()).unwrap(),
+        );
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(
             executor.clone(),
