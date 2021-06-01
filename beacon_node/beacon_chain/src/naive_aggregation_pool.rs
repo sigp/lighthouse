@@ -587,7 +587,7 @@ mod tests {
             $block_root_comparator: ident,
             $key_getter: ident,
             $map_type: ident,
-            $item_limit: ident
+            $item_limit: expr
         ) => {
             #[cfg(test)]
             mod $mod_name {
@@ -793,6 +793,6 @@ mod tests {
         sync_contribution_block_root_comparator,
         key_from_sync_contribution,
         SyncContributionAggregateMap,
-        E::sync_committee_size(),
+        E::sync_committee_size()
     }
 }

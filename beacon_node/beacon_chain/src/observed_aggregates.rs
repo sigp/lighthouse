@@ -258,7 +258,7 @@ mod tests {
     }
 
     macro_rules! test_suite {
-        ($mod_name: ident, $type: ident, $method_name: ident) => {
+        ($mod_name: ident, $type: ident, $method_name: ident, $capacity: expr) => {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
@@ -299,7 +299,7 @@ mod tests {
 
                 #[test]
                 fn single_slot() {
-                    let mut store = $type::default();
+                    let mut store = $type::new($capacity);
 
                     single_slot_test(&mut store, Slot::new(0));
 
@@ -313,7 +313,7 @@ mod tests {
 
                 #[test]
                 fn mulitple_contiguous_slots() {
-                    let mut store = $type::default();
+                    let mut store = $type::new($capacity);
                     let max_cap = store.max_capacity;
 
                     for i in 0..max_cap * 3 {
@@ -376,7 +376,7 @@ mod tests {
 
                 #[test]
                 fn mulitple_non_contiguous_slots() {
-                    let mut store = $type::default();
+                    let mut store = $type::new($capacity);
                     let max_cap = store.max_capacity;
 
                     let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
@@ -440,11 +440,13 @@ mod tests {
     test_suite!(
         observed_sync_aggregates,
         ObservedSyncAggregates,
-        get_sync_contribution
+        get_sync_contribution,
+        3
     );
     test_suite!(
         observed_aggregate_attestations,
         ObservedAggregateAttestations,
-        get_attestation
+        get_attestation,
+        E::slots_per_epoch() + 2
     );
 }
