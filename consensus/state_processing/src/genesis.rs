@@ -3,6 +3,7 @@ use super::per_block_processing::{
 };
 use crate::common::DepositDataTree;
 use safe_arith::{ArithError, SafeArith};
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
@@ -47,8 +48,8 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         //FIXME(sean): this breaks EF tests (until the next version is released?)
         // need it to make the beacon harness's sync committee shuffling work without advancing a ton of slots
         let next_synce_committee = state.get_sync_committee(state.next_epoch()?, spec)?;
-        *state.current_sync_committee_mut()? = next_synce_committee.clone();
-        *state.next_sync_committee_mut()? = next_synce_committee;
+        state.as_altair_mut()?.current_sync_committee = Arc::new(next_synce_committee.clone());
+        state.as_altair_mut()?.next_sync_committee = next_synce_committee;
 
         // Reset the fork version too.
         state.fork_mut().current_version = spec.genesis_fork_version;

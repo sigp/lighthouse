@@ -6,6 +6,7 @@ use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
+use std::sync::Arc;
 use types::superstruct;
 use types::*;
 
@@ -85,7 +86,7 @@ where
 
     // Light-client sync committees
     #[superstruct(only(Altair))]
-    pub current_sync_committee: SyncCommittee<T>,
+    pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair))]
     pub next_sync_committee: SyncCommittee<T>,
 }

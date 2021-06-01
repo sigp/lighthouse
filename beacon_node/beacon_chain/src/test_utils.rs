@@ -611,7 +611,7 @@ where
         head_block_root: Hash256,
         signature_slot: Slot,
     ) -> Vec<Vec<(SyncCommitteeSignature, usize)>> {
-        let current_sync_committee: SyncCommittee<E> = state
+        let current_sync_committee: Arc<SyncCommittee<E>> = state
             .as_altair()
             .expect("should be called on altair beacon state")
             .current_sync_committee
@@ -776,7 +776,7 @@ where
             .map(|(subnet_id, committee_signatures)| {
                 // If there are any sync signatures in this committee, create an aggregate.
                 if let Some((sync_signature, subcommittee_position)) = committee_signatures.first() {
-                    let sync_committee: SyncCommittee<E> = state.as_altair().expect("should be called on altair beacon state").current_sync_committee.clone();
+                    let sync_committee: Arc<SyncCommittee<E>> = state.as_altair().expect("should be called on altair beacon state").current_sync_committee.clone();
 
                     let aggregator_index = sync_committee.pubkeys
                         .iter()
