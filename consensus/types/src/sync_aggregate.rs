@@ -37,16 +37,13 @@ impl<T: EthSpec> SyncAggregate<T> {
         }
     }
 
-    /// Add a `SyncCommitteeContribution` into this aggregate.
-    ///
-    /// The aggregation bitfield in the contribution will overwrite ALL bits of the
-    /// corresponding sync subcommittee.
+    /// Create a `SyncAggregate` from a slice of `SyncCommitteeContribution`s.
     ///
     /// Equivalent to `process_sync_contributions` from the spec.
     pub fn from_contributions(
         contributions: &[SyncCommitteeContribution<T>],
     ) -> Result<SyncAggregate<T>, Error> {
-        let mut sync_aggregate = SyncAggregate::new();
+        let mut sync_aggregate = Self::new();
         let sync_subcommittee_size =
             T::sync_committee_size().safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
         for contribution in contributions {

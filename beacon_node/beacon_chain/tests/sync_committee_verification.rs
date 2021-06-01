@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 #[macro_use]
 extern crate lazy_static;
@@ -51,7 +51,6 @@ fn get_valid_sync_signature(
 ) -> (
     SyncCommitteeSignature,
     usize,
-    usize,
     SecretKey,
     SyncSubnetId,
 ) {
@@ -67,15 +66,14 @@ fn get_valid_sync_signature(
     let (signature, subcommittee_position) = harness
         .make_sync_signatures(&head_state, head_block_root, slot)
         .get(0)
-        .unwrap()
+        .expect("sync signatures should exist")
         .get(0)
-        .unwrap()
+        .expect("first sync signature should exist")
         .clone();
 
     (
         signature.clone(),
         signature.validator_index as usize,
-        subcommittee_position,
         harness.validator_keypairs[signature.validator_index as usize]
             .sk
             .clone(),
@@ -99,8 +97,10 @@ fn get_valid_sync_contribution(
     let sync_contributions =
         harness.make_sync_contributions(&head_state, head_block_root, head_state.slot());
 
-    let (_, contribution_opt) = sync_contributions.get(0).unwrap();
-    let contribution = contribution_opt.as_ref().cloned().unwrap();
+    let (_, contribution_opt) = sync_contributions.get(0)
+        .expect("sync contributions should exist");
+    let contribution = contribution_opt.as_ref().cloned()
+        .expect("signed contribution and proof should exist");
 
     let aggregator_index = contribution.message.aggregator_index as usize;
 
@@ -119,15 +119,17 @@ fn get_non_aggregator(
     let state = &harness.chain.head().expect("should get head").beacon_state;
     let sync_subcommittee_size = E::sync_committee_size()
         .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
-        .unwrap();
-    let sync_committee = state.as_altair().unwrap().current_sync_committee.clone();
+        .expect("should determine sync subcommittee size");
+    let sync_committee = state.current_sync_committee().expect("should use altair state").clone();
     let non_aggregator_index = sync_committee
         .pubkeys
         .chunks(sync_subcommittee_size)
         .enumerate()
         .find_map(|(subcommittee_index, subcommittee)| {
             subcommittee.iter().find_map(|pubkey| {
-                let validator_index = harness.chain.validator_index(&pubkey).unwrap().unwrap();
+                let validator_index = harness.chain.validator_index(&pubkey)
+                    .expect("should get validator index")
+                    .expect("pubkey should exist in beacon chain");
 
                 let selection_proof = SyncSelectionProof::new::<E>(
                     slot,
@@ -154,7 +156,7 @@ fn get_non_aggregator(
     (non_aggregator_index, aggregator_sk)
 }
 
-/// Tests verification of `SignedAggregateAndProof` from the gossip network.
+/// Tests verification of `SignedContributionAndProof` from the gossip network.
 #[test]
 fn aggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -288,8 +290,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * The attestation has participants.
-     * Fixme(sean): this one isn't in the spec, do we want this anyways?
+     * The sync contribution has participants.
      */
 
     assert_invalid!(
@@ -308,7 +309,7 @@ fn aggregated_gossip_verification() {
     /*
      * This test ensures:
      *
-     * The aggregator signature, signed_aggregate_and_proof.signature, is valid.
+     * The aggregator signature, signed_contribution_and_proof.signature, is valid.
      */
 
     assert_invalid!(
@@ -326,7 +327,7 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * The aggregate_and_proof.selection_proof is a valid signature of the `SyncAggregatorSelectionData`
+     * The contribution_and_proof.selection_proof is a valid signature of the `SyncAggregatorSelectionData`
      * derived from the contribution by the validator with index `contribution_and_proof.aggregator_index`.
      */
 
@@ -345,7 +346,7 @@ fn aggregated_gossip_verification() {
                 let proof: SyncSelectionProof = aggregator_sk
                     .sign(Hash256::from_slice(&int_to_bytes32(i)))
                     .into();
-                if proof.is_aggregator::<E>().unwrap() {
+                if proof.is_aggregator::<E>().expect("should determine aggregator") {
                     break proof.into();
                 }
             };
@@ -426,7 +427,7 @@ fn aggregated_gossip_verification() {
                 valid_aggregate.message.contribution.clone(),
                 None,
                 &non_aggregator_sk,
-                &harness.chain.head_info().unwrap().fork,
+                &harness.chain.head_info().expect("should get head info").fork,
                 harness.chain.genesis_validators_root,
                 &harness.chain.spec,
             )
@@ -442,7 +443,7 @@ fn aggregated_gossip_verification() {
     harness
         .chain
         .verify_sync_contribution_for_gossip(valid_aggregate.clone())
-        .unwrap();
+        .expect("should verify sync contribution");
 
     /*
      * The following test ensures:
@@ -507,7 +508,6 @@ fn unaggregated_gossip_verification() {
     let (
         valid_sync_signature,
         expected_validator_index,
-        _validator_subcommittee_position,
         validator_sk,
         subnet_id,
     ) = get_valid_sync_signature(&harness, current_slot);
@@ -583,7 +583,7 @@ fn unaggregated_gossip_verification() {
         .expect("chain is not sufficiently deep for test")
         .into();
     assert_invalid!(
-        "attestation from past slot",
+        "sync signature from past slot",
         {
             let mut signature = valid_sync_signature.clone();
             signature.slot = early_slot;
@@ -607,7 +607,7 @@ fn unaggregated_gossip_verification() {
 
     let unknown_root = Hash256::from_low_u64_le(424242); // No one wants one of these
     assert_invalid!(
-        "attestation with unknown head block",
+        "sync signature with unknown head block",
         {
             let mut signature = valid_sync_signature.clone();
             signature.beacon_block_root = unknown_root;
@@ -627,7 +627,7 @@ fn unaggregated_gossip_verification() {
      * validator_index.
      */
     assert_invalid!(
-        "attestation with bad signature",
+        "sync signature with bad signature",
         {
             let mut sync_signature = valid_sync_signature.clone();
 
@@ -642,7 +642,7 @@ fn unaggregated_gossip_verification() {
     harness
         .chain
         .verify_sync_signature_for_gossip(valid_sync_signature.clone(), Some(subnet_id))
-        .expect("valid attestation should be verified");
+        .expect("valid sync signature should be verified");
 
     /*
      * The following test ensures that:
@@ -651,7 +651,7 @@ fn unaggregated_gossip_verification() {
      * validator referenced by sync_committee_signature.validator_index.
      */
     assert_invalid!(
-        "attestation that has already been seen",
+        "sync signature that has already been seen",
         valid_sync_signature,
         subnet_id,
         SyncCommitteeError::PriorSyncSignatureKnown {

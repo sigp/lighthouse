@@ -219,7 +219,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
     pub naive_aggregation_pool: RwLock<NaiveAggregationPool<AggregatedAttestationMap<T::EthSpec>>>,
-    /// A pool of `SyncCommitteeContributions` dedicated to the "naive aggregation strategy" defined in the eth2
+    /// A pool of `SyncCommitteeContribution` dedicated to the "naive aggregation strategy" defined in the eth2
     /// specs.
     ///
     /// This pool accepts `SyncCommitteeContribution` objects that only have one aggregation bit set and provides
@@ -237,7 +237,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
     pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
-    /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
+    /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
     /// in recent epochs.
     pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
@@ -641,8 +641,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// See `Self::head` for more information.
     pub fn head_current_sync_committee(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
         self.with_head(|s| {
-            //TODO: handle base
-            Ok(s.beacon_state.as_altair()?.current_sync_committee.clone())
+            Ok(s.beacon_state.current_sync_committee()?.clone())
         })
     }
 
@@ -1198,25 +1197,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(unaggregated_attestation)
     }
 
-    /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
+    /// Accepts a `VerifiedSyncSignature` and attempts to apply it to the "naive
     /// aggregation pool".
     ///
     /// The naive aggregation pool is used by local validators to produce
-    /// `SignedAggregateAndProof`.
+    /// `SignedContributionAndProof`.
     ///
-    /// If the attestation is too old (low slot) to be included in the pool it is simply dropped
+    /// If the sync signature is too old (low slot) to be included in the pool it is simply dropped
     /// and no error is returned.
     pub fn add_to_naive_sync_aggregation_pool(
         &self,
-        unaggregated_sync_signature: VerifiedSyncSignature,
+        verified_sync_signature: VerifiedSyncSignature,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
-        let sync_signature = unaggregated_sync_signature.sync_signature();
+        let sync_signature = verified_sync_signature.sync_signature();
         let positions_by_subnet_id: HashMap<SyncSubnetId, Vec<usize>> =
-            unaggregated_sync_signature.subnet_positions();
+            verified_sync_signature.subnet_positions();
         for (subnet_id, positions) in positions_by_subnet_id.iter() {
             for position in positions {
                 let _timer =
-                    metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
+                    metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_AGG_POOL);
                 let contribution = SyncCommitteeContribution::from_signature(
                     sync_signature,
                     subnet_id.into(),
@@ -1259,7 +1258,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
             }
         }
-        Ok(unaggregated_sync_signature)
+        Ok(verified_sync_signature)
     }
 
     /// Accepts a `VerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
@@ -1291,14 +1290,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(signed_aggregate)
     }
 
-    /// Accepts a `VerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
+    /// Accepts a `VerifiedSyncContribution` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
     pub fn add_contribution_to_block_inclusion_pool(
         &self,
-        signed_aggregate: VerifiedSyncContribution<T>,
+        contribution: VerifiedSyncContribution<T>,
     ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
-        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
@@ -1309,7 +1308,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool
                 .insert_sync_contribution(
                     // TODO: address this clone.
-                    signed_aggregate.contribution().clone(),
+                    contribution.contribution().clone(),
                     &fork,
                     self.genesis_validators_root,
                     &self.spec,
@@ -1317,7 +1316,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(Error::from)?;
         }
 
-        Ok(signed_aggregate)
+        Ok(contribution)
     }
 
     /// Filter an attestation from the op pool for shuffling compatibility.

@@ -1,7 +1,5 @@
 //! Identifies each shard by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use crate::{ChainSpec, CommitteeIndex, EthSpec, Slot};
-use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
@@ -34,26 +32,6 @@ pub fn sync_subnet_id_to_string(i: u64) -> &'static str {
 impl SyncSubnetId {
     pub fn new(id: u64) -> Self {
         id.into()
-    }
-
-    /// Compute the subnet for an attestation with `attestation.data.slot == slot` and
-    /// `attestation.data.index == committee_index` where each slot in the attestation epoch
-    /// contains `committee_count_at_slot` committees.
-    pub fn compute_subnet<T: EthSpec>(
-        slot: Slot,
-        committee_index: CommitteeIndex,
-        committee_count_at_slot: u64,
-        spec: &ChainSpec,
-    ) -> Result<SyncSubnetId, ArithError> {
-        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(T::slots_per_epoch())?;
-
-        let committees_since_epoch_start =
-            committee_count_at_slot.safe_mul(slots_since_epoch_start)?;
-
-        Ok(committees_since_epoch_start
-            .safe_add(committee_index)?
-            .safe_rem(spec.attestation_subnet_count)?
-            .into())
     }
 }
 

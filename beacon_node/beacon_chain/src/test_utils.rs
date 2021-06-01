@@ -612,14 +612,13 @@ where
         signature_slot: Slot,
     ) -> Vec<Vec<(SyncCommitteeSignature, usize)>> {
         let current_sync_committee: Arc<SyncCommittee<E>> = state
-            .as_altair()
+            .current_sync_committee()
             .expect("should be called on altair beacon state")
-            .current_sync_committee
             .clone();
 
         let sync_subcommittee_size = E::sync_committee_size()
             .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
-            .unwrap();
+            .expect("should determine sync subcommittee size");
         current_sync_committee
             .pubkeys
             .as_ref()
@@ -632,7 +631,7 @@ where
                         let validator_index = self
                             .chain
                             .validator_index(pubkey)
-                            .unwrap()
+                            .expect("should find validator index")
                             .expect("pubkey should exist in the beacon chain");
 
                         let sync_signature = SyncCommitteeSignature::new::<E>(
@@ -776,12 +775,15 @@ where
             .map(|(subnet_id, committee_signatures)| {
                 // If there are any sync signatures in this committee, create an aggregate.
                 if let Some((sync_signature, subcommittee_position)) = committee_signatures.first() {
-                    let sync_committee: Arc<SyncCommittee<E>> = state.as_altair().expect("should be called on altair beacon state").current_sync_committee.clone();
+                    let sync_committee: Arc<SyncCommittee<E>> = state.current_sync_committee()
+                        .expect("should be called on altair beacon state").clone();
 
                     let aggregator_index = sync_committee.pubkeys
                         .iter()
                         .find_map(|pubkey| {
-                            let validator_index = self.chain.validator_index(pubkey).unwrap().expect("pubkey should exist in the beacon chain");
+                            let validator_index = self.chain.validator_index(pubkey)
+                                .expect("should find validator index")
+                                .expect("pubkey should exist in the beacon chain");
 
                             let selection_proof = SyncSelectionProof::new::<E>(
                                 slot,
@@ -792,7 +794,8 @@ where
                                 &self.spec,
                             );
 
-                           selection_proof.is_aggregator::<E>().map(|bool| bool.then(||validator_index)).expect("should determine aggregator")
+                           selection_proof.is_aggregator::<E>().map(|bool| bool.then(||validator_index))
+                               .expect("should determine aggregator")
                         })
                         .unwrap_or_else(|| panic!(
                             "Committee {} at slot {} with {} signing validators does not have any aggregators",
@@ -806,7 +809,8 @@ where
                     let aggregate =
                             committee_signatures.iter().skip(1)
                                 .fold(default, |mut agg, (sig, position)| {
-                                    let contribution = SyncCommitteeContribution::from_signature(sig, subnet_id as u64, *position)
+                                    let contribution =
+                                        SyncCommitteeContribution::from_signature(sig, subnet_id as u64, *position)
                                         .expect("should derive sync contribution");
                                     agg.aggregate(&contribution);
                                     agg

@@ -1014,10 +1014,8 @@ fn add_altair_block_to_base_chain() {
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
     let (base_signed_block, _) = harness.make_block(state.clone(), slot);
-    let base_block = &base_signed_block
-        .as_base()
-        .expect("test expects a base block")
-        .message;
+    let base_block = &base_signed_block.message()
+        .expect("test expects a base block");
     let base_body = &base_block.body;
 
     // Create an Altair-equivalent of `altair_block`.

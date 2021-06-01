@@ -96,7 +96,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     ///
     /// Must be set to `SyncCommitteeSize / SyncPubkeysPerAggregate`.
     type SyncAggregateSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    /// The size of `sync_committees`.
+    /// The size of `sync_subcommittees`.
     ///
     /// Must be set to `SyncCommitteeSize / SyncCommitteeSubnetCount`.
     type SyncCommitteeSubnetSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;

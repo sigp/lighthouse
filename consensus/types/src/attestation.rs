@@ -9,6 +9,8 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+/// A trait providing a `Slot` getter for messages that are related to a single slot. Useful in
+/// making parts of attestation and sync committee processing generic.
 pub trait SlotData {
     fn get_slot(&self) -> Slot;
 }

@@ -1,15 +1,11 @@
 use self::committee_cache::get_active_validator_indices;
-pub use self::committee_cache::CommitteeCache;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::*;
-pub use clone_config::CloneConfig;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use eth2_hashing::hash;
-pub use eth_spec::*;
-pub use eth_spec::*;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
@@ -24,8 +20,12 @@ use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-pub use tree_hash_cache::BeaconTreeHashCache;
 use tree_hash_derive::TreeHash;
+
+pub use self::committee_cache::CommitteeCache;
+pub use clone_config::CloneConfig;
+pub use eth_spec::*;
+pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
@@ -1543,9 +1543,9 @@ impl<T: EthSpec> BeaconState<T> {
         });
 
         // Fill in sync committees
-        post.as_altair_mut()?.current_sync_committee =
+        *post.current_sync_committee_mut()? =
             Arc::new(post.get_sync_committee(post.current_epoch(), spec)?);
-        post.as_altair_mut()?.next_sync_committee = post.get_sync_committee(
+        *post.next_sync_committee_mut()? = post.get_sync_committee(
             post.current_epoch()
                 .safe_add(spec.epochs_per_sync_committee_period)?,
             spec,

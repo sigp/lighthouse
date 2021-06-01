@@ -687,7 +687,6 @@ mod release_tests {
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
         let harness = get_harness::<E>(num_validators, Some(spec.clone()));
 
-        // advance until we have finalized and justified epochs
         let state = harness.get_current_state();
         harness.add_attested_blocks_at_slots(
             state,

@@ -25,7 +25,6 @@ pub struct PersistedOperationPool<T: EthSpec> {
     // be difficult to make that roundtrip due to eager aggregation.
     attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
-    //FIXME(sean): think about whether we should store the SyncContributionId
     sync_contributions: PersistedSyncContributions<T>,
     /// Attester slashings.
     attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,

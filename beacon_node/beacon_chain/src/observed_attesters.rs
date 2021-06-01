@@ -452,7 +452,6 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
     fn max_capacity(&self) -> u64 {
         // The next, current and previous slots. We require the next slot due to the
         // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-        //FIXME(sean): do we need the previous slot?
         3
     }
 

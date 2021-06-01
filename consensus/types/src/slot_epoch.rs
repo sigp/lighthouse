@@ -10,18 +10,19 @@
 //! implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
 //! may lead to programming errors which are not detected by the compiler.
 
-use std::fmt;
-use std::hash::Hash;
-use std::iter::Iterator;
-#[cfg(feature = "legacy-arith")]
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
-
 use crate::test_utils::TestRandom;
 use crate::{ChainSpec, SignedRoot};
+
 use rand::RngCore;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use std::fmt;
+use std::hash::Hash;
+use std::iter::Iterator;
+
+#[cfg(feature = "legacy-arith")]
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

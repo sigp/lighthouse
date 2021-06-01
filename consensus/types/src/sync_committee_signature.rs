@@ -8,8 +8,6 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// The data upon which a `SyncCommitteeContribution` is based.
-///
-/// Spec v1.1.0
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct SyncCommitteeSignature {

@@ -14,9 +14,7 @@ pub enum Error {
     SubnetCountIsZero(ArithError),
 }
 
-/// Details an attestation that can be slashable.
-///
-/// Spec v1.1.0
+/// An aggregation of `SyncCommitteeSignature`s, used in creating a `SignedContributionAndProof`.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
@@ -46,7 +44,7 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
         })
     }
 
-    /// Are the aggregation bitfields of these attestations disjoint?
+    /// Are the aggregation bitfields of these sync contribution disjoint?
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
