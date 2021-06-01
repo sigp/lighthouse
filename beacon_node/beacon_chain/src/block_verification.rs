@@ -816,7 +816,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(&self, None, chain)
-            .map_err(|e| BlockSlashInfo::SignatureValid(self.signed_block_header(), e))?;
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
         SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
             .into_fully_verified_block_slashable(chain)
