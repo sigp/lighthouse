@@ -175,7 +175,7 @@ impl<E: EthSpec> Item for SyncContributorSlotHashSet<E> {
         }
     }
 
-    /// Defaults to the `sync_committee_size`.
+    /// Defaults to the `SYNC_COMMITTEE_SIZE`.
     fn default_capacity() -> usize {
         E::sync_committee_size()
     }
