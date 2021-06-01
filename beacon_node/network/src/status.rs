@@ -1,5 +1,4 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use types::ChainSpec;
 
 use eth2_libp2p::rpc::StatusMessage;
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
@@ -14,7 +13,6 @@ impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
     fn status_message(&self) -> Result<StatusMessage, BeaconChainError> {
         let head_info = self.head_info()?;
         let fork_digest = self.enr_fork_id().fork_digest;
-        let genesis_validators_root = self.genesis_validators_root;
 
         Ok(StatusMessage {
             fork_digest,

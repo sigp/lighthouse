@@ -253,27 +253,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             format!("{} does not support version 2", self.protocol.message_name),
                         )),
                     },
-                    // Receiving a Rpc request for protocol version 2 for range and root requests
-                    Version::V2 => {
-                        match self.protocol.message_name {
-                            // Request type doesn't change, only response type
-                            Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
-                                BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
-                            ))),
-                            Protocol::BlocksByRoot => {
-                                Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
-                                    block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                                })))
-                            }
-                            _ => Err(RPCError::ErrorResponse(
-                                RPCResponseErrorCode::InvalidRequest,
-                                format!(
-                                    "{} does not support version 2",
-                                    self.protocol.message_name
-                                ),
-                            )),
-                        }
-                    }
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -484,6 +463,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                         Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V2(
                             MetaDataV2::from_ssz_bytes(&decoded_buffer)?,
                         )))),
+
                         _ => Err(RPCError::ErrorResponse(
                             RPCResponseErrorCode::InvalidRequest,
                             "Invalid v2 request".to_string(),
@@ -603,7 +583,7 @@ mod tests {
     type Spec = types::MainnetEthSpec;
 
     fn fork_context() -> ForkContext {
-        ForkContext::new(types::Slot::new(0), Hash256::zero(), &Spec::default_spec())
+        ForkContext::new::<Spec>(types::Slot::new(0), Hash256::zero(), &Spec::default_spec())
     }
 
     fn base_block() -> SignedBeaconBlock<Spec> {
@@ -1050,13 +1030,13 @@ mod tests {
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
-        // Full altair block is 157980 bytes uncompressed. `max_compressed_len` is 32 + 157980 + 157980/6 = 184342.
+        // Full altair block is 157916 bytes uncompressed. `max_compressed_len` is 32 + 157916 + 157916/6 = 184267.
         let block_message_bytes = altair_block().as_ssz_bytes();
 
-        assert_eq!(block_message_bytes.len(), 157980);
+        assert_eq!(block_message_bytes.len(), 157916);
         assert_eq!(
             snap::raw::max_compress_len(block_message_bytes.len()),
-            184342
+            184267
         );
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
@@ -1082,10 +1062,10 @@ mod tests {
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&block_message_bytes).unwrap();
         writer.flush().unwrap();
-        assert_eq!(writer.get_ref().len(), 8106);
+        assert_eq!(writer.get_ref().len(), 8103);
         dst.extend_from_slice(writer.get_ref());
 
-        // 10 (for stream identifier) + 176240 + 8106 = 184356 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
+        // 10 (for stream identifier) + 176240 + 8103 = 184353 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
         assert_eq!(
             decode(Protocol::BlocksByRange, Version::V2, &mut dst).unwrap_err(),
             RPCError::InvalidData
