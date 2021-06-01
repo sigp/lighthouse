@@ -82,11 +82,17 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     for def in defs.as_mut_slice() {
         if pubkeys_to_modify.contains(&def.voting_public_key) {
             def.enabled = enabled;
+            eprintln!(
+                "Validator {} {}",
+                def.voting_public_key,
+                if enabled { "enabled" } else { "disabled" }
+            );
         }
     }
 
     defs.save(&validator_dir)
         .map_err(|e| format!("Unable to modify validator definitions: {:?}", e))?;
 
+    eprintln!("\nSuccessfully modified validator_definitions.yml");
     Ok(())
 }
