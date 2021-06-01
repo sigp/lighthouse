@@ -20,6 +20,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
+use safe_arith::SafeArith;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -31,16 +32,18 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
+use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use types::sync_selection_proof::SyncSelectionProof;
+pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
     typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
     Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, VariableList,
+    SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
+    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeSignature, VariableList,
     VoluntaryExit,
 };
-
-pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -153,6 +156,11 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 pub type HarnessAttestations<E> = Vec<(
     Vec<(Attestation<E>, SubnetId)>,
     Option<SignedAggregateAndProof<E>>,
+)>;
+
+pub type HarnessSyncContributions<E> = Vec<(
+    Vec<(SyncCommitteeSignature, usize)>,
+    Option<SignedContributionAndProof<E>>,
 )>;
 
 impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -596,6 +604,54 @@ where
             .collect()
     }
 
+    /// A list of sync signatures for the given state.
+    pub fn make_sync_signatures(
+        &self,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        signature_slot: Slot,
+    ) -> Vec<Vec<(SyncCommitteeSignature, usize)>> {
+        let current_sync_committee: SyncCommittee<E> = state
+            .as_altair()
+            .expect("should be called on altair beacon state")
+            .current_sync_committee
+            .clone();
+
+        let sync_subcommittee_size = E::sync_committee_size()
+            .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
+            .unwrap();
+        current_sync_committee
+            .pubkeys
+            .as_ref()
+            .chunks(sync_subcommittee_size)
+            .map(|subcommittee| {
+                subcommittee
+                    .iter()
+                    .enumerate()
+                    .map(|(subcommittee_position, pubkey)| {
+                        let validator_index = self
+                            .chain
+                            .validator_index(pubkey)
+                            .unwrap()
+                            .expect("pubkey should exist in the beacon chain");
+
+                        let sync_signature = SyncCommitteeSignature::new::<E>(
+                            signature_slot,
+                            head_block_root,
+                            validator_index as u64,
+                            &self.validator_keypairs[validator_index].sk,
+                            &state.fork(),
+                            state.genesis_validators_root(),
+                            &self.spec,
+                        );
+
+                        (sync_signature, subcommittee_position)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Deprecated: Use make_unaggregated_attestations() instead.
     ///
     /// A list of attestations for each committee for the given slot.
@@ -703,6 +759,79 @@ where
         unaggregated_attestations
             .into_iter()
             .zip(aggregated_attestations)
+            .collect()
+    }
+
+    pub fn make_sync_contributions(
+        &self,
+        state: &BeaconState<E>,
+        block_hash: Hash256,
+        slot: Slot,
+    ) -> HarnessSyncContributions<E> {
+        let sync_signatures = self.make_sync_signatures(&state, block_hash, slot);
+
+        let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_signatures
+            .iter()
+            .enumerate()
+            .map(|(subnet_id, committee_signatures)| {
+                // If there are any sync signatures in this committee, create an aggregate.
+                if let Some((sync_signature, subcommittee_position)) = committee_signatures.first() {
+                    let sync_committee: SyncCommittee<E> = state.as_altair().expect("should be called on altair beacon state").current_sync_committee.clone();
+
+                    let aggregator_index = sync_committee.pubkeys
+                        .iter()
+                        .find_map(|pubkey| {
+                            let validator_index = self.chain.validator_index(pubkey).unwrap().expect("pubkey should exist in the beacon chain");
+
+                            let selection_proof = SyncSelectionProof::new::<E>(
+                                slot,
+                                subnet_id as u64,
+                                &self.validator_keypairs[validator_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            );
+
+                           selection_proof.is_aggregator::<E>().map(|bool| bool.then(||validator_index)).expect("should determine aggregator")
+                        })
+                        .unwrap_or_else(|| panic!(
+                            "Committee {} at slot {} with {} signing validators does not have any aggregators",
+                            subnet_id, slot, committee_signatures.len()
+                        ));
+
+                    let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, *subcommittee_position)
+                        .expect("should derive sync contribution");
+
+                    // FIXME(sean): could update this to use the naive aggregation pool like with attestations
+                    let aggregate =
+                            committee_signatures.iter().skip(1)
+                                .fold(default, |mut agg, (sig, position)| {
+                                    let contribution = SyncCommitteeContribution::from_signature(sig, subnet_id as u64, *position)
+                                        .expect("should derive sync contribution");
+                                    agg.aggregate(&contribution);
+                                    agg
+                            });
+
+                    let signed_aggregate = SignedContributionAndProof::from_aggregate(
+                        aggregator_index as u64,
+                        aggregate,
+                        None,
+                        &self.validator_keypairs[aggregator_index].sk,
+                        &state.fork(),
+                        state.genesis_validators_root(),
+                        &self.spec,
+                    );
+
+                    Some(signed_aggregate)
+                }
+                else {
+                    None
+                }
+            }).collect();
+
+        sync_signatures
+            .into_iter()
+            .zip(sync_contributions)
             .collect()
     }
 

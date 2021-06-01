@@ -2,6 +2,7 @@ use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
+use crate::observed_aggregates::{ObservedAggregateAttestations, ObservedSyncAggregates};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
@@ -506,11 +507,25 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
-            observed_attestations: <_>::default(),
+            naive_sync_aggregation_pool: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            // We add `2` in order to account for one slot either side of the range due to
+            // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+            observed_attestations: RwLock::new(ObservedAggregateAttestations::new(
+                TEthSpec::slots_per_epoch() + 2,
+            )),
+            // TODO: allow for persisting and loading the pool from disk.
+            // We add `2` in order to account for one slot either side of the range due to
+            // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+            observed_sync_contributions: RwLock::new(ObservedSyncAggregates::new(3)),
             // TODO: allow for persisting and loading the pool from disk.
             observed_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
+            observed_sync_contributors: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
             observed_aggregators: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.

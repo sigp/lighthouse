@@ -10,19 +10,18 @@
 //! implement `Into<u64>`, however this would allow operations between `Slots` and `Epochs` which
 //! may lead to programming errors which are not detected by the compiler.
 
-use crate::test_utils::TestRandom;
-use crate::SignedRoot;
-
-use rand::RngCore;
-use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::fmt;
 use std::hash::Hash;
 use std::iter::Iterator;
-
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
+
+use crate::test_utils::TestRandom;
+use crate::{ChainSpec, SignedRoot};
+use rand::RngCore;
+use safe_arith::{ArithError, SafeArith};
+use serde_derive::{Deserialize, Serialize};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -96,6 +95,16 @@ impl Epoch {
             epoch: self,
             slots_per_epoch,
         }
+    }
+
+    /// Compute the `base_epoch` used by sync committees.
+    pub fn sync_committee_base_epoch(&self, spec: &ChainSpec) -> Result<Epoch, ArithError> {
+        std::cmp::max(
+            self.safe_div(spec.epochs_per_sync_committee_period)?,
+            Epoch::new(1),
+        )
+        .safe_sub(1)?
+        .safe_mul(spec.epochs_per_sync_committee_period)
     }
 }
 

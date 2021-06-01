@@ -31,7 +31,7 @@ use crate::{
         HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
     metrics,
-    observed_attestations::ObserveOutcome,
+    observed_aggregates::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
@@ -428,7 +428,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         match chain
             .observed_aggregators
             .read()
-            .validator_has_been_observed(attestation, aggregator_index as usize)
+            .validator_has_been_observed(attestation.data.target.epoch, aggregator_index as usize)
         {
             Ok(true) => Err(Error::AggregatorAlreadyKnown(aggregator_index)),
             Ok(false) => Ok(()),
@@ -483,7 +483,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         if let ObserveOutcome::AlreadyKnown = chain
             .observed_attestations
             .write()
-            .observe_attestation(attestation, Some(attestation_root))
+            .observe_item(attestation, Some(attestation_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             return Err(Error::AttestationAlreadyKnown(attestation_root));
@@ -496,7 +496,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         if chain
             .observed_aggregators
             .write()
-            .observe_validator(&attestation, aggregator_index as usize)
+            .observe_validator(attestation.data.target.epoch, aggregator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
@@ -668,7 +668,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .read()
-            .validator_has_been_observed(&attestation, validator_index as usize)
+            .validator_has_been_observed(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
@@ -695,7 +695,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .write()
-            .observe_validator(&attestation, validator_index as usize)
+            .observe_validator(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {

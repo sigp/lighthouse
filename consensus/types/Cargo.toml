@@ -50,6 +50,7 @@ superstruct = "0.2.0"
 serde_json = "1.0.58"
 criterion = "0.3.3"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
+eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 
 [features]
 default = ["sqlite", "legacy-arith"]

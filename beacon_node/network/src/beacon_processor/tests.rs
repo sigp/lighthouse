@@ -432,14 +432,14 @@ fn import_gossip_block_at_current_slot() {
 fn import_gossip_attestation() {
     let mut rig = TestRig::new(SMALL_CHAIN);
 
-    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
     rig.enqueue_unaggregated_attestation();
 
     rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns + 1,
         "op pool should have one more attestation"
     );
