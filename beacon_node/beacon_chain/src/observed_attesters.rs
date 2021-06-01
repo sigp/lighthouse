@@ -388,9 +388,9 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
 /// A container that stores some number of `V` items.
 ///
 /// This container is "auto-pruning" since it gets an idea of the current slot by which
-/// attestations are provided to it and prunes old entries based upon that. For example, if
+/// sync contributions are provided to it and prunes old entries based upon that. For example, if
 /// `Self::max_capacity == 3` and an attestation with `data.slot` is supplied, then all
-/// attestations with an epoch prior to `a.data.slot - 3` will be cleared from the cache.
+/// sync contributions with an epoch prior to `data.slot - 3` will be cleared from the cache.
 ///
 /// `V` should be set to a `SyncAggregatorSlotHashSet` or a `SyncContributorSlotHashSet`.
 pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, V, E: EthSpec> {
@@ -562,12 +562,12 @@ mod tests {
                         assert_eq!(
                             store.validator_has_been_observed(period, i),
                             Ok(false),
-                            "should indicate an unknown attestation is unknown"
+                            "should indicate an unknown item is unknown"
                         );
                         assert_eq!(
                             store.observe_validator(period, i),
                             Ok(false),
-                            "should observe new attestation"
+                            "should observe new item"
                         );
                     }
 
@@ -575,12 +575,12 @@ mod tests {
                         assert_eq!(
                             store.validator_has_been_observed(period, i),
                             Ok(true),
-                            "should indicate a known attestation is known"
+                            "should indicate a known item is known"
                         );
                         assert_eq!(
                             store.observe_validator(period, i),
                             Ok(true),
-                            "should acknowledge an existing attestation"
+                            "should acknowledge an existing item"
                         );
                     }
                 }
@@ -717,12 +717,12 @@ mod tests {
             assert_eq!(
                 store.validator_has_been_observed(key, i),
                 Ok(false),
-                "should indicate an unknown attestation is unknown"
+                "should indicate an unknown item is unknown"
             );
             assert_eq!(
                 store.observe_validator(key, i),
                 Ok(false),
-                "should observe new attestation"
+                "should observe new item"
             );
         }
 
@@ -730,12 +730,12 @@ mod tests {
             assert_eq!(
                 store.validator_has_been_observed(key, i),
                 Ok(true),
-                "should indicate a known attestation is known"
+                "should indicate a known item is known"
             );
             assert_eq!(
                 store.observe_validator(key, i),
                 Ok(true),
-                "should acknowledge an existing attestation"
+                "should acknowledge an existing item"
             );
         }
     }
