@@ -1,4 +1,4 @@
-//! Provides verification for the following sync committee:
+//! Provides verification for the following sync committee messages:
 //!
 //! - "Unaggregated" `SyncCommitteeSignature` received from either gossip or the HTTP API.
 //! - "Aggregated" `SignedContributionAndProof` received from gossip or the HTTP API.
@@ -61,13 +61,13 @@ use types::{
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
 /// two reasons:
 ///
-/// - The attestation is malformed or inappropriate for the context (indicated by all variants
+/// - The sync committee message is malformed or inappropriate for the context (indicated by all variants
 ///   other than `BeaconChainError`).
 /// - The application encountered an internal error whilst attempting to determine validity
 ///   (the `BeaconChainError` variant)
 #[derive(Debug, AsRefStr)]
 pub enum Error {
-    /// The attestation is from a slot that is later than the current slot (with respect to the
+    /// The sync committee message is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
     /// ## Peer scoring
@@ -77,7 +77,7 @@ pub enum Error {
         signature_slot: Slot,
         latest_permissible_slot: Slot,
     },
-    /// The attestation is from a slot that is prior to the earliest permissible slot (with
+    /// The sync committee message is from a slot that is prior to the earliest permissible slot (with
     /// respect to the gossip clock disparity).
     ///
     /// ## Peer scoring
@@ -87,13 +87,13 @@ pub enum Error {
         signature_slot: Slot,
         earliest_permissible_slot: Slot,
     },
-    /// The attestations aggregation bits were empty when they shouldn't be.
+    /// The sync committee message's aggregation bits were empty when they shouldn't be.
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
     EmptyAggregationBitfield,
-    /// The `selection_proof` on the aggregate atte) = get_valid_sync_signature(harnstation does not elect it as an aggregator.
+    /// The `selection_proof` on the sync contribution does not elect it as an aggregator.
     ///
     /// ## Peer scoring
     ///
@@ -101,8 +101,8 @@ pub enum Error {
     InvalidSelectionProof {
         aggregator_index: u64,
     },
-    /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
-    /// aggregator index is not in the committee for that attestation.
+    /// The `selection_proof` on the sync committee contribution selects it as a validator, however the
+    /// aggregator index is not in the committee for that sync contribution.
     ///
     /// ## Peer scoring
     ///
@@ -129,8 +129,8 @@ pub enum Error {
     ///
     /// ## Peer scoring
     ///
-    /// It's unclear if this attestation is valid, however we have already observed an aggregate
-    /// attestation from this validator for this epoch and should not observe another.
+    /// It's unclear if this sync committee message is valid, however we have already observed an aggregate
+    /// sync committee message from this validator for this epoch and should not observe another.
     AggregatorAlreadyKnown(u64),
     /// The aggregator index is higher than the maximum possible validator count.
     ///
@@ -144,16 +144,16 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     UnknownValidatorIndex(usize),
-    /// The `attestation.data.beacon_block_root` block is unknown.
+    /// The `beacon_block_root` block is unknown.
     ///
     /// ## Peer scoring
     ///
-    /// The attestation points to a block we have not yet imported. It's unclear if the attestation
+    /// The sync committee message points to a block we have not yet imported. It's unclear if the sync contribution
     /// is valid or not.
     UnknownHeadBlock {
         beacon_block_root: Hash256,
     },
-    /// A signature on the attestation is invalid.
+    /// A signature on the sync committee message is invalid.
     ///
     /// ## Peer scoring
     ///
@@ -171,7 +171,7 @@ pub enum Error {
         validator_index: u64,
         slot: Slot,
     },
-    /// The attestation was received on an invalid attestation subnet.
+    /// The sync committee message was received on an invalid sync committee message subnet.
     ///
     /// ## Peer scoring
     ///
@@ -186,32 +186,36 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     Invalid(SyncSignatureValidationError),
-    /// The attestation head block is too far behind the attestation slot, causing many skip slots.
-    /// This is deemed a DoS risk.
-    TooManySkippedSlots {
-        head_block_slot: Slot,
-        attestation_slot: Slot,
-    },
-    /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
+    /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
     ///
-    /// We were unable to process this attestation due to an internal error. It's unclear if the
-    /// attestation is valid.
+    /// We were unable to process this sync committee message due to an internal error. It's unclear if the
+    /// sync committee message is valid.
     BeaconChainError(BeaconChainError),
-    /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
+    /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
     ///
-    /// We were unable to process this attestation due to an internal error. It's unclear if the
-    /// attestation is valid.
+    /// We were unable to process this sync committee message due to an internal error. It's unclear if the
+    /// sync committee message is valid.
     InvalidSubcommittee {
         subcommittee_index: u64,
         subcommittee_size: u64,
     },
-    SyncCommitteeCacheNotInitialized,
+    /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this sync committee message due to an internal error. It's unclear if the
+    /// sync committee message is valid.
     ArithError(ArithError),
-    SszError(ssz_types::Error),
+    /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this sync committee message due to an internal error. It's unclear if the
+    /// sync committee message is valid.
     ContributionError(ContributionError),
 }
 
@@ -316,7 +320,6 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         }?;
 
         // Ensure the block being voted for (contribution.beacon_block_root) passes validation.
-        // Don't enforce the skip slot restriction for aggregates.
         //
         // This indirectly checks to see if the `contribution.beacon_block_root` is in our fork
         // choice. Any known, non-finalized, processed block should be in fork choice, so this
@@ -325,10 +328,9 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         //
         // Sync committee contributions must be for a known block. If the block is unknown, we
         // simply drop the sync committee contribution and do not delay consideration for later.
-        let _head_block =
-            verify_head_block_is_known(chain, contribution, contribution.beacon_block_root, None)?;
+        verify_head_block_is_known(chain, contribution.beacon_block_root)?;
 
-        // Ensure that the attestation has participants.
+        // Ensure that the sync committee message has participants.
         if contribution.aggregation_bits.is_zero() {
             return Err(Error::EmptyAggregationBitfield);
         }
@@ -412,8 +414,8 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
 
         // Observe the aggregator so we don't process another aggregate from them.
         //
-        // It's important to double check that the attestation is not already known, otherwise two
-        // attestations processed at the same time could be published.
+        // It's important to double check that the sync committee message is not already known, otherwise two
+        // sync committee messages processed at the same time could be published.
         if chain
             .observed_sync_aggregators
             .write()
@@ -448,7 +450,7 @@ impl VerifiedSyncSignature {
     /// Returns `Ok(Self)` if the `sync_signature` is valid to be (re)published on the gossip
     /// network.
     ///
-    /// `subnet_id` is the subnet from which we received this attestation. This function will
+    /// `subnet_id` is the subnet from which we received this sync signature. This function will
     /// verify that it was received on the correct subnet.
     pub fn verify<T: BeaconChainTypes>(
         sync_signature: SyncCommitteeSignature,
@@ -458,18 +460,14 @@ impl VerifiedSyncSignature {
         // Ensure sync committee signature is for the current slot (within a
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
-        // We do not queue future attestations for later processing.
+        // We do not queue future sync committee messages for later processing.
         verify_propagation_slot_range(chain, &sync_signature)?;
 
-        // Attestations must be for a known block. If the block is unknown, we simply drop the
-        // attestation and do not delay consideration for later.
-        //
-        // Enforce a maximum skip distance for unaggregated attestations.
+        // Sync signatures must be for a known block. If the block is unknown, we simply drop the
+        // sync committee message and do not delay consideration for later.
         verify_head_block_is_known(
             chain,
-            &sync_signature,
             sync_signature.beacon_block_root,
-            chain.config.import_max_skip_slots,
         )?;
         let sync_subcommittee_size =
             <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSize::to_usize()
@@ -504,8 +502,8 @@ impl VerifiedSyncSignature {
         };
 
         /*
-         * The attestation is the first valid attestation received for the participating validator
-         * for the slot, attestation.data.slot.
+         * The sync committee message is the first valid message received for the participating validator
+         * for the slot, sync_signature.slot.
          */
         let validator_index = sync_signature.validator_index;
         if chain
@@ -520,14 +518,14 @@ impl VerifiedSyncSignature {
             });
         }
 
-        // The aggregate signature of the attestation is valid.
+        // The aggregate signature of the sync committee message is valid.
         verify_sync_signature(chain, &sync_signature)?;
 
-        // Now that the attestation has been fully verified, store that we have received a valid
-        // attestation from this validator.
+        // Now that the sync committee message has been fully verified, store that we have received a valid
+        // sync committee message from this validator.
         //
-        // It's important to double check that the attestation still hasn't been observed, since
-        // there can be a race-condition if we receive two attestations at the same time and
+        // It's important to double check that the sync committee message still hasn't been observed, since
+        // there can be a race-condition if we receive two sync committee messages at the same time and
         // process them in different threads.
         if chain
             .observed_sync_contributors
@@ -547,24 +545,24 @@ impl VerifiedSyncSignature {
         })
     }
 
-    /// A helper function to add this attestation to `beacon_chain.naive_aggregation_pool`.
+    /// A helper function to add this sync committee message to `beacon_chain.naive_sync_aggregation_pool`.
     pub fn add_to_pool<T: BeaconChainTypes>(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
         chain.add_to_naive_sync_aggregation_pool(self)
     }
 
-    /// Returns the correct subnet for the attestation.
+    /// Returns the subcommittee positions for the sync signature, keyed on the `SyncSubnetId` for
+    /// the subnets the signature should be sent on.
     pub fn subnet_positions(&self) -> HashMap<SyncSubnetId, Vec<usize>> {
         self.subnet_positions.clone()
     }
 
-    /// Returns the wrapped `attestation`.
+    /// Returns the wrapped `SyncCommitteeSignature`.
     pub fn sync_signature(&self) -> &SyncCommitteeSignature {
         &self.sync_signature
     }
 }
 
-/// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
-/// You can use this `shuffling_id` to read from the shuffling cache.
+/// Returns `Ok(())` if the `beacon_block_root` is known to this chain.
 ///
 /// The block root may not be known for two reasons:
 ///
@@ -572,33 +570,20 @@ impl VerifiedSyncSignature {
 /// 2. The block is prior to the latest finalized block.
 ///
 /// Case (1) is the exact thing we're trying to detect. However case (2) is a little different, but
-/// it's still fine to reject here because there's no need for us to handle attestations that are
+/// it's still fine to reject here because there's no need for us to handle sync committee messages that are
 /// already finalized.
-fn verify_head_block_is_known<T: BeaconChainTypes, E: SlotData>(
+fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    sync_contribution: &E,
     beacon_block_root: Hash256,
-    max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
     if let Some(block) = chain.fork_choice.read().get_block(&beacon_block_root) {
-        //FIXME(sean): do we want to keep this?
-        // Reject any block that exceeds our limit on skipped slots.
-        if let Some(max_skip_slots) = max_skip_slots {
-            if sync_contribution.get_slot() > block.slot + max_skip_slots {
-                return Err(Error::TooManySkippedSlots {
-                    head_block_slot: block.slot,
-                    attestation_slot: sync_contribution.get_slot(),
-                });
-            }
-        }
-
         Ok(block)
     } else {
         Err(Error::UnknownHeadBlock { beacon_block_root })
     }
 }
 
-/// Verify that the `attestation` is within the acceptable gossip propagation range, with reference
+/// Verify that the `sync_contribution` is within the acceptable gossip propagation range, with reference
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
@@ -619,7 +604,6 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, E: SlotData>(
         });
     }
 
-    // Taking advantage of saturating subtraction on `Slot`.
     let earliest_permissible_slot = chain
         .slot_clock
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
@@ -711,7 +695,7 @@ pub fn verify_sync_signature<T: BeaconChainTypes>(
     sync_signature: &SyncCommitteeSignature,
 ) -> Result<(), Error> {
     let signature_setup_timer =
-        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
+        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_SETUP_TIMES);
 
     let pubkey_cache = chain
         .validator_pubkey_cache
@@ -740,7 +724,7 @@ pub fn verify_sync_signature<T: BeaconChainTypes>(
     metrics::stop_timer(signature_setup_timer);
 
     let _signature_verification_timer =
-        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_TIMES);
 
     if signature_set.verify() {
         Ok(())

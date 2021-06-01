@@ -730,6 +730,14 @@ lazy_static! {
         "beacon_sync_contribution_processing_apply_to_op_pool",
         "Time spent applying a sync contribution to the block inclusion pool"
     );
+    pub static ref SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_contribution_processing_signature_setup_seconds",
+        "Time spent on setting up for the signature verification of sync contribution processing"
+    );
+    pub static ref SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_contribution_processing_signature_seconds",
+        "Time spent on the signature verification of sync contribution processing"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -870,13 +878,13 @@ fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain:
         set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_EPOCH_ATTESTERS, count);
     }
 
-    //FIXME(sean): must be a better way to do this?
+    let sync_aggregators = chain
+        .observed_sync_aggregators
+        .read();
     let mut sum = 0;
     for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
-        if let Some(count) = chain
-            .observed_sync_aggregators
-            .read()
-            .observed_validator_count(SlotSubcommitteeIndex::new(prev_slot, i))
+        if let Some(count) =
+        sync_aggregators.observed_validator_count(SlotSubcommitteeIndex::new(prev_slot, i))
         {
             sum += count;
         }

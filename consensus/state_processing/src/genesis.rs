@@ -45,8 +45,9 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     if spec.fork_name_at_slot(state.slot()) == ForkName::Altair {
         state.upgrade_to_altair(spec)?;
 
-        //FIXME(sean): this breaks EF tests (until the next version is released?)
-        // need it to make the beacon harness's sync committee shuffling work without advancing a ton of slots
+        //FIXME(sean): this breaks EF tests in alpha.3, but need it to make the beacon harness's
+        // sync committee shuffling work without advancing a ton of slots. This should be resolved
+        // after we update to alpha.6
         let next_synce_committee = state.get_sync_committee(state.next_epoch()?, spec)?;
         *state.current_sync_committee_mut()? = Arc::new(next_synce_committee.clone());
         *state.next_sync_committee_mut()? = next_synce_committee;

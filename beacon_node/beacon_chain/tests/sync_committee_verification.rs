@@ -4,9 +4,7 @@
 extern crate lazy_static;
 
 use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
 use store::{SignedContributionAndProof, SyncCommitteeSignature};
@@ -19,7 +17,6 @@ use types::{
 
 pub type E = MainnetEthSpec;
 
-//FIXME(sean): is this unnecessarily high?
 pub const VALIDATOR_COUNT: usize = 256;
 
 lazy_static! {
@@ -163,26 +160,16 @@ fn get_non_aggregator(
 #[test]
 fn aggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
+    let state = harness.get_current_state();
 
-    //FIXME(sean): could maybe reduce.
-
-    // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
+    harness.add_attested_blocks_at_slots(
+        state,
+        Hash256::zero(),
+        &[Slot::new(1), Slot::new(2)],
+        (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
     );
-
-    // Advance into a slot where there have not been blocks or sync signatures produced.
-    harness.advance_slot();
 
     let current_slot = harness.chain.slot().expect("should get slot");
-
-    assert_eq!(
-        current_slot % E::slots_per_epoch(),
-        0,
-        "the test requires a new epoch to avoid already-seen errors"
-    );
 
     let (valid_aggregate, aggregator_index, aggregator_sk) = get_valid_sync_contribution(&harness);
 
@@ -484,32 +471,22 @@ fn aggregated_gossip_verification() {
         SyncCommitteeError::AggregatorAlreadyKnown(index)
         if index == aggregator_index as u64
     );
-
-    //FIXME(sean): add a test ensuring that we will accept a aggregates from the same aggregator_index
-    // on different subcommittees
 }
 
 /// Tests the verification conditions for sync committee signatures on the gossip network.
 #[test]
 fn unaggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
+    let state = harness.get_current_state();
 
-    // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
+    harness.add_attested_blocks_at_slots(
+        state,
+        Hash256::zero(),
+        &[Slot::new(1), Slot::new(2)],
+        (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
     );
-
-    // Advance into a slot where there have not been blocks or attestations produced.
-    harness.advance_slot();
 
     let current_slot = harness.chain.slot().expect("should get slot");
-    assert_eq!(
-        current_slot % E::slots_per_epoch(),
-        0,
-        "the test requires a new epoch to avoid already-seen errors"
-    );
 
     let (valid_sync_signature, expected_validator_index, validator_sk, subnet_id) =
         get_valid_sync_signature(&harness, current_slot);

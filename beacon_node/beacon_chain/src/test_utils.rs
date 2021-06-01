@@ -805,7 +805,6 @@ where
                     let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, *subcommittee_position)
                         .expect("should derive sync contribution");
 
-                    // FIXME(sean): could update this to use the naive aggregation pool like with attestations
                     let aggregate =
                             committee_signatures.iter().skip(1)
                                 .fold(default, |mut agg, (sig, position)| {
