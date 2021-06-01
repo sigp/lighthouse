@@ -106,6 +106,10 @@ pub enum HotColdDBError {
     IterationError {
         unexpected_key: BytesKey,
     },
+    AttestationStateIsFinalized {
+        split_slot: Slot,
+        request_slot: Option<Slot>,
+    },
 }
 
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
@@ -345,8 +349,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
-        if slot.map_or(false, |slot| slot < self.get_split_slot()) {
-            Ok(None)
+        let split_slot = self.get_split_slot();
+
+        if slot.map_or(false, |slot| slot < split_slot) {
+            Err(HotColdDBError::AttestationStateIsFinalized {
+                split_slot,
+                request_slot: slot,
+            }
+            .into())
         } else {
             self.load_hot_state(state_root, BlockReplay::InconsistentStateRoots)
         }
