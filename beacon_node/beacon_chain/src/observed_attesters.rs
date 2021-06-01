@@ -15,7 +15,9 @@
 //!   the same slot and in the same subcommittee.
 
 use crate::store::attestation::SlotData;
-use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use crate::types::consts::altair::{
+    SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
+};
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -23,10 +25,11 @@ use std::marker::PhantomData;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
-pub type ObservedSyncContributors<E> = AutoPruningSlotContainer<Slot, SlotHashSet, E>;
+pub type ObservedSyncContributors<E> =
+    AutoPruningSlotContainer<Slot, SyncContributorSlotHashSet<E>, E>;
 pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
-    AutoPruningSlotContainer<SlotSubcommitteeIndex, SlotHashSet, E>;
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncAggregatorSlotHashSet, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -159,21 +162,60 @@ impl Item for EpochHashSet {
 
 /// Stores a `HashSet` of which validator indices have created a sync aggregate during a
 /// slot.
-pub struct SlotHashSet {
+pub struct SyncContributorSlotHashSet<E> {
+    set: HashSet<usize>,
+    phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> Item for SyncContributorSlotHashSet<E> {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(capacity),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Defaults to the `SYNC_COMMITTEE_SUBNET_COUNT`.
+    fn default_capacity() -> usize {
+        E::sync_committee_size()
+    }
+
+    fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    fn validator_count(&self) -> usize {
+        self.set.len()
+    }
+
+    /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
+    /// already in the set.
+    fn insert(&mut self, validator_index: usize) -> bool {
+        !self.set.insert(validator_index)
+    }
+
+    /// Returns `true` if the `validator_index` is in the set.
+    fn contains(&self, validator_index: usize) -> bool {
+        self.set.contains(&validator_index)
+    }
+}
+
+/// Stores a `HashSet` of which validator indices have created a sync aggregate during a
+/// slot.
+pub struct SyncAggregatorSlotHashSet {
     set: HashSet<usize>,
 }
 
-impl Item for SlotHashSet {
+impl Item for SyncAggregatorSlotHashSet {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             set: HashSet::with_capacity(capacity),
         }
     }
 
-    /// Defaults to the `SYNC_COMMITTEE_SUBNET_COUNT`.
+    /// Defaults to the `TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE * SYNC_COMMITTEE_SUBNET_COUNT`
     fn default_capacity() -> usize {
-        //FIXME(sean): this is wrong
-        SYNC_COMMITTEE_SUBNET_COUNT as usize
+        (TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE as usize) * (SYNC_COMMITTEE_SUBNET_COUNT as usize)
     }
 
     fn len(&self) -> usize {

@@ -48,12 +48,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 fn get_valid_sync_signature(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     slot: Slot,
-) -> (
-    SyncCommitteeSignature,
-    usize,
-    SecretKey,
-    SyncSubnetId,
-) {
+) -> (SyncCommitteeSignature, usize, SecretKey, SyncSubnetId) {
     let head_state = harness
         .chain
         .head_beacon_state()
@@ -63,7 +58,7 @@ fn get_valid_sync_signature(
         .head()
         .expect("should get head state")
         .beacon_block_root;
-    let (signature, subcommittee_position) = harness
+    let (signature, _) = harness
         .make_sync_signatures(&head_state, head_block_root, slot)
         .get(0)
         .expect("sync signatures should exist")
@@ -97,9 +92,12 @@ fn get_valid_sync_contribution(
     let sync_contributions =
         harness.make_sync_contributions(&head_state, head_block_root, head_state.slot());
 
-    let (_, contribution_opt) = sync_contributions.get(0)
+    let (_, contribution_opt) = sync_contributions
+        .get(0)
         .expect("sync contributions should exist");
-    let contribution = contribution_opt.as_ref().cloned()
+    let contribution = contribution_opt
+        .as_ref()
+        .cloned()
         .expect("signed contribution and proof should exist");
 
     let aggregator_index = contribution.message.aggregator_index as usize;
@@ -120,14 +118,19 @@ fn get_non_aggregator(
     let sync_subcommittee_size = E::sync_committee_size()
         .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
         .expect("should determine sync subcommittee size");
-    let sync_committee = state.current_sync_committee().expect("should use altair state").clone();
+    let sync_committee = state
+        .current_sync_committee()
+        .expect("should use altair state")
+        .clone();
     let non_aggregator_index = sync_committee
         .pubkeys
         .chunks(sync_subcommittee_size)
         .enumerate()
         .find_map(|(subcommittee_index, subcommittee)| {
             subcommittee.iter().find_map(|pubkey| {
-                let validator_index = harness.chain.validator_index(&pubkey)
+                let validator_index = harness
+                    .chain
+                    .validator_index(&pubkey)
                     .expect("should get validator index")
                     .expect("pubkey should exist in beacon chain");
 
@@ -346,7 +349,10 @@ fn aggregated_gossip_verification() {
                 let proof: SyncSelectionProof = aggregator_sk
                     .sign(Hash256::from_slice(&int_to_bytes32(i)))
                     .into();
-                if proof.is_aggregator::<E>().expect("should determine aggregator") {
+                if proof
+                    .is_aggregator::<E>()
+                    .expect("should determine aggregator")
+                {
                     break proof.into();
                 }
             };
@@ -505,12 +511,8 @@ fn unaggregated_gossip_verification() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (
-        valid_sync_signature,
-        expected_validator_index,
-        validator_sk,
-        subnet_id,
-    ) = get_valid_sync_signature(&harness, current_slot);
+    let (valid_sync_signature, expected_validator_index, validator_sk, subnet_id) =
+        get_valid_sync_signature(&harness, current_slot);
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
