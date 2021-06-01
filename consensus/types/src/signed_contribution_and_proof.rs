@@ -1,6 +1,6 @@
 use super::{
-    ChainSpec, ContributionAndProof, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey,
-    Signature, SignedRoot, SyncCommitteeContribution, SyncSelectionProof,
+    ChainSpec, ContributionAndProof, Domain, EthSpec, Fork, Hash256, SecretKey, Signature,
+    SignedRoot, SyncCommitteeContribution, SyncSelectionProof,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -57,42 +57,5 @@ impl<T: EthSpec> SignedContributionAndProof<T> {
             message,
             signature: secret_key.sign(signing_message),
         }
-    }
-
-    /// Verifies the signature of the `ContributionAndProof`
-    pub fn is_valid_signature(
-        &self,
-        validator_pubkey: &PublicKey,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
-    ) -> bool {
-        let target_epoch = self.message.contribution.slot.epoch(T::slots_per_epoch());
-        let domain = spec.get_domain(
-            target_epoch,
-            Domain::ContributionAndProof,
-            fork,
-            genesis_validators_root,
-        );
-        let message = self.message.signing_root(domain);
-        self.signature.verify(validator_pubkey, message)
-    }
-
-    /// Verifies the signature of the `ContributionAndProof` as well the underlying selection_proof in
-    /// the contained `ContributionAndProof`.
-    pub fn is_valid(
-        &self,
-        validator_pubkey: &PublicKey,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
-    ) -> bool {
-        self.is_valid_signature(validator_pubkey, fork, genesis_validators_root, spec)
-            && self.message.is_valid_selection_proof(
-                validator_pubkey,
-                fork,
-                genesis_validators_root,
-                spec,
-            )
     }
 }

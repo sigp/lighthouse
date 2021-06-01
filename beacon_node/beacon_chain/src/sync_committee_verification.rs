@@ -98,18 +98,14 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    InvalidSelectionProof {
-        aggregator_index: u64,
-    },
+    InvalidSelectionProof { aggregator_index: u64 },
     /// The `selection_proof` on the sync committee contribution selects it as a validator, however the
     /// aggregator index is not in the committee for that sync contribution.
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    AggregatorNotInCommittee {
-        aggregator_index: u64,
-    },
+    AggregatorNotInCommittee { aggregator_index: u64 },
     /// The aggregator index refers to a validator index that we have not seen.
     ///
     /// ## Peer scoring
@@ -150,9 +146,7 @@ pub enum Error {
     ///
     /// The sync committee message points to a block we have not yet imported. It's unclear if the sync contribution
     /// is valid or not.
-    UnknownHeadBlock {
-        beacon_block_root: Hash256,
-    },
+    UnknownHeadBlock { beacon_block_root: Hash256 },
     /// A signature on the sync committee message is invalid.
     ///
     /// ## Peer scoring
@@ -167,10 +161,7 @@ pub enum Error {
     /// It's unclear if this sync signature is valid, however we have already observed a
     /// signature from this validator for this slot and should not observe
     /// another.
-    PriorSyncSignatureKnown {
-        validator_index: u64,
-        slot: Slot,
-    },
+    PriorSyncSignatureKnown { validator_index: u64, slot: Slot },
     /// The sync committee message was received on an invalid sync committee message subnet.
     ///
     /// ## Peer scoring
@@ -465,10 +456,7 @@ impl VerifiedSyncSignature {
 
         // Sync signatures must be for a known block. If the block is unknown, we simply drop the
         // sync committee message and do not delay consideration for later.
-        verify_head_block_is_known(
-            chain,
-            sync_signature.beacon_block_root,
-        )?;
+        verify_head_block_is_known(chain, sync_signature.beacon_block_root)?;
         let sync_subcommittee_size =
             <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSize::to_usize()
                 .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)?;
