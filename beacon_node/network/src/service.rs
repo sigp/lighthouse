@@ -25,7 +25,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription,
+    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, SyncSubnetId, Unsigned,
+    ValidatorSubscription,
 };
 
 mod tests;
@@ -480,26 +481,22 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any attestation service events
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
-                        SubnetServiceMessage::Subscribe(subnet_id) => {
-                            let subnet = Subnet::Attestation(subnet_id);
+                        SubnetServiceMessage::Subscribe(subnet) => {
                             for fork_digest in service.required_gossip_fork_digests() {
                                 let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.subscribe(topic);
                             }
                         }
-                        SubnetServiceMessage::Unsubscribe(subnet_id) => {
-                            let subnet = Subnet::Attestation(subnet_id);
+                        SubnetServiceMessage::Unsubscribe(subnet) => {
                             for fork_digest in service.required_gossip_fork_digests() {
                                 let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.unsubscribe(topic);
                             }
                         }
-                        SubnetServiceMessage::EnrAdd(subnet_id) => {
-                            let subnet = Subnet::Attestation(subnet_id);
+                        SubnetServiceMessage::EnrAdd(subnet) => {
                             service.libp2p.swarm.update_enr_subnet(subnet, true);
                         }
-                        SubnetServiceMessage::EnrRemove(subnet_id) => {
-                            let subnet = Subnet::Attestation(subnet_id);
+                        SubnetServiceMessage::EnrRemove(subnet) => {
                             service.libp2p.swarm.update_enr_subnet(subnet, false);
                         }
                         SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
@@ -510,26 +507,22 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any sync committee service events
                 Some(sync_committee_service_message) = service.sync_committee_service.next() => {
                     match sync_committee_service_message {
-                        SubnetServiceMessage::Subscribe(subnet_id) => {
-                            let subnet = Subnet::SyncCommittee(subnet_id);
+                        SubnetServiceMessage::Subscribe(subnet) => {
                             for fork_digest in service.required_gossip_fork_digests() {
                                 let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.subscribe(topic);
                             }
                         }
-                        SubnetServiceMessage::Unsubscribe(subnet_id) => {
-                            let subnet = Subnet::SyncCommittee(subnet_id);
+                        SubnetServiceMessage::Unsubscribe(subnet) => {
                             for fork_digest in service.required_gossip_fork_digests() {
                                 let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
                                 service.libp2p.swarm.unsubscribe(topic);
                             }
                         }
-                        SubnetServiceMessage::EnrAdd(subnet_id) => {
-                            let subnet = Subnet::SyncCommittee(subnet_id);
+                        SubnetServiceMessage::EnrAdd(subnet) => {
                             service.libp2p.swarm.update_enr_subnet(subnet, true);
                         }
-                        SubnetServiceMessage::EnrRemove(subnet_id) => {
-                            let subnet = Subnet::SyncCommittee(subnet_id);
+                        SubnetServiceMessage::EnrRemove(subnet) => {
                             service.libp2p.swarm.update_enr_subnet(subnet, false);
                         }
                         SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {

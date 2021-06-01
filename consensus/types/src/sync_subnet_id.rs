@@ -1,6 +1,9 @@
 //! Identifies each shard by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use crate::{ChainSpec, EthSpec};
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::Unsigned;
 use std::ops::{Deref, DerefMut};
 
 lazy_static! {
@@ -32,6 +35,20 @@ pub fn sync_subnet_id_to_string(i: u64) -> &'static str {
 impl SyncSubnetId {
     pub fn new(id: u64) -> Self {
         id.into()
+    }
+
+    /// Compute required subnets to subscribe to given the sync committee indices.
+    pub fn compute_subnets_for_sync_committee<T: EthSpec>(
+        sync_committee_indices: Vec<u64>,
+        spec: &ChainSpec,
+    ) -> Result<Vec<Self>, ArithError> {
+        let subnet_size =
+            T::SyncCommitteeSize::to_u64().safe_div(spec.sync_committee_subnet_count)?;
+
+        sync_committee_indices
+            .into_iter()
+            .map(|index| index.safe_div(subnet_size).map(Self::new))
+            .collect::<Result<_, _>>()
     }
 }
 

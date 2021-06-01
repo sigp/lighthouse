@@ -1,7 +1,7 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::SubnetId;
+use types::{SubnetId, SyncSubnetId};
 
 use crate::Subnet;
 
@@ -62,7 +62,7 @@ pub enum GossipKind {
     SignedContributionAndProof,
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
     #[strum(serialize = "sync_committee")]
-    SyncCommitteeSignature(SubnetId),
+    SyncCommitteeSignature(SyncSubnetId),
 }
 
 impl std::fmt::Display for GossipKind {
@@ -255,7 +255,7 @@ fn committee_topic_index(topic: &str) -> Option<Subnet> {
                 .ok()?,
         )));
     } else if topic.starts_with(SYNC_COMMITTEE_PREFIX_TOPIC) {
-        return Some(Subnet::SyncCommittee(SubnetId::new(
+        return Some(Subnet::SyncCommittee(SyncSubnetId::new(
             topic
                 .trim_start_matches(SYNC_COMMITTEE_PREFIX_TOPIC)
                 .parse::<u64>()
@@ -285,7 +285,7 @@ mod tests {
                 BeaconAggregateAndProof,
                 SignedContributionAndProof,
                 Attestation(SubnetId::new(42)),
-                SyncCommitteeSignature(SubnetId::new(42)),
+                SyncCommitteeSignature(SyncSubnetId::new(42)),
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
@@ -368,7 +368,7 @@ mod tests {
         let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/sync_committee_42/ssz_snappy");
         assert_eq!(
             subnet_id_from_topic_hash(&topic_hash),
-            Some(Subnet::SyncCommittee(SubnetId::new(42)))
+            Some(Subnet::SyncCommittee(SyncSubnetId::new(42)))
         );
     }
 
@@ -386,7 +386,7 @@ mod tests {
 
         assert_eq!(
             "sync_committee",
-            SyncCommitteeSignature(SubnetId::new(42)).as_ref()
+            SyncCommitteeSignature(SyncSubnetId::new(42)).as_ref()
         );
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());

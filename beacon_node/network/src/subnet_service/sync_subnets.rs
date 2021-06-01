@@ -15,7 +15,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{NetworkConfig, Subnet, SubnetDiscovery};
 use hashset_delay::HashSetDelay;
 use slot_clock::SlotClock;
-use types::{Epoch, EthSpec, SubnetId, SyncCommitteeSubscription};
+use types::{Epoch, EthSpec, SyncCommitteeSubscription, SyncSubnetId};
 
 use crate::metrics;
 
@@ -27,8 +27,8 @@ const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 /// A particular subnet at a given slot.
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ExactSubnet {
-    /// The `SubnetId` associated with this subnet.
-    pub subnet_id: SubnetId,
+    /// The `SyncSubnetId` associated with this subnet.
+    pub subnet_id: SyncSubnetId,
     /// The epoch until which we need to stay subscribed to the subnet.
     pub until_epoch: Epoch,
 }
@@ -121,7 +121,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                 "subscription" => ?subscription,
             );
 
-            let subnet_ids = match SubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
+            let subnet_ids = match SyncSubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
                 subscription.sync_committee_indices,
                 &self.beacon_chain.spec,
             ) {
@@ -264,11 +264,15 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
         self.subscriptions.insert(exact_subnet.clone());
         self.events
-            .push_back(SubnetServiceMessage::Subscribe(exact_subnet.subnet_id));
+            .push_back(SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(
+                exact_subnet.subnet_id,
+            )));
 
         // add the subnet to the ENR bitfield
         self.events
-            .push_back(SubnetServiceMessage::EnrAdd(exact_subnet.subnet_id));
+            .push_back(SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(
+                exact_subnet.subnet_id,
+            )));
 
         // add an unsubscription event to remove ourselves from the subnet once completed
         self.unsubscriptions
@@ -282,10 +286,14 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
         self.subscriptions.remove(&exact_subnet);
         self.events
-            .push_back(SubnetServiceMessage::Unsubscribe(exact_subnet.subnet_id));
+            .push_back(SubnetServiceMessage::Unsubscribe(Subnet::SyncCommittee(
+                exact_subnet.subnet_id,
+            )));
 
         self.events
-            .push_back(SubnetServiceMessage::EnrRemove(exact_subnet.subnet_id));
+            .push_back(SubnetServiceMessage::EnrRemove(Subnet::SyncCommittee(
+                exact_subnet.subnet_id,
+            )));
     }
 }
 
