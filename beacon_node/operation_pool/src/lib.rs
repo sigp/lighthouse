@@ -681,7 +681,7 @@ mod release_tests {
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let mut spec = E::default_spec();
 
-        spec.altair_fork_slot = Some(Slot::new(0));
+        spec.altair_fork_epoch = Some(Epoch::new(0));
 
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;

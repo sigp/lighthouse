@@ -11,7 +11,7 @@ use store::{SignedContributionAndProof, SyncCommitteeSignature};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    AggregateSignature, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
+    AggregateSignature, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey,
     SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
@@ -27,7 +27,7 @@ lazy_static! {
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = E::default_spec();
-    spec.altair_fork_slot = Some(Slot::new(0));
+    spec.altair_fork_epoch = Some(Epoch::new(0));
     let harness = BeaconChainHarness::new(
         MainnetEthSpec,
         Some(spec),

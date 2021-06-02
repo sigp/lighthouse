@@ -4,7 +4,6 @@ use super::per_block_processing::{
 use crate::common::DepositDataTree;
 use crate::upgrade::upgrade_to_altair;
 use safe_arith::{ArithError, SafeArith};
-use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
