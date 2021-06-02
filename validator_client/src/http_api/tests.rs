@@ -11,7 +11,9 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
-use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*};
+use eth2::lighthouse_vc::{
+    http_client::ValidatorClientHttpClient, types::Config as StandardConfig, types::*,
+};
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -150,7 +152,7 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self.client.get_lighthouse_spec().await.unwrap().data;
 
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
+        let expected = StandardConfig::from_chain_spec::<E>(&E::default_spec());
 
         assert_eq!(result, expected);
 

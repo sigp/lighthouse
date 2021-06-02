@@ -1,4 +1,4 @@
-use super::{types::*, PK_LEN, SECRET_PREFIX};
+use super::{types::Config as StandardConfig, types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
 use account_utils::ZeroizeString;
 use bytes::Bytes;
@@ -211,7 +211,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/spec`
-    pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<ConfigAndPreset>, Error> {
+    pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<StandardConfig>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
