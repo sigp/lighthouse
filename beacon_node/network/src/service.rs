@@ -460,7 +460,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                         }
                                     }
                                 }
-                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetSize::to_u64() {
+                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetCount::to_u64() {
                                     let subnet = Subnet::SyncCommittee(SyncSubnetId::new(subnet_id));
                                     // Update the ENR bitfield
                                     service.libp2p.swarm.update_enr_subnet(subnet, true);
