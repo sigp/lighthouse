@@ -78,8 +78,8 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      * New in Altair
      */
     type SyncCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The number of `sync_committee` subnets.
     type SyncCommitteeSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-
     /*
      * Derived values (set these CAREFULLY)
      */
