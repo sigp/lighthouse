@@ -126,7 +126,7 @@ pub async fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    node.swarm.behaviour().local_enr()
+    node.swarm.local_enr()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
@@ -171,7 +171,7 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log).await;
 
-    let receiver_multiaddr = receiver.swarm.behaviour_mut().local_enr().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.swarm.local_enr().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {

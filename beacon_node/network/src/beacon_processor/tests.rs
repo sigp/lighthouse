@@ -7,8 +7,8 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
+use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::{null_logger, Environment, EnvironmentBuilder};
-use eth2_libp2p::discv5::enr::{CombinedKey, EnrBuilder};
 use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, MessageId, NetworkGlobals, PeerId};
 use slot_clock::SlotClock;
 use std::cmp;
