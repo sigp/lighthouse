@@ -5,7 +5,7 @@ extern crate lazy_static;
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
-    StateSkipConfig,
+    StateSkipConfig, WhenSlotSkipped,
 };
 use store::config::StoreConfig;
 use tree_hash::TreeHash;
@@ -60,7 +60,7 @@ fn produces_attestations() {
         };
 
         let block = chain
-            .block_at_slot(block_slot)
+            .block_at_slot(block_slot, WhenSlotSkipped::Prev)
             .expect("should get block")
             .expect("block should not be skipped");
         let block_root = block.message.tree_hash_root();

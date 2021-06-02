@@ -14,6 +14,7 @@ use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
@@ -372,6 +373,22 @@ where
             .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_service_ctxt".into());
         SlasherService::new(beacon_chain, network_send).run(&context.executor)
+    }
+
+    /// Start the explorer client which periodically sends beacon
+    /// and system metrics to the configured endpoint.
+    pub fn monitoring_client(self, config: &monitoring_api::Config) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or("monitoring_client requires a runtime_context")?
+            .service_context("monitoring_client".into());
+        let monitoring_client = MonitoringHttpClient::new(config, context.log().clone())?;
+        monitoring_client.auto_update(
+            context.executor,
+            vec![ProcessType::BeaconNode, ProcessType::System],
+        );
+        Ok(self)
     }
 
     /// Immediately starts the service that periodically logs information each slot.
