@@ -133,6 +133,7 @@ pub struct Behaviour<TSpec: EthSpec> {
     waker: Option<std::task::Waker>,
     /// Directory where metadata is stored
     network_dir: PathBuf,
+    fork_context: Arc<ForkContext>,
     /// Logger for behaviour actions.
     log: slog::Logger,
 
@@ -226,7 +227,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
-            eth2_rpc: RPC::new(fork_context, log.clone()),
+            eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
             gossipsub,
             identify,
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
@@ -239,6 +240,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: net_conf.network_dir.clone(),
             log: behaviour_log,
             score_settings,
+            fork_context,
             update_gossipsub_scores,
         })
     }
@@ -628,9 +630,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data) {
+                match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data, &self.fork_context) {
                     Err(e) => {
-                        debug!(self.log, "Could not decode gossipsub message"; "error" => e);
+                        debug!(self.log, "Could not decode gossipsub message"; "topic" => ?gs_msg.topic,"error" => e);
                         //reject the message
                         if let Err(e) = self.gossipsub.report_message_validation_result(
                             &id,

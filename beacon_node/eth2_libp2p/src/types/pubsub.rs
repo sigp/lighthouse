@@ -8,9 +8,10 @@ use ssz::{Decode, Encode};
 use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockBase, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeSignature, SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeSignature,
+    SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,7 +123,11 @@ impl<T: EthSpec> PubsubMessage<T> {
     /* Note: This is assuming we are not hashing topics. If we choose to hash topics, these will
      * need to be modified.
      */
-    pub fn decode(topic: &TopicHash, data: &[u8]) -> Result<Self, String> {
+    pub fn decode(
+        topic: &TopicHash,
+        data: &[u8],
+        fork_context: &ForkContext,
+    ) -> Result<Self, String> {
         match GossipTopic::decode(topic.as_str()) {
             Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
             Ok(gossip_topic) => {
@@ -149,11 +154,23 @@ impl<T: EthSpec> PubsubMessage<T> {
                         ))))
                     }
                     GossipKind::BeaconBlock => {
-                        // FIXME(altair): support Altair blocks
-                        let beacon_block = SignedBeaconBlock::Base(
-                            SignedBeaconBlockBase::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?,
-                        );
+                        let beacon_block =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(ForkName::Base) => SignedBeaconBlock::<T>::Base(
+                                    SignedBeaconBlockBase::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Altair) => SignedBeaconBlock::<T>::Altair(
+                                    SignedBeaconBlockAltair::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)))
                     }
                     GossipKind::VoluntaryExit => {
