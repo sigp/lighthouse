@@ -2350,7 +2350,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if is_reorg {
             match self.find_reorg_slot(&new_head.beacon_state, new_head.beacon_block_root) {
-                Ok(slot) => reorg_distance = current_head.slot - slot,
+                Ok(slot) => reorg_distance = current_head.slot.saturating_sub(slot),
                 Err(e) => {
                     warn!(
                         self.log,
