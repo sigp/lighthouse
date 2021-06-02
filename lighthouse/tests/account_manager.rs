@@ -2,7 +2,7 @@ use account_manager::{
     validator::{
         create::*,
         import::{self, CMD as IMPORT_CMD},
-        modify::{CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG, ALL},
+        modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
         CMD as VALIDATOR_CMD,
     },
     wallet::{
