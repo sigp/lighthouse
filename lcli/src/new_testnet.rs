@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
-use types::{Address, AltairConfig, BaseConfig, EthSpec};
+use types::{Address, Config, EthSpec};
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
@@ -57,8 +57,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state_bytes: None,
-        base_config: BaseConfig::from_chain_spec::<T>(&spec),
-        altair_config: AltairConfig::from_chain_spec::<T>(&spec),
+        config: Config::from_chain_spec::<T>(&spec),
     };
 
     testnet.write_to_file(testnet_dir_path, overwrite_files)

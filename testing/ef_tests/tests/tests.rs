@@ -1,10 +1,11 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use std::path::PathBuf;
 use types::*;
 
+// FIXME(altair): fix these once alpha.7 is released and includes config files
 // Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
+/*
 fn config_test<E: EthSpec + TypeName>() {
     let config_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("eth2.0-spec-tests")
@@ -32,7 +33,6 @@ fn config_test<E: EthSpec + TypeName>() {
     assert_eq!(altair_from_spec, altair_config);
 }
 
-// FIXME(sproul): fix these once alpha.7 is released
 #[test]
 #[should_panic]
 fn mainnet_config_ok() {
@@ -44,6 +44,7 @@ fn mainnet_config_ok() {
 fn minimal_config_ok() {
     config_test::<MinimalEthSpec>();
 }
+*/
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
