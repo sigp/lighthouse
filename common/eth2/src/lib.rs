@@ -27,11 +27,6 @@ use std::fmt;
 use std::iter::Iterator;
 use std::time::Duration;
 
-/// A specific timeout ratio for HTTP requests involved in producing attestations.
-/// This can help reduce missed attestations that occur when an endpoint fallback occurs.
-/// A value of 3 would be a timeout of 1/3 the milliseconds per slot (rounded down) of the network.
-const HTTP_ATTESTATION_TIMEOUT_RATIO: u64 = 3;
-
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -83,13 +78,44 @@ impl fmt::Display for Error {
     }
 }
 
+/// A struct to define a variety of different timeouts for different validator tasks to ensure
+/// proper fallback behaviour.
+#[derive(Clone)]
+pub struct Timeouts {
+    attestation: Duration,
+    attester_duties: Duration,
+    proposal: Duration,
+    proposer_duties: Duration,
+}
+
+impl Timeouts {
+    pub fn new(
+        attestation: Duration,
+        attester_duties: Duration,
+        proposal: Duration,
+        proposer_duties: Duration,
+    ) -> Self {
+        Timeouts {
+            attestation,
+            attester_duties,
+            proposal,
+            proposer_duties,
+        }
+    }
+
+    pub fn default(seconds_per_slot: u64) -> Self {
+        let timeout = Duration::from_secs(seconds_per_slot);
+        Timeouts::new(timeout, timeout, timeout, timeout)
+    }
+}
+
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
 #[derive(Clone)]
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
-    seconds_per_slot: u64,
+    timeouts: Timeouts,
 }
 
 impl fmt::Display for BeaconNodeHttpClient {
@@ -105,23 +131,23 @@ impl AsRef<str> for BeaconNodeHttpClient {
 }
 
 impl BeaconNodeHttpClient {
-    pub fn new(server: SensitiveUrl, seconds_per_slot: u64) -> Self {
+    pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
         Self {
             client: reqwest::Client::new(),
             server,
-            seconds_per_slot,
+            timeouts,
         }
     }
 
     pub fn from_components(
         server: SensitiveUrl,
         client: reqwest::Client,
-        seconds_per_slot: u64,
+        timeouts: Timeouts,
     ) -> Self {
         Self {
             client,
             server,
-            seconds_per_slot,
+            timeouts,
         }
     }
 
@@ -251,15 +277,36 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// Perform a HTTP POST request, returning a JSON response.
-    async fn post_with_response<T: DeserializeOwned, U: IntoUrl, V: Serialize>(
+    /// Perform a HTTP POST request with a custom timeout.
+    async fn post_with_timeout<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let response = self
+            .client
+            .post(url)
+            .timeout(timeout)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response).await?;
+        Ok(())
+    }
+
+    /// Perform a HTTP POST request with a custom timeout, returning a JSON response.
+    async fn post_with_timeout_and_response<T: DeserializeOwned, U: IntoUrl, V: Serialize>(
         &self,
         url: U,
         body: &V,
+        timeout: Duration,
     ) -> Result<T, Error> {
         let response = self
             .client
             .post(url)
+            .timeout(timeout)
             .json(body)
             .send()
             .await
@@ -530,7 +577,8 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post(path, block).await?;
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
 
         Ok(())
     }
@@ -628,9 +676,7 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
-            .timeout(Duration::from_millis(
-                (self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO,
-            ))
+            .timeout(self.timeouts.attestation)
             .json(attestations)
             .send()
             .await
@@ -992,7 +1038,8 @@ impl BeaconNodeHttpClient {
             .push("proposer")
             .push(&epoch.to_string());
 
-        self.get(path).await
+        self.get_with_timeout(path, self.timeouts.proposer_duties)
+            .await
     }
 
     /// `GET validator/blocks/{slot}`
@@ -1038,8 +1085,7 @@ impl BeaconNodeHttpClient {
             .append_pair("slot", &slot.to_string())
             .append_pair("committee_index", &committee_index.to_string());
 
-        let timeout =
-            Duration::from_millis((self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO);
+        let timeout = self.timeouts.attestation;
         self.get_with_timeout(path, timeout).await
     }
 
@@ -1063,8 +1109,7 @@ impl BeaconNodeHttpClient {
                 &format!("{:?}", attestation_data_root),
             );
 
-        let timeout =
-            Duration::from_millis((self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO);
+        let timeout = self.timeouts.attestation;
         self.get_opt_with_timeout(path, timeout).await
     }
 
@@ -1083,7 +1128,8 @@ impl BeaconNodeHttpClient {
             .push("attester")
             .push(&epoch.to_string());
 
-        self.post_with_response(path, &indices).await
+        self.post_with_timeout_and_response(path, &indices, self.timeouts.attester_duties)
+            .await
     }
 
     /// `POST validator/aggregate_and_proofs`
@@ -1101,9 +1147,7 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
-            .timeout(Duration::from_millis(
-                (self.seconds_per_slot * 1_000) / HTTP_ATTESTATION_TIMEOUT_RATIO,
-            ))
+            .timeout(self.timeouts.attestation)
             .json(aggregates)
             .send()
             .await

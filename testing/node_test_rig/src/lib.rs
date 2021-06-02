@@ -4,7 +4,7 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient};
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, Timeouts};
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -19,10 +19,8 @@ pub use environment;
 pub use eth2;
 pub use validator_client::Config as ValidatorConfig;
 
-const SECONDS_PER_SLOT: u64 = 12;
-
 /// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+const HTTP_TIMEOUT: u64 = 4;
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
@@ -73,13 +71,13 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         )
         .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         let beacon_node_http_client = ClientBuilder::new()
-            .timeout(HTTP_TIMEOUT)
+            .timeout(Duration::from_secs(HTTP_TIMEOUT))
             .build()
             .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
         Ok(BeaconNodeHttpClient::from_components(
             beacon_node_url,
             beacon_node_http_client,
-            SECONDS_PER_SLOT,
+            Timeouts::default(HTTP_TIMEOUT),
         ))
     }
 }
