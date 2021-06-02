@@ -34,6 +34,7 @@ impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
     }
 }
 
+#[derive(Clone)]
 pub enum BehaviourHandlerIn<TSpec: EthSpec> {
     Delegate(DelegateIn<TSpec>),
     /// Start the shutdown process.

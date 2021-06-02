@@ -163,7 +163,6 @@ impl Default for Config {
             .query_parallelism(5)
             .disable_report_discovered_peers()
             .ip_limit() // limits /24 IP's in buckets.
-            .incoming_bucket_limit(8) // half the bucket size
             .ping_interval(Duration::from_secs(300))
             .build();
 
