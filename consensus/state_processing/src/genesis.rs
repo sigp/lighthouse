@@ -2,6 +2,7 @@ use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::process_deposit,
 };
 use crate::common::DepositDataTree;
+use crate::upgrade::upgrade_to_altair;
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -41,19 +42,13 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
     // To support testnets with Altair enabled from genesis, perform a possible state upgrade here.
     // This must happen *after* deposits and activations are processed or the calculation of sync
-    // committees during the upgrade will fail.
-    if spec.fork_name_at_slot(state.slot()) == ForkName::Altair {
-        state.upgrade_to_altair(spec)?;
-
-        //FIXME(sean): this breaks EF tests in alpha.3, but need it to make the beacon harness's
-        // sync committee shuffling work without advancing a ton of slots. This should be resolved
-        // after we update to alpha.6
-        let next_synce_committee = state.get_sync_committee(state.next_epoch()?, spec)?;
-        *state.current_sync_committee_mut()? = Arc::new(next_synce_committee.clone());
-        *state.next_sync_committee_mut()? = next_synce_committee;
-
-        // Reset the fork version too.
-        state.fork_mut().current_version = spec.genesis_fork_version;
+    // committees during the upgrade will fail. It's a bit cheeky to do this instead of having
+    // separate Altair genesis initialization logic, but it turns out that our
+    // use of `BeaconBlock::empty` in `BeaconState::new` is sufficient to correctly initialise
+    // the `latest_block_header` as per:
+    // https://github.com/ethereum/eth2.0-specs/pull/2323
+    if spec.fork_name_at_epoch(state.current_epoch()) == ForkName::Altair {
+        upgrade_to_altair(&mut state, spec)?;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)

@@ -58,7 +58,7 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.altair_fork_slot == Some(spec.genesis_slot) {
+        if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {
             Self::Base(BeaconBlockBase::empty(spec))
@@ -171,10 +171,11 @@ impl<T: EthSpec> BeaconBlock<T> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let epoch = slot.epoch(T::slots_per_epoch());
 
         if spec
-            .altair_fork_slot
-            .map_or(true, |altair_slot| slot < altair_slot)
+            .altair_fork_epoch
+            .map_or(true, |altair_epoch| epoch < altair_epoch)
         {
             BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
         } else {
@@ -393,15 +394,19 @@ mod tests {
 
     #[test]
     fn decode_base_and_altair() {
+        type E = MainnetEthSpec;
+
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
-        let fork_slot = Slot::from_ssz_bytes(&[7, 6, 5, 4, 3, 2, 1, 0]).unwrap();
+        let fork_epoch = Epoch::from_ssz_bytes(&[7, 6, 5, 4, 3, 2, 1, 0]).unwrap();
 
-        let base_slot = fork_slot.saturating_sub(1_u64);
-        let altair_slot = fork_slot;
+        let base_epoch = fork_epoch.saturating_sub(1_u64);
+        let base_slot = base_epoch.end_slot(E::slots_per_epoch());
+        let altair_epoch = fork_epoch;
+        let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
 
-        let mut spec = MainnetEthSpec::default_spec();
-        spec.altair_fork_slot = Some(fork_slot);
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(fork_epoch);
 
         // BeaconBlockBase
         {
@@ -409,7 +414,7 @@ mod tests {
                 slot: base_slot,
                 ..<_>::random_for_test(rng)
             });
-            // It's invalid to have a base block with a slot higher than the fork slot.
+            // It's invalid to have a base block with a slot higher than the fork epoch.
             let bad_base_block = {
                 let mut bad = good_base_block.clone();
                 *bad.slot_mut() = altair_slot;
@@ -431,7 +436,7 @@ mod tests {
                 slot: altair_slot,
                 ..<_>::random_for_test(rng)
             });
-            // It's invalid to have an Altair block with a slot lower than the fork slot.
+            // It's invalid to have an Altair block with a epoch lower than the fork epoch.
             let bad_altair_block = {
                 let mut bad = good_altair_block.clone();
                 *bad.slot_mut() = base_slot;

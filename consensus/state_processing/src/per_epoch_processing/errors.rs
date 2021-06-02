@@ -22,6 +22,7 @@ pub enum EpochProcessingError {
     ArithError(safe_arith::ArithError),
     InconsistentStateFork(InconsistentFork),
     InvalidJustificationBit(ssz_types::Error),
+    InvalidFlagIndex(usize),
 }
 
 impl From<InclusionError> for EpochProcessingError {
