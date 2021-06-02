@@ -8,7 +8,7 @@ pub const ENABLE: &str = "enable";
 pub const DISABLE: &str = "disable";
 
 pub const PUBKEY_FLAG: &str = "pubkey";
-pub const REMOVE_ALL: &str = "all";
+pub const ALL: &str = "all";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -20,13 +20,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Arg::with_name(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
-                        .help("Validator pubkey to modify")
+                        .help("Validator pubkey to enable")
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name(REMOVE_ALL)
-                        .long(REMOVE_ALL)
-                        .help("Remove all validators in the validator directory")
+                    Arg::with_name(ALL)
+                        .long(ALL)
+                        .help("Enable all validators in the validator directory")
                         .takes_value(false)
                         .conflicts_with(PUBKEY_FLAG),
                 ),
@@ -38,13 +38,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Arg::with_name(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
-                        .help("Validator pubkey to modify")
+                        .help("Validator pubkey to disable")
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name(REMOVE_ALL)
-                        .long(REMOVE_ALL)
-                        .help("Remove all validators in the validator directory")
+                    Arg::with_name(ALL)
+                        .long(ALL)
+                        .help("Disable all validators in the validator directory")
                         .takes_value(false)
                         .conflicts_with(PUBKEY_FLAG),
                 ),
@@ -70,7 +70,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             validator_dir, e
         )
     })?;
-    let pubkeys_to_modify = if sub_matches.is_present(REMOVE_ALL) {
+    let pubkeys_to_modify = if sub_matches.is_present(ALL) {
         defs.as_slice()
             .iter()
             .map(|def| def.voting_public_key.clone())

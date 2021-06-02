@@ -2,7 +2,7 @@ use account_manager::{
     validator::{
         create::*,
         import::{self, CMD as IMPORT_CMD},
-        modify::{CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
+        modify::{CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG, ALL},
         CMD as VALIDATOR_CMD,
     },
     wallet::{
@@ -483,7 +483,7 @@ fn validator_import_launchpad() {
             .arg(dst_dir.path().as_os_str())
             .arg(MODIFY_CMD)
             .arg(DISABLE)
-            .arg(format!("--all")),
+            .arg(format!("--{}", ALL)),
     )
     .unwrap();
 
