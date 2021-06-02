@@ -22,7 +22,7 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     pub subcommittee_index: u64,
-    pub aggregation_bits: BitVector<T::SyncCommitteeSubnetSize>,
+    pub aggregation_bits: BitVector<T::SyncSubcommitteeSize>,
     pub signature: AggregateSignature,
 }
 
