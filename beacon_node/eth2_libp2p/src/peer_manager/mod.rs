@@ -673,6 +673,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .collect();
         for peer_id in &peers_to_dial {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+            // Remove the ENR from the cache to prevent continual re-dialing on disconnects
+            self.discovery.remove_cached_enr(&peer_id);
             self.dial_peer(peer_id);
         }
     }

@@ -295,6 +295,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.cached_enrs.iter()
     }
 
+    /// Removes a cached ENR from the list.
+    pub fn remove_cached_enr(&mut self, peer_id: &PeerId) -> Option<Enr> {
+        self.cached_enrs.pop(peer_id)
+    }
+
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
     pub fn discover_peers(&mut self) {
         // If the discv5 service isn't running or we are in the process of a query, don't bother queuing a new one.
