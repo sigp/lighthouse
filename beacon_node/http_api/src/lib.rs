@@ -75,6 +75,7 @@ pub struct Config {
     pub listen_addr: Ipv4Addr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
+    pub serve_legacy_spec: bool,
 }
 
 impl Default for Config {
@@ -84,6 +85,7 @@ impl Default for Config {
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
             listen_port: 5052,
             allow_origin: None,
+            serve_legacy_spec: true,
         }
     }
 }
@@ -332,7 +334,8 @@ pub fn serve<T: BeaconChainTypes>(
         .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
-    let log_filter = warp::any().map(move || ctx.log.clone());
+    let inner_ctx = ctx.clone();
+    let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
     /*
      *
@@ -1268,16 +1271,20 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET config/spec
+    let serve_legacy_spec = ctx.config.serve_legacy_spec;
     let get_config_spec = config_path
         .clone()
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(|chain: Arc<BeaconChain<T>>| {
+        .and_then(move |chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                Ok(api_types::GenericResponse::from(
-                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec),
-                ))
+                let mut config_and_preset =
+                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
+                if serve_legacy_spec {
+                    config_and_preset.make_backwards_compat(&chain.spec);
+                }
+                Ok(api_types::GenericResponse::from(config_and_preset))
             })
         });
 

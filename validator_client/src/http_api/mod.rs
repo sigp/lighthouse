@@ -191,9 +191,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and_then(|spec: Arc<_>, signer| {
             blocking_signed_json_task(signer, move || {
-                Ok(api_types::GenericResponse::from(
-                    ConfigAndPreset::from_chain_spec::<E>(&spec),
-                ))
+                let mut config = ConfigAndPreset::from_chain_spec::<E>(&spec);
+                config.make_backwards_compat(&spec);
+                Ok(api_types::GenericResponse::from(config))
             })
         });
 
