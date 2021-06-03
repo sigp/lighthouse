@@ -119,7 +119,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["pyrmont", "mainnet", "toledo", "prater"])
+                .possible_values(&["pyrmont", "mainnet", "prater"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)

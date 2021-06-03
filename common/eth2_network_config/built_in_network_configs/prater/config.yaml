@@ -1,4 +1,4 @@
-# Mainnet config
+# Prater config
 
 # Extends the mainnet preset
 PRESET_BASE: 'mainnet'
@@ -7,13 +7,12 @@ PRESET_BASE: 'mainnet'
 # ---------------------------------------------------------------
 # `2**14` (= 16,384)
 MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
-# Dec 1, 2020, 12pm UTC
-MIN_GENESIS_TIME: 1606824000
-# Mainnet initial fork version, recommend altering for testnets
-GENESIS_FORK_VERSION: 0x00000000
-# 604800 seconds (7 days)
-GENESIS_DELAY: 604800
-
+# Mar-01-2021 08:53:32 AM +UTC
+MIN_GENESIS_TIME: 1614588812
+# Prater area code (Vienna)
+GENESIS_FORK_VERSION: 0x00001020
+# Customized for Prater: 1919188 seconds (Mar-23-2021 02:00:00 PM +UTC)
+GENESIS_DELAY: 1919188
 
 # Forking
 # ---------------------------------------------------------------
@@ -62,10 +61,10 @@ MIN_PER_EPOCH_CHURN_LIMIT: 4
 # 2**16 (= 65,536)
 CHURN_LIMIT_QUOTIENT: 65536
 
-
 # Deposit contract
 # ---------------------------------------------------------------
-# Ethereum PoW Mainnet
-DEPOSIT_CHAIN_ID: 1
-DEPOSIT_NETWORK_ID: 1
-DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+# Ethereum Goerli testnet
+DEPOSIT_CHAIN_ID: 5
+DEPOSIT_NETWORK_ID: 5
+# Prater test deposit contract on Goerli Testnet
+DEPOSIT_CONTRACT_ADDRESS: 0xff50ed3d0ec03aC01D4C79aAd74928BFF48a7b2b
