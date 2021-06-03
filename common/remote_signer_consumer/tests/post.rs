@@ -121,7 +121,7 @@ mod post {
         testcase(
             "unix:/run/foo.socket",
             &format!(
-                "[Reqwest - Builder] Url {{ scheme: \"unix\", username: \"\", password: None, host: None, port: None, path: \"/run/foo.socket/sign/{}\", query: None, fragment: None }}",
+                "[Reqwest - Builder] Url {{ scheme: \"unix\", cannot_be_a_base: false, username: \"\", password: None, host: None, port: None, path: \"/run/foo.socket/sign/{}\", query: None, fragment: None }}",
                 PUBLIC_KEY_1
             ),
         );
@@ -129,7 +129,7 @@ mod post {
         testcase(
             "http://127.0.0.1:0",
             &format!(
-                "[Reqwest - Request] Url {{ scheme: \"http\", username: \"\", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(0), path: \"/sign/{}\", query: None, fragment: None }}",
+                "[Reqwest - Request] Url {{ scheme: \"http\", cannot_be_a_base: false, username: \"\", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(0), path: \"/sign/{}\", query: None, fragment: None }}",
                 PUBLIC_KEY_1
             ),
         );
