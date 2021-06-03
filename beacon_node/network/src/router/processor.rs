@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, ChainSpec, EthSpec, ProposerSlashing, SignedAggregateAndProof,
+    Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
@@ -328,10 +328,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Result<StatusMessage, BeaconChainError> {
     let head_info = beacon_chain.head_info()?;
-    let genesis_validators_root = beacon_chain.genesis_validators_root;
-
-    let fork_digest =
-        ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
+    let fork_digest = beacon_chain.enr_fork_id().fork_digest;
 
     Ok(StatusMessage {
         fork_digest,
