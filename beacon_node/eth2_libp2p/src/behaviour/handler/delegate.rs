@@ -56,7 +56,7 @@ impl<TSpec: EthSpec> DelegatingHandler<TSpec> {
 
 /// Wrapper around the `ProtocolsHandler::InEvent` types of the handlers.
 /// Simply delegated to the corresponding behaviour's handler.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum DelegateIn<TSpec: EthSpec> {
     Gossipsub(<GossipHandler as ProtocolsHandler>::InEvent),
     RPC(<RPCHandler<TSpec> as ProtocolsHandler>::InEvent),
@@ -141,8 +141,8 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
             .max(identify_proto.timeout());
 
         let select = SelectUpgrade::new(
-            gossip_proto.into_upgrade().1,
-            SelectUpgrade::new(rpc_proto.into_upgrade().1, identify_proto.into_upgrade().1),
+            gossip_proto.into_upgrade().0,
+            SelectUpgrade::new(rpc_proto.into_upgrade().0, identify_proto.into_upgrade().0),
         );
 
         SubstreamProtocol::new(select, ()).with_timeout(timeout)
@@ -202,7 +202,7 @@ impl<TSpec: EthSpec> ProtocolsHandler for DelegatingHandler<TSpec> {
         match event {
             DelegateIn::Gossipsub(ev) => self.gossip_handler.inject_event(ev),
             DelegateIn::RPC(ev) => self.rpc_handler.inject_event(ev),
-            DelegateIn::Identify(()) => self.identify_handler.inject_event(()),
+            DelegateIn::Identify(ev) => self.identify_handler.inject_event(ev),
         }
     }
 

@@ -56,7 +56,7 @@ fn test_status_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -90,7 +90,7 @@ fn test_status_rpc() {
                         if request == rpc_request {
                             // send the response
                             debug!(log, "Receiver Received");
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 rpc_response.clone(),
@@ -152,7 +152,7 @@ fn test_blocks_by_range_chunked_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -197,14 +197,14 @@ fn test_blocks_by_range_chunked_rpc() {
                             // send the response
                             warn!(log, "Receiver got request");
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.send_successful_response(
+                                receiver.swarm.behaviour_mut().send_successful_response(
                                     peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
                             }
                             // send the stream termination
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 Response::BlocksByRange(None),
@@ -266,7 +266,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -335,7 +335,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                 if message_info.is_some() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.swarm.send_successful_response(
+                    receiver.swarm.behaviour_mut().send_successful_response(
                         *peer_id,
                         *stream_id,
                         rpc_response.clone(),
@@ -398,7 +398,7 @@ fn test_blocks_by_range_single_empty_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -441,14 +441,14 @@ fn test_blocks_by_range_single_empty_rpc() {
                             warn!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.send_successful_response(
+                                receiver.swarm.behaviour_mut().send_successful_response(
                                     peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
                             }
                             // send the stream termination
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 Response::BlocksByRange(None),
@@ -513,7 +513,7 @@ fn test_blocks_by_root_chunked_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -556,7 +556,7 @@ fn test_blocks_by_root_chunked_rpc() {
                             debug!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.send_successful_response(
+                                receiver.swarm.behaviour_mut().send_successful_response(
                                     peer_id,
                                     id,
                                     rpc_response.clone(),
@@ -564,7 +564,7 @@ fn test_blocks_by_root_chunked_rpc() {
                                 debug!(log, "Sending message");
                             }
                             // send the stream termination
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 Response::BlocksByRange(None),
@@ -634,7 +634,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -703,7 +703,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 if message_info.is_some() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.swarm.send_successful_response(
+                    receiver.swarm.behaviour_mut().send_successful_response(
                         *peer_id,
                         *stream_id,
                         rpc_response.clone(),
@@ -749,7 +749,7 @@ fn test_goodbye_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
                         // Send a goodbye and disconnect
                         debug!(log, "Sending RPC");
-                        sender.swarm.goodbye_peer(
+                        sender.swarm.behaviour_mut().goodbye_peer(
                             &peer_id,
                             GoodbyeReason::IrrelevantNetwork,
                             ReportSource::SyncService,
