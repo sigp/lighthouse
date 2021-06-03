@@ -95,6 +95,16 @@ impl<E: EthSpec> Case for TransitionTest<E> {
                 )
                 .map_err(|e| format!("Block processing failed: {:?}", e))?;
 
+                let state_root = state.update_tree_hash_cache().unwrap();
+                if block.state_root() != state_root {
+                    return Err(format!(
+                        "Mismatched state root at slot {}, got: {:?}, expected: {:?}",
+                        block.slot(),
+                        state_root,
+                        block.state_root()
+                    ));
+                }
+
                 Ok(())
             })
             .map(move |()| state);
