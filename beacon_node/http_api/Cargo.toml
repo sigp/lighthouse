@@ -34,5 +34,4 @@ futures = "0.3.8"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { version = "0.1.0-beta.5", features = ["libp2p"] }
 sensitive_url = { path = "../../common/sensitive_url" }
