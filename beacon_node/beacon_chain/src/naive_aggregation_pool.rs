@@ -2,6 +2,7 @@ use crate::metrics;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use types::attestation::SlotData;
+use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::sync_committee_contribution::SyncContributionData;
 use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
@@ -97,6 +98,9 @@ pub trait AggregateMap {
 
     /// Start a timer observing the time it takes to prune the pool.
     fn start_prune_timer() -> Option<metrics::HistogramTimer>;
+
+    /// The default capacity of `Self`.
+    fn default_capacity() -> usize;
 }
 
 /// A collection of `Attestation` objects, keyed by their `attestation.data`. Enforces that all
@@ -199,6 +203,11 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
 
     fn start_prune_timer() -> Option<metrics::HistogramTimer> {
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_PRUNE)
+    }
+
+    /// Use the mainnet default committee size.
+    fn default_capacity() -> usize {
+        128
     }
 }
 
@@ -308,6 +317,11 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
     fn start_prune_timer() -> Option<metrics::HistogramTimer> {
         metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_PRUNE)
     }
+
+    /// Default to `SYNC_COMMITTEE_SUBNET_COUNT`.
+    fn default_capacity() -> usize {
+        SYNC_COMMITTEE_SUBNET_COUNT as usize
+    }
 }
 
 /// A pool of `Attestation` or `SyncCommitteeContribution` that is specially designed to store
@@ -384,8 +398,7 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
                 .map(|(_slot, map)| map.len())
                 .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
 
-            // Use the mainnet default committee size if we can't determine an average.
-            let initial_capacity = sum.checked_div(count).unwrap_or(128);
+            let initial_capacity = sum.checked_div(count).unwrap_or_else(T::default_capacity);
 
             let mut aggregate_map = T::new(initial_capacity);
             let outcome = aggregate_map.insert(item);
