@@ -24,7 +24,7 @@ use libp2p::{
         Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
         MessageAuthenticity, MessageId, PeerScoreThresholds,
     },
-    identify::{Identify, IdentifyEvent},
+    identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
         AddressScore, NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler,
         PollParameters, ProtocolsHandler,
@@ -151,18 +151,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
-        let identify = if net_conf.private {
-            Identify::new(
-                "".into(),
+        let identify_config = if net_conf.private {
+            IdentifyConfig::new(
                 "".into(),
                 local_key.public(), // Still send legitimate public key
             )
         } else {
-            Identify::new(
-                "lighthouse/libp2p".into(),
-                lighthouse_version::version_with_platform(),
-                local_key.public(),
-            )
+            IdentifyConfig::new("eth2/1.0.0".into(), local_key.public())
+                .with_agent_version(lighthouse_version::version_with_platform())
         };
 
         let enr_fork_id = network_globals
@@ -221,7 +217,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         Ok(Behaviour {
             eth2_rpc: RPC::new(log.clone()),
             gossipsub,
-            identify,
+            identify: Identify::new(identify_config),
             peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
                 .await?,
             events: VecDeque::new(),
@@ -902,11 +898,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     fn on_identify_event(&mut self, event: IdentifyEvent) {
         match event {
-            IdentifyEvent::Received {
-                peer_id,
-                mut info,
-                observed_addr,
-            } => {
+            IdentifyEvent::Received { peer_id, mut info } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
@@ -921,12 +913,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     "protocol_version" => info.protocol_version,
                     "agent_version" => info.agent_version,
                     "listening_ addresses" => ?info.listen_addrs,
-                    "observed_address" => ?observed_addr,
+                    "observed_address" => ?info.observed_addr,
                     "protocols" => ?info.protocols
                 );
             }
             IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}
+            IdentifyEvent::Pushed { .. } => {}
         }
     }
 
@@ -1171,12 +1164,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for Behaviour<TSpec> {
         delegate_to_behaviours!(self, inject_dial_failure, peer_id);
     }
 
-    fn inject_new_listen_addr(&mut self, addr: &Multiaddr) {
-        delegate_to_behaviours!(self, inject_new_listen_addr, addr);
+    fn inject_new_listener(&mut self, id: ListenerId) {
+        delegate_to_behaviours!(self, inject_new_listener, id);
     }
 
-    fn inject_expired_listen_addr(&mut self, addr: &Multiaddr) {
-        delegate_to_behaviours!(self, inject_expired_listen_addr, addr);
+    fn inject_new_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_new_listen_addr, id, addr);
+    }
+
+    fn inject_expired_listen_addr(&mut self, id: ListenerId, addr: &Multiaddr) {
+        delegate_to_behaviours!(self, inject_expired_listen_addr, id, addr);
     }
 
     fn inject_new_external_addr(&mut self, addr: &Multiaddr) {
