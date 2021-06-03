@@ -16,7 +16,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
-use types::{ChainSpec, Config as StandardConfig, EthSpec};
+use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -192,7 +192,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(|spec: Arc<_>, signer| {
             blocking_signed_json_task(signer, move || {
                 Ok(api_types::GenericResponse::from(
-                    StandardConfig::from_chain_spec::<E>(&spec),
+                    ConfigAndPreset::from_chain_spec::<E>(&spec),
                 ))
             })
         });
