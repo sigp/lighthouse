@@ -20,7 +20,6 @@ pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 // specification. We leave it here for posterity.
 // const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
-pub const MESH_N_LOW: usize = 6;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -134,13 +133,13 @@ impl Default for Config {
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
             .mesh_n(8)
-            .mesh_n_low(MESH_N_LOW)
+            .mesh_n_low(6)
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
             .history_length(6)
-            .max_messages_per_rpc(Some(10))
-            .history_gossip(3)
+            .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
+            .history_gossip(12)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Anonymous)
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs

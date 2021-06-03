@@ -17,6 +17,17 @@ const VOLUNTARY_EXIT_WEIGHT: f64 = 0.05;
 const PROPOSER_SLASHING_WEIGHT: f64 = 0.05;
 const ATTESTER_SLASHING_WEIGHT: f64 = 0.05;
 
+/// Builds the peer score thresholds.
+pub fn lighthouse_gossip_thresholds() -> PeerScoreThresholds {
+    PeerScoreThresholds {
+        gossip_threshold: -4000.0,
+        publish_threshold: -8000.0,
+        graylist_threshold: -16000.0,
+        accept_px_threshold: 100.0,
+        opportunistic_graft_threshold: 5.0,
+    }
+}
+
 pub struct PeerScoreSettings<TSpec: EthSpec> {
     slot: Duration,
     epoch: Duration,
@@ -75,7 +86,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             decay_to_zero: self.decay_to_zero,
             retain_score: self.epoch * 100,
             app_specific_weight: 1.0,
-            ip_colocation_factor_threshold: 3.0,
+            ip_colocation_factor_threshold: 8.0, // Allow up to 8 nodes per IP
             behaviour_penalty_threshold: 6.0,
             behaviour_penalty_decay: self.score_parameter_decay(self.epoch * 10),
             ..Default::default()
