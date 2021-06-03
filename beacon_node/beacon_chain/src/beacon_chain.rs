@@ -19,7 +19,7 @@ use crate::naive_aggregation_pool::{
     SyncContributionAggregateMap,
 };
 use crate::observed_aggregates::{
-    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncAggregates,
+    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncContributions,
 };
 use crate::observed_attesters::{
     ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
@@ -229,7 +229,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Contains a store of attestations which have been observed by the beacon chain.
     pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
     /// Contains a store of sync contributions which have been observed by the beacon chain.
-    pub(crate) observed_sync_contributions: RwLock<ObservedSyncAggregates<T::EthSpec>>,
+    pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen sending sync signatures in recent epochs.

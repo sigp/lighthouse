@@ -15,9 +15,7 @@
 //!   the same slot and in the same subcommittee.
 
 use crate::store::attestation::SlotData;
-use crate::types::consts::altair::{
-    SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
-};
+use crate::types::consts::altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE;
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -213,9 +211,9 @@ impl Item for SyncAggregatorSlotHashSet {
         }
     }
 
-    /// Defaults to the `TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE * SYNC_COMMITTEE_SUBNET_COUNT`
+    /// Defaults to the `TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE`.
     fn default_capacity() -> usize {
-        (TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE as usize) * (SYNC_COMMITTEE_SUBNET_COUNT as usize)
+        TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE as usize
     }
 
     fn len(&self) -> usize {

@@ -5,23 +5,69 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::attestation::SlotData;
+use types::consts::altair::{
+    SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
+};
 use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
-/// As a DoS protection measure, the maximum number of distinct `Attestations` or
-/// `SyncCommitteeContributions` that will be recorded for each slot.
-///
-/// Currently this is set to ~524k. If we say that each entry is 40 bytes (Hash256 (32 bytes) + an
-/// 8 byte hash) then this comes to about 20mb per slot. If we're storing 34 of these slots, then
-/// we're at 680mb. This is a lot of memory usage, but probably not a show-stopper for most
-/// reasonable hardware.
-///
-/// Upstream conditions should strongly restrict the amount of attestations that can show up in
-/// this pool. The maximum size with respect to upstream restrictions is more likely on the order
-/// of the number of validators.
-const MAX_OBSERVATIONS_PER_SLOT: usize = 1 << 19; // 524,288
-
-pub type ObservedSyncAggregates<E> = ObservedAggregates<SyncCommitteeContribution<E>, E>;
+pub type ObservedSyncContributions<E> = ObservedAggregates<SyncCommitteeContribution<E>, E>;
 pub type ObservedAggregateAttestations<E> = ObservedAggregates<Attestation<E>, E>;
+
+/// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
+pub trait Consts {
+    /// The default capacity of items stored per slot, in a single `SlotHashSet`.
+    const DEFAULT_PER_SLOT_CAPACITY: usize;
+
+    /// The maximum number of slots
+    fn max_slot_capacity() -> usize;
+
+    /// The maximum number of items stored per slot, in a single `SlotHashSet`.
+    fn max_per_slot_capacity() -> usize;
+}
+
+impl<T: EthSpec> Consts for Attestation<T> {
+    /// Use 128 as it's the target committee size for the mainnet spec. This is perhaps a little
+    /// wasteful for the minimal spec, but considering it's approx. 128 * 32 bytes we're not wasting
+    /// much.
+    const DEFAULT_PER_SLOT_CAPACITY: usize = 128;
+
+    /// We need to keep attestations for each slot of the current epoch.
+    fn max_slot_capacity() -> usize {
+        T::slots_per_epoch() as usize
+    }
+
+    /// As a DoS protection measure, the maximum number of distinct `Attestations` or
+    /// `SyncCommitteeContributions` that will be recorded for each slot.
+    ///
+    /// Currently this is set to ~524k. If we say that each entry is 40 bytes (Hash256 (32 bytes) + an
+    /// 8 byte hash) then this comes to about 20mb per slot. If we're storing 34 of these slots, then
+    /// we're at 680mb. This is a lot of memory usage, but probably not a show-stopper for most
+    /// reasonable hardware.
+    ///
+    /// Upstream conditions should strongly restrict the amount of attestations that can show up in
+    /// this pool. The maximum size with respect to upstream restrictions is more likely on the order
+    /// of the number of validators.
+    fn max_per_slot_capacity() -> usize {
+        1 << 19 // 524,288
+    }
+}
+
+impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
+    /// Set to `TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE * SYNC_COMMITTEE_SUBNET_COUNT`. This is the
+    /// expected number of aggregators per slot across all subcommittees.
+    const DEFAULT_PER_SLOT_CAPACITY: usize =
+        (SYNC_COMMITTEE_SUBNET_COUNT * TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE) as usize;
+
+    /// We only need to keep contributions related to the current slot.
+    fn max_slot_capacity() -> usize {
+        1
+    }
+
+    /// We should never receive more aggregates than there are sync committee participants.
+    fn max_per_slot_capacity() -> usize {
+        T::sync_committee_size()
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum ObserveOutcome {
@@ -52,13 +98,15 @@ pub enum Error {
 struct SlotHashSet {
     set: HashSet<Hash256>,
     slot: Slot,
+    max_capacity: usize,
 }
 
 impl SlotHashSet {
-    pub fn new(slot: Slot, initial_capacity: usize) -> Self {
+    pub fn new(slot: Slot, initial_capacity: usize, max_capacity: usize) -> Self {
         Self {
             slot,
             set: HashSet::with_capacity(initial_capacity),
+            max_capacity,
         }
     }
 
@@ -86,10 +134,8 @@ impl SlotHashSet {
             // gossip network and I think that this is a worse case than sending some invalid ones.
             // The underlying libp2p network is responsible for removing duplicate messages, so
             // this doesn't risk a broadcast loop.
-            if self.set.len() >= MAX_OBSERVATIONS_PER_SLOT {
-                return Err(Error::ReachedMaxObservationsPerSlot(
-                    MAX_OBSERVATIONS_PER_SLOT,
-                ));
+            if self.set.len() >= self.max_capacity {
+                return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
             }
 
             self.set.insert(root);
@@ -118,25 +164,25 @@ impl SlotHashSet {
 
 /// Stores the roots of objects for some number of `Slots`, so we can determine if
 /// these have previously been seen on the network.
-pub struct ObservedAggregates<T: TreeHash, E: EthSpec> {
+pub struct ObservedAggregates<T: TreeHash + SlotData + Consts, E: EthSpec> {
     lowest_permissible_slot: Slot,
-    max_capacity: u64,
     sets: Vec<SlotHashSet>,
     _phantom_spec: PhantomData<E>,
     _phantom_tree_hash: PhantomData<T>,
 }
 
-impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
-    pub fn new(max_capacity: u64) -> Self {
+impl<T: TreeHash + SlotData + Consts, E: EthSpec> Default for ObservedAggregates<T, E> {
+    fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
-            max_capacity,
             sets: vec![],
             _phantom_spec: PhantomData,
             _phantom_tree_hash: PhantomData,
         }
     }
+}
 
+impl<T: TreeHash + SlotData + Consts, E: EthSpec> ObservedAggregates<T, E> {
     /// Store the root of `item` in `self`.
     ///
     /// `root` must equal `item.tree_hash_root()`.
@@ -166,10 +212,17 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
             .and_then(|set| set.is_known(item, root))
     }
 
+    /// The maximum number of slots that items are stored for.
+    fn max_capacity(&self) -> u64 {
+        // We add `2` in order to account for one slot either side of the range due to
+        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+        (T::max_slot_capacity() + 2) as u64
+    }
+
     /// Removes any items with a slot lower than `current_slot` and bars any future
     /// item with a slot lower than `current_slot - SLOTS_RETAINED`.
     pub fn prune(&mut self, current_slot: Slot) {
-        let lowest_permissible_slot = current_slot.saturating_sub(self.max_capacity - 1);
+        let lowest_permissible_slot = current_slot.saturating_sub(self.max_capacity() - 1);
 
         self.sets.retain(|set| set.slot >= lowest_permissible_slot);
 
@@ -179,7 +232,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
     /// Returns the index of `self.set` that matches `slot`.
     ///
     /// If there is no existing set for this slot one will be created. If `self.sets.len() >=
-    /// self.max_capacity`, the set with the lowest slot will be replaced.
+    /// Self::max_capacity()`, the set with the lowest slot will be replaced.
     fn get_set_index(&mut self, slot: Slot) -> Result<usize, Error> {
         let lowest_permissible_slot = self.lowest_permissible_slot;
 
@@ -191,7 +244,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
         }
 
         // Prune the pool if this item indicates that the current slot has advanced.
-        if lowest_permissible_slot + self.max_capacity < slot + 1 {
+        if lowest_permissible_slot + self.max_capacity() < slot + 1 {
             self.prune(slot)
         }
 
@@ -209,14 +262,18 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
             .filter(|set| set.slot < slot)
             .map(|set| set.len())
             .fold((0, 0), |(count, sum), len| (count + 1, sum + len));
-        // If we are unable to determine an average, just use 128 as it's the target committee
-        // size for the mainnet spec. This is perhaps a little wasteful for the minimal spec,
-        // but considering it's approx. 128 * 32 bytes we're not wasting much.
-        let initial_capacity = sum.checked_div(count).unwrap_or(128);
+        // If we are unable to determine an average, just use the `self.default_per_slot_capacity`.
+        let initial_capacity = sum
+            .checked_div(count)
+            .unwrap_or(T::DEFAULT_PER_SLOT_CAPACITY);
 
-        if self.sets.len() < self.max_capacity as usize || self.sets.is_empty() {
+        if self.sets.len() < self.max_capacity() as usize || self.sets.is_empty() {
             let index = self.sets.len();
-            self.sets.push(SlotHashSet::new(slot, initial_capacity));
+            self.sets.push(SlotHashSet::new(
+                slot,
+                initial_capacity,
+                T::max_per_slot_capacity(),
+            ));
             return Ok(index);
         }
 
@@ -228,7 +285,7 @@ impl<T: TreeHash + SlotData, E: EthSpec> ObservedAggregates<T, E> {
             .map(|(i, _set)| i)
             .expect("sets cannot be empty due to previous .is_empty() check");
 
-        self.sets[index] = SlotHashSet::new(slot, initial_capacity);
+        self.sets[index] = SlotHashSet::new(slot, initial_capacity, T::max_per_slot_capacity());
 
         Ok(index)
     }
@@ -314,7 +371,7 @@ mod tests {
                 #[test]
                 fn mulitple_contiguous_slots() {
                     let mut store = $type::new($capacity);
-                    let max_cap = store.max_capacity;
+                    let max_cap = store.max_capacity();
 
                     for i in 0..max_cap * 3 {
                         let slot = Slot::new(i);
@@ -360,7 +417,7 @@ mod tests {
                             store.sets.iter().map(|set| set.slot).collect::<Vec<_>>();
 
                         assert!(
-                            store_slots.len() <= store.max_capacity as usize,
+                            store_slots.len() <= store.max_capacity() as usize,
                             "store size should not exceed max"
                         );
 
@@ -377,7 +434,7 @@ mod tests {
                 #[test]
                 fn mulitple_non_contiguous_slots() {
                     let mut store = $type::new($capacity);
-                    let max_cap = store.max_capacity;
+                    let max_cap = store.max_capacity();
 
                     let to_skip = vec![1_u64, 2, 3, 5, 6, 29, 30, 31, 32, 64];
                     let slots = (0..max_cap * 3)
@@ -416,7 +473,7 @@ mod tests {
                         store_slots.sort_unstable();
 
                         assert!(
-                            store_slots.len() <= store.max_capacity as usize,
+                            store_slots.len() <= store.max_capacity() as usize,
                             "store size should not exceed max"
                         );
 
