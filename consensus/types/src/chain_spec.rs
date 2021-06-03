@@ -539,7 +539,7 @@ impl Config {
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
-            min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
+            min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
 
