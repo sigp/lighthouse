@@ -137,9 +137,9 @@ impl Default for Config {
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
-            .history_length(6)
+            .history_length(12)
             .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
-            .history_gossip(12)
+            .history_gossip(3)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Anonymous)
             // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
