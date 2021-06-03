@@ -107,6 +107,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_origin = Some(allow_origin.to_string());
     }
 
+    if cli_args.is_present("http-disable-legacy-spec") {
+        client_config.http_api.serve_legacy_spec = false;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */

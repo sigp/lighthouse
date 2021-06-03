@@ -34,6 +34,54 @@ impl ConfigAndPreset {
             extra_fields,
         }
     }
+
+    /// Add fields that were previously part of the config but are now constants.
+    pub fn make_backwards_compat(&mut self, spec: &ChainSpec) {
+        let hex_string = |value: &[u8]| format!("0x{}", hex::encode(&value));
+        let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
+        let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
+        let fields = vec![
+            ("config_name", self.config.preset_base.clone()),
+            (
+                "bls_withdrawal_prefix",
+                u8_hex(spec.bls_withdrawal_prefix_byte),
+            ),
+            (
+                "domain_beacon_proposer",
+                u32_hex(spec.domain_beacon_proposer),
+            ),
+            (
+                "domain_beacon_attester",
+                u32_hex(spec.domain_beacon_attester),
+            ),
+            ("domain_randao", u32_hex(spec.domain_randao)),
+            ("domain_deposit", u32_hex(spec.domain_deposit)),
+            ("domain_voluntary_exit", u32_hex(spec.domain_voluntary_exit)),
+            (
+                "domain_selection_proof",
+                u32_hex(spec.domain_selection_proof),
+            ),
+            (
+                "domain_aggregate_and_proof",
+                u32_hex(spec.domain_aggregate_and_proof),
+            ),
+            (
+                "target_aggregators_per_committee",
+                spec.target_aggregators_per_committee.to_string(),
+            ),
+            (
+                "random_subnets_per_validator",
+                spec.random_subnets_per_validator.to_string(),
+            ),
+            (
+                "epochs_per_random_subnet_subscription",
+                spec.epochs_per_random_subnet_subscription.to_string(),
+            ),
+        ];
+        for (key, value) in fields {
+            self.extra_fields.insert(key.to_uppercase(), value);
+        }
+    }
 }
 
 #[cfg(test)]

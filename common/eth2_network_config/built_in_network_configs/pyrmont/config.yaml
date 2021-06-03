@@ -1,4 +1,4 @@
-# Mainnet config
+# Pyrmont config
 
 # Extends the mainnet preset
 PRESET_BASE: 'mainnet'
@@ -7,13 +7,12 @@ PRESET_BASE: 'mainnet'
 # ---------------------------------------------------------------
 # `2**14` (= 16,384)
 MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
-# Dec 1, 2020, 12pm UTC
-MIN_GENESIS_TIME: 1606824000
-# Mainnet initial fork version, recommend altering for testnets
-GENESIS_FORK_VERSION: 0x00000000
-# 604800 seconds (7 days)
-GENESIS_DELAY: 604800
-
+# Nov 18, 2020, 12pm UTC
+MIN_GENESIS_TIME: 1605700800
+# Pyrmont area code
+GENESIS_FORK_VERSION: 0x00002009
+# Customized for Pyrmont: 432000 seconds (5 days)
+GENESIS_DELAY: 432000
 
 # Forking
 # ---------------------------------------------------------------
@@ -62,10 +61,10 @@ MIN_PER_EPOCH_CHURN_LIMIT: 4
 # 2**16 (= 65,536)
 CHURN_LIMIT_QUOTIENT: 65536
 
-
 # Deposit contract
 # ---------------------------------------------------------------
-# Ethereum PoW Mainnet
-DEPOSIT_CHAIN_ID: 1
-DEPOSIT_NETWORK_ID: 1
-DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+# Ethereum Goerli testnet
+DEPOSIT_CHAIN_ID: 5
+DEPOSIT_NETWORK_ID: 5
+# Pyrmont test deposit contract on Goerli (2nd edition, 0x00002009 fork version)
+DEPOSIT_CONTRACT_ADDRESS: 0x8c5fecdC472E27Bc447696F431E425D02dd46a8c

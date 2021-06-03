@@ -88,13 +88,13 @@ pub struct ChainSpec {
     /*
      * Signature domains
      */
-    domain_beacon_proposer: u32,
-    domain_beacon_attester: u32,
-    domain_randao: u32,
-    domain_deposit: u32,
-    domain_voluntary_exit: u32,
-    domain_selection_proof: u32,
-    domain_aggregate_and_proof: u32,
+    pub(crate) domain_beacon_proposer: u32,
+    pub(crate) domain_beacon_attester: u32,
+    pub(crate) domain_randao: u32,
+    pub(crate) domain_deposit: u32,
+    pub(crate) domain_voluntary_exit: u32,
+    pub(crate) domain_selection_proof: u32,
+    pub(crate) domain_aggregate_and_proof: u32,
 
     /*
      * Fork choice
@@ -120,9 +120,9 @@ pub struct ChainSpec {
     pub inactivity_score_bias: u64,
     pub inactivity_score_recovery_rate: u64,
     pub min_sync_committee_participants: u64,
-    domain_sync_committee: u32,
-    domain_sync_committee_selection_proof: u32,
-    domain_contribution_and_proof: u32,
+    pub(crate) domain_sync_committee: u32,
+    pub(crate) domain_sync_committee_selection_proof: u32,
+    pub(crate) domain_contribution_and_proof: u32,
     pub altair_fork_version: [u8; 4],
     /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
     pub altair_fork_epoch: Option<Epoch>,
@@ -464,7 +464,7 @@ impl Default for ChainSpec {
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
     #[serde(default)]
-    preset_base: String,
+    pub preset_base: String,
 
     #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
