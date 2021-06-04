@@ -257,6 +257,7 @@ fn eth1_endpoints_flag() {
                 "https://infura.io/secret"
             );
             assert_eq!(config.eth1.endpoints[1].to_string(), "https://infura.io/");
+            assert!(config.sync_eth1_chain);
         });
 }
 #[test]
