@@ -58,7 +58,7 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
 /// Specific timeout constants for HTTP requests involved in different validator duties.
-/// This can help ensure proper endpoint fallback occurs.
+/// This can help ensure that proper endpoint fallback occurs.
 const HTTP_ATTESTATION_TIMEOUT: u64 = 1;
 const HTTP_ATTESTER_DUTIES_TIMEOUT: u64 = 1;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u64 = 2;

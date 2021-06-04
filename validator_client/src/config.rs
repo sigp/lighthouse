@@ -35,7 +35,7 @@ pub struct Config {
     pub disable_auto_discover: bool,
     /// If true, re-register existing validators in definitions.yml for slashing protection.
     pub init_slashing_protection: bool,
-    /// if true, use longer timeouts for requests made to the beacon node.
+    /// If true, use longer timeouts for requests made to the beacon node.
     pub use_long_timeouts: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
