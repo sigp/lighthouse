@@ -797,7 +797,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // TODO: Maintain this attestation and re-process once sync completes
                 // TODO: We then score based on whether we can download the block and re-process.
-                debug!(
+                trace!(
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => %peer_id,
