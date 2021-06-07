@@ -14,12 +14,12 @@
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same slot and in the same subcommittee.
 
-use crate::store::attestation::SlotData;
 use crate::types::consts::altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE;
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use types::slot_data::SlotData;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;

@@ -1,6 +1,6 @@
 use super::{
-    ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncSelectionProof,
+    ChainSpec, EthSpec, Fork, Hash256, SecretKey, Signature, SignedRoot, SyncCommitteeContribution,
+    SyncSelectionProof,
 };
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub struct ContributionAndProof<T: EthSpec> {
     /// The index of the validator that created the sync contribution.
     #[serde(with = "serde_utils::quoted_u64")]
     pub aggregator_index: u64,
-    /// The aggregate attestation.
+    /// The aggregate contribution.
     pub contribution: SyncCommitteeContribution<T>,
     /// A proof provided by the validator that permits them to publish on the
     /// `sync_committee_contribution_and_proof` gossipsub topic.
@@ -55,31 +55,6 @@ impl<T: EthSpec> ContributionAndProof<T> {
             contribution,
             selection_proof,
         }
-    }
-
-    /// Returns `true` if `validator_pubkey` signed over `SyncAggregatorSelectionData`.
-    pub fn is_valid_selection_proof(
-        &self,
-        pubkey: &PublicKey,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
-    ) -> bool {
-        let slot = self.contribution.slot;
-        let subcommittee_index = self.contribution.subcommittee_index;
-        let domain = spec.get_domain(
-            slot.epoch(T::slots_per_epoch()),
-            Domain::SyncCommitteeSelectionProof,
-            fork,
-            genesis_validators_root,
-        );
-        let message = SyncAggregatorSelectionData {
-            slot,
-            subcommittee_index,
-        }
-        .signing_root(domain);
-
-        self.selection_proof.verify(pubkey, message)
     }
 }
 

@@ -16,7 +16,7 @@ use tree_hash_derive::TreeHash;
 pub struct SignedContributionAndProof<T: EthSpec> {
     /// The `ContributionAndProof` that was signed.
     pub message: ContributionAndProof<T>,
-    /// The aggregate attestation.
+    /// The validator's signature of `message`.
     pub signature: Signature,
 }
 

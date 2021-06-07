@@ -142,10 +142,6 @@ lazy_static! {
         "beacon_attestation_processing_apply_to_agg_pool",
         "Time spent applying an attestation to the naive aggregation pool"
     );
-    pub static ref ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK: Result<Histogram> = try_create_histogram(
-        "beacon_attestation_processing_agg_pool_maps_write_lock",
-        "Time spent waiting for the maps write lock when adding to the agg poll"
-    );
     pub static ref ATTESTATION_PROCESSING_AGG_POOL_PRUNE: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_agg_pool_prune",
         "Time spent for the agg pool to prune"
@@ -361,12 +357,12 @@ lazy_static! {
     /*
      * Sync Committee Observation Metrics
      */
-    pub static ref SYNC_COMM_OBSERVATION_PREV_EPOCH_ATTESTERS: Result<IntGauge> = try_create_int_gauge(
-        "beacon_sync_comm_observation_epoch_attesters",
+    pub static ref SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS: Result<IntGauge> = try_create_int_gauge(
+        "beacon_sync_comm_observation_slot_signers",
         "Count of sync committee contributors that have been seen by the beacon chain in the previous slot"
     );
-    pub static ref SYNC_COMM_OBSERVATION_PREV_EPOCH_AGGREGATORS: Result<IntGauge> = try_create_int_gauge(
-        "beacon_sync_comm_observation_epoch_aggregators",
+    pub static ref SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS: Result<IntGauge> = try_create_int_gauge(
+        "beacon_sync_comm_observation_slot_aggregators",
         "Count of sync committee aggregators that have been seen by the beacon chain in the previous slot"
     );
 }
@@ -702,10 +698,6 @@ lazy_static! {
         "beacon_sync_contribution_processing_apply_to_agg_pool",
         "Time spent applying a sync contribution to the naive aggregation pool"
     );
-    pub static ref SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK: Result<Histogram> = try_create_histogram(
-        "beacon_sync_contribution_processing_agg_pool_maps_write_lock",
-        "Time spent waiting for the maps write lock when adding to the agg poll"
-    );
     pub static ref SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_PRUNE: Result<Histogram> = try_create_histogram(
         "beacon_sync_contribution_processing_agg_pool_prune",
         "Time spent for the agg pool to prune"
@@ -875,7 +867,7 @@ fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain:
         .read()
         .observed_validator_count(prev_slot)
     {
-        set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_EPOCH_ATTESTERS, count);
+        set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS, count);
     }
 
     let sync_aggregators = chain.observed_sync_aggregators.read();
@@ -887,7 +879,7 @@ fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain:
             sum += count;
         }
     }
-    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_EPOCH_AGGREGATORS, sum);
+    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS, sum);
 }
 
 fn set_gauge_by_slot(gauge: &Result<IntGauge>, value: Slot) {

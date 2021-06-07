@@ -74,6 +74,7 @@ pub mod sync_selection_proof;
 pub mod sync_subnet_id;
 mod tree_hash_impls;
 
+pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 

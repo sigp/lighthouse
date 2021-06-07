@@ -39,7 +39,7 @@ impl<T: EthSpec> SyncAggregate<T> {
 
     /// Create a `SyncAggregate` from a slice of `SyncCommitteeContribution`s.
     ///
-    /// Equivalent to `process_sync_contributions` from the spec.
+    /// Equivalent to `process_sync_committee_contributions` from the spec.
     pub fn from_contributions(
         contributions: &[SyncCommitteeContribution<T>],
     ) -> Result<SyncAggregate<T>, Error> {
