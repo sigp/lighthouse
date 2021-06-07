@@ -1,9 +1,10 @@
 pub use case_result::CaseResult;
 pub use cases::Case;
 pub use cases::{
-    EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, JustificationAndFinalization,
-    ParticipationRecordUpdates, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings,
-    SlashingsReset, SyncCommitteeUpdates,
+    EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, InactivityUpdates,
+    JustificationAndFinalization, ParticipationFlagUpdates, ParticipationRecordUpdates,
+    RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset,
+    SyncCommitteeUpdates,
 };
 pub use decode::log_file_access;
 pub use error::Error;

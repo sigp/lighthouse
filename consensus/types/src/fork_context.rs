@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, ForkName, Hash256, Slot};
+use crate::{ChainSpec, EthSpec, ForkName, Hash256, Slot};
 use std::collections::HashMap;
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
@@ -16,14 +16,18 @@ impl ForkContext {
     /// fork digest.
     ///
     /// A fork is disabled in the `ChainSpec` if the activation slot corresponding to that fork is `None`.
-    pub fn new(current_slot: Slot, genesis_validators_root: Hash256, spec: &ChainSpec) -> Self {
+    pub fn new<T: EthSpec>(
+        current_slot: Slot,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Self {
         let mut fork_to_digest = vec![(
             ForkName::Base,
             ChainSpec::compute_fork_digest(spec.genesis_fork_version, genesis_validators_root),
         )];
 
-        // Only add Altair to list of forks if it's enabled (i.e. spec.altair_fork_slot != None)
-        if spec.altair_fork_slot.is_some() {
+        // Only add Altair to list of forks if it's enabled (i.e. spec.altair_fork_epoch != None)
+        if spec.altair_fork_epoch.is_some() {
             fork_to_digest.push((
                 ForkName::Altair,
                 ChainSpec::compute_fork_digest(spec.altair_fork_version, genesis_validators_root),
@@ -39,7 +43,7 @@ impl ForkContext {
             .collect();
 
         Self {
-            current_fork: RwLock::new(spec.fork_name(current_slot)),
+            current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
             fork_to_digest,
             digest_to_fork,
         }

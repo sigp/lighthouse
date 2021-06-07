@@ -13,19 +13,19 @@ pub struct ParticipationFlags {
 }
 
 impl ParticipationFlags {
-    pub fn add_flag(&mut self, flag_index: u32) -> Result<(), ArithError> {
-        if flag_index > NUM_FLAG_INDICES as u32 {
+    pub fn add_flag(&mut self, flag_index: usize) -> Result<(), ArithError> {
+        if flag_index >= NUM_FLAG_INDICES {
             return Err(ArithError::Overflow);
         }
-        self.bits |= 1u8.safe_shl(flag_index)?;
+        self.bits |= 1u8.safe_shl(flag_index as u32)?;
         Ok(())
     }
 
-    pub fn has_flag(&self, flag_index: u32) -> Result<bool, ArithError> {
-        if flag_index > NUM_FLAG_INDICES as u32 {
+    pub fn has_flag(&self, flag_index: usize) -> Result<bool, ArithError> {
+        if flag_index >= NUM_FLAG_INDICES {
             return Err(ArithError::Overflow);
         }
-        let mask = 1u8.safe_shl(flag_index)?;
+        let mask = 1u8.safe_shl(flag_index as u32)?;
         Ok(self.bits & mask == mask)
     }
 }

@@ -58,7 +58,7 @@ impl Eth2Enr for Enr {
             .get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
             .ok_or("ENR sync committee bitfield non-existent")?;
 
-        BitVector::<TSpec::SyncCommitteeSubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
+        BitVector::<TSpec::SyncCommitteeSubnetCount>::from_ssz_bytes(bitfield_bytes)
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
@@ -176,7 +176,7 @@ pub fn build_enr<T: EthSpec>(
     builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
     // set the "syncnets" field on our ENR
-    let bitfield = BitVector::<T::SyncCommitteeSubnetBitfieldLength>::new();
+    let bitfield = BitVector::<T::SyncCommitteeSubnetCount>::new();
 
     builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 

@@ -1,17 +1,7 @@
-//! This file contains several different representations of the beacon chain configuration
-//! parameters.
-//!
-//! Arguably the most important of these is `ChainSpec`, which is used throughout Lighthouse as the
-//! source-of-truth regarding spec-level configuration.
-//!
-//! The other types exist for interoperability with other systems. The `StandardConfig` is an object
-//! intended to match an EF spec configuration (usually YAML), and is broken into sub-parts for
-//! each relevant fork. It is also serialised as JSON for the standardised HTTP API.
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
 use serde_utils::quoted_u64::MaybeQuoted;
-use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -27,9 +17,13 @@ pub enum Domain {
     SelectionProof,
     AggregateAndProof,
     SyncCommittee,
+    ContributionAndProof,
+    SyncCommitteeSelectionProof,
 }
 
-/// Holds all the "constants" for a BeaconChain.
+/// Lighthouse's internal configuration struct.
+///
+/// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
@@ -94,13 +88,13 @@ pub struct ChainSpec {
     /*
      * Signature domains
      */
-    domain_beacon_proposer: u32,
-    domain_beacon_attester: u32,
-    domain_randao: u32,
-    domain_deposit: u32,
-    domain_voluntary_exit: u32,
-    domain_selection_proof: u32,
-    domain_aggregate_and_proof: u32,
+    pub(crate) domain_beacon_proposer: u32,
+    pub(crate) domain_beacon_attester: u32,
+    pub(crate) domain_randao: u32,
+    pub(crate) domain_deposit: u32,
+    pub(crate) domain_voluntary_exit: u32,
+    pub(crate) domain_selection_proof: u32,
+    pub(crate) domain_aggregate_and_proof: u32,
 
     /*
      * Fork choice
@@ -124,12 +118,14 @@ pub struct ChainSpec {
     pub proportional_slashing_multiplier_altair: u64,
     pub epochs_per_sync_committee_period: Epoch,
     pub inactivity_score_bias: u64,
-    domain_sync_committee: u32,
-    domain_sync_committee_selection_proof: u32,
-    domain_contribution_and_proof: u32,
+    pub inactivity_score_recovery_rate: u64,
+    pub min_sync_committee_participants: u64,
+    pub(crate) domain_sync_committee: u32,
+    pub(crate) domain_sync_committee_selection_proof: u32,
+    pub(crate) domain_contribution_and_proof: u32,
     pub altair_fork_version: [u8; 4],
-    /// The Altair fork slot is optional, with `None` representing "Altair never happens".
-    pub altair_fork_slot: Option<Slot>,
+    /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
+    pub altair_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -147,14 +143,9 @@ pub struct ChainSpec {
 
 impl ChainSpec {
     /// Construct a `ChainSpec` from a standard config.
-    pub fn from_standard_config<T: EthSpec>(standard_config: &StandardConfig) -> Option<Self> {
-        let mut spec = T::default_spec();
-        spec = standard_config.base().apply_to_chain_spec::<T>(&spec)?;
-
-        if let Ok(altair) = standard_config.altair() {
-            spec = altair.apply_to_chain_spec::<T>(&spec)?;
-        }
-        Some(spec)
+    pub fn from_config<T: EthSpec>(config: &Config) -> Option<Self> {
+        let spec = T::default_spec();
+        config.apply_to_chain_spec::<T>(&spec)
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
@@ -164,7 +155,7 @@ impl ChainSpec {
         genesis_validators_root: Hash256,
     ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest(slot, genesis_validators_root),
+            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
             next_fork_version: self.next_fork_version(),
             next_fork_epoch: self
                 .next_fork_epoch::<T>(slot)
@@ -173,25 +164,12 @@ impl ChainSpec {
         }
     }
 
-    /// Returns the `ForkName` given the current slot.
-    pub fn fork_name(&self, slot: Slot) -> ForkName {
-        if let Some(altair_fork_slot) = self.altair_fork_slot {
-            if slot >= altair_fork_slot {
-                ForkName::Altair
-            } else {
-                ForkName::Base
-            }
-        } else {
-            ForkName::Base
-        }
-    }
-
     /// Returns the `ForkDigest` for the given slot.
     ///
-    /// If `self.altair_fork_slot == None`, then this function returns the genesis fork digest
+    /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
     /// otherwise, returns the fork digest based on the slot.
-    pub fn fork_digest(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        match self.fork_name(slot) {
+    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        match self.fork_name_at_slot::<T>(slot) {
             ForkName::Altair => {
                 Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
             }
@@ -213,20 +191,23 @@ impl ChainSpec {
     ///
     /// If no future forks are scheduled, this function returns `None`.
     pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
-        match self.fork_name(slot) {
+        match self.fork_name_at_slot::<T>(slot) {
             ForkName::Altair => None,
-            ForkName::Base => {
-                let slots_per_epoch = T::slots_per_epoch();
-                self.altair_fork_slot
-                    .map(|slot| (ForkName::Altair, slot.epoch(slots_per_epoch)))
-            }
+            ForkName::Base => self
+                .altair_fork_epoch
+                .map(|epoch| (ForkName::Altair, epoch)),
         }
     }
 
     /// Returns the name of the fork which is active at `slot`.
-    pub fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
-        match self.altair_fork_slot {
-            Some(fork_slot) if slot >= fork_slot => ForkName::Altair,
+    pub fn fork_name_at_slot<E: EthSpec>(&self, slot: Slot) -> ForkName {
+        self.fork_name_at_epoch(slot.epoch(E::slots_per_epoch()))
+    }
+
+    /// Returns the name of the fork which is active at `epoch`.
+    pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
+        match self.altair_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
             _ => ForkName::Base,
         }
     }
@@ -244,6 +225,8 @@ impl ChainSpec {
             Domain::SelectionProof => self.domain_selection_proof,
             Domain::AggregateAndProof => self.domain_aggregate_and_proof,
             Domain::SyncCommittee => self.domain_sync_committee,
+            Domain::ContributionAndProof => self.domain_contribution_and_proof,
+            Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
         }
     }
 
@@ -439,12 +422,14 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_altair: 2,
             inactivity_score_bias: 4,
-            epochs_per_sync_committee_period: Epoch::new(256),
+            inactivity_score_recovery_rate: 16,
+            min_sync_committee_participants: 1,
+            epochs_per_sync_committee_period: Epoch::new(512),
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_slot: Some(Slot::new(u64::MAX)),
+            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
 
             /*
              * Network specific
@@ -484,7 +469,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_slot: Some(Slot::new(u64::MAX)),
+            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -504,169 +489,48 @@ impl Default for ChainSpec {
     }
 }
 
-/// Configuration struct for compatibility with the spec's .yaml configuration
-///
-/// Ordering of these enum variants is significant because it determines serde's deserialisation
-/// priority. I.e. Altair before Base.
-///
-#[superstruct(
-    variants(Altair, Base),
-    variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
-)]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(untagged)]
-pub struct StandardConfig {
-    #[serde(flatten)]
-    pub base: BaseConfig,
-    /// Configuration related to the Altair hard fork.
-    #[superstruct(only(Altair))]
-    #[serde(flatten)]
-    pub altair: AltairConfig,
-
-    /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
-    #[serde(flatten)]
-    pub extra_fields: HashMap<String, String>,
-}
-
-impl StandardConfig {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
-        let base = BaseConfig::from_chain_spec::<T>(spec);
-        let altair = AltairConfig::from_chain_spec::<T>(spec);
-        Self::from_parts(base, altair)
-    }
-
-    pub fn from_parts(base: BaseConfig, altair: AltairConfig) -> Self {
-        let extra_fields = HashMap::new();
-        StandardConfig::Altair(StandardConfigAltair {
-            base,
-            altair,
-            extra_fields,
-        })
-    }
-}
-
-/// Configuration related to the base/phase0/genesis fork (YAML/JSON version).
+/// Exact implementation of the *config* object from the Ethereum spec (YAML/JSON).
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
-pub struct BaseConfig {
-    pub config_name: String,
-    // ChainSpec
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_committees_per_slot: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    target_committee_size: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_per_epoch_churn_limit: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    churn_limit_quotient: u64,
-    #[serde(with = "serde_utils::quoted_u8")]
-    shuffle_round_count: u8,
+pub struct Config {
+    #[serde(default)]
+    pub preset_base: String,
+
     #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_time: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    genesis_delay: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_deposit_amount: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_effective_balance: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    ejection_balance: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    effective_balance_increment: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    hysteresis_quotient: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    hysteresis_downward_multiplier: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    hysteresis_upward_multiplier: u64,
     #[serde(with = "serde_utils::bytes_4_hex")]
     genesis_fork_version: [u8; 4],
-    #[serde(with = "serde_utils::u8_hex")]
-    bls_withdrawal_prefix: u8,
+    #[serde(with = "serde_utils::quoted_u64")]
+    genesis_delay: u64,
+
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    altair_fork_version: [u8; 4],
+    altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    min_attestation_inclusion_delay: u64,
+    seconds_per_eth1_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    min_seed_lookahead: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_seed_lookahead: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_epochs_to_inactivity_penalty: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_validator_withdrawability_delay: u64,
+    min_validator_withdrawability_delay: Epoch,
     #[serde(with = "serde_utils::quoted_u64")]
     shard_committee_period: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    base_reward_factor: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    whistleblower_reward_quotient: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    proposer_reward_quotient: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    inactivity_penalty_quotient: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_slashing_penalty_quotient: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    proportional_slashing_multiplier: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    safe_slots_to_update_justified: u64,
-
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_beacon_proposer: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_beacon_attester: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_randao: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_deposit: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_voluntary_exit: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_selection_proof: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_aggregate_and_proof: u32,
-
-    // EthSpec
-    #[serde(with = "serde_utils::quoted_u32")]
-    max_validators_per_committee: u32,
-    #[serde(with = "serde_utils::quoted_u64")]
-    slots_per_epoch: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_eth1_voting_period: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    slots_per_historical_root: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_historical_vector: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_slashings_vector: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    historical_roots_limit: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    validator_registry_limit: u64,
-    #[serde(with = "serde_utils::quoted_u32")]
-    max_proposer_slashings: u32,
-    #[serde(with = "serde_utils::quoted_u32")]
-    max_attester_slashings: u32,
-    #[serde(with = "serde_utils::quoted_u32")]
-    max_attestations: u32,
-    #[serde(with = "serde_utils::quoted_u32")]
-    max_deposits: u32,
-    #[serde(with = "serde_utils::quoted_u32")]
-    max_voluntary_exits: u32,
-    // Validator
-    #[serde(with = "serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
+
     #[serde(with = "serde_utils::quoted_u64")]
-    target_aggregators_per_committee: u64,
+    inactivity_score_bias: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    random_subnets_per_validator: u64,
+    inactivity_score_recovery_rate: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_random_subnet_subscription: u64,
+    ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    seconds_per_eth1_block: u64,
+    min_per_epoch_churn_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    churn_limit_quotient: u64,
+
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -674,92 +538,51 @@ pub struct BaseConfig {
     deposit_contract_address: Address,
 }
 
-impl Default for BaseConfig {
+impl Default for Config {
     fn default() -> Self {
         let chain_spec = MainnetEthSpec::default_spec();
-        BaseConfig::from_chain_spec::<MainnetEthSpec>(&chain_spec)
+        Config::from_chain_spec::<MainnetEthSpec>(&chain_spec)
     }
 }
 
-impl BaseConfig {
-    /// Maps `self.config_name` to an identifier for an `EthSpec` instance.
+impl Config {
+    /// Maps `self` to an identifier for an `EthSpec` instance.
     ///
     /// Returns `None` if there is no match.
     pub fn eth_spec_id(&self) -> Option<EthSpecId> {
-        Some(match self.config_name.as_str() {
-            "mainnet" => EthSpecId::Mainnet,
-            "minimal" => EthSpecId::Minimal,
-            "toledo" => EthSpecId::Mainnet,
-            "prater" => EthSpecId::Mainnet,
-            "pyrmont" => EthSpecId::Mainnet,
-            _ => return None,
-        })
+        match self.preset_base.as_str() {
+            "minimal" => Some(EthSpecId::Minimal),
+            "mainnet" => Some(EthSpecId::Mainnet),
+            _ => None,
+        }
     }
 
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
-            config_name: T::spec_name().to_string(),
-            // ChainSpec
-            max_committees_per_slot: spec.max_committees_per_slot as u64,
-            target_committee_size: spec.target_committee_size as u64,
-            min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
-            churn_limit_quotient: spec.churn_limit_quotient,
-            shuffle_round_count: spec.shuffle_round_count,
+            preset_base: T::spec_name().to_string(),
+
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
-            genesis_delay: spec.genesis_delay,
-            min_deposit_amount: spec.min_deposit_amount,
-            max_effective_balance: spec.max_effective_balance,
-            ejection_balance: spec.ejection_balance,
-            effective_balance_increment: spec.effective_balance_increment,
-            hysteresis_quotient: spec.hysteresis_quotient,
-            hysteresis_downward_multiplier: spec.hysteresis_downward_multiplier,
-            hysteresis_upward_multiplier: spec.hysteresis_upward_multiplier,
-            proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
-            bls_withdrawal_prefix: spec.bls_withdrawal_prefix_byte,
-            seconds_per_slot: spec.seconds_per_slot,
-            min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
-            min_seed_lookahead: spec.min_seed_lookahead.into(),
-            max_seed_lookahead: spec.max_seed_lookahead.into(),
-            min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay.into(),
-            shard_committee_period: spec.shard_committee_period,
-            min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
-            base_reward_factor: spec.base_reward_factor,
-            whistleblower_reward_quotient: spec.whistleblower_reward_quotient,
-            proposer_reward_quotient: spec.proposer_reward_quotient,
-            inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
-            min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
             genesis_fork_version: spec.genesis_fork_version,
-            safe_slots_to_update_justified: spec.safe_slots_to_update_justified,
-            domain_beacon_proposer: spec.domain_beacon_proposer,
-            domain_beacon_attester: spec.domain_beacon_attester,
-            domain_randao: spec.domain_randao,
-            domain_deposit: spec.domain_deposit,
-            domain_voluntary_exit: spec.domain_voluntary_exit,
-            domain_selection_proof: spec.domain_selection_proof,
-            domain_aggregate_and_proof: spec.domain_aggregate_and_proof,
+            genesis_delay: spec.genesis_delay,
 
-            // EthSpec
-            max_validators_per_committee: T::MaxValidatorsPerCommittee::to_u32(),
-            slots_per_epoch: T::slots_per_epoch(),
-            epochs_per_eth1_voting_period: T::EpochsPerEth1VotingPeriod::to_u64(),
-            slots_per_historical_root: T::slots_per_historical_root() as u64,
-            epochs_per_historical_vector: T::epochs_per_historical_vector() as u64,
-            epochs_per_slashings_vector: T::EpochsPerSlashingsVector::to_u64(),
-            historical_roots_limit: T::HistoricalRootsLimit::to_u64(),
-            validator_registry_limit: T::ValidatorRegistryLimit::to_u64(),
-            max_proposer_slashings: T::MaxProposerSlashings::to_u32(),
-            max_attester_slashings: T::MaxAttesterSlashings::to_u32(),
-            max_attestations: T::MaxAttestations::to_u32(),
-            max_deposits: T::MaxDeposits::to_u32(),
-            max_voluntary_exits: T::MaxVoluntaryExits::to_u32(),
+            altair_fork_version: spec.altair_fork_version,
+            altair_fork_epoch: spec
+                .altair_fork_epoch
+                .map(|slot| MaybeQuoted { value: slot }),
 
-            // Validator
-            eth1_follow_distance: spec.eth1_follow_distance,
-            target_aggregators_per_committee: spec.target_aggregators_per_committee,
-            random_subnets_per_validator: spec.random_subnets_per_validator,
-            epochs_per_random_subnet_subscription: spec.epochs_per_random_subnet_subscription,
+            seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
+            min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
+            shard_committee_period: spec.shard_committee_period,
+            eth1_follow_distance: spec.eth1_follow_distance,
+
+            inactivity_score_bias: spec.inactivity_score_bias,
+            inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
+            ejection_balance: spec.ejection_balance,
+            churn_limit_quotient: spec.churn_limit_quotient,
+            min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
@@ -774,229 +597,56 @@ impl BaseConfig {
     }
 
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
-        // Check that YAML values match type-level EthSpec constants
-        if self.max_validators_per_committee != T::MaxValidatorsPerCommittee::to_u32()
-            || self.slots_per_epoch != T::slots_per_epoch()
-            || self.epochs_per_eth1_voting_period != T::EpochsPerEth1VotingPeriod::to_u64()
-            || self.slots_per_historical_root != T::slots_per_historical_root() as u64
-            || self.epochs_per_historical_vector != T::epochs_per_historical_vector() as u64
-            || self.epochs_per_slashings_vector != T::EpochsPerSlashingsVector::to_u64()
-            || self.historical_roots_limit != T::HistoricalRootsLimit::to_u64()
-            || self.validator_registry_limit != T::ValidatorRegistryLimit::to_u64()
-            || self.max_proposer_slashings != T::MaxProposerSlashings::to_u32()
-            || self.max_attester_slashings != T::MaxAttesterSlashings::to_u32()
-            || self.max_attestations != T::MaxAttestations::to_u32()
-            || self.max_deposits != T::MaxDeposits::to_u32()
-            || self.max_voluntary_exits != T::MaxVoluntaryExits::to_u32()
-        {
-            return None;
-        }
-
-        // Create a ChainSpec from the yaml config
-        Some(ChainSpec {
-            /*
-             * Misc
-             */
-            max_committees_per_slot: self.max_committees_per_slot as usize,
-            target_committee_size: self.target_committee_size as usize,
-            min_per_epoch_churn_limit: self.min_per_epoch_churn_limit,
-            churn_limit_quotient: self.churn_limit_quotient,
-            shuffle_round_count: self.shuffle_round_count,
-            min_genesis_active_validator_count: self.min_genesis_active_validator_count,
-            min_genesis_time: self.min_genesis_time,
-            hysteresis_quotient: self.hysteresis_quotient,
-            hysteresis_downward_multiplier: self.hysteresis_downward_multiplier,
-            hysteresis_upward_multiplier: self.hysteresis_upward_multiplier,
-            proportional_slashing_multiplier: self.proportional_slashing_multiplier,
-            /*
-             * Fork Choice
-             */
-            safe_slots_to_update_justified: self.safe_slots_to_update_justified,
-            /*
-             * Validator
-             */
-            eth1_follow_distance: self.eth1_follow_distance,
-            target_aggregators_per_committee: self.target_aggregators_per_committee,
-            random_subnets_per_validator: self.random_subnets_per_validator,
-            epochs_per_random_subnet_subscription: self.epochs_per_random_subnet_subscription,
-            seconds_per_eth1_block: self.seconds_per_eth1_block,
-            deposit_chain_id: self.deposit_chain_id,
-            deposit_network_id: self.deposit_network_id,
-            deposit_contract_address: self.deposit_contract_address,
-            /*
-             * Gwei values
-             */
-            min_deposit_amount: self.min_deposit_amount,
-            max_effective_balance: self.max_effective_balance,
-            ejection_balance: self.ejection_balance,
-            effective_balance_increment: self.effective_balance_increment,
-            /*
-             * Initial values
-             */
-            genesis_fork_version: self.genesis_fork_version,
-            bls_withdrawal_prefix_byte: self.bls_withdrawal_prefix,
-            /*
-             * Time parameters
-             */
-            genesis_delay: self.genesis_delay,
-            seconds_per_slot: self.seconds_per_slot,
-            min_attestation_inclusion_delay: self.min_attestation_inclusion_delay,
-            min_seed_lookahead: Epoch::from(self.min_seed_lookahead),
-            max_seed_lookahead: Epoch::from(self.max_seed_lookahead),
-            min_validator_withdrawability_delay: Epoch::from(
-                self.min_validator_withdrawability_delay,
-            ),
-            shard_committee_period: self.shard_committee_period,
-            min_epochs_to_inactivity_penalty: self.min_epochs_to_inactivity_penalty,
-            /*
-             * Reward and penalty quotients
-             */
-            base_reward_factor: self.base_reward_factor,
-            whistleblower_reward_quotient: self.whistleblower_reward_quotient,
-            proposer_reward_quotient: self.proposer_reward_quotient,
-            inactivity_penalty_quotient: self.inactivity_penalty_quotient,
-            min_slashing_penalty_quotient: self.min_slashing_penalty_quotient,
-            /*
-             * Signature domains
-             */
-            domain_beacon_proposer: self.domain_beacon_proposer,
-            domain_beacon_attester: self.domain_beacon_attester,
-            domain_randao: self.domain_randao,
-            domain_deposit: self.domain_deposit,
-            domain_voluntary_exit: self.domain_voluntary_exit,
-            domain_selection_proof: self.domain_selection_proof,
-            domain_aggregate_and_proof: self.domain_aggregate_and_proof,
-            /*
-             * Altair params (passthrough: they come from the other config file)
-             */
-            inactivity_penalty_quotient_altair: chain_spec.inactivity_penalty_quotient_altair,
-            min_slashing_penalty_quotient_altair: chain_spec.min_slashing_penalty_quotient_altair,
-            proportional_slashing_multiplier_altair: chain_spec
-                .proportional_slashing_multiplier_altair,
-            inactivity_score_bias: chain_spec.inactivity_score_bias,
-            epochs_per_sync_committee_period: chain_spec.epochs_per_sync_committee_period,
-            domain_sync_committee: chain_spec.domain_sync_committee,
-            domain_sync_committee_selection_proof: chain_spec.domain_sync_committee_selection_proof,
-            domain_contribution_and_proof: chain_spec.domain_contribution_and_proof,
-            altair_fork_version: chain_spec.altair_fork_version,
-            altair_fork_slot: chain_spec.altair_fork_slot,
-            /*
-             * Lighthouse-specific parameters
-             *
-             * These are paramaters that are present in the chain spec but aren't part of the YAML
-             * config. We avoid using `..chain_spec` so that changes to the set of fields don't
-             * accidentally get forgotten (explicit better than implicit, yada yada).
-             */
-            boot_nodes: chain_spec.boot_nodes.clone(),
-            network_id: chain_spec.network_id,
-            attestation_propagation_slot_range: chain_spec.attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis: chain_spec.maximum_gossip_clock_disparity_millis,
-            attestation_subnet_count: chain_spec.attestation_subnet_count,
-            sync_committee_subnet_count: chain_spec.sync_committee_subnet_count,
-            /*
-             * Constants, not configurable.
-             */
-            genesis_slot: chain_spec.genesis_slot,
-            far_future_epoch: chain_spec.far_future_epoch,
-            base_rewards_per_epoch: chain_spec.base_rewards_per_epoch,
-            deposit_contract_tree_depth: chain_spec.deposit_contract_tree_depth,
-        })
-    }
-}
-
-/// The Altair spec file
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "UPPERCASE")]
-pub struct AltairConfig {
-    #[serde(with = "serde_utils::quoted_u64")]
-    inactivity_penalty_quotient_altair: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    min_slashing_penalty_quotient_altair: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    proportional_slashing_multiplier_altair: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    sync_committee_size: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    sync_pubkeys_per_aggregate: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    inactivity_score_bias: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_sync_committee_period: Epoch,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_sync_committee: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_sync_committee_selection_proof: u32,
-    #[serde(with = "serde_utils::u32_hex")]
-    domain_contribution_and_proof: u32,
-    #[serde(with = "serde_utils::bytes_4_hex")]
-    altair_fork_version: [u8; 4],
-    altair_fork_slot: Option<MaybeQuoted<Slot>>,
-    // FIXME(altair): sync protocol params?
-}
-
-impl AltairConfig {
-    pub fn from_file(filename: &Path) -> Result<Self, String> {
-        let f = File::open(filename)
-            .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
-        serde_yaml::from_reader(f)
-            .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
-    }
-
-    pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
-        // Pattern-match to avoid missing any fields.
-        let &AltairConfig {
-            inactivity_penalty_quotient_altair,
-            min_slashing_penalty_quotient_altair,
-            proportional_slashing_multiplier_altair,
-            sync_committee_size,
-            sync_pubkeys_per_aggregate,
-            inactivity_score_bias,
-            epochs_per_sync_committee_period,
-            domain_sync_committee,
-            domain_sync_committee_selection_proof,
-            domain_contribution_and_proof,
+        // Pattern match here to avoid missing any fields.
+        let &Config {
+            ref preset_base,
+            min_genesis_active_validator_count,
+            min_genesis_time,
+            genesis_fork_version,
+            genesis_delay,
             altair_fork_version,
-            altair_fork_slot,
+            altair_fork_epoch,
+            seconds_per_slot,
+            seconds_per_eth1_block,
+            min_validator_withdrawability_delay,
+            shard_committee_period,
+            eth1_follow_distance,
+            inactivity_score_bias,
+            inactivity_score_recovery_rate,
+            ejection_balance,
+            min_per_epoch_churn_limit,
+            churn_limit_quotient,
+            deposit_chain_id,
+            deposit_network_id,
+            deposit_contract_address,
         } = self;
 
-        if sync_committee_size != T::SyncCommitteeSize::to_u64()
-            || sync_pubkeys_per_aggregate != T::SyncPubkeysPerAggregate::to_u64()
-        {
+        if preset_base != T::spec_name().to_string().as_str() {
             return None;
         }
 
         Some(ChainSpec {
-            inactivity_penalty_quotient_altair,
-            min_slashing_penalty_quotient_altair,
-            proportional_slashing_multiplier_altair,
-            inactivity_score_bias,
-            epochs_per_sync_committee_period,
-            domain_sync_committee,
-            domain_sync_committee_selection_proof,
-            domain_contribution_and_proof,
+            min_genesis_active_validator_count,
+            min_genesis_time,
+            genesis_fork_version,
+            genesis_delay,
             altair_fork_version,
-            altair_fork_slot: altair_fork_slot.map(|q| q.value),
+            altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
+            seconds_per_slot,
+            seconds_per_eth1_block,
+            min_validator_withdrawability_delay,
+            shard_committee_period,
+            eth1_follow_distance,
+            inactivity_score_bias,
+            inactivity_score_recovery_rate,
+            ejection_balance,
+            min_per_epoch_churn_limit,
+            churn_limit_quotient,
+            deposit_chain_id,
+            deposit_network_id,
+            deposit_contract_address,
             ..chain_spec.clone()
         })
-    }
-
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
-        Self {
-            inactivity_penalty_quotient_altair: spec.inactivity_penalty_quotient_altair,
-            min_slashing_penalty_quotient_altair: spec.min_slashing_penalty_quotient_altair,
-            proportional_slashing_multiplier_altair: spec.proportional_slashing_multiplier_altair,
-            sync_committee_size: T::SyncCommitteeSize::to_u64(),
-            sync_pubkeys_per_aggregate: T::SyncPubkeysPerAggregate::to_u64(),
-            inactivity_score_bias: spec.inactivity_score_bias,
-            epochs_per_sync_committee_period: spec.epochs_per_sync_committee_period,
-            domain_sync_committee: spec.domain_sync_committee,
-            domain_sync_committee_selection_proof: spec.domain_sync_committee_selection_proof,
-            domain_contribution_and_proof: spec.domain_contribution_and_proof,
-            altair_fork_version: spec.altair_fork_version,
-            altair_fork_slot: spec
-                .altair_fork_slot
-                .map(|slot| MaybeQuoted { value: slot }),
-        }
     }
 }
 
@@ -1011,7 +661,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {
@@ -1060,23 +709,6 @@ mod tests {
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
     }
-
-    #[test]
-    fn decode_no_altair() {
-        let spec = MainnetEthSpec::default_spec();
-        let base_config = BaseConfig::from_chain_spec::<MainnetEthSpec>(&spec);
-
-        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let f = File::create(tmp_file.as_ref()).unwrap();
-        serde_yaml::to_writer(f, &base_config).expect("failed to write or serialize");
-
-        let f = File::open(tmp_file.as_ref()).unwrap();
-        let standard_config: StandardConfig = serde_yaml::from_reader(f).unwrap();
-
-        let standard_base = standard_config.as_base().unwrap();
-        assert_eq!(standard_base.base, base_config);
-        assert!(standard_base.extra_fields.is_empty());
-    }
 }
 
 #[cfg(test)]
@@ -1096,7 +728,7 @@ mod yaml_tests {
             .expect("error opening file");
         let minimal_spec = ChainSpec::minimal();
 
-        let yamlconfig = BaseConfig::from_chain_spec::<MinimalEthSpec>(&minimal_spec);
+        let yamlconfig = Config::from_chain_spec::<MinimalEthSpec>(&minimal_spec);
         // write fresh minimal config to file
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
@@ -1106,7 +738,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
         // deserialize minimal config from file
-        let from: BaseConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
@@ -1119,7 +751,7 @@ mod yaml_tests {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
-        let yamlconfig = BaseConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
+        let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()
@@ -1127,43 +759,17 @@ mod yaml_tests {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: BaseConfig = serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(from, yamlconfig);
-    }
-
-    #[test]
-    fn extra_fields_round_trip() {
-        let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
-            .read(false)
-            .write(true)
-            .open(tmp_file.as_ref())
-            .expect("error opening file");
-        let mainnet_spec = ChainSpec::mainnet();
-        let mut yamlconfig = StandardConfig::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
-        let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
-        let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
-        yamlconfig.extra_fields_mut().insert(k1.into(), v1.into());
-        yamlconfig.extra_fields_mut().insert(k2.into(), v2.into());
-        serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
-
-        let reader = OpenOptions::new()
-            .read(true)
-            .write(false)
-            .open(tmp_file.as_ref())
-            .expect("error while opening the file");
-        let from: StandardConfig =
-            serde_yaml::from_reader(reader).expect("error while deserializing");
+        let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
     }
 
     #[test]
     fn apply_to_spec() {
         let mut spec = ChainSpec::minimal();
-        let yamlconfig = BaseConfig::from_chain_spec::<MinimalEthSpec>(&spec);
+        let yamlconfig = Config::from_chain_spec::<MinimalEthSpec>(&spec);
 
         // modifying the original spec
-        spec.max_committees_per_slot += 1;
+        spec.min_genesis_active_validator_count += 1;
         spec.deposit_chain_id += 1;
         spec.deposit_network_id += 1;
         // Applying a yaml config with incorrect EthSpec should fail

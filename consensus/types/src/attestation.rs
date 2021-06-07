@@ -2,12 +2,24 @@ use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
     SignedRoot,
 };
-use crate::{test_utils::TestRandom, Hash256};
+use crate::{test_utils::TestRandom, Hash256, Slot};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+
+/// A trait providing a `Slot` getter for messages that are related to a single slot. Useful in
+/// making parts of attestation and sync committee processing generic.
+pub trait SlotData {
+    fn get_slot(&self) -> Slot;
+}
+
+impl SlotData for Slot {
+    fn get_slot(&self) -> Slot {
+        *self
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -81,6 +93,12 @@ impl<T: EthSpec> Attestation<T> {
 
             Ok(())
         }
+    }
+}
+
+impl<T: EthSpec> SlotData for Attestation<T> {
+    fn get_slot(&self) -> Slot {
+        self.data.slot
     }
 }
 

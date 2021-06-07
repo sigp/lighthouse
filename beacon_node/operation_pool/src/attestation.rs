@@ -5,7 +5,7 @@ use state_processing::common::{
 use std::collections::HashMap;
 use types::{
     beacon_state::BeaconStateBase,
-    consts::altair::{FLAG_INDICES_AND_WEIGHTS, WEIGHT_DENOMINATOR},
+    consts::altair::{PARTICIPATION_FLAG_WEIGHTS, WEIGHT_DENOMINATOR},
     Attestation, BeaconState, BitList, ChainSpec, EthSpec,
 };
 
@@ -100,9 +100,9 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
                 let base_reward =
                     altair::get_base_reward(state, index, total_active_balance, spec).ok()?;
 
-                for (flag_index, weight) in &FLAG_INDICES_AND_WEIGHTS {
-                    if att_participation_flags.contains(flag_index)
-                        && !participation.has_flag(*flag_index).ok()?
+                for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                    if att_participation_flags.contains(&flag_index)
+                        && !participation.has_flag(flag_index).ok()?
                     {
                         proposer_reward_numerator += base_reward.checked_mul(*weight)?;
                     }

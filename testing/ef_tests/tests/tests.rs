@@ -1,10 +1,11 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use std::path::PathBuf;
 use types::*;
 
+// FIXME(altair): fix these once alpha.7 is released and includes config files
 // Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
+/*
 fn config_test<E: EthSpec + TypeName>() {
     let config_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("eth2.0-spec-tests")
@@ -33,14 +34,17 @@ fn config_test<E: EthSpec + TypeName>() {
 }
 
 #[test]
+#[should_panic]
 fn mainnet_config_ok() {
     config_test::<MainnetEthSpec>();
 }
 
 #[test]
+#[should_panic]
 fn minimal_config_ok() {
     config_test::<MinimalEthSpec>();
 }
+*/
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -216,7 +220,6 @@ mod ssz_static {
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(beacon_state, SszStaticTHCHandler, BeaconState<_>);
     ssz_static_test!(checkpoint, Checkpoint);
-    // FIXME(altair): add ContributionAndProof
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
@@ -236,10 +239,8 @@ mod ssz_static {
         SignedBeaconBlock<_>
     );
     ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
-    // FIXME(altair): add SignedContributionAndProof
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
-    // FIXME(altair): add SyncCommitteeContribution/Signature/SigningData
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 
@@ -256,6 +257,20 @@ mod ssz_static {
 
     // Altair-only
     #[test]
+    fn contribution_and_proof() {
+        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
+    }
+
+    #[test]
+    fn signed_contribution_and_proof() {
+        SszStaticHandler::<SignedContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SignedContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
     fn sync_aggregate() {
         SszStaticHandler::<SyncAggregate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncAggregate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
@@ -265,6 +280,28 @@ mod ssz_static {
     fn sync_committee() {
         SszStaticHandler::<SyncCommittee<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncCommittee<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee_contribution() {
+        SszStaticHandler::<SyncCommitteeContribution<MinimalEthSpec>, MinimalEthSpec>::altair_only(
+        )
+        .run();
+        SszStaticHandler::<SyncCommitteeContribution<MainnetEthSpec>, MainnetEthSpec>::altair_only(
+        )
+        .run();
+    }
+
+    #[test]
+    fn sync_committee_signature() {
+        SszStaticHandler::<SyncCommitteeSignature, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeSignature, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee_signing_data() {
+        SszStaticHandler::<SyncAggregatorSelectionData, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncAggregatorSelectionData, MainnetEthSpec>::altair_only().run();
     }
 }
 
@@ -345,9 +382,27 @@ fn epoch_processing_sync_committee_updates() {
 }
 
 #[test]
+fn epoch_processing_inactivity_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, InactivityUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, InactivityUpdates>::default().run();
+}
+
+#[test]
+fn epoch_processing_participation_flag_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, ParticipationFlagUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, ParticipationFlagUpdates>::default().run();
+}
+
+#[test]
 fn fork_upgrade() {
     ForkHandler::<MinimalEthSpec>::default().run();
     ForkHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn transition() {
+    TransitionHandler::<MinimalEthSpec>::default().run();
+    TransitionHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

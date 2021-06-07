@@ -180,7 +180,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             .unwrap_or(beacon_chain.spec.genesis_slot);
 
         // Create a fork context for the given config and genesis validators root
-        let fork_context = Arc::new(ForkContext::new(
+        let fork_context = Arc::new(ForkContext::new::<T::EthSpec>(
             current_slot,
             beacon_chain.genesis_validators_root,
             &beacon_chain.spec,
@@ -452,7 +452,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                         }
                                     }
                                 }
-                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetBitfieldLength::to_u64() {
+                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetCount::to_u64() {
                                     let subnet = Subnet::SyncCommittee(SubnetId::new(subnet_id));
                                     // Update the ENR bitfield
                                     service.libp2p.swarm.update_enr_subnet(subnet, true);

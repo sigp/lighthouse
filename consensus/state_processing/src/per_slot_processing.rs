@@ -1,3 +1,4 @@
+use crate::upgrade::upgrade_to_altair;
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
@@ -21,8 +22,6 @@ impl From<ArithError> for Error {
 /// If the root of the supplied `state` is known, then it can be passed as `state_root`. If
 /// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
 /// Providing the `state_root` makes this function several orders of magniude faster.
-///
-/// Spec v0.12.1
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
@@ -45,9 +44,11 @@ pub fn per_slot_processing<T: EthSpec>(
 
     state.slot_mut().safe_add_assign(1)?;
 
-    // If the Altair fork slot is reached, perform an irregular state upgrade.
-    if spec.altair_fork_slot == Some(state.slot()) {
-        state.upgrade_to_altair(spec)?;
+    // If the Altair fork epoch is reached, perform an irregular state upgrade.
+    if state.slot().safe_rem(T::slots_per_epoch())? == 0
+        && spec.altair_fork_epoch == Some(state.current_epoch())
+    {
+        upgrade_to_altair(state, spec)?;
     }
 
     Ok(summary)

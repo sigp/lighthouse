@@ -583,7 +583,7 @@ mod tests {
     type Spec = types::MainnetEthSpec;
 
     fn fork_context() -> ForkContext {
-        ForkContext::new(types::Slot::new(0), Hash256::zero(), &Spec::default_spec())
+        ForkContext::new::<Spec>(types::Slot::new(0), Hash256::zero(), &Spec::default_spec())
     }
 
     fn base_block() -> SignedBeaconBlock<Spec> {
@@ -1030,13 +1030,13 @@ mod tests {
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
-        // Full altair block is 157980 bytes uncompressed. `max_compressed_len` is 32 + 157980 + 157980/6 = 184342.
+        // Full altair block is 157916 bytes uncompressed. `max_compressed_len` is 32 + 157916 + 157916/6 = 184267.
         let block_message_bytes = altair_block().as_ssz_bytes();
 
-        assert_eq!(block_message_bytes.len(), 157980);
+        assert_eq!(block_message_bytes.len(), 157916);
         assert_eq!(
             snap::raw::max_compress_len(block_message_bytes.len()),
-            184342
+            184267
         );
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
@@ -1053,19 +1053,19 @@ mod tests {
         // Insert snappy stream identifier
         dst.extend_from_slice(stream_identifier);
 
-        // Insert malicious padding of 176240 bytes.
-        for _ in 0..44060 {
+        // Insert malicious padding of 176156 bytes.
+        for _ in 0..44039 {
             dst.extend_from_slice(malicious_padding);
         }
 
-        // Insert payload (8106 bytes compressed)
+        // Insert payload (8103 bytes compressed)
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&block_message_bytes).unwrap();
         writer.flush().unwrap();
-        assert_eq!(writer.get_ref().len(), 8106);
+        assert_eq!(writer.get_ref().len(), 8103);
         dst.extend_from_slice(writer.get_ref());
 
-        // 10 (for stream identifier) + 176240 + 8106 = 184356 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
+        // 10 (for stream identifier) + 176156 + 8103 = 184269 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
         assert_eq!(
             decode(Protocol::BlocksByRange, Version::V2, &mut dst).unwrap_err(),
             RPCError::InvalidData

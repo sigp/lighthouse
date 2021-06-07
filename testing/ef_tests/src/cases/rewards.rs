@@ -15,10 +15,7 @@ use state_processing::{
 };
 use std::path::{Path, PathBuf};
 use types::{
-    consts::altair::{
-        TIMELY_HEAD_FLAG_INDEX, TIMELY_HEAD_WEIGHT, TIMELY_SOURCE_FLAG_INDEX, TIMELY_SOURCE_WEIGHT,
-        TIMELY_TARGET_FLAG_INDEX, TIMELY_TARGET_WEIGHT,
-    },
+    consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
     BeaconState, EthSpec, ForkName,
 };
 
@@ -132,26 +129,22 @@ impl<E: EthSpec> Case for RewardsTest<E> {
                 let source_deltas = compute_altair_flag_deltas(
                     &state,
                     TIMELY_SOURCE_FLAG_INDEX,
-                    TIMELY_SOURCE_WEIGHT,
                     total_active_balance,
                     spec,
                 )?;
                 let target_deltas = compute_altair_flag_deltas(
                     &state,
                     TIMELY_TARGET_FLAG_INDEX,
-                    TIMELY_TARGET_WEIGHT,
                     total_active_balance,
                     spec,
                 )?;
                 let head_deltas = compute_altair_flag_deltas(
                     &state,
                     TIMELY_HEAD_FLAG_INDEX,
-                    TIMELY_HEAD_WEIGHT,
                     total_active_balance,
                     spec,
                 )?;
-                let inactivity_penalty_deltas =
-                    compute_altair_inactivity_deltas(&state, total_active_balance, spec)?;
+                let inactivity_penalty_deltas = compute_altair_inactivity_deltas(&state, spec)?;
                 Ok(AllDeltas {
                     source_deltas,
                     target_deltas,
@@ -189,35 +182,21 @@ fn convert_base_deltas(attestation_deltas: &[AttestationDelta], accessor: Access
 
 fn compute_altair_flag_deltas<E: EthSpec>(
     state: &BeaconState<E>,
-    flag_index: u32,
-    flag_weight: u64,
+    flag_index: usize,
     total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<Deltas, EpochProcessingError> {
     let mut deltas = vec![Delta::default(); state.validators().len()];
-    get_flag_index_deltas(
-        &mut deltas,
-        state,
-        flag_index,
-        flag_weight,
-        total_active_balance,
-        spec,
-    )?;
+    get_flag_index_deltas(&mut deltas, state, flag_index, total_active_balance, spec)?;
     Ok(convert_altair_deltas(deltas))
 }
 
 fn compute_altair_inactivity_deltas<E: EthSpec>(
     state: &BeaconState<E>,
-    total_active_balance: u64,
     spec: &ChainSpec,
 ) -> Result<Deltas, EpochProcessingError> {
     let mut deltas = vec![Delta::default(); state.validators().len()];
-    altair::rewards_and_penalties::get_inactivity_penalty_deltas(
-        &mut deltas,
-        state,
-        total_active_balance,
-        spec,
-    )?;
+    altair::rewards_and_penalties::get_inactivity_penalty_deltas(&mut deltas, state, spec)?;
     Ok(convert_altair_deltas(deltas))
 }
 

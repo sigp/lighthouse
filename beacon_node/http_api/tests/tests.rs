@@ -187,6 +187,7 @@ impl ApiTester {
                 listen_addr: Ipv4Addr::new(127, 0, 0, 1),
                 listen_port: 0,
                 allow_origin: None,
+                serve_legacy_spec: true,
             },
             chain: Some(chain.clone()),
             network_tx: Some(network_tx),
@@ -296,6 +297,7 @@ impl ApiTester {
                 listen_addr: Ipv4Addr::new(127, 0, 0, 1),
                 listen_port: 0,
                 allow_origin: None,
+                serve_legacy_spec: true,
             },
             chain: Some(chain.clone()),
             network_tx: Some(network_tx),
@@ -1255,7 +1257,8 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self.client.get_config_spec().await.unwrap().data;
 
-        let expected = StandardConfig::from_chain_spec::<E>(&self.chain.spec);
+        let mut expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec);
+        expected.make_backwards_compat(&self.chain.spec);
 
         assert_eq!(result, expected);
 

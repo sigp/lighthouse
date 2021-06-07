@@ -19,15 +19,16 @@ tests_dir_filename = sys.argv[2]
 # following strings, we will assume they are to be ignored (i.e., we are purposefully *not* running
 # the spec tests).
 excluded_paths = [
-    # Things from future phases
+    # Configs from future phases
     "tests/mainnet/config/custody_game.yaml",
     "tests/mainnet/config/sharding.yaml",
     "tests/mainnet/config/merge.yaml",
     "tests/minimal/config/custody_game.yaml",
     "tests/minimal/config/sharding.yaml",
     "tests/minimal/config/merge.yaml",
-    # Genesis Validity
-    "tests/minimal/altair/genesis/validity",
+    # Merge tests
+    "tests/minimal/merge",
+    "tests/mainnet/merge",
     # Eth1Block
     #
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
@@ -44,21 +45,6 @@ excluded_paths = [
     # LightClientSnapshot
     "tests/minimal/altair/ssz_static/LightClientSnapshot",
     "tests/mainnet/altair/ssz_static/LightClientSnapshot",
-    # ContributionAndProof
-    "tests/minimal/altair/ssz_static/ContributionAndProof",
-    "tests/mainnet/altair/ssz_static/ContributionAndProof",
-    # SignedContributionAndProof
-    "tests/minimal/altair/ssz_static/SignedContributionAndProof",
-    "tests/mainnet/altair/ssz_static/SignedContributionAndProof",
-    # SyncCommitteeContribution
-    "tests/minimal/altair/ssz_static/SyncCommitteeContribution",
-    "tests/mainnet/altair/ssz_static/SyncCommitteeContribution",
-    # SyncCommitteeSignature
-    "tests/minimal/altair/ssz_static/SyncCommitteeSignature",
-    "tests/mainnet/altair/ssz_static/SyncCommitteeSignature",
-    # SyncCommitteeSigningData
-    "tests/minimal/altair/ssz_static/SyncCommitteeSigningData",
-    "tests/mainnet/altair/ssz_static/SyncCommitteeSigningData",
     # Fork choice
     "tests/mainnet/phase0/fork_choice",
     "tests/minimal/phase0/fork_choice",
