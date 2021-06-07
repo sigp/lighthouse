@@ -25,8 +25,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, SyncSubnetId, Unsigned,
-    ValidatorSubscription,
+    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -40,8 +40,11 @@ const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 #[derive(Debug)]
 pub enum NetworkMessage<T: EthSpec> {
     /// Subscribes a list of validators to specific slots for attestation duties.
-    Subscribe {
+    AttestationSubscribe {
         subscriptions: Vec<ValidatorSubscription>,
+    },
+    SyncCommitteeSubscribe {
+        subscriptions: Vec<SyncCommitteeSubscription>,
     },
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
@@ -418,11 +421,18 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
                         NetworkMessage::GoodbyePeer { peer_id, reason, source } => service.libp2p.goodbye_peer(&peer_id, reason, source),
-                        NetworkMessage::Subscribe { subscriptions } => {
+                        NetworkMessage::AttestationSubscribe { subscriptions } => {
                             if let Err(e) = service
                                 .attestation_service
                                 .validator_subscriptions(subscriptions) {
-                                    warn!(service.log, "Validator subscription failed"; "error" => e);
+                                    warn!(service.log, "Attestation validator subscription failed"; "error" => e);
+                                }
+                        }
+                        NetworkMessage::SyncCommitteeSubscribe { subscriptions } => {
+                            if let Err(e) = service
+                                .sync_committee_service
+                                .validator_subscriptions(subscriptions) {
+                                    warn!(service.log, "Sync committee calidator subscription failed"; "error" => e);
                                 }
                         }
                         NetworkMessage::SubscribeCoreTopics => {

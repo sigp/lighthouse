@@ -1905,7 +1905,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                         publish_network_message(
                             &network_tx,
-                            NetworkMessage::Subscribe {
+                            NetworkMessage::AttestationSubscribe {
                                 subscriptions: vec![subscription],
                             },
                         )?;
