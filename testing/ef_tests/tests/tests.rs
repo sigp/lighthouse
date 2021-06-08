@@ -34,13 +34,11 @@ fn config_test<E: EthSpec + TypeName>() {
 }
 
 #[test]
-#[should_panic]
 fn mainnet_config_ok() {
     config_test::<MainnetEthSpec>();
 }
 
 #[test]
-#[should_panic]
 fn minimal_config_ok() {
     config_test::<MinimalEthSpec>();
 }
