@@ -1,6 +1,8 @@
 use crate::attestation_verification::{
-    Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
-    VerifiedUnaggregatedAttestation,
+    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
+    CheckAttestationSignature, Error as AttestationError, FullyVerifiedAggregatedAttestation,
+    FullyVerifiedUnaggregatedAttestation, PartiallyVerifiedAggregatedAttestation,
+    PartiallyVerifiedUnaggregatedAttestation, SignatureVerifiedAttestation,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
@@ -1216,6 +1218,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn batch_verify_unaggregated_attestations_for_gossip(
+        &self,
+        attestations: Vec<(Attestation<T::EthSpec>, Option<SubnetId>)>,
+    ) -> Result<
+        Vec<Result<FullyVerifiedUnaggregatedAttestation<T>, AttestationError>>,
+        AttestationError,
+    > {
+        batch_verify_unaggregated_attestations(attestations, self)
+    }
+
     /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
     /// it is valid to be (re)broadcast on the gossip network.
     ///
@@ -1225,23 +1237,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
-    ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+    ) -> Result<FullyVerifiedUnaggregatedAttestation<T>, AttestationError> {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(
-            |v| {
-                // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-                if let Some(event_handler) = self.event_handler.as_ref() {
-                    if event_handler.has_attestation_subscribers() {
-                        event_handler.register(EventKind::Attestation(v.attestation().clone()));
-                    }
-                }
-                metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-                v
-            },
+        let partially_verified = PartiallyVerifiedUnaggregatedAttestation::verify(
+            unaggregated_attestation,
+            subnet_id,
+            self,
+        )?;
+
+        FullyVerifiedUnaggregatedAttestation::finish_verification(
+            partially_verified,
+            self,
+            CheckAttestationSignature::Yes,
         )
+        .map(|v| {
+            // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
+            if let Some(event_handler) = self.event_handler.as_ref() {
+                if event_handler.has_attestation_subscribers() {
+                    event_handler.register(EventKind::Attestation(v.attestation().clone()));
+                }
+            }
+            metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
+    pub fn batch_verify_aggregated_attestations_for_gossip(
+        &self,
+        aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+    ) -> Result<
+        Vec<Result<FullyVerifiedAggregatedAttestation<T>, AttestationError>>,
+        AttestationError,
+    > {
+        batch_verify_aggregated_attestations(aggregates, self)
     }
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
@@ -1249,12 +1280,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_aggregated_attestation_for_gossip(
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+    ) -> Result<FullyVerifiedAggregatedAttestation<T>, AttestationError> {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedAggregatedAttestation::verify(signed_aggregate, self).map(|v| {
+        let partially_verified =
+            PartiallyVerifiedAggregatedAttestation::verify(signed_aggregate, self)?;
+
+        FullyVerifiedAggregatedAttestation::finish_verification(
+            partially_verified,
+            self,
+            CheckAttestationSignature::Yes,
+        )
+        .map(|v| {
             // This method is called for API and gossip attestations, so this covers all aggregated attestation events
             if let Some(event_handler) = self.event_handler.as_ref() {
                 if event_handler.has_attestation_subscribers() {
@@ -1271,8 +1310,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Common items that implement `SignatureVerifiedAttestation`:
     ///
-    /// - `VerifiedUnaggregatedAttestation`
-    /// - `VerifiedAggregatedAttestation`
+    /// - `FullyVerifiedUnaggregatedAttestation`
+    /// - `FullyVerifiedAggregatedAttestation`
     pub fn apply_attestation_to_fork_choice(
         &self,
         verified: &impl SignatureVerifiedAttestation<T>,
@@ -1285,7 +1324,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Into::into)
     }
 
-    /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
+    /// Accepts an `FullyVerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
     /// aggregation pool".
     ///
     /// The naive aggregation pool is used by local validators to produce
@@ -1295,8 +1334,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// and no error is returned.
     pub fn add_to_naive_aggregation_pool(
         &self,
-        unaggregated_attestation: VerifiedUnaggregatedAttestation<T>,
-    ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+        unaggregated_attestation: FullyVerifiedUnaggregatedAttestation<T>,
+    ) -> Result<FullyVerifiedUnaggregatedAttestation<T>, AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
 
         let attestation = unaggregated_attestation.attestation();
@@ -1335,13 +1374,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(unaggregated_attestation)
     }
 
-    /// Accepts a `VerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
+    /// Accepts a `FullyVerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
     pub fn add_to_block_inclusion_pool(
         &self,
-        signed_aggregate: VerifiedAggregatedAttestation<T>,
-    ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+        signed_aggregate: FullyVerifiedAggregatedAttestation<T>,
+    ) -> Result<FullyVerifiedAggregatedAttestation<T>, AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore

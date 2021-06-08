@@ -991,14 +991,14 @@ where
     pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
         for (unaggregated_attestations, maybe_signed_aggregate) in attestations.into_iter() {
             for (attestation, subnet_id) in unaggregated_attestations {
-                self.chain
+                let verified = self
+                    .chain
                     .verify_unaggregated_attestation_for_gossip(
                         attestation.clone(),
                         Some(subnet_id),
                     )
-                    .unwrap()
-                    .add_to_pool(&self.chain)
                     .unwrap();
+                self.chain.add_to_naive_aggregation_pool(verified).unwrap();
             }
 
             if let Some(signed_aggregate) = maybe_signed_aggregate {

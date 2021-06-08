@@ -18,7 +18,7 @@
 //!      types::Attestation              types::SignedAggregateAndProof
 //!              |                                    |
 //!              ▼                                    ▼
-//!  VerifiedUnaggregatedAttestation     VerifiedAggregatedAttestation
+//!  PartiallyVerifiedUnaggregatedAttestation     PartiallyVerifiedAggregatedAttestation
 //!              |                                    |
 //!              -------------------------------------
 //!                                |
@@ -54,6 +54,12 @@ use types::{
     Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
     SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
+
+#[derive(Copy, Clone)]
+pub enum CheckAttestationSignature {
+    Yes,
+    No,
+}
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -257,13 +263,28 @@ impl From<BeaconChainError> for Error {
 }
 
 /// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
-pub struct VerifiedAggregatedAttestation<T: BeaconChainTypes> {
+pub struct PartiallyVerifiedAggregatedAttestation<T: BeaconChainTypes> {
+    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+    attestation_root: Hash256,
+}
+
+/// Wraps an `Attestation` that has been verified for propagation on the gossip network.
+pub struct PartiallyVerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
+    attestation: Attestation<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+    subnet_id: SubnetId,
+    validator_index: u64,
+}
+
+/// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
+pub struct FullyVerifiedAggregatedAttestation<T: BeaconChainTypes> {
     signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
 /// Wraps an `Attestation` that has been verified for propagation on the gossip network.
-pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
+pub struct FullyVerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     subnet_id: SubnetId,
@@ -271,12 +292,13 @@ pub struct VerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
 
 /// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
 /// macro.
-impl<T: BeaconChainTypes> Clone for VerifiedUnaggregatedAttestation<T> {
+impl<T: BeaconChainTypes> Clone for PartiallyVerifiedUnaggregatedAttestation<T> {
     fn clone(&self) -> Self {
         Self {
             attestation: self.attestation.clone(),
             indexed_attestation: self.indexed_attestation.clone(),
             subnet_id: self.subnet_id,
+            validator_index: self.validator_index,
         }
     }
 }
@@ -287,13 +309,17 @@ pub trait SignatureVerifiedAttestation<T: BeaconChainTypes> {
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
 }
 
-impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedAggregatedAttestation<T> {
+impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T>
+    for FullyVerifiedAggregatedAttestation<T>
+{
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }
 }
 
-impl<T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedUnaggregatedAttestation<T> {
+impl<T: BeaconChainTypes> SignatureVerifiedAttestation<T>
+    for FullyVerifiedUnaggregatedAttestation<T>
+{
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }
@@ -369,7 +395,7 @@ fn process_slash_info<T: BeaconChainTypes>(
     }
 }
 
-impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
+impl<T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<T> {
     /// Returns `Ok(Self)` if the `signed_aggregate` is valid to be (re)published on the gossip
     /// network.
     pub fn verify(
@@ -467,47 +493,6 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         }
     }
 
-    /// Run the checks that happen after the indexed attestation and signature have been checked.
-    fn verify_late_checks(
-        signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
-        attestation_root: Hash256,
-        chain: &BeaconChain<T>,
-    ) -> Result<(), Error> {
-        let attestation = &signed_aggregate.message.aggregate;
-        let aggregator_index = signed_aggregate.message.aggregator_index;
-
-        // Observe the valid attestation so we do not re-process it.
-        //
-        // It's important to double check that the attestation is not already known, otherwise two
-        // attestations processed at the same time could be published.
-        if let ObserveOutcome::AlreadyKnown = chain
-            .observed_attestations
-            .write()
-            .observe_attestation(attestation, Some(attestation_root))
-            .map_err(|e| Error::BeaconChainError(e.into()))?
-        {
-            return Err(Error::AttestationAlreadyKnown(attestation_root));
-        }
-
-        // Observe the aggregator so we don't process another aggregate from them.
-        //
-        // It's important to double check that the attestation is not already known, otherwise two
-        // attestations processed at the same time could be published.
-        if chain
-            .observed_aggregators
-            .write()
-            .observe_validator(&attestation, aggregator_index as usize)
-            .map_err(BeaconChainError::from)?
-        {
-            return Err(Error::PriorAttestationKnown {
-                validator_index: aggregator_index,
-                epoch: attestation.data.target.epoch,
-            });
-        }
-
-        Ok(())
-    }
-
     /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
@@ -549,33 +534,11 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                 Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
             };
 
-        // Ensure that all signatures are valid.
-        if let Err(e) =
-            verify_signed_aggregate_signatures(chain, &signed_aggregate, &indexed_attestation)
-                .and_then(|is_valid| {
-                    if !is_valid {
-                        Err(Error::InvalidSignature)
-                    } else {
-                        Ok(())
-                    }
-                })
-        {
-            return Err(SignatureInvalid(e));
-        }
-
-        if let Err(e) = Self::verify_late_checks(&signed_aggregate, attestation_root, chain) {
-            return Err(SignatureValid(indexed_attestation, e));
-        }
-
-        Ok(VerifiedAggregatedAttestation {
+        Ok(PartiallyVerifiedAggregatedAttestation {
             signed_aggregate,
             indexed_attestation,
+            attestation_root,
         })
-    }
-
-    /// A helper function to add this aggregate to `beacon_chain.op_pool`.
-    pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
-        chain.add_to_block_inclusion_pool(self)
     }
 
     /// Returns the underlying `attestation` for the `signed_aggregate`.
@@ -589,7 +552,227 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     }
 }
 
-impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
+pub fn batch_verify_aggregated_attestations<T: BeaconChainTypes>(
+    aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<Result<FullyVerifiedAggregatedAttestation<T>, Error>>, Error> {
+    let mut num_partially_verified = 0;
+    let mut num_failed = 0;
+
+    let partial_results = aggregates
+        .into_iter()
+        .map(|aggregate| {
+            let result = PartiallyVerifiedAggregatedAttestation::verify(aggregate, chain);
+            if result.is_ok() {
+                num_partially_verified += 1;
+            } else {
+                num_failed += 1;
+            }
+            result
+        })
+        .collect::<Vec<_>>();
+
+    let mut check_signatures = CheckAttestationSignature::Yes;
+
+    if num_partially_verified > 0 {
+        let signature_setup_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
+
+        let pubkey_cache = chain
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+
+        let fork = chain
+            .canonical_head
+            .try_read_for(HEAD_LOCK_TIMEOUT)
+            .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
+            .map(|head| head.beacon_state.fork)?;
+
+        let mut signature_sets = Vec::with_capacity(num_partially_verified * 3);
+
+        for result in &partial_results {
+            if let Ok(partially_verified) = result {
+                let signed_aggregate = &partially_verified.signed_aggregate;
+                let indexed_attestation = &partially_verified.indexed_attestation;
+
+                signature_sets.push(
+                    signed_aggregate_selection_proof_signature_set(
+                        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                        &signed_aggregate,
+                        &fork,
+                        chain.genesis_validators_root,
+                        &chain.spec,
+                    )
+                    .map_err(BeaconChainError::SignatureSetError)?,
+                );
+                signature_sets.push(
+                    signed_aggregate_signature_set(
+                        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                        &signed_aggregate,
+                        &fork,
+                        chain.genesis_validators_root,
+                        &chain.spec,
+                    )
+                    .map_err(BeaconChainError::SignatureSetError)?,
+                );
+                signature_sets.push(
+                    indexed_attestation_signature_set_from_pubkeys(
+                        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                        &indexed_attestation.signature,
+                        &indexed_attestation,
+                        &fork,
+                        chain.genesis_validators_root,
+                        &chain.spec,
+                    )
+                    .map_err(BeaconChainError::SignatureSetError)?,
+                );
+            }
+        }
+
+        metrics::stop_timer(signature_setup_timer);
+
+        let _signature_verification_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+
+        if verify_signature_sets(signature_sets.iter()) {
+            // Since all the signatures verified in a batch, there's no reason for them to be
+            // checked again later.
+            check_signatures = CheckAttestationSignature::No
+        }
+    }
+
+    let final_results = partial_results
+        .into_iter()
+        .map(|result| match result {
+            Ok(partial) => FullyVerifiedAggregatedAttestation::finish_verification(
+                partial,
+                chain,
+                check_signatures,
+            ),
+            Err(e) => Err(e),
+        })
+        .collect();
+
+    Ok(final_results)
+}
+
+impl<T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<T> {
+    /// Run the checks that happen after the indexed attestation and signature have been checked.
+    fn verify_late_checks(
+        signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
+        attestation_root: Hash256,
+        chain: &BeaconChain<T>,
+    ) -> Result<(), Error> {
+        let attestation = &signed_aggregate.message.aggregate;
+        let aggregator_index = signed_aggregate.message.aggregator_index;
+
+        // Observe the valid attestation so we do not re-process it.
+        //
+        // It's important to double check that the attestation is not already known, otherwise two
+        // attestations processed at the same time could be published.
+        if let ObserveOutcome::AlreadyKnown = chain
+            .observed_attestations
+            .write()
+            .observe_attestation(attestation, Some(attestation_root))
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            return Err(Error::AttestationAlreadyKnown(attestation_root));
+        }
+
+        // Observe the aggregator so we don't process another aggregate from them.
+        //
+        // It's important to double check that the attestation is not already known, otherwise two
+        // attestations processed at the same time could be published.
+        if chain
+            .observed_aggregators
+            .write()
+            .observe_validator(&attestation, aggregator_index as usize)
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorAttestationKnown {
+                validator_index: aggregator_index,
+                epoch: attestation.data.target.epoch,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub fn finish_verification(
+        signed_aggregate: PartiallyVerifiedAggregatedAttestation<T>,
+        chain: &BeaconChain<T>,
+        check_signature: CheckAttestationSignature,
+    ) -> Result<Self, Error> {
+        Self::verify_slashable(signed_aggregate, chain, check_signature)
+            .map(|verified_aggregate| verified_aggregate.apply_to_slasher(chain))
+            .map_err(|slash_info| process_slash_info(slash_info, chain))
+    }
+
+    fn apply_to_slasher(self, chain: &BeaconChain<T>) -> Self {
+        if let Some(slasher) = chain.slasher.as_ref() {
+            slasher.accept_attestation(self.indexed_attestation.clone());
+        }
+        self
+    }
+
+    /// Verify the attestation, producing extra information about whether it might be slashable.
+    pub fn verify_slashable(
+        signed_aggregate: PartiallyVerifiedAggregatedAttestation<T>,
+        chain: &BeaconChain<T>,
+        check_signature: CheckAttestationSignature,
+    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+        use AttestationSlashInfo::*;
+
+        let PartiallyVerifiedAggregatedAttestation {
+            signed_aggregate,
+            indexed_attestation,
+            attestation_root,
+        } = signed_aggregate;
+
+        match check_signature {
+            CheckAttestationSignature::Yes => {
+                // Ensure that all signatures are valid.
+                if let Err(e) = verify_signed_aggregate_signatures(
+                    chain,
+                    &signed_aggregate,
+                    &indexed_attestation,
+                )
+                .and_then(|is_valid| {
+                    if !is_valid {
+                        Err(Error::InvalidSignature)
+                    } else {
+                        Ok(())
+                    }
+                }) {
+                    return Err(SignatureInvalid(e));
+                }
+            }
+            CheckAttestationSignature::No => (),
+        };
+
+        if let Err(e) = Self::verify_late_checks(&signed_aggregate, attestation_root, chain) {
+            return Err(SignatureValid(indexed_attestation, e));
+        }
+
+        Ok(FullyVerifiedAggregatedAttestation {
+            signed_aggregate,
+            indexed_attestation,
+        })
+    }
+
+    /// Returns the underlying `attestation` for the `signed_aggregate`.
+    pub fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.signed_aggregate.message.aggregate
+    }
+
+    /// Returns the underlying `signed_aggregate`.
+    pub fn aggregate(&self) -> &SignedAggregateAndProof<T::EthSpec> {
+        &self.signed_aggregate
+    }
+}
+
+impl<T: BeaconChainTypes> PartiallyVerifiedUnaggregatedAttestation<T> {
     /// Run the checks that happen before an indexed attestation is constructed.
     pub fn verify_early_checks(
         attestation: &Attestation<T::EthSpec>,
@@ -680,32 +863,6 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         Ok((validator_index, expected_subnet_id))
     }
 
-    /// Run the checks that apply after the signature has been checked.
-    fn verify_late_checks(
-        attestation: &Attestation<T::EthSpec>,
-        validator_index: u64,
-        chain: &BeaconChain<T>,
-    ) -> Result<(), Error> {
-        // Now that the attestation has been fully verified, store that we have received a valid
-        // attestation from this validator.
-        //
-        // It's important to double check that the attestation still hasn't been observed, since
-        // there can be a race-condition if we receive two attestations at the same time and
-        // process them in different threads.
-        if chain
-            .observed_attesters
-            .write()
-            .observe_validator(&attestation, validator_index as usize)
-            .map_err(BeaconChainError::from)?
-        {
-            return Err(Error::PriorAttestationKnown {
-                validator_index,
-                epoch: attestation.data.target.epoch,
-            });
-        }
-        Ok(())
-    }
-
     /// Returns `Ok(Self)` if the `attestation` is valid to be (re)published on the gossip
     /// network.
     ///
@@ -757,10 +914,190 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
         };
 
-        // The aggregate signature of the attestation is valid.
-        if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
-            return Err(SignatureInvalid(e));
+        Ok(Self {
+            attestation,
+            indexed_attestation,
+            subnet_id: expected_subnet_id,
+            validator_index,
+        })
+    }
+
+    /// Returns the correct subnet for the attestation.
+    pub fn subnet_id(&self) -> SubnetId {
+        self.subnet_id
+    }
+
+    /// Returns the wrapped `attestation`.
+    pub fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.attestation
+    }
+
+    /// Returns the wrapped `indexed_attestation`.
+    pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+
+    /// Returns a mutable reference to the underlying attestation.
+    ///
+    /// Only use during testing since modifying the `IndexedAttestation` can cause the attestation
+    /// to no-longer be valid.
+    pub fn __indexed_attestation_mut(&mut self) -> &mut IndexedAttestation<T::EthSpec> {
+        &mut self.indexed_attestation
+    }
+}
+
+pub fn batch_verify_unaggregated_attestations<T: BeaconChainTypes>(
+    attestations: Vec<(Attestation<T::EthSpec>, Option<SubnetId>)>,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<Result<FullyVerifiedUnaggregatedAttestation<T>, Error>>, Error> {
+    let mut num_partially_verified = 0;
+    let mut num_failed = 0;
+
+    let partial_results = attestations
+        .into_iter()
+        .map(|(attn, subnet_opt)| {
+            let result = PartiallyVerifiedUnaggregatedAttestation::verify(attn, subnet_opt, chain);
+            if result.is_ok() {
+                num_partially_verified += 1;
+            } else {
+                num_failed += 1;
+            }
+            result
+        })
+        .collect::<Vec<_>>();
+
+    let mut check_signatures = CheckAttestationSignature::Yes;
+
+    if num_partially_verified > 0 {
+        let signature_setup_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
+
+        let pubkey_cache = chain
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+
+        let fork = chain
+            .canonical_head
+            .try_read_for(HEAD_LOCK_TIMEOUT)
+            .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
+            .map(|head| head.beacon_state.fork)?;
+
+        let mut signature_sets = Vec::with_capacity(num_partially_verified * 3);
+
+        for result in &partial_results {
+            if let Ok(partially_verified) = result {
+                let indexed_attestation = &partially_verified.indexed_attestation;
+
+                let signature_set = indexed_attestation_signature_set_from_pubkeys(
+                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    &indexed_attestation.signature,
+                    &indexed_attestation,
+                    &fork,
+                    chain.genesis_validators_root,
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::SignatureSetError)?;
+
+                signature_sets.push(signature_set);
+            }
         }
+
+        metrics::stop_timer(signature_setup_timer);
+
+        let _signature_verification_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+
+        if verify_signature_sets(signature_sets.iter()) {
+            // Since all the signatures verified in a batch, there's no reason for them to be
+            // checked again later.
+            check_signatures = CheckAttestationSignature::No
+        }
+    }
+
+    let final_results = partial_results
+        .into_iter()
+        .map(|result| match result {
+            Ok(partial) => FullyVerifiedUnaggregatedAttestation::finish_verification(
+                partial,
+                chain,
+                check_signatures,
+            ),
+            Err(e) => Err(e),
+        })
+        .collect();
+
+    Ok(final_results)
+}
+
+impl<T: BeaconChainTypes> FullyVerifiedUnaggregatedAttestation<T> {
+    /// Run the checks that apply after the signature has been checked.
+    fn verify_late_checks(
+        attestation: &Attestation<T::EthSpec>,
+        validator_index: u64,
+        chain: &BeaconChain<T>,
+    ) -> Result<(), Error> {
+        // Now that the attestation has been fully verified, store that we have received a valid
+        // attestation from this validator.
+        //
+        // It's important to double check that the attestation still hasn't been observed, since
+        // there can be a race-condition if we receive two attestations at the same time and
+        // process them in different threads.
+        if chain
+            .observed_attesters
+            .write()
+            .observe_validator(&attestation, validator_index as usize)
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorAttestationKnown {
+                validator_index,
+                epoch: attestation.data.target.epoch,
+            });
+        }
+        Ok(())
+    }
+
+    pub fn finish_verification(
+        attestation: PartiallyVerifiedUnaggregatedAttestation<T>,
+        chain: &BeaconChain<T>,
+        check_signature: CheckAttestationSignature,
+    ) -> Result<Self, Error> {
+        Self::verify_slashable(attestation, chain, check_signature)
+            .map(|verified_unaggregated| verified_unaggregated.apply_to_slasher(chain))
+            .map_err(|slash_info| process_slash_info(slash_info, chain))
+    }
+
+    fn apply_to_slasher(self, chain: &BeaconChain<T>) -> Self {
+        if let Some(slasher) = chain.slasher.as_ref() {
+            slasher.accept_attestation(self.indexed_attestation.clone());
+        }
+        self
+    }
+
+    /// Verify the attestation, producing extra information about whether it might be slashable.
+    fn verify_slashable(
+        attestation: PartiallyVerifiedUnaggregatedAttestation<T>,
+        chain: &BeaconChain<T>,
+        check_signature: CheckAttestationSignature,
+    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+        use AttestationSlashInfo::*;
+
+        let PartiallyVerifiedUnaggregatedAttestation {
+            attestation,
+            indexed_attestation,
+            subnet_id,
+            validator_index,
+        } = attestation;
+
+        match check_signature {
+            CheckAttestationSignature::Yes => {
+                // The aggregate signature of the attestation is valid.
+                if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
+                    return Err(SignatureInvalid(e));
+                }
+            }
+            CheckAttestationSignature::No => (),
+        };
 
         if let Err(e) = Self::verify_late_checks(&attestation, validator_index, chain) {
             return Err(SignatureValid(indexed_attestation, e));
@@ -769,13 +1106,8 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         Ok(Self {
             attestation,
             indexed_attestation,
-            subnet_id: expected_subnet_id,
+            subnet_id,
         })
-    }
-
-    /// A helper function to add this attestation to `beacon_chain.naive_aggregation_pool`.
-    pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
-        chain.add_to_naive_aggregation_pool(self)
     }
 
     /// Returns the correct subnet for the attestation.
