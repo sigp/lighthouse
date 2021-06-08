@@ -21,6 +21,7 @@ mod sanity_slots;
 mod shuffling;
 mod ssz_generic;
 mod ssz_static;
+mod transition;
 
 pub use bls_aggregate_sigs::*;
 pub use bls_aggregate_verify::*;
@@ -39,6 +40,7 @@ pub use sanity_slots::*;
 pub use shuffling::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
+pub use transition::TransitionTest;
 
 pub trait LoadCase: Sized {
     /// Load the test case from a test case directory.

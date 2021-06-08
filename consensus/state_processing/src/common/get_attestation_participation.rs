@@ -21,7 +21,7 @@ pub fn get_attestation_participation_flag_indices<T: EthSpec>(
     data: &AttestationData,
     inclusion_delay: u64,
     spec: &ChainSpec,
-) -> Result<SmallVec<[u32; NUM_FLAG_INDICES]>, Error> {
+) -> Result<SmallVec<[usize; NUM_FLAG_INDICES]>, Error> {
     let justified_checkpoint = if data.target.epoch == state.current_epoch() {
         state.current_justified_checkpoint()
     } else {

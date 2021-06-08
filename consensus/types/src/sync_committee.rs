@@ -12,7 +12,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec")]
 pub struct SyncCommittee<T: EthSpec> {
     pub pubkeys: FixedVector<PublicKeyBytes, T::SyncCommitteeSize>,
-    pub pubkey_aggregates: FixedVector<PublicKeyBytes, T::SyncAggregateSize>,
+    pub aggregate_pubkey: PublicKeyBytes,
 }
 
 impl<T: EthSpec> SyncCommittee<T> {
@@ -23,10 +23,7 @@ impl<T: EthSpec> SyncCommittee<T> {
                 PublicKeyBytes::empty();
                 T::SyncCommitteeSize::to_usize()
             ])?,
-            pubkey_aggregates: FixedVector::new(vec![
-                PublicKeyBytes::empty();
-                T::SyncAggregateSize::to_usize()
-            ])?,
+            aggregate_pubkey: PublicKeyBytes::empty(),
         })
     }
 }

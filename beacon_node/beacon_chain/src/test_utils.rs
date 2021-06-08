@@ -640,65 +640,71 @@ where
             slot,
         );
 
-        let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> = unaggregated_attestations
-            .iter()
-            .map(|committee_attestations| {
-                // If there are any attestations in this committee, create an aggregate.
-                if let Some((attestation, _)) = committee_attestations.first() {
-                    let bc = state.get_beacon_committee(attestation.data.slot, attestation.data.index)
-                        .unwrap();
+        let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
+            unaggregated_attestations
+                .iter()
+                .map(|committee_attestations| {
+                    // If there are any attestations in this committee, create an aggregate.
+                    if let Some((attestation, _)) = committee_attestations.first() {
+                        let bc = state
+                            .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                            .unwrap();
 
-                    let aggregator_index = bc.committee
-                        .iter()
-                        .find(|&validator_index| {
-                            if !attesting_validators.contains(validator_index) {
-                                return false
-                            }
+                        // Find an aggregator if one exists. Return `None` if there are no
+                        // aggregators.
+                        let aggregator_index = bc
+                            .committee
+                            .iter()
+                            .find(|&validator_index| {
+                                if !attesting_validators.contains(validator_index) {
+                                    return false;
+                                }
 
-                            let selection_proof = SelectionProof::new::<E>(
-                                state.slot(),
-                                &self.validator_keypairs[*validator_index].sk,
-                                &state.fork(),
-                                state.genesis_validators_root(),
-                                &self.spec,
-                            );
+                                let selection_proof = SelectionProof::new::<E>(
+                                    state.slot(),
+                                    &self.validator_keypairs[*validator_index].sk,
+                                    &state.fork(),
+                                    state.genesis_validators_root(),
+                                    &self.spec,
+                                );
 
-                            selection_proof.is_aggregator(bc.committee.len(), &self.spec).unwrap_or(false)
-                        })
-                        .copied()
-                        .unwrap_or_else(|| panic!(
-                            "Committee {} at slot {} with {} attesting validators does not have any aggregators",
-                            bc.index, state.slot(), bc.committee.len()
-                        ));
-
-                    // If the chain is able to produce an aggregate, use that. Otherwise, build an
-                    // aggregate locally.
-                    let aggregate = self
-                        .chain
-                        .get_aggregated_attestation(&attestation.data)
-                        .unwrap_or_else(|| {
-                            committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, (att, _)| {
-                                agg.aggregate(att);
-                                agg
+                                selection_proof
+                                    .is_aggregator(bc.committee.len(), &self.spec)
+                                    .unwrap_or(false)
                             })
-                        });
+                            .copied()?;
 
-                    let signed_aggregate = SignedAggregateAndProof::from_aggregate(
-                        aggregator_index as u64,
-                        aggregate,
-                        None,
-                        &self.validator_keypairs[aggregator_index].sk,
-                        &state.fork(),
-                        state.genesis_validators_root(),
-                        &self.spec,
-                    );
+                        // If the chain is able to produce an aggregate, use that. Otherwise, build an
+                        // aggregate locally.
+                        let aggregate = self
+                            .chain
+                            .get_aggregated_attestation(&attestation.data)
+                            .unwrap_or_else(|| {
+                                committee_attestations.iter().skip(1).fold(
+                                    attestation.clone(),
+                                    |mut agg, (att, _)| {
+                                        agg.aggregate(att);
+                                        agg
+                                    },
+                                )
+                            });
 
-                    Some(signed_aggregate)
-                }
-                else {
-                    None
-                }
-            }).collect();
+                        let signed_aggregate = SignedAggregateAndProof::from_aggregate(
+                            aggregator_index as u64,
+                            aggregate,
+                            None,
+                            &self.validator_keypairs[aggregator_index].sk,
+                            &state.fork(),
+                            state.genesis_validators_root(),
+                            &self.spec,
+                        );
+
+                        Some(signed_aggregate)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
         unaggregated_attestations
             .into_iter()

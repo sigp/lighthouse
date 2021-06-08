@@ -58,7 +58,9 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod config_and_preset;
 pub mod participation_flags;
+pub mod preset;
 pub mod slot_epoch;
 pub mod subnet_id;
 pub mod sync_aggregate;
@@ -85,8 +87,9 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::chain_spec::{AltairConfig, BaseConfig, ChainSpec, Domain, StandardConfig};
+pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
+pub use crate::config_and_preset::ConfigAndPreset;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
@@ -102,6 +105,7 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::pending_attestation::PendingAttestation;
+pub use crate::preset::{AltairPreset, BasePreset};
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::selection_proof::SelectionProof;
