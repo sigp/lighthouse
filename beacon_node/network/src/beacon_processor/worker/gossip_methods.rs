@@ -13,11 +13,43 @@ use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    Attestation, AttesterSlashing, EthSpec, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 use super::{super::block_delay_queue::QueuedBlock, Worker};
+
+#[derive(Debug)]
+pub struct GossipAttestationPackage<E: EthSpec> {
+    message_id: MessageId,
+    peer_id: PeerId,
+    attestation: Option<Box<Attestation<E>>>,
+    subnet_id: SubnetId,
+    beacon_block_root: Hash256,
+    should_import: bool,
+    seen_timestamp: Duration,
+}
+
+impl<E: EthSpec> GossipAttestationPackage<E> {
+    pub fn new(
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<E>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            message_id,
+            peer_id,
+            beacon_block_root: attestation.data.beacon_block_root,
+            attestation: Some(attestation),
+            subnet_id,
+            should_import,
+            seen_timestamp,
+        }
+    }
+}
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
@@ -59,86 +91,116 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// - Attempt to add it to the naive aggregation pool.
     ///
     /// Raises a log if there are errors.
-    pub fn process_gossip_attestation(
+    pub fn process_gossip_attestations(
         self,
-        message_id: MessageId,
-        peer_id: PeerId,
-        attestation: Attestation<T::EthSpec>,
-        subnet_id: SubnetId,
-        should_import: bool,
-        seen_timestamp: Duration,
+        mut packages: Vec<GossipAttestationPackage<T::EthSpec>>,
     ) {
-        let beacon_block_root = attestation.data.beacon_block_root;
+        let attestations_and_subnets = packages
+            .iter_mut()
+            .filter_map(|package| {
+                let attestation = package.attestation.take()?;
+                Some((*attestation, Some(package.subnet_id)))
+            })
+            .collect();
 
-        let attestation = match self
+        let results = match self
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
+            .batch_verify_unaggregated_attestations_for_gossip(attestations_and_subnets)
         {
-            Ok(attestation) => attestation,
+            Ok(results) => results,
             Err(e) => {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    message_id,
-                    beacon_block_root,
-                    "unaggregated",
-                    e,
+                error!(
+                    self.log,
+                    "Batch unagg. attn verification failed";
+                    "error" => ?e
                 );
                 return;
             }
         };
 
-        // Register the attestation with any monitored validators.
-        self.chain
-            .validator_monitor
-            .read()
-            .register_gossip_unaggregated_attestation(
-                seen_timestamp,
-                attestation.indexed_attestation(),
-                &self.chain.slot_clock,
-            );
+        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+            let seen_timestamp = package.seen_timestamp;
+            let should_import = package.should_import;
+            let message_id = package.message_id;
+            let peer_id = package.peer_id;
+            let beacon_block_root = package.beacon_block_root;
 
-        // Indicate to the `Network` service that this message is valid and can be
-        // propagated on the gossip network.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            match result {
+                Ok(attestation) => {
+                    // Register the attestation with any monitored validators.
+                    self.chain
+                        .validator_monitor
+                        .read()
+                        .register_gossip_unaggregated_attestation(
+                            seen_timestamp,
+                            attestation.indexed_attestation(),
+                            &self.chain.slot_clock,
+                        );
 
-        if !should_import {
-            return;
-        }
+                    // Indicate to the `Network` service that this message is valid and can be
+                    // propagated on the gossip network.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Accept,
+                    );
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL);
+                    if !should_import {
+                        return;
+                    }
 
-        if let Err(e) = self.chain.apply_attestation_to_fork_choice(&attestation) {
-            match e {
-                BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
-                    debug!(
-                        self.log,
-                        "Attestation invalid for fork choice";
-                        "reason" => ?e,
-                        "peer" => %peer_id,
-                        "beacon_block_root" => ?beacon_block_root
-                    )
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
+                    );
+
+                    if let Err(e) = self.chain.apply_attestation_to_fork_choice(&attestation) {
+                        match e {
+                            BeaconChainError::ForkChoiceError(
+                                ForkChoiceError::InvalidAttestation(e),
+                            ) => {
+                                debug!(
+                                    self.log,
+                                    "Attestation invalid for fork choice";
+                                    "reason" => ?e,
+                                    "peer" => %peer_id,
+                                    "beacon_block_root" => ?beacon_block_root
+                                )
+                            }
+                            e => error!(
+                                self.log,
+                                "Error applying attestation to fork choice";
+                                "reason" => ?e,
+                                "peer" => %peer_id,
+                                "beacon_block_root" => ?beacon_block_root
+                            ),
+                        }
+                    }
+
+                    if let Err(e) = self.chain.add_to_naive_aggregation_pool(attestation) {
+                        debug!(
+                            self.log,
+                            "Attestation invalid for agg pool";
+                            "reason" => ?e,
+                            "peer" => %peer_id,
+                            "beacon_block_root" => ?beacon_block_root
+                        )
+                    }
+
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                    );
                 }
-                e => error!(
-                    self.log,
-                    "Error applying attestation to fork choice";
-                    "reason" => ?e,
-                    "peer" => %peer_id,
-                    "beacon_block_root" => ?beacon_block_root
-                ),
+                Err(e) => {
+                    self.handle_attestation_verification_failure(
+                        peer_id,
+                        message_id,
+                        beacon_block_root,
+                        "unaggregated",
+                        e,
+                    );
+                }
             }
         }
-
-        if let Err(e) = self.chain.add_to_naive_aggregation_pool(attestation) {
-            debug!(
-                self.log,
-                "Attestation invalid for agg pool";
-                "reason" => ?e,
-                "peer" => %peer_id,
-                "beacon_block_root" => ?beacon_block_root
-            )
-        }
-
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL);
     }
 
     /// Process the aggregated attestation received from the gossip network and:

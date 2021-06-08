@@ -44,7 +44,8 @@ use eth2_libp2p::{
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use slog::{debug, error, trace, warn, Logger};
+use slog::{crit, debug, error, trace, warn, Logger};
+use std::cmp;
 use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
@@ -64,7 +65,7 @@ mod block_delay_queue;
 mod tests;
 mod worker;
 
-pub use worker::ProcessId;
+pub use worker::{GossipAttestationPackage, ProcessId};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -133,10 +134,13 @@ const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
+const MAX_UNAGGREGATED_ATTESTATION_BATCH_SIZE: usize = 32;
+
 /// Unique IDs used for metrics and testing.
 pub const WORKER_FREED: &str = "worker_freed";
 pub const NOTHING_TO_DO: &str = "nothing_to_do";
 pub const GOSSIP_ATTESTATION: &str = "gossip_attestation";
+pub const GOSSIP_ATTESTATION_BATCH: &str = "gossip_attestation_batch";
 pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
@@ -453,6 +457,9 @@ pub enum Work<T: BeaconChainTypes> {
         should_import: bool,
         seen_timestamp: Duration,
     },
+    GossipAttestationBatch {
+        packages: Vec<GossipAttestationPackage<T::EthSpec>>,
+    },
     GossipAggregate {
         message_id: MessageId,
         peer_id: PeerId,
@@ -514,6 +521,7 @@ impl<T: BeaconChainTypes> Work<T> {
     fn str_id(&self) -> &'static str {
         match self {
             Work::GossipAttestation { .. } => GOSSIP_ATTESTATION,
+            Work::GossipAttestationBatch { .. } => GOSSIP_ATTESTATION_BATCH,
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipBlock { .. } => GOSSIP_BLOCK,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
@@ -792,6 +800,37 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = attestation_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        } else if attestation_queue.len() > 0 {
+                            let batch_size = cmp::min(
+                                attestation_queue.len(),
+                                MAX_UNAGGREGATED_ATTESTATION_BATCH_SIZE,
+                            );
+                            let mut packages = Vec::with_capacity(batch_size);
+                            for _ in 0..batch_size {
+                                if let Some(item) = attestation_queue.pop() {
+                                    match item {
+                                        Work::GossipAttestation {
+                                            message_id,
+                                            peer_id,
+                                            attestation,
+                                            subnet_id,
+                                            should_import,
+                                            seen_timestamp,
+                                        } => {
+                                            packages.push(GossipAttestationPackage::new(
+                                                message_id,
+                                                peer_id,
+                                                attestation,
+                                                subnet_id,
+                                                should_import,
+                                                seen_timestamp,
+                                            ));
+                                        }
+                                        _ => error!(self.log, "Invalid item in attestation queue"),
+                                    }
+                                }
+                            }
+                            self.spawn_worker(Work::GossipAttestationBatch { packages }, toolbox)
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
                         // and BlocksByRoot)
@@ -863,6 +902,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         match work {
                             _ if can_spawn => self.spawn_worker(work, toolbox),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
+                            Work::GossipAttestationBatch { .. } => {
+                                crit!(self.log, "Batch events not supported")
+                            }
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
@@ -1025,14 +1067,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         subnet_id,
                         should_import,
                         seen_timestamp,
-                    } => worker.process_gossip_attestation(
+                    } => worker.process_gossip_attestations(vec![GossipAttestationPackage::new(
                         message_id,
                         peer_id,
-                        *attestation,
+                        attestation,
                         subnet_id,
                         should_import,
                         seen_timestamp,
-                    ),
+                    )]),
+                    /*
+                     * Unaggregated attestation verification which has been batched to .
+                     */
+                    Work::GossipAttestationBatch { packages } => {
+                        worker.process_gossip_attestations(packages)
+                    }
                     /*
                      * Aggregated attestation verification.
                      */
