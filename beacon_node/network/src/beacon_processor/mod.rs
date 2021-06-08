@@ -805,32 +805,52 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 attestation_queue.len(),
                                 MAX_UNAGGREGATED_ATTESTATION_BATCH_SIZE,
                             );
-                            let mut packages = Vec::with_capacity(batch_size);
-                            for _ in 0..batch_size {
+
+                            if batch_size < 2 {
+                                // One single attestation is in the queue, process it individually.
                                 if let Some(item) = attestation_queue.pop() {
-                                    match item {
-                                        Work::GossipAttestation {
-                                            message_id,
-                                            peer_id,
-                                            attestation,
-                                            subnet_id,
-                                            should_import,
-                                            seen_timestamp,
-                                        } => {
-                                            packages.push(GossipAttestationPackage::new(
+                                    self.spawn_worker(item, toolbox);
+                                }
+                            } else {
+                                // Collect two or more attestations into a batch, so they can take
+                                // advantage of batch signature verification.
+                                //
+                                // Note: this will convert the `Work::GossipAttestation` item into a
+                                // `Work::GossipAttestationPackage` item.
+                                let mut packages = Vec::with_capacity(batch_size);
+                                for _ in 0..batch_size {
+                                    if let Some(item) = attestation_queue.pop() {
+                                        match item {
+                                            Work::GossipAttestation {
                                                 message_id,
                                                 peer_id,
                                                 attestation,
                                                 subnet_id,
                                                 should_import,
                                                 seen_timestamp,
-                                            ));
+                                            } => {
+                                                packages.push(GossipAttestationPackage::new(
+                                                    message_id,
+                                                    peer_id,
+                                                    attestation,
+                                                    subnet_id,
+                                                    should_import,
+                                                    seen_timestamp,
+                                                ));
+                                            }
+                                            _ => error!(
+                                                self.log,
+                                                "Invalid item in attestation queue"
+                                            ),
                                         }
-                                        _ => error!(self.log, "Invalid item in attestation queue"),
                                     }
                                 }
+
+                                self.spawn_worker(
+                                    Work::GossipAttestationBatch { packages },
+                                    toolbox,
+                                )
                             }
-                            self.spawn_worker(Work::GossipAttestationBatch { packages }, toolbox)
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
                         // and BlocksByRoot)
@@ -1067,19 +1087,19 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         subnet_id,
                         should_import,
                         seen_timestamp,
-                    } => worker.process_gossip_attestations(vec![GossipAttestationPackage::new(
+                    } => worker.process_gossip_attestation(
                         message_id,
                         peer_id,
-                        attestation,
+                        *attestation,
                         subnet_id,
                         should_import,
                         seen_timestamp,
-                    )]),
+                    ),
                     /*
                      * Unaggregated attestation verification which has been batched to .
                      */
                     Work::GossipAttestationBatch { packages } => {
-                        worker.process_gossip_attestations(packages)
+                        worker.process_gossip_attestation_batch(packages)
                     }
                     /*
                      * Aggregated attestation verification.
