@@ -24,7 +24,7 @@ const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 /// The maximum number of arenas allowed to be created by malloc.
 ///
 /// See `ArenaMaxSetting` docs for details.
-const OPTIMAL_ARENA_MAX: ArenaMaxSetting = ArenaMaxSetting::NumCpus;
+const OPTIMAL_ARENA_MAX: ArenaMaxSetting = ArenaMaxSetting::DoNotSet;
 
 /// Constants used to configure malloc internals.
 ///
