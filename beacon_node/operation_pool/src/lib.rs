@@ -1410,7 +1410,7 @@ mod release_tests {
     /// End-to-end test of basic sync contribution handling.
     #[test]
     fn sync_contribution_aggregation_insert_get_prune() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1427,14 +1427,7 @@ mod release_tests {
                 .expect("contribution exists for committee")
                 .message
                 .contribution;
-            op_pool
-                .insert_sync_contribution(
-                    contribution,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
-                .unwrap();
+            op_pool.insert_sync_contribution(contribution).unwrap();
         }
 
         assert_eq!(op_pool.sync_contributions.read().len(), 1);
@@ -1472,7 +1465,7 @@ mod release_tests {
     /// Adding a sync contribution already in the pool should not increase the size of the pool.
     #[test]
     fn sync_contribution_duplicate() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1489,21 +1482,9 @@ mod release_tests {
                 .message
                 .contribution;
             op_pool
-                .insert_sync_contribution(
-                    contribution.clone(),
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_sync_contribution(contribution.clone())
                 .unwrap();
-            op_pool
-                .insert_sync_contribution(
-                    contribution,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
-                .unwrap();
+            op_pool.insert_sync_contribution(contribution).unwrap();
         }
 
         assert_eq!(op_pool.sync_contributions.read().len(), 1);
@@ -1517,7 +1498,7 @@ mod release_tests {
     /// number of bits set in the aggregate.
     #[test]
     fn sync_contribution_with_more_bits() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1555,12 +1536,7 @@ mod release_tests {
                 .expect("set bit");
 
             op_pool
-                .insert_sync_contribution(
-                    contribution_fewer_bits,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_sync_contribution(contribution_fewer_bits)
                 .unwrap();
         }
 
@@ -1579,12 +1555,7 @@ mod release_tests {
             .set(0, false)
             .expect("set bit");
         op_pool
-            .insert_sync_contribution(
-                first_contribution,
-                &state.fork(),
-                state.genesis_validators_root(),
-                spec,
-            )
+            .insert_sync_contribution(first_contribution)
             .unwrap();
 
         // The sync aggregate should now include the additional set bit.
@@ -1601,7 +1572,7 @@ mod release_tests {
     /// number of bits set in the aggregate.
     #[test]
     fn sync_contribution_with_fewer_bits() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1639,12 +1610,7 @@ mod release_tests {
                 .expect("set bit");
 
             op_pool
-                .insert_sync_contribution(
-                    contribution_fewer_bits,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_sync_contribution(contribution_fewer_bits)
                 .unwrap();
         }
 
@@ -1671,12 +1637,7 @@ mod release_tests {
             .set(2, false)
             .expect("set bit");
         op_pool
-            .insert_sync_contribution(
-                first_contribution,
-                &state.fork(),
-                state.genesis_validators_root(),
-                spec,
-            )
+            .insert_sync_contribution(first_contribution)
             .unwrap();
 
         // The sync aggregate should still have the same number of set bits.
