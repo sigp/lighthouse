@@ -8,10 +8,7 @@ use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
 
-type PersistedSyncContributions<T> = Vec<(
-    SyncAggregateId,
-    (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>),
-)>;
+type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeContribution<T>>)>;
 
 /// SSZ-serializable version of `OperationPool`.
 ///
