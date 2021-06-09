@@ -4,6 +4,7 @@ use crate::{ChainSpec, EthSpec};
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;
+use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 
 lazy_static! {
@@ -39,9 +40,9 @@ impl SyncSubnetId {
 
     /// Compute required subnets to subscribe to given the sync committee indices.
     pub fn compute_subnets_for_sync_committee<T: EthSpec>(
-        sync_committee_indices: Vec<u64>,
+        sync_committee_indices: &[u64],
         spec: &ChainSpec,
-    ) -> Result<Vec<Self>, ArithError> {
+    ) -> Result<HashSet<Self>, ArithError> {
         let subnet_size =
             T::SyncCommitteeSize::to_u64().safe_div(spec.sync_committee_subnet_count)?;
 

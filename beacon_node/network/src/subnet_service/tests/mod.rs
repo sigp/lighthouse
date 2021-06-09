@@ -473,11 +473,12 @@ mod sync_committee_service {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
-        let subnet_id = SyncSubnetId::compute_subnets_for_sync_committee::<MinimalEthSpec>(
-            sync_committee_indices,
+        let subnet_ids = SyncSubnetId::compute_subnets_for_sync_committee::<MinimalEthSpec>(
+            &sync_committee_indices,
             &sync_committee_service.beacon_chain.spec,
         )
-        .unwrap()[0];
+        .unwrap();
+        let subnet_id = subnet_ids.iter().next().unwrap();
 
         // Note: the unsubscription event takes a full epoch (8 * 0.4 secs = 3.2 secs)
         let events = get_events(
@@ -489,8 +490,8 @@ mod sync_committee_service {
         assert_eq!(
             events[..2],
             [
-                SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(subnet_id)),
-                SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(subnet_id))
+                SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(*subnet_id)),
+                SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(*subnet_id))
             ]
         );
         assert_matches!(

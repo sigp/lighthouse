@@ -109,7 +109,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         &mut self,
         subscriptions: Vec<SyncCommitteeSubscription>,
     ) -> Result<(), String> {
-        let mut subnets_to_discover = HashSet::new();
+        let mut subnets_to_discover = Vec::new();
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SYNC_COMMITTEE_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
             );
 
             let subnet_ids = match SyncSubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
-                subscription.sync_committee_indices,
+                &subscription.sync_committee_indices,
                 &self.beacon_chain.spec,
             ) {
                 Ok(subnet_ids) => subnet_ids,
@@ -141,7 +141,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                     subnet_id,
                     until_epoch: subscription.until_epoch,
                 };
-                subnets_to_discover.insert(exact_subnet.clone());
+                subnets_to_discover.push(exact_subnet.clone());
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
                     warn!(self.log,
                         "Subscription to sync subnet error";
