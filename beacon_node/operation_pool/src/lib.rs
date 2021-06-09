@@ -6,7 +6,9 @@ mod metrics;
 mod persistence;
 mod sync_aggregate_id;
 
-pub use persistence::PersistedOperationPool;
+pub use persistence::{
+    PersistedOperationPool, PersistedOperationPoolAltair, PersistedOperationPoolBase,
+};
 
 use crate::sync_aggregate_id::SyncAggregateId;
 use attestation::AttMaxCover;
@@ -52,6 +54,7 @@ pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
     GetBlockRootError(BeaconStateError),
     SyncAggregateError(SyncAggregateError),
+    IncorrectOpPoolVariant,
 }
 
 impl From<SyncAggregateError> for OpPoolError {
