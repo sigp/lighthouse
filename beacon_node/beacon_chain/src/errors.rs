@@ -21,6 +21,7 @@ use state_processing::{
     BlockProcessingError, SlotProcessingError,
 };
 use std::time::Duration;
+use task_executor::ShutdownReason;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -96,7 +97,7 @@ pub enum BeaconChainError {
         head_block_epoch: Epoch,
     },
     WeakSubjectivtyVerificationFailure,
-    WeakSubjectivtyShutdownError(TrySendError<&'static str>),
+    WeakSubjectivtyShutdownError(TrySendError<ShutdownReason>),
     AttestingPriorToHead {
         head_slot: Slot,
         request_slot: Slot,
@@ -111,6 +112,10 @@ pub enum BeaconChainError {
     InvalidStateForShuffling {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
+    },
+    InconsistentForwardsIter {
+        request_slot: Slot,
+        slot: Slot,
     },
 }
 

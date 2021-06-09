@@ -83,8 +83,8 @@ impl ExitTest {
 
         TestVector {
             title,
-            block,
             pre_state,
+            block,
             post_state,
             error,
         }

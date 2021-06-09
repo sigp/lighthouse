@@ -17,6 +17,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
@@ -751,7 +752,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let block = BlockId::from_root(root).block(&chain)?;
 
                 let canonical = chain
-                    .block_root_at_slot(block.slot())
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .map_or(false, |canonical| root == canonical);
 
@@ -1355,7 +1356,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let heads = chain
                     .heads()
                     .into_iter()
-                    .map(|(root, slot)| api_types::ChainHeadData { root, slot })
+                    .map(|(root, slot)| api_types::ChainHeadData { slot, root })
                     .collect::<Vec<_>>();
                 Ok(api_types::GenericResponse::from(heads))
             })
@@ -1623,10 +1624,10 @@ pub fn serve<T: BeaconChainTypes>(
                     });
 
                 Ok(api_types::GenericResponse::from(api_types::PeerCount {
-                    disconnecting,
-                    connecting,
                     connected,
+                    connecting,
                     disconnected,
+                    disconnecting,
                 }))
             })
         });

@@ -299,7 +299,7 @@ mod tests {
         let sk_bytes = hex::decode(sk_hex).unwrap();
         let secret = discv5::enr::ed25519_dalek::SecretKey::from_bytes(&sk_bytes).unwrap();
         let public = discv5::enr::ed25519_dalek::PublicKey::from(&secret);
-        let keypair = discv5::enr::ed25519_dalek::Keypair { public, secret };
+        let keypair = discv5::enr::ed25519_dalek::Keypair { secret, public };
 
         let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
         let ed25519_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();

@@ -20,6 +20,7 @@ lazy_static = "1.4.0"
 eth2 = { path = "../../common/eth2" }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 warp_utils = { path = "../../common/warp_utils" }
+malloc_utils = { path = "../../common/malloc_utils" }
 
 [dev-dependencies]
 tokio = { version = "1.1.0", features = ["sync"] }

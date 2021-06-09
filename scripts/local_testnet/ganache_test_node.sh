@@ -8,6 +8,6 @@ exec ganache-cli \
 	--accounts 10 \
 	--mnemonic "$ETH1_NETWORK_MNEMONIC" \
 	--port 8545 \
-	--blockTime $SECONDS_PER_ETH1_BLOCK \
-	--networkId 4242 \
-	--chainId 4242
+	--blockTime 3 \
+	--networkId "$NETWORK_ID" \
+	--chainId "$NETWORK_ID"

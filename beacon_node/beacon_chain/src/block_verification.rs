@@ -690,14 +690,13 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
         block: SignedBeaconBlock<T::EthSpec>,
+        block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         let (mut parent, block) = load_parent(block, chain)?;
 
         // Reject any block that exceeds our limit on skipped slots.
         check_block_skip_slots(chain, parent.beacon_block.slot(), &block.message)?;
-
-        let block_root = get_block_root(&block);
 
         let state = cheap_state_advance_to_obtain_committees(
             &mut parent.pre_state,
@@ -726,10 +725,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     /// As for `new` above but producing `BlockSlashInfo`.
     pub fn check_slashable(
         block: SignedBeaconBlock<T::EthSpec>,
+        block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = block.signed_block_header();
-        Self::new(block, chain).map_err(|e| BlockSlashInfo::from_early_error(header, e))
+        Self::new(block, block_root, chain).map_err(|e| BlockSlashInfo::from_early_error(header, e))
     }
 
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
@@ -814,7 +814,11 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
         self,
         chain: &BeaconChain<T>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
-        SignatureVerifiedBlock::check_slashable(self, chain)?
+        // Perform an early check to prevent wasting time on irrelevant blocks.
+        let block_root = check_block_relevancy(&self, None, chain)
+            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+
+        SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
             .into_fully_verified_block_slashable(chain)
     }
 

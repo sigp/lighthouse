@@ -44,6 +44,20 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
       run: make test-release
+  release-tests-windows:
+    name: release-tests-windows
+    runs-on: windows-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install ganache-cli
+      run: npm install -g ganache-cli
+    - name: Install make
+      run: choco install -y make
+    - name: Run tests in release
+      run: make test-release
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     runs-on: ubuntu-latest
