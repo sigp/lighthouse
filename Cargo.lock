@@ -3884,7 +3884,6 @@ dependencies = [
  "lazy_static",
  "libc",
  "lighthouse_metrics",
- "num_cpus",
  "parking_lot",
 ]
 

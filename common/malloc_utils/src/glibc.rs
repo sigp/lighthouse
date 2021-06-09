@@ -21,36 +21,19 @@ use std::result::Result;
 /// NODES_PER_VALIDATOR * VALIDATORS_PER_ARENA * 32 = 15 * 4096 * 32 = 1.875 MiB
 const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
 
-/// The maximum number of arenas allowed to be created by malloc.
-///
-/// See `ArenaMaxSetting` docs for details.
-const OPTIMAL_ARENA_MAX: ArenaMaxSetting = ArenaMaxSetting::NumCpus;
-
 /// Constants used to configure malloc internals.
 ///
 /// Source:
 ///
 /// https://github.com/lattera/glibc/blob/895ef79e04a953cac1493863bcae29ad85657ee1/malloc/malloc.h#L115-L123
 const M_MMAP_THRESHOLD: c_int = -4;
-const M_ARENA_MAX: c_int = -8;
 
 /// Environment variables used to configure malloc.
 ///
 /// Source:
 ///
 /// https://man7.org/linux/man-pages/man3/mallopt.3.html
-const ENV_VAR_ARENA_MAX: &str = "MALLOC_ARENA_MAX";
 const ENV_VAR_MMAP_THRESHOLD: &str = "MALLOC_MMAP_THRESHOLD_";
-
-#[allow(dead_code)]
-enum ArenaMaxSetting {
-    /// Do not set any value for MALLOC_ARENA_MAX, leave it as default.
-    DoNotSet,
-    /// Set a fixed value.
-    Fixed(c_int),
-    /// Read the number of CPUs at runtime and use that value.
-    NumCpus,
-}
 
 lazy_static! {
     pub static ref GLOBAL_LOCK: Mutex<()> = <_>::default();
@@ -123,20 +106,6 @@ pub fn scrape_mallinfo_metrics() {
 
 /// Perform all configuration routines.
 pub fn configure_glibc_malloc() -> Result<(), String> {
-    if !env_var_present(ENV_VAR_ARENA_MAX) {
-        let arena_max = match OPTIMAL_ARENA_MAX {
-            ArenaMaxSetting::DoNotSet => None,
-            ArenaMaxSetting::Fixed(n) => Some(n),
-            ArenaMaxSetting::NumCpus => Some(num_cpus::get() as c_int),
-        };
-
-        if let Some(max) = arena_max {
-            if let Err(e) = malloc_arena_max(max) {
-                return Err(format!("failed (code {}) to set malloc max arena count", e));
-            }
-        }
-    }
-
     if !env_var_present(ENV_VAR_MMAP_THRESHOLD) {
         if let Err(e) = malloc_mmap_threshold(OPTIMAL_MMAP_THRESHOLD) {
             return Err(format!("failed (code {}) to set malloc mmap threshold", e));
@@ -149,19 +118,6 @@ pub fn configure_glibc_malloc() -> Result<(), String> {
 /// Returns `true` if an environment variable is present.
 fn env_var_present(name: &str) -> bool {
     env::var(name) != Err(env::VarError::NotPresent)
-}
-
-/// Uses `mallopt` to set the `M_ARENA_MAX` value, specifying the number of memory arenas to be
-/// created by malloc.
-///
-/// Generally speaking, a smaller arena count reduces memory fragmentation at the cost of memory contention
-/// between threads.
-///
-/// ## Resources
-///
-/// - https://man7.org/linux/man-pages/man3/mallopt.3.html
-fn malloc_arena_max(num_arenas: c_int) -> Result<(), c_int> {
-    into_result(mallopt(M_ARENA_MAX, num_arenas))
 }
 
 /// Uses `mallopt` to set the `M_MMAP_THRESHOLD` value, specifying the threshold where objects of this
@@ -197,11 +153,6 @@ fn into_result(result: c_int) -> Result<(), c_int> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn malloc_arena_max_does_not_panic() {
-        malloc_arena_max(2).unwrap();
-    }
 
     #[test]
     fn malloc_mmap_threshold_does_not_panic() {
