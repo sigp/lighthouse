@@ -11,9 +11,9 @@ pub fn process_sync_committee_updates<T: EthSpec>(
 ) -> Result<(), EpochProcessingError> {
     let next_epoch = state.next_epoch()?;
     if next_epoch.safe_rem(spec.epochs_per_sync_committee_period)? == 0 {
-        *state.current_sync_committee_mut()? = Arc::new(state.next_sync_committee()?.clone());
+        *state.current_sync_committee_mut()? = state.next_sync_committee()?.clone();
 
-        *state.next_sync_committee_mut()? = state.get_next_sync_committee(spec)?;
+        *state.next_sync_committee_mut()? = Arc::new(state.get_next_sync_committee(spec)?);
     }
     Ok(())
 }

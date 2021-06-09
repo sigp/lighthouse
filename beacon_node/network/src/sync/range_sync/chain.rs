@@ -18,10 +18,10 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// we will negatively report peers with poor bandwidth. This can be set arbitrarily high, in which
 /// case the responder will fill the response up to the max request size, assuming they have the
 /// bandwidth to do so.
-pub const EPOCHS_PER_BATCH: u64 = 2;
+pub const EPOCHS_PER_BATCH: u64 = 1;
 
 /// The maximum number of batches to queue before requesting more.
-const BATCH_BUFFER_SIZE: u8 = 5;
+const BATCH_BUFFER_SIZE: u8 = 1;
 
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is

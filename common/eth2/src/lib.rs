@@ -702,6 +702,41 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `POST beacon/pool/sync_committees`
+    pub async fn post_beacon_pool_sync_committee_signatures(
+        &self,
+        signatures: &[SyncCommitteeSignature],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("sync_committees");
+
+        self.post(path, &signatures).await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/contribution_and_proofs`
+    pub async fn post_validator_contribution_and_proofs<T: EthSpec>(
+        &self,
+        signed_contributions: &[SignedContributionAndProof<T>],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("contribution_and_proofs");
+
+        self.post(path, &signed_contributions).await?;
+
+        Ok(())
+    }
+
     /// `GET config/fork_schedule`
     pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
         let mut path = self.eth_path()?;
@@ -978,7 +1013,7 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET validator/attestation_attestation?slot,attestation_data_root`
+    /// `GET validator/aggregate_attestation?slot,attestation_data_root`
     pub async fn get_validator_aggregate_attestation<T: EthSpec>(
         &self,
         slot: Slot,
@@ -996,6 +1031,32 @@ impl BeaconNodeHttpClient {
             .append_pair(
                 "attestation_data_root",
                 &format!("{:?}", attestation_data_root),
+            );
+
+        self.get_opt(path).await
+    }
+
+    /// `GET validator/sync_committee_contribution`
+    pub async fn get_validator_sync_committee_contribution<T: EthSpec>(
+        &self,
+        sync_committee_data: &SyncContributionData,
+    ) -> Result<Option<GenericResponse<SyncCommitteeContribution<T>>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("sync_committee_contribution");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &sync_committee_data.slot.to_string())
+            .append_pair(
+                "beacon_block_root",
+                &format!("{:?}", sync_committee_data.beacon_block_root),
+            )
+            .append_pair(
+                "subcommittee_index",
+                &sync_committee_data.subcommittee_index.to_string(),
             );
 
         self.get_opt(path).await
@@ -1060,6 +1121,23 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST validator/sync_committee_subscriptions`
+    pub async fn post_validator_sync_committee_subscriptions(
+        &self,
+        subscriptions: &[SyncCommitteeSubscription],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("sync_committee_subscriptions");
+
+        self.post(path, &subscriptions).await?;
+
+        Ok(())
+    }
+
     /// `GET events?topics`
     pub async fn get_events<T: EthSpec>(
         &self,
@@ -1088,6 +1166,24 @@ impl BeaconNodeHttpClient {
                 Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
                 Err(e) => Err(Error::Reqwest(e)),
             }))
+    }
+
+    /// `POST validator/duties/sync/{epoch}`
+    pub async fn post_validator_duties_sync(
+        &self,
+        epoch: Epoch,
+        indices: &[u64],
+    ) -> Result<GenericResponse<Vec<SyncDuty>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("sync")
+            .push(&epoch.to_string());
+
+        self.post_with_response(path, &indices).await
     }
 }
 

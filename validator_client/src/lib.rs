@@ -11,6 +11,7 @@ mod http_metrics;
 mod initialized_validators;
 mod key_cache;
 mod notifier;
+mod sync_committee_service;
 mod validator_store;
 
 pub mod http_api;
@@ -42,6 +43,7 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sync_committee_service::SyncCommitteeService;
 use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
@@ -65,6 +67,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
+    sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, T>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
@@ -286,6 +289,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let duties_service = Arc::new(DutiesService {
             attesters: <_>::default(),
             proposers: <_>::default(),
+            sync_duties: <_>::default(),
             indices: <_>::default(),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
@@ -316,11 +320,19 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
-            .slot_clock(slot_clock)
+            .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
+
+        let sync_committee_service = SyncCommitteeService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock,
+            beacon_nodes.clone(),
+            context.service_context("sync_committee".into()),
+        );
 
         // Wait until genesis has occured.
         //
@@ -334,6 +346,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             fork_service,
             block_service,
             attestation_service,
+            sync_committee_service,
             validator_store,
             config,
             http_api_listen_addr: None,
@@ -365,6 +378,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
+
+        self.sync_committee_service
+            .clone()
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 

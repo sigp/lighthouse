@@ -12,7 +12,8 @@ use tempfile::TempDir;
 use types::{
     graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
     Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedRoot, Slot,
+    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, Slot, SyncCommitteeContribution,
+    SyncCommitteeSignature, SyncSelectionProof,
 };
 use validator_dir::ValidatorDir;
 
@@ -373,6 +374,71 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         Some(SelectionProof::new::<E>(
             slot,
+            &voting_keypair.sk,
+            &self.fork(),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
+    pub fn produce_sync_selection_proof(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        slot: Slot,
+        subnet_id: u64,
+    ) -> Option<SyncSelectionProof> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.voting_keypair(validator_pubkey)?;
+
+        // FIXME(sproul): metrics
+        // metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
+
+        Some(SyncSelectionProof::new::<E>(
+            slot,
+            subnet_id,
+            &voting_keypair.sk,
+            &self.fork(),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    pub fn produce_sync_committee_signature(
+        &self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        validator_index: u64,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Option<SyncCommitteeSignature> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.voting_keypair(validator_pubkey)?;
+
+        Some(SyncCommitteeSignature::new::<E>(
+            slot,
+            beacon_block_root,
+            validator_index,
+            &voting_keypair.sk,
+            &self.fork(),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    pub fn produce_signed_contribution_and_proof(
+        &self,
+        aggregator_index: u64,
+        aggregator_pubkey: &PublicKeyBytes,
+        contribution: SyncCommitteeContribution<E>,
+        selection_proof: SyncSelectionProof,
+    ) -> Option<SignedContributionAndProof<E>> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.voting_keypair(aggregator_pubkey)?;
+
+        Some(SignedContributionAndProof::from_aggregate(
+            aggregator_index,
+            contribution,
+            Some(selection_proof),
             &voting_keypair.sk,
             &self.fork(),
             self.genesis_validators_root,

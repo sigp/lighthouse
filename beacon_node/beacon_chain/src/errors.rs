@@ -114,6 +114,7 @@ pub enum BeaconChainError {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
     },
+    SyncDutiesError(BeaconStateError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

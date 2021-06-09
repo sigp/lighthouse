@@ -108,6 +108,10 @@ pub enum Error {
     ArithError(ArithError),
     MissingBeaconBlock(SignedBeaconBlockHash),
     MissingBeaconState(BeaconStateHash),
+    SyncCommitteeNotKnown {
+        current_epoch: Epoch,
+        epoch: Epoch,
+    },
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -255,7 +259,7 @@ where
     #[superstruct(only(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair))]
-    pub next_sync_committee: SyncCommittee<T>,
+    pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -728,6 +732,28 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
+    /// Get the already-built current or next sync committee from the state.
+    pub fn get_built_sync_committee(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&Arc<SyncCommittee<T>>, Error> {
+        let sync_committee_period = epoch.sync_committee_period(spec)?;
+        let current_sync_committee_period = self.current_epoch().sync_committee_period(spec)?;
+        let next_sync_committee_period = current_sync_committee_period.safe_add(1)?;
+
+        if sync_committee_period == current_sync_committee_period {
+            self.current_sync_committee()
+        } else if sync_committee_period == next_sync_committee_period {
+            self.next_sync_committee()
+        } else {
+            Err(Error::SyncCommitteeNotKnown {
+                current_epoch: self.current_epoch(),
+                epoch,
+            })
+        }
+    }
+
     /// Get the validator indices of all validators from `sync_committee` identified by
     /// `sync_committee_bits`.
     pub fn get_sync_committee_participant_indices(
@@ -811,6 +837,32 @@ impl<T: EthSpec> BeaconState<T> {
             pubkeys: FixedVector::new(pubkeys)?,
             aggregate_pubkey: aggregate_pubkey.to_public_key().compress(),
         })
+    }
+
+    /// Get the sync committee duties for a list of validator indices.
+    ///
+    /// Will return a `SyncCommitteeNotKnown` error if the `epoch` is out of bounds with respect
+    /// to the current or next sync committee periods.
+    pub fn get_sync_committee_duties(
+        &self,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        spec: &ChainSpec,
+    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+        let sync_committee = self.get_built_sync_committee(epoch, spec)?;
+
+        validator_indices
+            .iter()
+            .map(|&validator_index| {
+                let pubkey = self.get_validator(validator_index as usize)?.pubkey.clone();
+
+                Ok(SyncDuty::from_sync_committee(
+                    validator_index,
+                    pubkey,
+                    sync_committee,
+                ))
+            })
+            .collect()
     }
 
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.

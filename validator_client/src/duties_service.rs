@@ -6,6 +6,8 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
+mod sync;
+
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification, http_metrics::metrics, validator_store::ValidatorStore,
@@ -18,6 +20,8 @@ use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use sync::poll_sync_committee_duties;
+use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
@@ -38,6 +42,14 @@ pub enum Error {
     FailedToDownloadAttesters(String),
     FailedToProduceSelectionProof,
     InvalidModulo(ArithError),
+    ArithError(ArithError),
+    SyncDutiesNotFound(u64),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Self::ArithError(e)
+    }
 }
 
 /// Neatly joins the server-generated `AttesterData` with the locally-generated `selection_proof`.
@@ -93,6 +105,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// Maps an epoch to all *local* proposers in this epoch. Notably, this does not contain
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
+    pub sync_duties: SyncDutiesMap,
     /// Maps a public key to a validator index. There is a task which ensures this map is kept
     /// up-to-date.
     pub indices: RwLock<IndicesMap>,
@@ -165,6 +178,20 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             .map(|(_, duty_and_proof)| duty_and_proof)
             .filter(|duty_and_proof| duty_and_proof.duty.slot == slot)
             .cloned()
+            .collect()
+    }
+
+    /// Returns public keys for all enabled validators managed by the VC.
+    pub fn local_pubkeys(&self) -> HashSet<PublicKeyBytes> {
+        self.validator_store.voting_pubkeys().into_iter().collect()
+    }
+
+    /// Returns the validator indices for all known validators in `local_pubkeys`.
+    pub fn local_indices(&self, local_pubkeys: &HashSet<PublicKeyBytes>) -> Vec<u64> {
+        let indices_map = self.indices.read();
+        local_pubkeys
+            .iter()
+            .filter_map(|pubkey| indices_map.get(pubkey).copied())
             .collect()
     }
 }
@@ -265,6 +292,37 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
         },
         "duties_service_attesters",
     );
+
+    // Spawn the task which keeps track of local sync committee duties.
+    let duties_service = core_duties_service.clone();
+    let log = core_duties_service.context.log().clone();
+    core_duties_service.context.executor.spawn(
+        async move {
+            loop {
+                if let Err(e) = poll_sync_committee_duties(&duties_service).await {
+                    error!(
+                       log,
+                       "Failed to poll sync committee duties";
+                       "error" => ?e
+                    );
+                }
+
+                // Wait until the next slot before polling again.
+                // This doesn't mean that the beacon node will get polled every slot
+                // as the sync duties service will return early if it deems it already has
+                // enough information.
+                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                    sleep(duration).await;
+                } else {
+                    // Just sleep for one slot if we are unable to read the system clock, this gives
+                    // us an opportunity for the clock to eventually come good.
+                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    continue;
+                }
+            }
+        },
+        "duties_service_sync_committee",
+    );
 }
 
 /// Iterate through all the voting pubkeys in the `ValidatorStore` and attempt to learn any unknown
@@ -355,22 +413,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let next_epoch = current_epoch + 1;
 
-    let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
-        .validator_store
-        .voting_pubkeys()
-        .into_iter()
-        .collect();
-
-    let local_indices = {
-        let mut local_indices = Vec::with_capacity(local_pubkeys.len());
-        let indices_map = duties_service.indices.read();
-        for &pubkey in &local_pubkeys {
-            if let Some(validator_index) = indices_map.get(&pubkey) {
-                local_indices.push(*validator_index)
-            }
-        }
-        local_indices
-    };
+    let local_pubkeys = duties_service.local_pubkeys();
+    let local_indices = duties_service.local_indices(&local_pubkeys);
 
     // Download the duties and update the duties for the current epoch.
     if let Err(e) = poll_beacon_attesters_for_epoch(

@@ -540,8 +540,8 @@ impl VerifiedSyncSignature {
 
     /// Returns the subcommittee positions for the sync signature, keyed on the `SyncSubnetId` for
     /// the subnets the signature should be sent on.
-    pub fn subnet_positions(&self) -> HashMap<SyncSubnetId, Vec<usize>> {
-        self.subnet_positions.clone()
+    pub fn subnet_positions(&self) -> &HashMap<SyncSubnetId, Vec<usize>> {
+        &self.subnet_positions
     }
 
     /// Returns the wrapped `SyncCommitteeSignature`.
