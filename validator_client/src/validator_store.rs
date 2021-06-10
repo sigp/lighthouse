@@ -261,6 +261,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.fork_service.fork()
     }
 
+    /// Runs `func`, providing it access to the `Keypair` corresponding to `validator_pubkey`.
+    ///
+    /// This forms the canonical point for accessing the secret key of some validator. It is
+    /// structured as a `with_...` function since we need to pass-through a read-lock in order to
+    /// access the keypair.
+    ///
+    /// Access to keypairs might be restricted by other internal mechanisms (e.g., doppleganger
+    /// protection).
+    ///
+    /// ## Warning
+    ///
+    /// This function takes a read-lock on `self.validators`. To prevent deadlocks, it is advised to
+    /// never take any sort of concurrency lock inside this function.
     fn with_validator_keypair<F, R>(
         &self,
         validator_pubkey: &PublicKeyBytes,
