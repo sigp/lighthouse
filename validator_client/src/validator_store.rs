@@ -186,7 +186,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .collect()
     }
 
-    pub fn check_against_doppelganger_protection(
+    /// Check if the `validator_pubkey` is permitted by the doppleganger protection to sign
+    /// messages.
+    ///
+    /// Returns:
+    ///
+    /// - Ok(()): if the validator is permitted to sign.
+    /// - Err(e): if the validator is not permitted to sign.
+    pub fn doppelganger_protection_allows_signing(
         &self,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<(), Error> {
@@ -201,8 +208,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    /// Returns all the validators that are permitted to sign attestations, blocks and other
-    /// consensus messages.
+    /// Returns all the validators permitted to sign attestations, blocks and other consensus
+    /// messages.
     ///
     /// Excludes any validators which are undergoing a doppelganger protection period.
     pub fn signing_pubkeys(&self) -> Vec<PublicKeyBytes> {
@@ -246,11 +253,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Returns a `HashSet` of all public keys that are required for signing attestations and blocks.
     /// This will exclude initialized validators that are currently in a doppelganger detection period.
     pub fn signing_pubkeys_hashset(&self) -> HashSet<PublicKeyBytes> {
-        self.validators
-            .read()
-            .iter_signing_pubkeys()
-            .cloned()
-            .collect()
+        self.validators.read().voting_pubkeys().cloned().collect()
     }
 
     pub fn num_voting_validators(&self) -> usize {
@@ -284,7 +287,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     {
         // If the doppelganger service is active, check to ensure it explicitly permits signing by
         // this validator.
-        self.check_against_doppelganger_protection(validator_pubkey)?;
+        self.doppelganger_protection_allows_signing(validator_pubkey)?;
 
         let validators_lock = self.validators.read();
 
@@ -488,13 +491,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
     ) -> Result<SignedAggregateAndProof<E>, Error> {
+        // Take the fork early to avoid lock interleaving.
+        let fork = self.fork();
+
         let proof = self.with_validator_keypair(validator_pubkey, move |keypair| {
             SignedAggregateAndProof::from_aggregate(
                 validator_index,
                 aggregate,
                 Some(selection_proof),
                 &keypair.sk,
-                &self.fork(),
+                &fork,
                 self.genesis_validators_root,
                 &self.spec,
             )
@@ -512,11 +518,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
+        // Take the fork early to avoid lock interleaving.
+        let fork = self.fork();
+
         let proof = self.with_validator_keypair(validator_pubkey, |keypair| {
             SelectionProof::new::<E>(
                 slot,
                 &keypair.sk,
-                &self.fork(),
+                &fork,
                 self.genesis_validators_root,
                 &self.spec,
             )

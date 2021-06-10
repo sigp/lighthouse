@@ -630,11 +630,6 @@ impl InitializedValidators {
         Ok(())
     }
 
-    /// Gets the public key of all validators.
-    pub fn iter_signing_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
-        self.validators.iter().map(|(pubkey, _)| pubkey)
-    }
-
     pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
         self.validators.get(pubkey).and_then(|val| val.index)
     }
