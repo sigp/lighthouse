@@ -200,7 +200,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map(|pubkey| {
                 self.doppelganger_service
                     .as_ref()
-                    .map(|doppelganger_service| doppelganger_service.validator_should_sign(pubkey))
+                    .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
                     // Allow signing on all pubkeys if doppelganger protection is enabled.
                     .unwrap_or_else(|| VotingPubkey::SigningEnabled(pubkey))
             })
@@ -217,7 +217,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             // declare that all keys are safe with regard to it.
             .map_or(true, |doppelganger_service| {
                 doppelganger_service
-                    .validator_should_sign(validator_pubkey)
+                    .validator_status(validator_pubkey)
                     .doppelganger_safe()
                     .is_some()
             })

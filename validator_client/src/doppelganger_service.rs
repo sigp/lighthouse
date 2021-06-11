@@ -146,7 +146,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
-    pub fn validator_should_sign(&self, validator: PublicKeyBytes) -> VotingPubkey {
+    pub fn validator_status(&self, validator: PublicKeyBytes) -> VotingPubkey {
         self.doppelganger_states
             .read()
             .get(&validator)
