@@ -58,9 +58,6 @@ impl ApiTester {
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
             validator_dir.path().into(),
-            false,
-            Some(Epoch::new(0)),
-            Some(Epoch::new(0)),
             log.clone(),
         )
         .await
