@@ -146,8 +146,7 @@ pub fn assert_sign_error(resp: ApiTestResponse, http_status: u16, error_msg: &st
             .as_str()
             .unwrap()
             // cross-platform compatiblity
-            .replace("\\", "")
-            .replace("'", "\""),
+            .replace("\\", ""),
         error_msg
     );
 }
