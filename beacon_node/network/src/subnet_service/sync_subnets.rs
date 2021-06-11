@@ -255,7 +255,13 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         let until_slot = exact_subnet.until_epoch.end_slot(slots_per_epoch);
         // Calculate the duration to the unsubscription event.
         let expected_end_subscription_duration = if current_slot >= until_slot {
-            return Err("The subscription is past expiration");
+            warn!(
+                self.log,
+                "Sync committee subscription is past expiration";
+                "current_slot" => current_slot,
+                "exact_subnet" => ?exact_subnet,
+            );
+            return Ok(());
         } else {
             let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
@@ -268,7 +274,6 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                 + slot_duration
         };
 
-        // We are not subscribed to this subnet.
         if !self.subscriptions.contains_key(&exact_subnet.subnet_id) {
             // We are not currently subscribed and have no waiting subscription, create one
             debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
