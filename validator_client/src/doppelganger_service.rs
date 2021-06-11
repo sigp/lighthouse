@@ -11,6 +11,10 @@
 //!
 //! If a doppelganger is detected, the entire validator client will exit.
 //!
+//! For validators started during the genesis epoch, there is **no doppelganger protection!**. This
+//! prevents a stale-mate where all validators will cease to function for a few epochs and then all
+//! start at the same time.
+//!
 //! ## Warning
 //!
 //! The Doppelganger service is not perfect. It makes assumptions that any existing validator is
@@ -168,6 +172,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
+    /// Returns the current status of the `validator` in the doppelganger protection process.
     pub fn validator_status(&self, validator: PublicKeyBytes) -> DoppelgangerStatus {
         self.doppelganger_states
             .read()
@@ -190,6 +195,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             })
     }
 
+    /// Register a new validator with the doppelganger service.
+    ///
+    /// Validators added during the genesis epoch will not have doppelganger protection applied to
+    /// them.
     pub fn register_new_validator(&self, validator: PublicKeyBytes) -> Result<(), String> {
         let current_epoch = self
             .slot_clock
@@ -222,6 +231,8 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
+    /// Contact the beacon node and try to detect if there are any doppelgangers, updating the state
+    /// of `self`.
     async fn detect_doppelgangers(&self, request_slot: Slot) -> Result<(), String> {
         let log = self.context.log().clone();
 
@@ -285,7 +296,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .await
             .map_err(|e| format!("Failed query for validator liveness: {}", e))?;
 
-        // Request the previous epoch liveness state from the beacon node.
+        // Request the current epoch liveness state from the beacon node.
         let current_epoch_responses = self
             .beacon_nodes
             .first_success(RequireSynced::Yes, |beacon_node| async move {
@@ -365,7 +376,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
         // Iterate through all the previous epoch responses, updating `self.doppelganger_states`.
         //
-        // Do not bother iterating through the current epoch response since they've already been
+        // Do not bother iterating through the current epoch responses since they've already been
         // checked for violators and they don't result in updating the state.
         for response in &previous_epoch_responses {
             // Sanity check response from the server.

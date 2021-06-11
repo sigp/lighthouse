@@ -203,7 +203,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 self.doppelganger_service
                     .as_ref()
                     .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
-                    // Allow signing on all pubkeys if doppelganger protection is enabled.
+                    // Allow signing on all pubkeys if doppelganger protection is disabled.
                     .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
             })
             .filter_map(filter_func)
