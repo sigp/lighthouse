@@ -18,7 +18,7 @@ use types::{
 };
 use validator_dir::ValidatorDir;
 
-pub use crate::doppelganger_service::VotingPubkey;
+pub use crate::doppelganger_service::DoppelgangerStatus;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -97,6 +97,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
+    /// Add a Doppelganger service to the store to try and prevent instances of duplicate validators
+    /// operating on the network at the same time.
     pub fn attach_doppelganger_service(
         &mut self,
         service: DoppelgangerService<T, E>,
@@ -178,13 +180,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Returns all voting pubkeys for all enabled validators.
     ///
-    /// Keys are wrapped in the `VotingPubkey` struct to indicate if signing is enabled or disabled.
+    /// Keys are wrapped in the `DoppelgangerStatus` struct to indicate if signing is enabled or disabled.
     /// Signing may be disabled if services like doppelganger protection are active for some
     /// validator.
     pub fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
     where
         I: FromIterator<PublicKeyBytes>,
-        F: Fn(VotingPubkey) -> Option<PublicKeyBytes>,
+        F: Fn(DoppelgangerStatus) -> Option<PublicKeyBytes>,
     {
         // Collect all the pubkeys first to avoid interleaving locks on `self.validators` and
         // `self.doppelganger_service`.
@@ -202,7 +204,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .as_ref()
                     .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
                     // Allow signing on all pubkeys if doppelganger protection is enabled.
-                    .unwrap_or_else(|| VotingPubkey::SigningEnabled(pubkey))
+                    .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
             })
             .filter_map(filter_func)
             .collect()
@@ -536,7 +538,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
 
-        let all_pubkeys: Vec<_> = self.voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
+        let all_pubkeys: Vec<_> =
+            self.voting_pubkeys(DoppelgangerStatus::regardless_of_doppelganger);
 
         if let Err(e) = self
             .slashing_protection

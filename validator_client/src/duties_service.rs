@@ -10,7 +10,7 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
-    validator_store::{Error as ValidatorStoreError, ValidatorStore, VotingPubkey},
+    validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore},
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
@@ -142,7 +142,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         // Only collect validators that are not presently disabled for doppelganger protection.
         let signing_pubkeys: HashSet<_> = self
             .validator_store
-            .voting_pubkeys(VotingPubkey::doppelganger_safe);
+            .voting_pubkeys(DoppelgangerStatus::doppelganger_safe);
 
         self.proposers
             .read()
@@ -167,7 +167,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         // Only collect validators that are not presently disabled for doppelganger protection.
         let signing_pubkeys: HashSet<_> = self
             .validator_store
-            .voting_pubkeys(VotingPubkey::doppelganger_safe);
+            .voting_pubkeys(DoppelgangerStatus::doppelganger_safe);
 
         self.attesters
             .read()
@@ -297,7 +297,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
     // collect those indices.
     let all_pubkeys: Vec<_> = duties_service
         .validator_store
-        .voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
+        .voting_pubkeys(DoppelgangerStatus::regardless_of_doppelganger);
 
     for pubkey in all_pubkeys {
         // This is on its own line to avoid some weirdness with locks and if statements.
@@ -390,7 +390,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     // and get more information about other running instances.
     let local_pubkeys: HashSet<_> = duties_service
         .validator_store
-        .voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
+        .voting_pubkeys(DoppelgangerStatus::regardless_of_doppelganger);
 
     let local_indices = {
         let mut local_indices = Vec::with_capacity(local_pubkeys.len());
@@ -668,7 +668,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     // doppelganger finishes.
     let local_pubkeys: HashSet<_> = duties_service
         .validator_store
-        .voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
+        .voting_pubkeys(DoppelgangerStatus::regardless_of_doppelganger);
 
     // Only download duties and push out additional block production events if we have some
     // validators.

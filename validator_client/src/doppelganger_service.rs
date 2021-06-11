@@ -10,9 +10,9 @@ use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
-/// A wrapper around `PublicKeyBytes` which encodes information about the status of that validator
-/// pubkey in doppelganger protection.
-pub enum VotingPubkey {
+/// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
+/// pubkey with regards to doppelganger protection.
+pub enum DoppelgangerStatus {
     /// Doppelganger protection has approved this for signing.
     ///
     /// This is because the service is disabled, or the service has waited some period of time to
@@ -32,7 +32,7 @@ pub enum VotingPubkey {
     UnknownToDoppelganger(PublicKeyBytes),
 }
 
-impl VotingPubkey {
+impl DoppelgangerStatus {
     /// Only return a pubkey if it is explicitly safe for doppelganger protection.
     ///
     /// If `Some(pubkey)` is returned, doppelganger has declared it safe for signing.
@@ -43,9 +43,9 @@ impl VotingPubkey {
     /// doesn't exist.
     pub fn doppelganger_safe(self) -> Option<PublicKeyBytes> {
         match self {
-            VotingPubkey::SigningEnabled(pubkey) => Some(pubkey),
-            VotingPubkey::SigningDisabled(_) => None,
-            VotingPubkey::UnknownToDoppelganger(_) => None,
+            DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
+            DoppelgangerStatus::SigningDisabled(_) => None,
+            DoppelgangerStatus::UnknownToDoppelganger(_) => None,
         }
     }
 
@@ -55,9 +55,9 @@ impl VotingPubkey {
     /// If the validator is unknown to doppelganger then `None` will be returned.
     pub fn regardless_of_doppelganger(self) -> Option<PublicKeyBytes> {
         match self {
-            VotingPubkey::SigningEnabled(pubkey) => Some(pubkey),
-            VotingPubkey::SigningDisabled(pubkey) => Some(pubkey),
-            VotingPubkey::UnknownToDoppelganger(_) => None,
+            DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
+            DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),
+            DoppelgangerStatus::UnknownToDoppelganger(_) => None,
         }
     }
 }
@@ -146,15 +146,15 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
-    pub fn validator_status(&self, validator: PublicKeyBytes) -> VotingPubkey {
+    pub fn validator_status(&self, validator: PublicKeyBytes) -> DoppelgangerStatus {
         self.doppelganger_states
             .read()
             .get(&validator)
             .map(|v| {
                 if v.requires_further_checks() {
-                    VotingPubkey::SigningDisabled(validator)
+                    DoppelgangerStatus::SigningDisabled(validator)
                 } else {
-                    VotingPubkey::SigningEnabled(validator)
+                    DoppelgangerStatus::SigningEnabled(validator)
                 }
             })
             .unwrap_or_else(|| {
@@ -164,7 +164,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     "msg" => "preventing validator from performing duties",
                     "pubkey" => ?validator
                 );
-                VotingPubkey::UnknownToDoppelganger(validator)
+                DoppelgangerStatus::UnknownToDoppelganger(validator)
             })
     }
 
