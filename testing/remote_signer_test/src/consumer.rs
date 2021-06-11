@@ -141,5 +141,13 @@ pub fn assert_sign_ok(resp: ApiTestResponse, expected_signature: &str) {
 
 pub fn assert_sign_error(resp: ApiTestResponse, http_status: u16, error_msg: &str) {
     assert_eq!(resp.status, http_status);
-    assert_eq!(resp.json["error"].as_str().unwrap(), error_msg);
+    assert_eq!(
+        resp.json["error"]
+            .as_str()
+            .unwrap()
+            // cross-platform compatiblity
+            .replace("\\", "")
+            .replace("'", "\""),
+        error_msg
+    );
 }
