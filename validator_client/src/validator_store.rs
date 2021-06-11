@@ -7,7 +7,7 @@ use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashSet;
+use std::iter::FromIterator;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -17,6 +17,8 @@ use types::{
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
 };
 use validator_dir::ValidatorDir;
+
+pub use crate::doppelganger_service::VotingPubkey;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -174,86 +176,51 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().get_index(pubkey)
     }
 
-    /// Returns all public keys that are required for duties collection. This includes all initialized
-    /// validators regardless of doppelganger detection status. We want to continue to collect duties
-    /// during doppelganger detection periods because we want to continue to subscribe to the correct
-    /// subnets.
-    pub fn all_pubkeys(&self) -> Vec<PublicKeyBytes> {
-        self.validators
-            .read()
-            .iter_voting_pubkeys()
-            .cloned()
-            .collect()
-    }
-
-    /// Check if the `validator_pubkey` is permitted by the doppleganger protection to sign
-    /// messages.
+    /// Returns all voting pubkeys for all enabled validators.
     ///
-    /// Returns:
-    ///
-    /// - Ok(()): if the validator is permitted to sign.
-    /// - Err(e): if the validator is not permitted to sign.
-    pub fn doppelganger_protection_allows_signing(
-        &self,
-        validator_pubkey: &PublicKeyBytes,
-    ) -> Result<(), Error> {
-        if let Some(doppelganger_service) = &self.doppelganger_service {
-            match doppelganger_service.validator_should_sign(validator_pubkey) {
-                Some(true) => Ok(()),
-                Some(false) => Err(Error::DoppelgangerProtected(*validator_pubkey)),
-                None => Err(Error::UnknownToDoppelgangerService(*validator_pubkey)),
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Returns all the validators permitted to sign attestations, blocks and other consensus
-    /// messages.
-    ///
-    /// Excludes any validators which are undergoing a doppelganger protection period.
-    pub fn signing_pubkeys(&self) -> Vec<PublicKeyBytes> {
-        let mut pubkeys = self
+    /// Keys are wrapped in the `VotingPubkey` struct to indicate if signing is enabled or disabled.
+    /// Signing may be disabled if services like doppelganger protection are active for some
+    /// validator.
+    pub fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
+    where
+        I: FromIterator<PublicKeyBytes>,
+        F: Fn(VotingPubkey) -> Option<PublicKeyBytes>,
+    {
+        // Collect all the pubkeys first to avoid interleaving locks on `self.validators` and
+        // `self.doppelganger_service`.
+        let pubkeys = self
             .validators
             .read()
             .iter_voting_pubkeys()
             .cloned()
             .collect::<Vec<_>>();
 
-        // Filter out all pubkeys which should not sign because they're undergoing doppelganger
-        // protection.
-        //
-        // This filtering happens in it's own `retain` call to avoid interleaving locks.
-        pubkeys.retain(|pubkey| {
-            if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
-                if let Some(should_sign) = doppelganger_service.validator_should_sign(pubkey) {
-                    // Doppleganger protection is enabled and the validator is known to it.
-                    should_sign
-                } else {
-                    crit!(
-                        self.log,
-                        "Doppelganger validator missing";
-                        "msg" => "internal consistency error, preventing validator from signing",
-                        "pubkey" => ?pubkey,
-                    );
-
-                    // Do not retain any validator that has not been registered with the validator
-                    // service.
-                    false
-                }
-            } else {
-                // Retain all pubkeys if there is no doppelganger protection enabled.
-                true
-            }
-        });
-
         pubkeys
+            .into_iter()
+            .map(|pubkey| {
+                self.doppelganger_service
+                    .as_ref()
+                    .map(|doppelganger_service| doppelganger_service.validator_should_sign(pubkey))
+                    // Allow signing on all pubkeys if doppelganger protection is enabled.
+                    .unwrap_or_else(|| VotingPubkey::SigningEnabled(pubkey))
+            })
+            .filter_map(filter_func)
+            .collect()
     }
 
-    /// Returns a `HashSet` of all public keys that are required for signing attestations and blocks.
-    /// This will exclude initialized validators that are currently in a doppelganger detection period.
-    pub fn signing_pubkeys_hashset(&self) -> HashSet<PublicKeyBytes> {
-        self.validators.read().voting_pubkeys().cloned().collect()
+    /// Check if the `validator_pubkey` is permitted by the doppleganger protection to sign
+    /// messages.
+    pub fn doppelganger_protection_allows_signing(&self, validator_pubkey: PublicKeyBytes) -> bool {
+        self.doppelganger_service
+            .as_ref()
+            // If there's no doppelganger service then we assume it is purposefully disabled and
+            // declare that all keys are safe with regard to it.
+            .map_or(true, |doppelganger_service| {
+                doppelganger_service
+                    .validator_should_sign(validator_pubkey)
+                    .doppelganger_safe()
+                    .is_some()
+            })
     }
 
     pub fn num_voting_validators(&self) -> usize {
@@ -279,7 +246,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// never take any sort of concurrency lock inside this function.
     fn with_validator_keypair<F, R>(
         &self,
-        validator_pubkey: &PublicKeyBytes,
+        validator_pubkey: PublicKeyBytes,
         func: F,
     ) -> Result<R, Error>
     where
@@ -287,20 +254,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     {
         // If the doppelganger service is active, check to ensure it explicitly permits signing by
         // this validator.
-        self.doppelganger_protection_allows_signing(validator_pubkey)?;
+        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
+            return Err(Error::DoppelgangerProtected(validator_pubkey));
+        }
 
         let validators_lock = self.validators.read();
 
         Ok(func(
             validators_lock
-                .voting_keypair(validator_pubkey)
-                .ok_or_else(|| Error::UnknownPubkey(*validator_pubkey))?,
+                .voting_keypair(&validator_pubkey)
+                .ok_or_else(|| Error::UnknownPubkey(validator_pubkey))?,
         ))
     }
 
     pub fn randao_reveal(
         &self,
-        validator_pubkey: &PublicKeyBytes,
+        validator_pubkey: PublicKeyBytes,
         epoch: Epoch,
     ) -> Result<Signature, Error> {
         let domain = self.spec.get_domain(
@@ -320,7 +289,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn sign_block(
         &self,
-        validator_pubkey: &PublicKeyBytes,
+        validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E>,
         current_slot: Slot,
     ) -> Result<SignedBeaconBlock<E>, Error> {
@@ -348,7 +317,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         );
 
         let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
-            validator_pubkey,
+            &validator_pubkey,
             &block.block_header(),
             domain,
         );
@@ -394,7 +363,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn sign_attestation(
         &self,
-        validator_pubkey: &PublicKeyBytes,
+        validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
         current_epoch: Epoch,
@@ -417,7 +386,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             self.genesis_validators_root,
         );
         let slashing_status = self.slashing_protection.check_and_insert_attestation(
-            validator_pubkey,
+            &validator_pubkey,
             &attestation.data,
             domain,
         );
@@ -486,7 +455,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// modified by actors other than the signing validator.
     pub fn produce_signed_aggregate_and_proof(
         &self,
-        validator_pubkey: &PublicKeyBytes,
+        validator_pubkey: PublicKeyBytes,
         validator_index: u64,
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
@@ -515,7 +484,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// `validator_pubkey`.
     pub fn produce_selection_proof(
         &self,
-        validator_pubkey: &PublicKeyBytes,
+        validator_pubkey: PublicKeyBytes,
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
         // Take the fork early to avoid lock interleaving.
@@ -567,7 +536,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
 
-        let all_pubkeys = self.all_pubkeys();
+        let all_pubkeys: Vec<_> = self.voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
+
         if let Err(e) = self
             .slashing_protection
             .prune_all_signed_attestations(all_pubkeys.iter(), new_min_target_epoch)

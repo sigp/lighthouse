@@ -377,7 +377,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             };
 
             if let Err(e) = self.validator_store.sign_attestation(
-                &duty.pubkey,
+                duty.pubkey,
                 duty.validator_committee_index as usize,
                 &mut attestation,
                 current_epoch,
@@ -486,7 +486,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             }
 
             match self.validator_store.produce_signed_aggregate_and_proof(
-                &duty.pubkey,
+                duty.pubkey,
                 duty.validator_index,
                 aggregated_attestation.clone(),
                 selection_proof.clone(),

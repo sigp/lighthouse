@@ -6,8 +6,61 @@ use slog::{crit, error, info};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::sync::Arc;
+use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
+
+/// A wrapper around `PublicKeyBytes` which encodes information about the status of that validator
+/// pubkey in doppelganger protection.
+pub enum VotingPubkey {
+    /// Doppelganger protection has approved this for signing.
+    ///
+    /// This is because the service is disabled, or the service has waited some period of time to
+    /// detect other instances of this key on the network.
+    SigningEnabled(PublicKeyBytes),
+    /// Doppelganger protection is still waiting to detect other instances.
+    ///
+    /// Do not use this pubkey for signing slashable messages!!
+    ///
+    /// However, it can safely be used for other non-slashable operations (e.g., collecting duties
+    /// or subscribing to subnets).
+    SigningDisabled(PublicKeyBytes),
+    /// This pubkey is unknown to the doppelganger service.
+    ///
+    /// This represents a serious internal error in the program. This validator will be permanently
+    /// disabled!
+    UnknownToDoppelganger(PublicKeyBytes),
+}
+
+impl VotingPubkey {
+    /// Only return a pubkey if it is explicitly safe for doppelganger protection.
+    ///
+    /// If `Some(pubkey)` is returned, doppelganger has declared it safe for signing.
+    ///
+    /// ## Note
+    ///
+    /// "Safe" is only best-effort by doppelganger. There is no guarantee that a doppelganger
+    /// doesn't exist.
+    pub fn doppelganger_safe(self) -> Option<PublicKeyBytes> {
+        match self {
+            VotingPubkey::SigningEnabled(pubkey) => Some(pubkey),
+            VotingPubkey::SigningDisabled(_) => None,
+            VotingPubkey::UnknownToDoppelganger(_) => None,
+        }
+    }
+
+    /// Returns a key regardless of whether or not doppelganger has approved it. Such a key might be
+    /// used for signing, duties collection or other activities.
+    ///
+    /// If the validator is unknown to doppelganger then `None` will be returned.
+    pub fn regardless_of_doppelganger(self) -> Option<PublicKeyBytes> {
+        match self {
+            VotingPubkey::SigningEnabled(pubkey) => Some(pubkey),
+            VotingPubkey::SigningDisabled(pubkey) => Some(pubkey),
+            VotingPubkey::UnknownToDoppelganger(_) => None,
+        }
+    }
+}
 
 /// The number of epochs that must be checked before we assume that there are no other duplicate
 /// validators on the network.
@@ -93,11 +146,26 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         Ok(())
     }
 
-    pub fn validator_should_sign(&self, validator: &PublicKeyBytes) -> Option<bool> {
+    pub fn validator_should_sign(&self, validator: PublicKeyBytes) -> VotingPubkey {
         self.doppelganger_states
             .read()
-            .get(validator)
-            .map(|v| !v.requires_further_checks())
+            .get(&validator)
+            .map(|v| {
+                if v.requires_further_checks() {
+                    VotingPubkey::SigningDisabled(validator)
+                } else {
+                    VotingPubkey::SigningEnabled(validator)
+                }
+            })
+            .unwrap_or_else(|| {
+                crit!(
+                    self.context.log(),
+                    "Validator unknown to doppelganger service";
+                    "msg" => "preventing validator from performing duties",
+                    "pubkey" => ?validator
+                );
+                VotingPubkey::UnknownToDoppelganger(validator)
+            })
     }
 
     pub fn register_new_validator(&self, validator: PublicKeyBytes) -> Result<(), String> {
@@ -350,7 +418,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 .context
                 .executor
                 .shutdown_sender()
-                .try_send("Doppelganger detected.")
+                .try_send(ShutdownReason::Failure("Doppelganger detected."))
                 .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
         }
 

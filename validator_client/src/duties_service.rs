@@ -10,7 +10,7 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
-    validator_store::{Error as ValidatorStoreError, ValidatorStore},
+    validator_store::{Error as ValidatorStoreError, ValidatorStore, VotingPubkey},
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
@@ -58,7 +58,7 @@ impl DutyAndProof {
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
-            .produce_selection_proof(&duty.pubkey, duty.slot)
+            .produce_selection_proof(duty.pubkey, duty.slot)
             .map_err(Error::FailedToProduceSelectionProof)?;
 
         let selection_proof = selection_proof
@@ -139,8 +139,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset();
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(VotingPubkey::doppelganger_safe);
 
         self.proposers
             .read()
@@ -163,7 +164,9 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
         // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset();
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(VotingPubkey::doppelganger_safe);
 
         self.attesters
             .read()
@@ -287,8 +290,12 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 
     let log = duties_service.context.log();
 
+    let all_pubkeys: Vec<_> = duties_service
+        .validator_store
+        .voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
+
     // Collect *all* pubkeys for resolving indices, even those undergoing doppelganger protection.
-    for pubkey in duties_service.validator_store.all_pubkeys() {
+    for pubkey in all_pubkeys {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service
             .validator_store
@@ -377,11 +384,9 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     //
     // We must know the duties for doppelganger validators so that we can subscribe to their subnets
     // and get more information about other running instances.
-    let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
+    let local_pubkeys: HashSet<_> = duties_service
         .validator_store
-        .all_pubkeys()
-        .into_iter()
-        .collect();
+        .voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
 
     let local_indices = {
         let mut local_indices = Vec::with_capacity(local_pubkeys.len());
@@ -657,11 +662,9 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     //
     // It is useful to keep the duties for all validators around, so they're on hand when
     // doppelganger finishes.
-    let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
+    let local_pubkeys: HashSet<_> = duties_service
         .validator_store
-        .all_pubkeys()
-        .into_iter()
-        .collect();
+        .voting_pubkeys(VotingPubkey::regardless_of_doppelganger);
 
     // Only download duties and push out additional block production events if we have some
     // validators.
@@ -768,11 +771,7 @@ async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
 ) {
     let non_doppelganger_proposers = block_proposers
         .iter()
-        .filter(|pubkey| {
-            validator_store
-                .check_against_doppelganger_protection(pubkey)
-                .is_ok()
-        })
+        .filter(|pubkey| validator_store.doppelganger_protection_allows_signing(**pubkey))
         .copied()
         .collect::<Vec<_>>();
 
