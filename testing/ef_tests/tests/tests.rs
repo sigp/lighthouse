@@ -3,47 +3,6 @@
 use ef_tests::*;
 use types::*;
 
-// FIXME(altair): fix these once alpha.7 is released and includes config files
-// Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
-/*
-fn config_test<E: EthSpec + TypeName>() {
-    let config_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("eth2.0-spec-tests")
-        .join("tests")
-        .join(E::name())
-        .join("config");
-    let phase0_config_path = config_dir.join("phase0.yaml");
-    let altair_config_path = config_dir.join("altair.yaml");
-    let phase0_config = BaseConfig::from_file(&phase0_config_path).expect("config file loads OK");
-    let altair_config = AltairConfig::from_file(&altair_config_path).expect("altair config loads");
-    let std_config = StandardConfig::from_parts(phase0_config.clone(), altair_config.clone());
-    let spec = E::default_spec();
-
-    log_file_access(&phase0_config_path);
-    log_file_access(&altair_config_path);
-
-    let unified_spec =
-        ChainSpec::from_standard_config::<E>(&std_config).expect("config unification");
-    assert_eq!(unified_spec, spec);
-
-    let phase0_from_spec = BaseConfig::from_chain_spec::<E>(&spec);
-    assert_eq!(phase0_from_spec, phase0_config);
-
-    let altair_from_spec = AltairConfig::from_chain_spec::<E>(&spec);
-    assert_eq!(altair_from_spec, altair_config);
-}
-
-#[test]
-fn mainnet_config_ok() {
-    config_test::<MainnetEthSpec>();
-}
-
-#[test]
-fn minimal_config_ok() {
-    config_test::<MinimalEthSpec>();
-}
-*/
-
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
 fn check_typenum_values<E: EthSpec>() {
