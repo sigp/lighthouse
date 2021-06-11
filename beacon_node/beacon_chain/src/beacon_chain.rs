@@ -636,11 +636,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the current sync committee at the head of the canonical chain.
+    /// Returns the current sync committee at the slot after the head of the canonical chain. This
+    /// is useful because sync committees assigned to `slot` sign for `slot - 1`.
     ///
     /// See `Self::head` for more information.
-    pub fn head_current_sync_committee(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
-        self.with_head(|s| Ok(s.beacon_state.current_sync_committee()?.clone()))
+    pub fn head_sync_committee_next_slot(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        self.with_head(|s| {
+            Ok(s.beacon_state
+                .get_sync_committee_for_next_slot(&self.spec)?)
+        })
     }
 
     /// Returns info representing the head block and state.
@@ -1208,7 +1212,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified_sync_signature: VerifiedSyncSignature,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
         let sync_signature = verified_sync_signature.sync_signature();
-        let positions_by_subnet_id: HashMap<SyncSubnetId, Vec<usize>> =
+        let positions_by_subnet_id: &HashMap<SyncSubnetId, Vec<usize>> =
             verified_sync_signature.subnet_positions();
         for (subnet_id, positions) in positions_by_subnet_id.iter() {
             for position in positions {

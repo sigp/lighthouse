@@ -88,7 +88,7 @@ where
     #[superstruct(only(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair))]
-    pub next_sync_committee: SyncCommittee<T>,
+    pub next_sync_committee: Arc<SyncCommittee<T>>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.

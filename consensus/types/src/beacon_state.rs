@@ -255,7 +255,7 @@ where
     #[superstruct(only(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair))]
-    pub next_sync_committee: SyncCommittee<T>,
+    pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -750,6 +750,27 @@ impl<T: EthSpec> BeaconState<T> {
                 }
             })
             .collect()
+    }
+
+    /// Get the validator indices of validators from the given set of  `subcommittee_pubkeys`
+    /// identified by `sync_subcommittee_bits`.
+    pub fn get_sync_subcommittee_participant_indices(
+        &self,
+        subcommittee_pubkeys: &[PublicKeyBytes],
+        sync_subcommittee_bits: &BitVector<T::SyncSubcommitteeSize>,
+    ) -> Result<Vec<usize>, Error> {
+        // Gather all validator indices that signed this contribution.
+        subcommittee_pubkeys
+            .iter()
+            .zip(sync_subcommittee_bits.iter())
+            .flat_map(|(pubkey, bit)| {
+                bit.then::<Result<usize, Error>, _>(|| {
+                    self.pubkey_cache()
+                        .get(&pubkey)
+                        .ok_or(Error::PubkeyCacheInconsistent)
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     /// Compute the sync committee indices for the next sync committee.
@@ -1513,6 +1534,28 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
         (self.previous_epoch() - self.finalized_checkpoint().epoch)
             > spec.min_epochs_to_inactivity_penalty
+    }
+
+    /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees
+    /// assigned to `slot` sign for `slot - 1`. This creates the exceptional logic below when
+    /// transitioning between sync committee periods.
+    pub fn get_sync_committee_for_next_slot(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Arc<SyncCommittee<T>>, Error> {
+        let next_slot_epoch = self
+            .slot()
+            .saturating_add(Slot::new(1))
+            .epoch(T::slots_per_epoch());
+
+        let sync_committee = if self.current_epoch().sync_committee_period(spec)
+            == next_slot_epoch.sync_committee_period(spec)
+        {
+            self.current_sync_committee()?.clone()
+        } else {
+            self.next_sync_committee()?.clone()
+        };
+        Ok(sync_committee)
     }
 }
 

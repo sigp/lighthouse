@@ -20,7 +20,6 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
-use safe_arith::SafeArith;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -32,7 +31,6 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
-use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
@@ -616,13 +614,10 @@ where
             .expect("should be called on altair beacon state")
             .clone();
 
-        let sync_subcommittee_size = E::sync_committee_size()
-            .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
-            .expect("should determine sync subcommittee size");
         current_sync_committee
             .pubkeys
             .as_ref()
-            .chunks(sync_subcommittee_size)
+            .chunks(E::sync_subcommittee_size())
             .map(|subcommittee| {
                 subcommittee
                     .iter()
