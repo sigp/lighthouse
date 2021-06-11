@@ -63,7 +63,7 @@ impl DoppelgangerStatus {
     ///
     /// "Safe" is only best-effort by doppelganger. There is no guarantee that a doppelganger
     /// doesn't exist.
-    pub fn doppelganger_safe(self) -> Option<PublicKeyBytes> {
+    pub fn only_safe(self) -> Option<PublicKeyBytes> {
         match self {
             DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
             DoppelgangerStatus::SigningDisabled(_) => None,
@@ -75,7 +75,7 @@ impl DoppelgangerStatus {
     /// used for signing, duties collection or other activities.
     ///
     /// If the validator is unknown to doppelganger then `None` will be returned.
-    pub fn regardless_of_doppelganger(self) -> Option<PublicKeyBytes> {
+    pub fn ignored(self) -> Option<PublicKeyBytes> {
         match self {
             DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
             DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),

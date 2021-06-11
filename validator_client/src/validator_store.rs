@@ -220,7 +220,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map_or(true, |doppelganger_service| {
                 doppelganger_service
                     .validator_status(validator_pubkey)
-                    .doppelganger_safe()
+                    .only_safe()
                     .is_some()
             })
     }
@@ -538,8 +538,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
 
-        let all_pubkeys: Vec<_> =
-            self.voting_pubkeys(DoppelgangerStatus::regardless_of_doppelganger);
+        let all_pubkeys: Vec<_> = self.voting_pubkeys(DoppelgangerStatus::ignored);
 
         if let Err(e) = self
             .slashing_protection
