@@ -1,8 +1,8 @@
 use crate::metrics;
 use std::collections::HashMap;
 use tree_hash::TreeHash;
-use types::attestation::SlotData;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use types::slot_data::SlotData;
 use types::sync_committee_contribution::SyncContributionData;
 use types::{Attestation, AttestationData, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
@@ -89,9 +89,6 @@ pub trait AggregateMap {
 
     /// Start a timer observing inserts.
     fn start_insert_timer() -> Option<metrics::HistogramTimer>;
-
-    /// Start a timer observing the time spent waiting for a write lock.
-    fn start_write_lock_timer() -> Option<metrics::HistogramTimer>;
 
     /// Start a timer observing the time it takes to create a new map for a new slot.
     fn start_create_map_timer() -> Option<metrics::HistogramTimer>;
@@ -193,10 +190,6 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_INSERT)
     }
 
-    fn start_write_lock_timer() -> Option<metrics::HistogramTimer> {
-        metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK)
-    }
-
     fn start_create_map_timer() -> Option<metrics::HistogramTimer> {
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_CREATE_MAP)
     }
@@ -205,7 +198,9 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_AGG_POOL_PRUNE)
     }
 
-    /// Use the mainnet default committee size.
+    /// Use the `TARGET_COMMITTEE_SIZE`.
+    ///
+    /// Note: hard-coded until `TARGET_COMMITTEE_SIZE` is available via `EthSpec`.
     fn default_capacity() -> usize {
         128
     }
@@ -306,10 +301,6 @@ impl<E: EthSpec> AggregateMap for SyncContributionAggregateMap<E> {
         metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_INSERT)
     }
 
-    fn start_write_lock_timer() -> Option<metrics::HistogramTimer> {
-        metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_MAPS_WRITE_LOCK)
-    }
-
     fn start_create_map_timer() -> Option<metrics::HistogramTimer> {
         metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_AGG_POOL_CREATE_MAP)
     }
@@ -379,9 +370,6 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
                 lowest_permissible_slot,
             });
         }
-
-        let lock_timer = T::start_write_lock_timer();
-        drop(lock_timer);
 
         let outcome = if let Some(map) = self.maps.get_mut(&slot) {
             map.insert(item)

@@ -1,4 +1,4 @@
-//! Identifies each shard by an integer identifier.
+//! Identifies each sync committee subnet by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{ChainSpec, EthSpec};
 use safe_arith::{ArithError, SafeArith};

@@ -484,7 +484,7 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let mut pubkeys = Vec::with_capacity(T::SyncCommitteeSize::to_usize());
+    let mut pubkeys = Vec::with_capacity(T::SyncSubcommitteeSize::to_usize());
     for &validator_index in indices {
         pubkeys.push(
             get_pubkey(validator_index).ok_or(Error::ValidatorUnknown(validator_index as u64))?,

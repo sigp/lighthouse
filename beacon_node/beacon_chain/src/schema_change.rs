@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
-use crate::beacon_chain::BeaconChainTypes;
+use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -51,6 +52,24 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     e
                 ))
             })?;
+
+            Ok(())
+        }
+        // Migration for adding sync committee contributions to the persisted op pool.
+        (SchemaVersion(3), SchemaVersion(4)) => {
+            // Deserialize from what exists in the database using the `PersistedOperationPoolBase`
+            // variant and convert it to the Altair variant.
+            let pool_opt = db
+                .get_item::<PersistedOperationPoolBase<T::EthSpec>>(&OP_POOL_DB_KEY)?
+                .map(PersistedOperationPool::Base)
+                .map(PersistedOperationPool::base_to_altair);
+
+            if let Some(pool) = pool_opt {
+                // Store the converted pool under the same key.
+                db.put_item::<PersistedOperationPool<T::EthSpec>>(&OP_POOL_DB_KEY, &pool)?;
+            }
+
+            db.store_schema_version(to)?;
 
             Ok(())
         }

@@ -15,10 +15,10 @@
 //! pattern:
 //!
 //! ```ignore
-//!      types::SyncCommitteeSignature              types::SignedContributionAndProof
+//!      types::SyncCommitteeSignature      types::SignedContributionAndProof
 //!              |                                    |
 //!              ▼                                    ▼
-//!  VerifiedUnaggregatedSyncContribution     VerifiedAggregatedSyncContribution
+//!      VerifiedSyncSignature               VerifiedSyncContribution
 //!              |                                    |
 //!              -------------------------------------
 //!                                |
@@ -37,7 +37,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
-use eth2::lighthouse_vc::types::attestation::SlotData;
+use derivative::Derivative;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use safe_arith::SafeArith;
@@ -52,6 +52,7 @@ use std::collections::HashMap;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use types::slot_data::SlotData;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, EthSpec, Hash256,
     SignedContributionAndProof, Slot, SyncCommitteeContribution, SyncCommitteeSignature,
@@ -228,36 +229,18 @@ impl From<ContributionError> for Error {
     }
 }
 
-/// Wraps a `SignedContributionAndProof` that has been verified for propagation on the gossip network.
+/// Wraps a `SignedContributionAndProof` that has been verified for propagation on the gossip network.\
+#[derive(Derivative)]
+#[derivative(Clone(bound = "T: BeaconChainTypes"))]
 pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     signed_aggregate: SignedContributionAndProof<T::EthSpec>,
 }
 
-/// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
-/// macro.
-impl<T: BeaconChainTypes> Clone for VerifiedSyncContribution<T> {
-    fn clone(&self) -> Self {
-        Self {
-            signed_aggregate: self.signed_aggregate.clone(),
-        }
-    }
-}
-
 /// Wraps a `SyncCommitteeSignature` that has been verified for propagation on the gossip network.
+#[derive(Clone)]
 pub struct VerifiedSyncSignature {
     sync_signature: SyncCommitteeSignature,
     subnet_positions: HashMap<SyncSubnetId, Vec<usize>>,
-}
-
-/// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
-/// macro.
-impl Clone for VerifiedSyncSignature {
-    fn clone(&self) -> Self {
-        Self {
-            sync_signature: self.sync_signature.clone(),
-            subnet_positions: self.subnet_positions.clone(),
-        }
-    }
 }
 
 impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
@@ -422,13 +405,13 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
     }
 
     /// A helper function to add this aggregate to `beacon_chain.op_pool`.
-    pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<Self, Error> {
+    pub fn add_to_pool(self, chain: &BeaconChain<T>) -> Result<(), Error> {
         chain.add_contribution_to_block_inclusion_pool(self)
     }
 
     /// Returns the underlying `contribution` for the `signed_aggregate`.
-    pub fn contribution(&self) -> &SyncCommitteeContribution<T::EthSpec> {
-        &self.signed_aggregate.message.contribution
+    pub fn contribution(self) -> SyncCommitteeContribution<T::EthSpec> {
+        self.signed_aggregate.message.contribution
     }
 
     /// Returns the underlying `signed_aggregate`.
@@ -575,9 +558,9 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-pub fn verify_propagation_slot_range<T: BeaconChainTypes, E: SlotData>(
+pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
     chain: &BeaconChain<T>,
-    sync_contribution: &E,
+    sync_contribution: &U,
 ) -> Result<(), Error> {
     let signature_slot = sync_contribution.get_slot();
 

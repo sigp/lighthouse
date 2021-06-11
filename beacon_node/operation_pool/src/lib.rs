@@ -6,7 +6,9 @@ mod metrics;
 mod persistence;
 mod sync_aggregate_id;
 
-pub use persistence::PersistedOperationPool;
+pub use persistence::{
+    PersistedOperationPool, PersistedOperationPoolAltair, PersistedOperationPoolBase,
+};
 
 use crate::sync_aggregate_id::SyncAggregateId;
 use attestation::AttMaxCover;
@@ -30,15 +32,13 @@ use types::{
     SyncCommitteeContribution, Validator,
 };
 
-type SyncContributions<T> =
-    RwLock<HashMap<SyncAggregateId, (Vec<SyncCommitteeContribution<T>>, SyncAggregate<T>)>>;
+type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<T>>>>;
 
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
     attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
-    /// Map from sync aggregate ID to the current `SyncAggregate` and the best
-    /// `SyncCommitteeContribution`s seen for that ID
+    /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
     sync_contributions: SyncContributions<T>,
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
@@ -52,7 +52,9 @@ pub struct OperationPool<T: EthSpec + Default> {
 #[derive(Debug, PartialEq)]
 pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
+    GetBlockRootError(BeaconStateError),
     SyncAggregateError(SyncAggregateError),
+    IncorrectOpPoolVariant,
 }
 
 impl From<SyncAggregateError> for OpPoolError {
@@ -67,7 +69,8 @@ impl<T: EthSpec> OperationPool<T> {
         Self::default()
     }
 
-    /// Insert a sync contribution into the pool, aggregating it with existing sync contributions if possible.
+    /// Insert a sync contribution into the pool. We don't aggregate these contributions until they
+    /// are retrieved from the pool.
     ///
     /// ## Note
     ///
@@ -75,59 +78,39 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_sync_contribution(
         &self,
         contribution: SyncCommitteeContribution<T>,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
     ) -> Result<(), OpPoolError> {
-        let aggregate_id = SyncAggregateId::from_data::<T>(
-            contribution.slot,
-            contribution.beacon_block_root,
-            fork,
-            genesis_validators_root,
-            spec,
-        );
-
+        let aggregate_id = SyncAggregateId::new(contribution.slot, contribution.beacon_block_root);
         let mut contributions = self.sync_contributions.write();
 
         match contributions.entry(aggregate_id) {
             Entry::Vacant(entry) => {
-                // If no contributions or aggregate exist for these keys, insert both.
-                let contributions = vec![contribution];
-                let aggregate = SyncAggregate::from_contributions(contributions.as_slice())?;
-                entry.insert((contributions, aggregate));
+                // If no contributions exist for the key, insert the given contribution.
+                entry.insert(vec![contribution]);
             }
             Entry::Occupied(mut entry) => {
-                // If both a contribution and aggregate exist for this key, check whether the new or
+                // If contributions exists for this key, check whether there exists a contribution
+                // with a matching `subcommittee_index`. If one exists, check whether the new or
                 // old contribution has more aggregation bits set. If the new one does, add it to the
-                // aggregate and insert both the aggregate and the contribution.
+                // pool in place of the old one.
                 let existing_contributions = entry.get_mut();
                 match existing_contributions
-                    .0
-                    .iter()
-                    .position(|existing_contribution| {
+                    .iter_mut()
+                    .find(|existing_contribution| {
                         existing_contribution.subcommittee_index == contribution.subcommittee_index
                     }) {
-                    Some(position) => {
-                        // Only need to recalculate if the new contribution has more bits set.
-                        if existing_contributions.0[position]
-                            .aggregation_bits
-                            .num_set_bits()
+                    Some(existing_contribution) => {
+                        // Only need to replace the contribution if the new contribution has more
+                        // bits set.
+                        if existing_contribution.aggregation_bits.num_set_bits()
                             < contribution.aggregation_bits.num_set_bits()
                         {
-                            existing_contributions.0[position] = contribution;
-                            let aggregate = SyncAggregate::from_contributions(
-                                existing_contributions.0.as_slice(),
-                            )?;
-                            existing_contributions.1 = aggregate;
+                            *existing_contribution = contribution;
                         }
                     }
                     None => {
                         // If there has been no previous sync contribution for this subcommittee index,
-                        // add it and recalculate the aggregate.
-                        existing_contributions.0.push(contribution);
-                        let aggregate =
-                            SyncAggregate::from_contributions(existing_contributions.0.as_slice())?;
-                        existing_contributions.1 = aggregate;
+                        // add it to the pool.
+                        existing_contributions.push(contribution);
                     }
                 }
             }
@@ -135,27 +118,25 @@ impl<T: EthSpec> OperationPool<T> {
         Ok(())
     }
 
-    /// Get the best sync aggregate for inclusion in a block.
+    /// Calculate the `SyncAggregate` from the sync contributions that exist in the pool for the
+    /// slot previous to the slot associated with `state`. Return the calculated `SyncAggregate` if
+    /// contributions exist at this slot, or else `None`.
     pub fn get_sync_aggregate(
         &self,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
-    ) -> Option<SyncAggregate<T>> {
+    ) -> Result<Option<SyncAggregate<T>>, OpPoolError> {
         // Sync aggregates are formed from the contributions from the previous slot.
         let slot = state.slot().saturating_sub(1u64);
-        let block_root = *state.get_block_root(slot).ok()?;
-        let id = SyncAggregateId::from_data::<T>(
-            slot,
-            block_root,
-            &state.fork(),
-            state.genesis_validators_root(),
-            spec,
-        );
+        let block_root = *state
+            .get_block_root(slot)
+            .map_err(OpPoolError::GetBlockRootError)?;
+        let id = SyncAggregateId::new(slot, block_root);
         self.sync_contributions
             .read()
             .get(&id)
-            .map(|(_, aggregate)| aggregate)
-            .cloned()
+            .map(|contributions| SyncAggregate::from_contributions(contributions))
+            .transpose()
+            .map_err(|e| e.into())
     }
 
     /// Total number of sync contributions in the pool.
@@ -163,22 +144,20 @@ impl<T: EthSpec> OperationPool<T> {
         self.sync_contributions
             .read()
             .values()
-            .map(|(contributions, _)| contributions.len())
+            .map(|contributions| contributions.len())
             .sum()
     }
 
     /// Remove sync contributions which are too old to be included in a block.
     pub fn prune_sync_contributions(&self, current_slot: Slot) {
         // Prune sync contributions that are from before the previous slot.
-        self.sync_contributions
-            .write()
-            .retain(|_, (contributions, _)| {
-                // All the contributions in this bucket have the same data, so we only need to
-                // check the first one.
-                contributions.first().map_or(false, |contribution| {
-                    current_slot <= contribution.slot.saturating_add(Slot::new(1))
-                })
-            });
+        self.sync_contributions.write().retain(|_, contributions| {
+            // All the contributions in this bucket have the same data, so we only need to
+            // check the first one.
+            contributions.first().map_or(false, |contribution| {
+                current_slot <= contribution.slot.saturating_add(Slot::new(1))
+            })
+        });
     }
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
@@ -1432,7 +1411,7 @@ mod release_tests {
     /// End-to-end test of basic sync contribution handling.
     #[test]
     fn sync_contribution_aggregation_insert_get_prune() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1449,14 +1428,7 @@ mod release_tests {
                 .expect("contribution exists for committee")
                 .message
                 .contribution;
-            op_pool
-                .insert_sync_contribution(
-                    contribution,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
-                .unwrap();
+            op_pool.insert_sync_contribution(contribution).unwrap();
         }
 
         assert_eq!(op_pool.sync_contributions.read().len(), 1);
@@ -1466,7 +1438,8 @@ mod release_tests {
         );
 
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state, spec)
+            .get_sync_aggregate(&state)
+            .expect("Should calculate the sync aggregate")
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.num_set_bits(),
@@ -1491,10 +1464,10 @@ mod release_tests {
         assert_eq!(op_pool.num_sync_contributions(), 0);
     }
 
-    /// Adding an sync contributions already in the pool should not increase the size of the pool.
+    /// Adding a sync contribution already in the pool should not increase the size of the pool.
     #[test]
     fn sync_contribution_duplicate() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1511,21 +1484,9 @@ mod release_tests {
                 .message
                 .contribution;
             op_pool
-                .insert_sync_contribution(
-                    contribution.clone(),
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_sync_contribution(contribution.clone())
                 .unwrap();
-            op_pool
-                .insert_sync_contribution(
-                    contribution,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
-                .unwrap();
+            op_pool.insert_sync_contribution(contribution).unwrap();
         }
 
         assert_eq!(op_pool.sync_contributions.read().len(), 1);
@@ -1539,7 +1500,7 @@ mod release_tests {
     /// number of bits set in the aggregate.
     #[test]
     fn sync_contribution_with_more_bits() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1577,17 +1538,13 @@ mod release_tests {
                 .expect("set bit");
 
             op_pool
-                .insert_sync_contribution(
-                    contribution_fewer_bits,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_sync_contribution(contribution_fewer_bits)
                 .unwrap();
         }
 
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state, spec)
+            .get_sync_aggregate(&state)
+            .expect("Should calculate the sync aggregate")
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.num_set_bits(),
@@ -1601,17 +1558,13 @@ mod release_tests {
             .set(0, false)
             .expect("set bit");
         op_pool
-            .insert_sync_contribution(
-                first_contribution,
-                &state.fork(),
-                state.genesis_validators_root(),
-                spec,
-            )
+            .insert_sync_contribution(first_contribution)
             .unwrap();
 
         // The sync aggregate should now include the additional set bit.
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state, spec)
+            .get_sync_aggregate(&state)
+            .expect("Should calculate the sync aggregate")
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.num_set_bits(),
@@ -1623,7 +1576,7 @@ mod release_tests {
     /// number of bits set in the aggregate.
     #[test]
     fn sync_contribution_with_fewer_bits() {
-        let (harness, ref spec) = sync_contribution_test_state::<MainnetEthSpec>(1);
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1661,17 +1614,13 @@ mod release_tests {
                 .expect("set bit");
 
             op_pool
-                .insert_sync_contribution(
-                    contribution_fewer_bits,
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_sync_contribution(contribution_fewer_bits)
                 .unwrap();
         }
 
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state, spec)
+            .get_sync_aggregate(&state)
+            .expect("Should calculate the sync aggregate")
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.num_set_bits(),
@@ -1693,17 +1642,13 @@ mod release_tests {
             .set(2, false)
             .expect("set bit");
         op_pool
-            .insert_sync_contribution(
-                first_contribution,
-                &state.fork(),
-                state.genesis_validators_root(),
-                spec,
-            )
+            .insert_sync_contribution(first_contribution)
             .unwrap();
 
-        // The sync aggregate should now include the additional set bit.
+        // The sync aggregate should still have the same number of set bits.
         let sync_aggregate = op_pool
-            .get_sync_aggregate(&state, spec)
+            .get_sync_aggregate(&state)
+            .expect("Should calculate the sync aggregate")
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.num_set_bits(),

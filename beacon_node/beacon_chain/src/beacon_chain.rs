@@ -1294,27 +1294,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn add_contribution_to_block_inclusion_pool(
         &self,
         contribution: VerifiedSyncContribution<T>,
-    ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
+    ) -> Result<(), SyncCommitteeError> {
         let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork =
-                self.with_head(|head| Ok::<_, SyncCommitteeError>(head.beacon_state.fork()))?;
-
             self.op_pool
-                .insert_sync_contribution(
-                    // TODO: address this clone.
-                    contribution.contribution().clone(),
-                    &fork,
-                    self.genesis_validators_root,
-                    &self.spec,
-                )
+                .insert_sync_contribution(contribution.contribution())
                 .map_err(Error::from)?;
         }
 
-        Ok(contribution)
+        Ok(())
     }
 
     /// Filter an attestation from the op pool for shuffling compatibility.
