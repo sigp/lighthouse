@@ -1,3 +1,25 @@
+//! The "Doppelganger" service is an **imperfect** mechanism to try and prevent the validator client
+//! from starting whilst any of its validators are actively producing messages on the network.
+//!
+//! The mechanism works roughly like so: when the validator client starts or a new validator is
+//! added, that validator is assigned a number of "remaining epochs". The doppelganger service
+//! periodically poll the beacon node to if that validator has been observed to produce
+//! blocks/attestations in each epoch. After the doppelganger service is confident that an epoch has
+//! passed without observing that validator, it will decrease the remaining epochs by one. Once the
+//! remaining epochs is zero, the doppelganger will consider that validator to be safe-enough to
+//! start.
+//!
+//! If a doppelganger is detected, the entire validator client will exit.
+//!
+//! ## Warning
+//!
+//! The Doppelganger service is not perfect. It makes assumptions that any existing validator is
+//! performing their duties as required and that the network is able to relay those messages to the
+//! beacon node. Among other loop-holes, two validator clients started at the same time will not
+//! detect each other.
+//!
+//! Doppelganger protection is a best-effort, last-line-of-defence mitigation. Do not rely upon it.
+
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
