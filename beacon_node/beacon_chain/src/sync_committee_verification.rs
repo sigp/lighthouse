@@ -479,16 +479,21 @@ impl VerifiedSyncSignature {
          * for the slot, sync_signature.slot.
          */
         let validator_index = sync_signature.validator_index;
-        if chain
-            .observed_sync_contributors
-            .read()
-            .validator_has_been_observed(sync_signature.slot, validator_index as usize)
-            .map_err(BeaconChainError::from)?
-        {
-            return Err(Error::PriorSyncSignatureKnown {
-                validator_index,
-                slot: sync_signature.slot,
-            });
+        for subnet_id in subnet_positions.keys() {
+            if chain
+                .observed_sync_contributors
+                .read()
+                .validator_has_been_observed(
+                    SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
+                    validator_index as usize,
+                )
+                .map_err(BeaconChainError::from)?
+            {
+                return Err(Error::PriorSyncSignatureKnown {
+                    validator_index,
+                    slot: sync_signature.slot,
+                });
+            }
         }
 
         // The aggregate signature of the sync committee message is valid.
@@ -500,16 +505,21 @@ impl VerifiedSyncSignature {
         // It's important to double check that the sync committee message still hasn't been observed, since
         // there can be a race-condition if we receive two sync committee messages at the same time and
         // process them in different threads.
-        if chain
-            .observed_sync_contributors
-            .write()
-            .observe_validator(sync_signature.slot, validator_index as usize)
-            .map_err(BeaconChainError::from)?
-        {
-            return Err(Error::PriorSyncSignatureKnown {
-                validator_index,
-                slot: sync_signature.slot,
-            });
+        for subnet_id in subnet_positions.keys() {
+            if chain
+                .observed_sync_contributors
+                .write()
+                .observe_validator(
+                    SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
+                    validator_index as usize,
+                )
+                .map_err(BeaconChainError::from)?
+            {
+                return Err(Error::PriorSyncSignatureKnown {
+                    validator_index,
+                    slot: sync_signature.slot,
+                });
+            }
         }
 
         Ok(Self {

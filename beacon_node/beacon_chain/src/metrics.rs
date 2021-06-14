@@ -870,24 +870,27 @@ fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &B
 fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &BeaconChain<T>) {
     let prev_slot = slot_now - 1;
 
-    if let Some(count) = chain
-        .observed_sync_contributors
-        .read()
-        .observed_validator_count(prev_slot)
-    {
-        set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS, count);
+    let contributors = chain.observed_sync_contributors.read();
+    let mut contributor_sum = 0;
+    for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
+        if let Some(count) =
+            contributors.observed_validator_count(SlotSubcommitteeIndex::new(prev_slot, i))
+        {
+            contributor_sum += count;
+        }
     }
+    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS, contributor_sum);
 
     let sync_aggregators = chain.observed_sync_aggregators.read();
-    let mut sum = 0;
+    let mut aggregator_sum = 0;
     for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
         if let Some(count) =
             sync_aggregators.observed_validator_count(SlotSubcommitteeIndex::new(prev_slot, i))
         {
-            sum += count;
+            aggregator_sum += count;
         }
     }
-    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS, sum);
+    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS, aggregator_sum);
 }
 
 fn set_gauge_by_slot(gauge: &Result<IntGauge>, value: Slot) {
