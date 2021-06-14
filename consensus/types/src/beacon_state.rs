@@ -752,27 +752,6 @@ impl<T: EthSpec> BeaconState<T> {
             .collect()
     }
 
-    /// Get the validator indices of validators from the given set of  `subcommittee_pubkeys`
-    /// identified by `sync_subcommittee_bits`.
-    pub fn get_sync_subcommittee_participant_indices(
-        &self,
-        subcommittee_pubkeys: &[PublicKeyBytes],
-        sync_subcommittee_bits: &BitVector<T::SyncSubcommitteeSize>,
-    ) -> Result<Vec<usize>, Error> {
-        // Gather all validator indices that signed this contribution.
-        subcommittee_pubkeys
-            .iter()
-            .zip(sync_subcommittee_bits.iter())
-            .flat_map(|(pubkey, bit)| {
-                bit.then::<Result<usize, Error>, _>(|| {
-                    self.pubkey_cache()
-                        .get(&pubkey)
-                        .ok_or(Error::PubkeyCacheInconsistent)
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()
-    }
-
     /// Compute the sync committee indices for the next sync committee.
     fn get_next_sync_committee_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
         let epoch = self.current_epoch().safe_add(1)?;

@@ -730,6 +730,14 @@ lazy_static! {
         "beacon_sync_contribution_processing_signature_seconds",
         "Time spent on the signature verification of sync contribution processing"
     );
+    pub static ref SYNC_SIGNATURE_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_signature_processing_signature_setup_seconds",
+        "Time spent on setting up for the signature verification of sync signature processing"
+    );
+    pub static ref SYNC_SIGNATURE_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_signature_processing_signature_seconds",
+        "Time spent on the signature verification of sync signature processing"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
