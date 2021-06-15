@@ -27,6 +27,7 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
+use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
 use slog::{crit, error, info};
 use slot_clock::SlotClock;
@@ -86,6 +87,11 @@ impl DoppelgangerStatus {
             DoppelgangerStatus::UnknownToDoppelganger(_) => None,
         }
     }
+}
+
+struct LivenessResponses {
+    current_epoch_responses: Vec<LivenessResponseData>,
+    previous_epoch_responses: Vec<LivenessResponseData>,
 }
 
 /// The number of epochs that must be checked before we assume that there are no other duplicate
@@ -234,15 +240,37 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
     /// Contact the beacon node and try to detect if there are any doppelgangers, updating the state
     /// of `self`.
     async fn detect_doppelgangers(&self, request_slot: Slot) -> Result<(), String> {
-        let log = self.context.log().clone();
-
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
+        let previous_epoch = request_epoch.saturating_sub(1_u64);
 
-        // Get the list of all registered public keys which still require additional doppelganger
-        // checks.
-        //
-        // It is important to ensure that the `self.doppelganger_states` lock is not interleaved with
-        // any other locks.
+        // Get all validators with active doppelganger protection.
+        let indices_map = self.compute_detection_indices_map();
+
+        if indices_map.is_empty() {
+            // Nothing to do.
+            return Ok(());
+        }
+
+        // Get a list of indices to provide to the BN API.
+        let indices_only = indices_map
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>();
+
+        // Pull the liveness responses from the BN.
+        let liveness_responses = self
+            .request_liveness(request_epoch, previous_epoch, &indices_only)
+            .await;
+
+        // Process the responses, attempting to detect doppelgangers.
+        self.process_liveness_responses(request_slot, liveness_responses, &indices_map)
+    }
+
+    /// Get a map of `validator_index` -> `validator_pubkey` for all validators still requiring
+    /// further doppelganger checks.
+    ///
+    /// Any validator with an unknown index will be omitted from these results.
+    fn compute_detection_indices_map(&self) -> HashMap<u64, PublicKeyBytes> {
         let detection_pubkeys = self
             .doppelganger_states
             .read()
@@ -259,31 +287,31 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         // Maps validator indices to pubkeys.
         let mut indices_map = HashMap::with_capacity(detection_pubkeys.len());
 
-        // Resolve the list of pubkeys to indices.
-        //
-        // Any pubkeys which do not have a known validator index will be ignored, preventing them
-        // from progressing through doppelganger protection until their indices are resolved.
-        let detection_indices = detection_pubkeys
-            .iter()
-            // Note: mutation of external state inside this `filter_map`.
-            .filter_map(|pubkey| {
-                let index = self.validator_store.validator_index(pubkey)?;
+        // It is important to ensure that the `self.doppelganger_states` lock is not interleaved with
+        // any other locks. That is why this is a separate loop to the one that generates
+        // `detection_pubkeys`.
+        for pubkey in detection_pubkeys {
+            if let Some(index) = self.validator_store.validator_index(&pubkey) {
                 indices_map.insert(index, pubkey);
-                Some(index)
-            })
-            .collect::<Vec<_>>();
-
-        if detection_indices.is_empty() {
-            // Nothing to do.
-            return Ok(());
+            }
         }
 
-        let previous_epoch = request_epoch.saturating_sub(1_u64);
+        indices_map
+    }
 
-        // Explicit slice to satisfy borrow checker.
-        let detection_indices_slice = detection_indices.as_slice();
-
-        let previous_epoch_responses = if previous_epoch == request_epoch {
+    /// Perform two requests to the BN to obtain the liveness data for `validator_indices`. One
+    /// request will pertain to the `current_epoch`, the other to the `previous_epoch`.
+    ///
+    /// If the BN fails to respond to either of these requests, simply return an empty response.
+    /// This behaviour is to help prevent spurious failures on the BN from needlessly preventing
+    /// doppelganger progression.
+    async fn request_liveness(
+        &self,
+        current_epoch: Epoch,
+        previous_epoch: Epoch,
+        validator_indices: &[u64],
+    ) -> LivenessResponses {
+        let previous_epoch_responses = if previous_epoch == current_epoch {
             // If the previous epoch and the current epoch are the same, don't bother requesting the
             // previous epoch indices.
             //
@@ -295,7 +323,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             self.beacon_nodes
                 .first_success(RequireSynced::Yes, |beacon_node| async move {
                     beacon_node
-                        .post_lighthouse_liveness(detection_indices_slice, previous_epoch)
+                        .post_lighthouse_liveness(validator_indices, previous_epoch)
                         .await
                         .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                         .map(|result| result.data)
@@ -319,7 +347,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             .beacon_nodes
             .first_success(RequireSynced::Yes, |beacon_node| async move {
                 beacon_node
-                    .post_lighthouse_liveness(detection_indices_slice, request_epoch)
+                    .post_lighthouse_liveness(validator_indices, current_epoch)
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                     .map(|result| result.data)
@@ -330,7 +358,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     self.context.log(),
                     "Failed current epoch liveness query";
                     "error" => %e,
-                    "request_epoch" => %request_epoch,
+                    "current_epoch" => %current_epoch,
                 );
                 // Return an empty vec. In effect, this means to keep trying to make doppelganger
                 // progress even if some of the calls are failing.
@@ -341,7 +369,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         //
         // This is not perfect since the validator might return duplicate entries, but it's a quick
         // and easy way to detect issues.
-        if detection_indices_slice.len() != current_epoch_responses.len()
+        if validator_indices.len() != current_epoch_responses.len()
             || current_epoch_responses.len() != previous_epoch_responses.len()
         {
             error!(
@@ -349,9 +377,31 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 "Liveness query omitted validators";
                 "previous_epoch_response" => previous_epoch_responses.len(),
                 "current_epoch_response" => current_epoch_responses.len(),
-                "requested" => detection_indices_slice.len(),
+                "requested" => validator_indices.len(),
             )
         }
+
+        LivenessResponses {
+            current_epoch_responses,
+            previous_epoch_responses,
+        }
+    }
+
+    /// Process the liveness responses from the BN, potentially updating doppelganger states or
+    /// shutting down the VC.
+    fn process_liveness_responses(
+        &self,
+        request_slot: Slot,
+        liveness_responses: LivenessResponses,
+        indices_map: &HashMap<u64, PublicKeyBytes>,
+    ) -> Result<(), String> {
+        let log = self.context.log();
+        let request_epoch = request_slot.epoch(E::slots_per_epoch());
+        let previous_epoch = request_epoch.saturating_sub(1_u64);
+        let LivenessResponses {
+            previous_epoch_responses,
+            current_epoch_responses,
+        } = liveness_responses;
 
         // Perform a loop through the current and previous epoch responses and detect any violators.
         //
@@ -371,7 +421,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 pubkey
             } else {
                 crit!(
-                    self.context.log(),
+                    log,
                     "Inconsistent indices map";
                     "validator_index" => response.index,
                 );
@@ -384,7 +434,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 state.next_check_epoch
             } else {
                 crit!(
-                    self.context.log(),
+                    log,
                     "Inconsistent doppelganger state";
                     "validator_pubkey" => ?pubkey,
                 );
@@ -433,10 +483,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             // Sanity check response from the server.
             //
             // Abort the entire routine if the server starts returning junk.
-            if response.epoch != request_epoch {
+            if response.epoch != previous_epoch {
                 return Err(format!(
                     "beacon node returned epoch {}, expecting {}",
-                    response.epoch, request_epoch
+                    response.epoch, previous_epoch
                 ));
             }
 
