@@ -224,9 +224,36 @@ fn main() {
                     .with_blocks(vec![(0, 20, false)]),
             ],
         ),
+        MultiTestCase::new(
+            "multiple_interchanges_single_validator_fail_iff_imported",
+            vec![
+                TestCase::new(interchange(vec![(0, vec![40], vec![])])),
+                TestCase::new(interchange(vec![(0, vec![20, 50], vec![])]))
+                    .allow_partial_import()
+                    .with_blocks(vec![(0, 20, false), (0, 50, false)]),
+            ],
+        ),
         MultiTestCase::single(
             "single_validator_source_greater_than_target",
             TestCase::new(interchange(vec![(0, vec![], vec![(8, 7)])])).allow_partial_import(),
+        ),
+        MultiTestCase::single(
+            "single_validator_source_greater_than_target_surrounding",
+            TestCase::new(interchange(vec![(0, vec![], vec![(5, 2)])]))
+                .allow_partial_import()
+                .with_attestations(vec![(0, 3, 4, false)]),
+        ),
+        MultiTestCase::single(
+            "single_validator_source_greater_than_target_surrounded",
+            TestCase::new(interchange(vec![(0, vec![], vec![(5, 2)])]))
+                .allow_partial_import()
+                .with_attestations(vec![(0, 6, 1, false)]),
+        ),
+        MultiTestCase::single(
+            "single_validator_source_greater_than_target_sensible_iff_minified",
+            TestCase::new(interchange(vec![(0, vec![], vec![(5, 2), (6, 7)])]))
+                .allow_partial_import()
+                .with_attestations(vec![(0, 5, 8, false), (0, 6, 8, true)]),
         ),
         MultiTestCase::single(
             "single_validator_out_of_order_blocks",
@@ -338,16 +365,42 @@ fn main() {
             .with_blocks(vec![(0, 10, false), (0, 13, false), (0, 14, true)])
             .with_attestations(vec![(0, 0, 2, false), (0, 1, 3, false)]),
         ),
+        MultiTestCase::single(
+            "duplicate_pubkey_slashable_block",
+            TestCase::new(interchange(vec![
+                (0, vec![10], vec![(0, 2)]),
+                (0, vec![10], vec![(1, 3)]),
+            ]))
+            .allow_partial_import()
+            .with_blocks(vec![(0, 10, false), (0, 11, true)]),
+        ),
+        MultiTestCase::single(
+            "duplicate_pubkey_slashable_attestation",
+            TestCase::new(interchange_with_signing_roots(vec![
+                (0, vec![], vec![(0, 3, Some(3))]),
+                (0, vec![], vec![(1, 2, None)]),
+            ]))
+            .allow_partial_import()
+            .with_attestations(vec![
+                (0, 0, 1, false),
+                (0, 0, 2, false),
+                (0, 0, 4, false),
+                (0, 1, 4, true),
+            ]),
+        ),
     ];
 
     let args = std::env::args().collect::<Vec<_>>();
     let output_dir = Path::new(&args[1]);
     fs::create_dir_all(output_dir).unwrap();
 
-    let minify = false;
-
     for test in tests {
-        test.run(minify);
+        // Check that test case passes without minification
+        test.run(false);
+
+        // Check that test case passes with minification
+        test.run(true);
+
         let f = File::create(output_dir.join(format!("{}.json", test.name))).unwrap();
         serde_json::to_writer_pretty(&f, &test).unwrap();
         writeln!(&f).unwrap();

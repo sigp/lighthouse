@@ -1,3 +1,4 @@
+use crate::InterchangeError;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -44,11 +45,6 @@ pub struct SignedAttestation {
 pub struct Interchange {
     pub metadata: InterchangeMetadata,
     pub data: Vec<InterchangeData>,
-}
-
-#[derive(Debug, Clone)]
-pub enum InterchangeError {
-    MinAndMaxInconsistent,
 }
 
 impl Interchange {

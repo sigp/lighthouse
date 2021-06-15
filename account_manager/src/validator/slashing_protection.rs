@@ -1,7 +1,7 @@
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use slashing_protection::{
-    interchange::Interchange, InterchangeImportOutcome, SlashingDatabase,
+    interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
     SLASHING_PROTECTION_FILENAME,
 };
 use std::fs::File;
@@ -97,17 +97,17 @@ pub fn cli_run<T: EthSpec>(
                 )
             })?;
 
-            eprintln!("Loading JSON file into memory & deserializing");
+            eprint!("Loading JSON file into memory & deserializing");
             let mut interchange = Interchange::from_json_reader(&import_file)
                 .map_err(|e| format!("Error parsing file for import: {:?}", e))?;
-            eprintln!("JSON load complete");
+            eprintln!(" [done].");
 
             if minify {
-                eprintln!("Minifying input file for faster loading");
+                eprint!("Minifying input file for faster loading");
                 interchange = interchange
                     .minify()
                     .map_err(|e| format!("Minification failed: {:?}", e))?;
-                eprintln!("Minification complete");
+                eprintln!(" [done].");
             }
 
             let slashing_protection_database =
@@ -115,16 +115,6 @@ pub fn cli_run<T: EthSpec>(
                     format!(
                         "Unable to open database at {}: {:?}",
                         slashing_protection_db_path.display(),
-                        e
-                    )
-                })?;
-
-            let outcomes = slashing_protection_database
-                .import_interchange_info(interchange, genesis_validators_root)
-                .map_err(|e| {
-                    format!(
-                        "Error during import: {:?}\n\
-                         IT IS NOT SAFE TO START VALIDATING",
                         e
                     )
                 })?;
@@ -140,43 +130,71 @@ pub fn cli_run<T: EthSpec>(
                 (source, target) => format!("{}=>{}", display_epoch(source), display_epoch(target)),
             };
 
-            let mut num_failed = 0;
-
-            for outcome in &outcomes {
-                match outcome {
-                    InterchangeImportOutcome::Success { pubkey, summary } => {
-                        eprintln!("- {:?} SUCCESS min block: {}, max block: {}, min attestation: {}, max attestation: {}",
-                            pubkey,
-                            display_slot(summary.min_block_slot),
-                            display_slot(summary.max_block_slot),
-                            display_attestation(summary.min_attestation_source, summary.min_attestation_target),
-                            display_attestation(summary.max_attestation_source,
-                            summary.max_attestation_target),
-                        );
+            match slashing_protection_database
+                .import_interchange_info(interchange, genesis_validators_root)
+            {
+                Ok(outcomes) => {
+                    eprintln!("All records imported successfully:");
+                    for outcome in &outcomes {
+                        match outcome {
+                            InterchangeImportOutcome::Success { pubkey, summary } => {
+                                eprintln!("- {:?}", pubkey);
+                                eprintln!(
+                                    "    - min block: {}",
+                                    display_slot(summary.min_block_slot)
+                                );
+                                eprintln!(
+                                    "    - min attestation: {}",
+                                    display_attestation(
+                                        summary.min_attestation_source,
+                                        summary.min_attestation_target
+                                    )
+                                );
+                                eprintln!(
+                                    "    - max attestation: {}",
+                                    display_attestation(
+                                        summary.max_attestation_source,
+                                        summary.max_attestation_target
+                                    )
+                                );
+                            }
+                            InterchangeImportOutcome::Failure { pubkey, error } => {
+                                panic!(
+                                    "import should be atomic, but key {:?} was imported despite error: {:?}",
+                                    pubkey, error
+                                );
+                            }
+                        }
                     }
-                    InterchangeImportOutcome::Failure { pubkey, error } => {
-                        eprintln!("- {:?} ERROR: {:?}", pubkey, error);
-                        num_failed += 1;
+                }
+                Err(InterchangeError::AtomicBatchAborted(outcomes)) => {
+                    eprintln!("ERROR, slashable data in input:");
+                    for outcome in &outcomes {
+                        if let InterchangeImportOutcome::Failure { pubkey, error } = outcome {
+                            eprintln!("- {:?}", pubkey);
+                            eprintln!("    - error: {:?}", error);
+                        }
                     }
+                    return Err(
+                        "ERROR: import aborted due to slashable data, see above.\n\
+                         Please see https://lighthouse-book.sigmaprime.io/slashing-protection.html#slashable-data-in-import\n\
+                         IT IS NOT SAFE TO START VALIDATING".to_string()
+                    );
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Fatal error during import: {:?}\n\
+                         IT IS NOT SAFE TO START VALIDATING",
+                        e
+                    ));
                 }
             }
 
-            if num_failed == 0 {
-                eprintln!("Import completed successfully.");
-                eprintln!(
-                    "Please double-check that the minimum and maximum blocks and slots above \
-                     match your expectations."
-                );
-            } else {
-                eprintln!(
-                    "WARNING: history was NOT imported for {} of {} records",
-                    num_failed,
-                    outcomes.len()
-                );
-                eprintln!("IT IS NOT SAFE TO START VALIDATING");
-                eprintln!("Please see https://lighthouse-book.sigmaprime.io/slashing-protection.html#slashable-data-in-import");
-                return Err("Partial import".to_string());
-            }
+            eprintln!("Import completed successfully.");
+            eprintln!(
+                "Please double-check that the minimum and maximum blocks and attestations above \
+                 match your expectations."
+            );
 
             Ok(())
         }
