@@ -14,7 +14,10 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// The maximum transmit size of gossip messages in bytes.
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+/// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
+pub const MESH_N_LOW: usize = 6;
 
 // We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
 // specification. We leave it here for posterity.
@@ -133,7 +136,7 @@ impl Default for Config {
             .max_transmit_size(GOSSIP_MAX_SIZE)
             .heartbeat_interval(Duration::from_millis(700))
             .mesh_n(8)
-            .mesh_n_low(6)
+            .mesh_n_low(MESH_N_LOW)
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))

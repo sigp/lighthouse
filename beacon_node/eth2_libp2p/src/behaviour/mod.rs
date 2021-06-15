@@ -44,7 +44,7 @@ use std::{
 };
 use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
 
-mod gossipsub_scoring_parameters;
+pub mod gossipsub_scoring_parameters;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
