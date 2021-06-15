@@ -88,6 +88,14 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
+/// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
+/// `state.next_sync_committee` when creating sync signatures or contributions.
+#[derive(Clone, Debug)]
+pub enum RelativeSyncCommittee {
+    Current,
+    Next,
+}
+
 fn make_rng() -> Mutex<StdRng> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
@@ -608,13 +616,20 @@ where
         state: &BeaconState<E>,
         head_block_root: Hash256,
         signature_slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
     ) -> Vec<Vec<(SyncCommitteeSignature, usize)>> {
-        let current_sync_committee: Arc<SyncCommittee<E>> = state
-            .current_sync_committee()
-            .expect("should be called on altair beacon state")
-            .clone();
+        let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
+            RelativeSyncCommittee::Current => state
+                .current_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+            RelativeSyncCommittee::Next => state
+                .next_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+        };
 
-        current_sync_committee
+        sync_committee
             .pubkeys
             .as_ref()
             .chunks(E::sync_subcommittee_size())
@@ -767,8 +782,10 @@ where
         state: &BeaconState<E>,
         block_hash: Hash256,
         slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
     ) -> HarnessSyncContributions<E> {
-        let sync_signatures = self.make_sync_signatures(&state, block_hash, slot);
+        let sync_signatures =
+            self.make_sync_signatures(&state, block_hash, slot, relative_sync_committee);
 
         let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_signatures
             .iter()
