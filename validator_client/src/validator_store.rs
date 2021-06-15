@@ -183,6 +183,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Keys are wrapped in the `DoppelgangerStatus` struct to indicate if signing is enabled or disabled.
     /// Signing may be disabled if services like doppelganger protection are active for some
     /// validator.
+    #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
     pub fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
     where
         I: FromIterator<PublicKeyBytes>,
@@ -265,7 +266,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(func(
             validators_lock
                 .voting_keypair(&validator_pubkey)
-                .ok_or_else(|| Error::UnknownPubkey(validator_pubkey))?,
+                .ok_or(Error::UnknownPubkey(validator_pubkey))?,
         ))
     }
 
