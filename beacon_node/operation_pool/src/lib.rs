@@ -611,7 +611,9 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
-    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use beacon_chain::test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
+    };
     use lazy_static::lazy_static;
     use state_processing::{
         common::{base::get_base_reward, get_attesting_indices},
@@ -1420,8 +1422,12 @@ mod release_tests {
             .get_block_root(state.slot() - Slot::new(1))
             .ok()
             .expect("block root should exist at slot");
-        let contributions =
-            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
+        let contributions = harness.make_sync_contributions(
+            &state,
+            block_root,
+            state.slot() - Slot::new(1),
+            RelativeSyncCommittee::Current,
+        );
 
         for (_, contribution_and_proof) in contributions {
             let contribution = contribution_and_proof
@@ -1475,8 +1481,12 @@ mod release_tests {
             .get_block_root(state.slot() - Slot::new(1))
             .ok()
             .expect("block root should exist at slot");
-        let contributions =
-            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
+        let contributions = harness.make_sync_contributions(
+            &state,
+            block_root,
+            state.slot() - Slot::new(1),
+            RelativeSyncCommittee::Current,
+        );
 
         for (_, contribution_and_proof) in contributions {
             let contribution = contribution_and_proof
@@ -1508,8 +1518,12 @@ mod release_tests {
             .get_block_root(state.slot() - Slot::new(1))
             .ok()
             .expect("block root should exist at slot");
-        let contributions =
-            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
+        let contributions = harness.make_sync_contributions(
+            &state,
+            block_root,
+            state.slot() - Slot::new(1),
+            RelativeSyncCommittee::Current,
+        );
 
         let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
         let mut first_contribution = contributions[0]
@@ -1584,8 +1598,12 @@ mod release_tests {
             .get_block_root(state.slot() - Slot::new(1))
             .ok()
             .expect("block root should exist at slot");
-        let contributions =
-            harness.make_sync_contributions(&state, block_root, state.slot() - Slot::new(1));
+        let contributions = harness.make_sync_contributions(
+            &state,
+            block_root,
+            state.slot() - Slot::new(1),
+            RelativeSyncCommittee::Current,
+        );
 
         let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
         let mut first_contribution = contributions[0]
