@@ -286,19 +286,32 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         let previous_epoch_responses = if previous_epoch == request_epoch {
             // If the previous epoch and the current epoch are the same, don't bother requesting the
             // previous epoch indices.
+            //
+            // In such a scenario it will be possible to detect validators but we will never update
+            // any of the doppelganger states.
             vec![]
         } else {
             // Request the previous epoch liveness state from the beacon node.
             self.beacon_nodes
                 .first_success(RequireSynced::Yes, |beacon_node| async move {
                     beacon_node
-                        .post_lighthouse_liveness(detection_indices_slice, request_epoch)
+                        .post_lighthouse_liveness(detection_indices_slice, previous_epoch)
                         .await
                         .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                         .map(|result| result.data)
                 })
                 .await
-                .map_err(|e| format!("Failed query for validator liveness: {}", e))?
+                .unwrap_or_else(|e| {
+                    crit!(
+                        self.context.log(),
+                        "Failed previous epoch liveness query";
+                        "error" => %e,
+                        "previous_epoch" => %previous_epoch,
+                    );
+                    // Return an empty vec. In effect, this means to keep trying to make doppelganger
+                    // progress even if some of the calls are failing.
+                    vec![]
+                })
         };
 
         // Request the current epoch liveness state from the beacon node.
@@ -312,7 +325,33 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     .map(|result| result.data)
             })
             .await
-            .map_err(|e| format!("Failed query for validator liveness: {}", e))?;
+            .unwrap_or_else(|e| {
+                crit!(
+                    self.context.log(),
+                    "Failed current epoch liveness query";
+                    "error" => %e,
+                    "request_epoch" => %request_epoch,
+                );
+                // Return an empty vec. In effect, this means to keep trying to make doppelganger
+                // progress even if some of the calls are failing.
+                vec![]
+            });
+
+        // Alert the user if the beacon node is omitting validators from the response.
+        //
+        // This is not perfect since the validator might return duplicate entries, but it's a quick
+        // and easy way to detect issues.
+        if detection_indices_slice.len() != current_epoch_responses.len()
+            || current_epoch_responses.len() != previous_epoch_responses.len()
+        {
+            error!(
+                self.context.log(),
+                "Liveness query omitted validators";
+                "previous_epoch_response" => previous_epoch_responses.len(),
+                "current_epoch_response" => current_epoch_responses.len(),
+                "requested" => detection_indices_slice.len(),
+            )
+        }
 
         // Perform a loop through the current and previous epoch responses and detect any violators.
         //
