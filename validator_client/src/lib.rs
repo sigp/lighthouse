@@ -357,8 +357,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         } else {
             let service = DoppelgangerService {
                 slot_clock: slot_clock.clone(),
-                validator_store: Box::new(validator_store.clone()),
-                beacon_nodes: beacon_nodes.clone(),
                 context: context.service_context("doppelganger".into()),
                 doppelganger_states: <_>::default(),
             };
@@ -410,7 +408,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
             doppelganger_service
                 .clone()
-                .start_update_service()
+                .start_update_service(
+                    self.validator_store.clone(),
+                    self.duties_service.beacon_nodes.clone(),
+                )
                 .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
         } else {
             info!(log, "Doppelganger detection disabled.")

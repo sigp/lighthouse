@@ -29,9 +29,10 @@ use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
-use slog::{crit, error, info};
+use slog::{crit, error, info, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use task_executor::ShutdownReason;
 use tokio::time::sleep;
@@ -122,20 +123,125 @@ impl DopplegangerState {
     }
 }
 
+/// Perform two requests to the BN to obtain the liveness data for `validator_indices`. One
+/// request will pertain to the `current_epoch`, the other to the `previous_epoch`.
+///
+/// If the BN fails to respond to either of these requests, simply return an empty response.
+/// This behaviour is to help prevent spurious failures on the BN from needlessly preventing
+/// doppelganger progression.
+async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    log: Logger,
+    current_epoch: Epoch,
+    previous_epoch: Epoch,
+    validator_indices: Vec<u64>,
+) -> LivenessResponses {
+    let validator_indices = validator_indices.as_slice();
+
+    let previous_epoch_responses = if previous_epoch == current_epoch {
+        // If the previous epoch and the current epoch are the same, don't bother requesting the
+        // previous epoch indices.
+        //
+        // In such a scenario it will be possible to detect validators but we will never update
+        // any of the doppelganger states.
+        vec![]
+    } else {
+        // Request the previous epoch liveness state from the beacon node.
+        beacon_nodes
+            .first_success(RequireSynced::Yes, |beacon_node| async move {
+                beacon_node
+                    .post_lighthouse_liveness(validator_indices, previous_epoch)
+                    .await
+                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
+                    .map(|result| result.data)
+            })
+            .await
+            .unwrap_or_else(|e| {
+                crit!(
+                    log,
+                    "Failed previous epoch liveness query";
+                    "error" => %e,
+                    "previous_epoch" => %previous_epoch,
+                );
+                // Return an empty vec. In effect, this means to keep trying to make doppelganger
+                // progress even if some of the calls are failing.
+                vec![]
+            })
+    };
+
+    // Request the current epoch liveness state from the beacon node.
+    let current_epoch_responses = beacon_nodes
+        .first_success(RequireSynced::Yes, |beacon_node| async move {
+            beacon_node
+                .post_lighthouse_liveness(validator_indices, current_epoch)
+                .await
+                .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
+                .map(|result| result.data)
+        })
+        .await
+        .unwrap_or_else(|e| {
+            crit!(
+                log,
+                "Failed current epoch liveness query";
+                "error" => %e,
+                "current_epoch" => %current_epoch,
+            );
+            // Return an empty vec. In effect, this means to keep trying to make doppelganger
+            // progress even if some of the calls are failing.
+            vec![]
+        });
+
+    // Alert the user if the beacon node is omitting validators from the response.
+    //
+    // This is not perfect since the validator might return duplicate entries, but it's a quick
+    // and easy way to detect issues.
+    if validator_indices.len() != current_epoch_responses.len()
+        || current_epoch_responses.len() != previous_epoch_responses.len()
+    {
+        error!(
+            log,
+            "Liveness query omitted validators";
+            "previous_epoch_response" => previous_epoch_responses.len(),
+            "current_epoch_response" => current_epoch_responses.len(),
+            "requested" => validator_indices.len(),
+        )
+    }
+
+    LivenessResponses {
+        current_epoch_responses,
+        previous_epoch_responses,
+    }
+}
+
 #[derive(Clone)]
 pub struct DoppelgangerService<T, E: EthSpec> {
     pub slot_clock: T,
-    // The `Box` avoids an infinite-sized struct due to the circular dependency of the validator
-    // store and the doppleganger service.
-    pub validator_store: Box<ValidatorStore<T, E>>,
-    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     pub context: RuntimeContext<E>,
     pub doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DopplegangerState>>>,
 }
 
 impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
-    pub fn start_update_service(self) -> Result<(), String> {
+    pub fn start_update_service(
+        self,
+        validator_store: ValidatorStore<T, E>,
+        beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    ) -> Result<(), String> {
         let log = self.context.log().clone();
+
+        // Define the `get_index` function as one that uses the validator store.
+        let get_index = move |pubkey| validator_store.validator_index(&pubkey);
+
+        // Define the `get_liveness` function as one that queries the beacon node API.
+        let inner_log = log.clone();
+        let get_liveness = move |current_epoch, previous_epoch, validator_indices| {
+            beacon_node_liveness(
+                beacon_nodes.clone(),
+                inner_log.clone(),
+                current_epoch,
+                previous_epoch,
+                validator_indices,
+            )
+        };
 
         info!(
             log,
@@ -163,7 +269,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     }
 
                     if let Some(slot) = doppelganger_service.slot_clock.now() {
-                        if let Err(e) = doppelganger_service.detect_doppelgangers(slot).await {
+                        if let Err(e) = doppelganger_service
+                            .detect_doppelgangers(slot, &get_index, &get_liveness)
+                            .await
+                        {
                             error!(
                                 log,
                                 "Error during doppelganger detection";
@@ -239,12 +348,28 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
     /// Contact the beacon node and try to detect if there are any doppelgangers, updating the state
     /// of `self`.
-    async fn detect_doppelgangers(&self, request_slot: Slot) -> Result<(), String> {
+    ///
+    /// ## Notes
+    ///
+    /// This function is relatively complex when it comes to generic parameters. This is to allow
+    /// for simple unit testing. Using these generics, we can test the `DoppelgangerService` without
+    /// needing a BN API or a `ValidatorStore`.
+    async fn detect_doppelgangers<I, L, F>(
+        &self,
+        request_slot: Slot,
+        get_index: &I,
+        get_liveness: &L,
+    ) -> Result<(), String>
+    where
+        I: Fn(PublicKeyBytes) -> Option<u64>,
+        L: Fn(Epoch, Epoch, Vec<u64>) -> F,
+        F: Future<Output = LivenessResponses>,
+    {
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
         let previous_epoch = request_epoch.saturating_sub(1_u64);
 
         // Get all validators with active doppelganger protection.
-        let indices_map = self.compute_detection_indices_map();
+        let indices_map = self.compute_detection_indices_map(get_index);
 
         if indices_map.is_empty() {
             // Nothing to do.
@@ -252,15 +377,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         }
 
         // Get a list of indices to provide to the BN API.
-        let indices_only = indices_map
-            .iter()
-            .map(|(index, _)| *index)
-            .collect::<Vec<_>>();
+        let indices_only = indices_map.iter().map(|(index, _)| *index).collect();
 
         // Pull the liveness responses from the BN.
-        let liveness_responses = self
-            .request_liveness(request_epoch, previous_epoch, &indices_only)
-            .await;
+        let liveness_responses = get_liveness(request_epoch, previous_epoch, indices_only).await;
 
         // Process the responses, attempting to detect doppelgangers.
         self.process_liveness_responses(request_slot, liveness_responses, &indices_map)
@@ -270,7 +390,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
     /// further doppelganger checks.
     ///
     /// Any validator with an unknown index will be omitted from these results.
-    fn compute_detection_indices_map(&self) -> HashMap<u64, PublicKeyBytes> {
+    fn compute_detection_indices_map<F>(&self, get_index: &F) -> HashMap<u64, PublicKeyBytes>
+    where
+        F: Fn(PublicKeyBytes) -> Option<u64>,
+    {
         let detection_pubkeys = self
             .doppelganger_states
             .read()
@@ -291,100 +414,12 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         // any other locks. That is why this is a separate loop to the one that generates
         // `detection_pubkeys`.
         for pubkey in detection_pubkeys {
-            if let Some(index) = self.validator_store.validator_index(&pubkey) {
+            if let Some(index) = get_index(pubkey) {
                 indices_map.insert(index, pubkey);
             }
         }
 
         indices_map
-    }
-
-    /// Perform two requests to the BN to obtain the liveness data for `validator_indices`. One
-    /// request will pertain to the `current_epoch`, the other to the `previous_epoch`.
-    ///
-    /// If the BN fails to respond to either of these requests, simply return an empty response.
-    /// This behaviour is to help prevent spurious failures on the BN from needlessly preventing
-    /// doppelganger progression.
-    async fn request_liveness(
-        &self,
-        current_epoch: Epoch,
-        previous_epoch: Epoch,
-        validator_indices: &[u64],
-    ) -> LivenessResponses {
-        let previous_epoch_responses = if previous_epoch == current_epoch {
-            // If the previous epoch and the current epoch are the same, don't bother requesting the
-            // previous epoch indices.
-            //
-            // In such a scenario it will be possible to detect validators but we will never update
-            // any of the doppelganger states.
-            vec![]
-        } else {
-            // Request the previous epoch liveness state from the beacon node.
-            self.beacon_nodes
-                .first_success(RequireSynced::Yes, |beacon_node| async move {
-                    beacon_node
-                        .post_lighthouse_liveness(validator_indices, previous_epoch)
-                        .await
-                        .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                        .map(|result| result.data)
-                })
-                .await
-                .unwrap_or_else(|e| {
-                    crit!(
-                        self.context.log(),
-                        "Failed previous epoch liveness query";
-                        "error" => %e,
-                        "previous_epoch" => %previous_epoch,
-                    );
-                    // Return an empty vec. In effect, this means to keep trying to make doppelganger
-                    // progress even if some of the calls are failing.
-                    vec![]
-                })
-        };
-
-        // Request the current epoch liveness state from the beacon node.
-        let current_epoch_responses = self
-            .beacon_nodes
-            .first_success(RequireSynced::Yes, |beacon_node| async move {
-                beacon_node
-                    .post_lighthouse_liveness(validator_indices, current_epoch)
-                    .await
-                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                    .map(|result| result.data)
-            })
-            .await
-            .unwrap_or_else(|e| {
-                crit!(
-                    self.context.log(),
-                    "Failed current epoch liveness query";
-                    "error" => %e,
-                    "current_epoch" => %current_epoch,
-                );
-                // Return an empty vec. In effect, this means to keep trying to make doppelganger
-                // progress even if some of the calls are failing.
-                vec![]
-            });
-
-        // Alert the user if the beacon node is omitting validators from the response.
-        //
-        // This is not perfect since the validator might return duplicate entries, but it's a quick
-        // and easy way to detect issues.
-        if validator_indices.len() != current_epoch_responses.len()
-            || current_epoch_responses.len() != previous_epoch_responses.len()
-        {
-            error!(
-                self.context.log(),
-                "Liveness query omitted validators";
-                "previous_epoch_response" => previous_epoch_responses.len(),
-                "current_epoch_response" => current_epoch_responses.len(),
-                "requested" => validator_indices.len(),
-            )
-        }
-
-        LivenessResponses {
-            current_epoch_responses,
-            previous_epoch_responses,
-        }
     }
 
     /// Process the liveness responses from the BN, potentially updating doppelganger states or
