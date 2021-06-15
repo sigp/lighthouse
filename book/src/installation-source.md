@@ -1,9 +1,10 @@
 # Installation: Build from Source
 
-Lighthouse builds on Linux, macOS, and Windows (via [WSL][] only).
+Lighthouse builds on Linux, macOS, and Windows (native Windows support in
+BETA, we also support Windows via [WSL][]).
 
-Compilation should be easy. In fact, if you already have Rust installed all you
-need is:
+Compilation should be easy. In fact, if you already have Rust and the build
+dependencies installed, all you need is:
 
 - `git clone https://github.com/sigp/lighthouse.git`
 - `cd lighthouse`
@@ -26,35 +27,43 @@ directory will be the location you cloned Lighthouse to during the installation 
 - `git checkout ${VERSION}`
 - `make`
 
+
 ## Detailed Instructions
 
-1. Install Rust and Cargo with [rustup](https://rustup.rs/).
-    - Use the `stable` toolchain (it's the default).
-	- Check the [Troubleshooting](#troubleshooting) section for additional
-		dependencies (e.g., `cmake`).
+1. Install the build dependencies for your platform
+	- Check the [Dependencies](#dependencies) section for additional
+		information.
 1. Clone the Lighthouse repository.
     - Run `$ git clone https://github.com/sigp/lighthouse.git`
     - Change into the newly created directory with `$ cd lighthouse`
 1. Build Lighthouse with `$ make`.
-1. Installation was successful if `$ lighthouse --help` displays the
-   command-line documentation.
+1. Installation was successful if `$ lighthouse --help` displays the command-line documentation.
 
 > First time compilation may take several minutes. If you experience any
 > failures, please reach out on [discord](https://discord.gg/cyAszAh) or
 > [create an issue](https://github.com/sigp/lighthouse/issues/new).
 
-## Windows Support
 
-Compiling or running Lighthouse natively on Windows is not currently supported. However,
-Lighthouse can run successfully under the [Windows Subsystem for Linux (WSL)][WSL]. If using
-Ubuntu under WSL, you can should install the Ubuntu dependencies listed in the [Dependencies
-(Ubuntu)](#dependencies-ubuntu) section.
+## Dependencies
+
+#### Installing Rust
+
+The best way to install Rust (regardless of platform) is usually with [rustup](https://rustup.rs/)
+- Use the `stable` toolchain (it's the default).
+
+#### Windows Support
+
+These instructions are for compiling or running Lighthouse natively on Windows, which is currently in
+BETA testing. Lighthouse can also run successfully under the [Windows Subsystem for Linux (WSL)][WSL].
+If using Ubuntu under WSL, you should follow the instructions for Ubuntu listed in the
+[Dependencies (Ubuntu)](#ubuntu) section.
 
 [WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
 
-## Troubleshooting
-
-### Dependencies
+1. Install [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
+1. Install [Chocolatey](https://chocolatey.org/install) Package Manager for Windows
+    - Install `make` via `choco install make`
+    - Install `cmake` via `choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'`
 
 #### Ubuntu
 
@@ -70,6 +79,9 @@ sudo apt install -y git gcc g++ make cmake pkg-config
 You will need `cmake`. You can install via homebrew:
 
     brew install cmake
+
+
+## Troubleshooting
 
 ### Command is not found
 

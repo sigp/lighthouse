@@ -18,11 +18,25 @@ mod post {
         match signature.unwrap_err() {
             Error::Reqwest(e) => {
                 let error_msg = e.to_string();
-                assert!(error_msg.contains("error sending request for url"));
-                assert!(error_msg.contains(PUBLIC_KEY_1));
-                assert!(error_msg.contains("error trying to connect"));
-                assert!(error_msg.contains("tcp connect error"));
-                assert!(error_msg.contains("Connection refused"));
+                let pubkey_string = PUBLIC_KEY_1.to_string();
+                let msgs = vec![
+                    "error sending request for url",
+                    &pubkey_string,
+                    "error trying to connect",
+                    "tcp connect error",
+                    match cfg!(windows) {
+                        true => "No connection could be made because the target machine actively refused it",
+                        false => "Connection refused",
+                    }
+                ];
+                for msg in msgs.iter() {
+                    assert!(
+                        error_msg.contains(msg),
+                        "{:?} should contain {:?}",
+                        error_msg,
+                        msg
+                    );
+                }
             }
             e => panic!("{:?}", e),
         }
@@ -31,15 +45,15 @@ mod post {
     #[test]
     fn server_error() {
         let (test_signer, tmp_dir) = set_up_api_test_signer_to_sign_message();
-        set_permissions(tmp_dir.path(), 0o40311);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40311);
+        restrict_permissions(tmp_dir.path());
+        restrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         let test_client = set_up_test_consumer(&test_signer.address);
         let test_input = get_input_data_block(0xc137);
         let signature = do_sign_request(&test_client, test_input);
 
-        set_permissions(tmp_dir.path(), 0o40755);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
+        unrestrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         match signature.unwrap_err() {
             Error::ServerMessage(message) => assert_eq!(message, "Storage error: PermissionDenied"),
@@ -145,7 +159,6 @@ mod post {
 
         let testcase = |u: &str, msgs: Vec<&str>| {
             let r = run_testcase(u).unwrap_err();
-
             for msg in msgs.iter() {
                 assert!(r.contains(msg), "{:?} should contain {:?}", r, msg);
             }
@@ -159,7 +172,10 @@ mod post {
                 &format!("/sign/{}", PUBLIC_KEY_1),
                 "hyper::Error(Connect, ConnectError",
                 "dns error",
-                "failed to lookup address information",
+                match cfg!(windows) {
+                    true => "No such host is known.",
+                    false => "failed to lookup address information",
+                },
             ],
         );
 

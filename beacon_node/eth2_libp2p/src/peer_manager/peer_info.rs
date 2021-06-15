@@ -182,6 +182,11 @@ impl<T: EthSpec> PeerInfo<T> {
         matches!(self.connection_status, Disconnected { .. })
     }
 
+    /// Checks if the peer is outbound-only
+    pub fn is_outbound_only(&self) -> bool {
+        matches!(self.connection_status, Connected {n_in, n_out} if n_in == 0 && n_out > 0)
+    }
+
     /// Returns the number of connections with this peer.
     pub fn connections(&self) -> (u8, u8) {
         match self.connection_status {
@@ -305,6 +310,11 @@ impl<T: EthSpec> PeerInfo<T> {
         if !self.is_trusted {
             self.score.test_add(score)
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_gossipsub_score(&mut self, score: f64) {
+        self.score.set_gossipsub_score(score);
     }
 }
 

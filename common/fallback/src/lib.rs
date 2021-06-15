@@ -2,8 +2,9 @@ use itertools::{join, zip};
 use std::fmt::{Debug, Display};
 use std::future::Future;
 
+#[derive(Clone)]
 pub struct Fallback<T> {
-    servers: Vec<T>,
+    pub servers: Vec<T>,
 }
 
 #[derive(Debug, PartialEq)]

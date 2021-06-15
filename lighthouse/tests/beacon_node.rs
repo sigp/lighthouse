@@ -257,6 +257,7 @@ fn eth1_endpoints_flag() {
                 "https://infura.io/secret"
             );
             assert_eq!(config.eth1.endpoints[1].to_string(), "https://infura.io/");
+            assert!(config.sync_eth1_chain);
         });
 }
 #[test]
@@ -681,6 +682,7 @@ fn compact_db_flag() {
 fn slasher_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
         .run()
         .with_config_and_dir(|config, dir| {
             if let Some(slasher_config) = &config.slasher {
@@ -699,6 +701,7 @@ fn slasher_dir_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-dir", dir.path().as_os_str().to_str())
+        .flag("slasher-max-db-size", Some("16"))
         .run()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
@@ -712,6 +715,7 @@ fn slasher_dir_flag() {
 fn slasher_update_period_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-update-period", Some("100"))
         .run()
         .with_config(|config| {
@@ -726,6 +730,7 @@ fn slasher_update_period_flag() {
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-history-length", Some("2048"))
         .run()
         .with_config(|config| {
@@ -755,6 +760,7 @@ fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-chunk-size", Some("32"))
+        .flag("slasher-max-db-size", Some("16"))
         .run()
         .with_config(|config| {
             let slasher_config = config
@@ -768,6 +774,7 @@ fn slasher_chunk_size_flag() {
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-validator-chunk-size", Some("512"))
         .run()
         .with_config(|config| {
@@ -783,6 +790,7 @@ fn slasher_broadcast_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-broadcast", None)
+        .flag("slasher-max-db-size", Some("16"))
         .run()
         .with_config(|config| {
             let slasher_config = config
@@ -790,6 +798,15 @@ fn slasher_broadcast_flag() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+pub fn malloc_tuning_flag() {
+    CommandLineTest::new()
+        .flag("disable-malloc-tuning", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.http_metrics.allocator_metrics_enabled);
         });
 }
 #[test]
