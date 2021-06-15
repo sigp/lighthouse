@@ -375,13 +375,17 @@ fn build_transport(
     mplex_config.set_max_buffer_size(256);
     mplex_config.set_max_buffer_behaviour(libp2p::mplex::MaxBufferBehaviour::Block);
 
+    // yamux config
+    let mut yamux_config = libp2p::yamux::YamuxConfig::default();
+    yamux_config.set_window_update_mode(libp2p::yamux::WindowUpdateMode::on_read());
+
     // Authentication
     Ok((
         transport
             .upgrade(core::upgrade::Version::V1)
             .authenticate(generate_noise_config(&local_private_key))
             .multiplex(core::upgrade::SelectUpgrade::new(
-                libp2p::yamux::YamuxConfig::default(),
+                yamux_config,
                 mplex_config,
             ))
             .timeout(Duration::from_secs(10))
