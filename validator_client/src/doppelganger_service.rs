@@ -242,7 +242,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         // checks.
         //
         // It is important to ensure that the `self.doppelganger_states` lock is not interleaved with
-        // any other locks. This is why `detection_indices` are determined in a separate routine.
+        // any other locks.
         let detection_pubkeys = self
             .doppelganger_states
             .read()
@@ -283,18 +283,23 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         // Explicit slice to satisfy borrow checker.
         let detection_indices_slice = detection_indices.as_slice();
 
-        // Request the previous epoch liveness state from the beacon node.
-        let previous_epoch_responses = self
-            .beacon_nodes
-            .first_success(RequireSynced::Yes, |beacon_node| async move {
-                beacon_node
-                    .post_lighthouse_liveness(detection_indices_slice, request_epoch)
-                    .await
-                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
-                    .map(|result| result.data)
-            })
-            .await
-            .map_err(|e| format!("Failed query for validator liveness: {}", e))?;
+        let previous_epoch_responses = if previous_epoch == request_epoch {
+            // If the previous epoch and the current epoch are the same, don't bother requesting the
+            // previous epoch indices.
+            vec![]
+        } else {
+            // Request the previous epoch liveness state from the beacon node.
+            self.beacon_nodes
+                .first_success(RequireSynced::Yes, |beacon_node| async move {
+                    beacon_node
+                        .post_lighthouse_liveness(detection_indices_slice, request_epoch)
+                        .await
+                        .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
+                        .map(|result| result.data)
+                })
+                .await
+                .map_err(|e| format!("Failed query for validator liveness: {}", e))?
+        };
 
         // Request the current epoch liveness state from the beacon node.
         let current_epoch_responses = self
@@ -323,23 +328,30 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             }
 
             // Resolve the index from the server response back to a public key.
-            let pubkey = indices_map
-                .get(&response.index)
-                // Abort the routine if inconsistency is detected.
-                .ok_or_else(|| {
-                    format!(
-                        "inconsistent indices map for validator index {}",
-                        response.index
-                    )
-                })?;
+            let pubkey = if let Some(pubkey) = indices_map.get(&response.index) {
+                pubkey
+            } else {
+                crit!(
+                    self.context.log(),
+                    "Inconsistent indices map";
+                    "validator_index" => response.index,
+                );
+                // Skip this result if an inconsistency is detected.
+                continue;
+            };
 
-            let next_check_epoch = self
-                .doppelganger_states
-                .read()
-                .get(&pubkey)
-                // Abort the routine if inconsistency is detected.
-                .ok_or_else(|| format!("inconsistent states for validator pubkey {}", pubkey))?
-                .next_check_epoch;
+            let next_check_epoch = if let Some(state) = self.doppelganger_states.read().get(&pubkey)
+            {
+                state.next_check_epoch
+            } else {
+                crit!(
+                    self.context.log(),
+                    "Inconsistent doppelganger state";
+                    "validator_pubkey" => ?pubkey,
+                );
+                // Skip this result if an inconsistency is detected.
+                continue;
+            };
 
             if response.is_live && next_check_epoch >= response.epoch {
                 violators.push(response.index);
@@ -360,7 +372,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             )
         }
 
-        // The concept of "epoch satisfaction" is that for some epoch `e` we are *satisified* that
+        // The concept of "epoch satisfaction" is that for some epoch `e` we are *satisfied* that
         // we've waited long enough such that we don't expect to see any more consensus messages
         // for that epoch.
         //
@@ -411,17 +423,20 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 // Abort the routine if inconsistency is detected.
                 .ok_or_else(|| format!("inconsistent states for validator pubkey {}", pubkey))?;
 
+            // If a single doppelganger is detected, enable doppelganger checks on all
+            // validators forever (technically only 2**64 epochs).
+            //
+            // This has the effect of stopping validator activity even if the validator client
+            // fails to shut down.
+            if violators_exist {
+                doppelganger_state.remaining_epochs = u64::max_value();
+                continue;
+            }
+
             let is_newly_satisfied_epoch = previous_epoch_is_satisfied
                 && previous_epoch >= doppelganger_state.next_check_epoch;
 
-            if violators_exist {
-                // If a single doppelganger is detected, enable doppelganger checks on all
-                // validators forever (technically only 2**64 epochs).
-                //
-                // This has the effect of stopping validator activity even if the validator client
-                // fails to shut down.
-                doppelganger_state.remaining_epochs = u64::max_value();
-            } else if !response.is_live && is_newly_satisfied_epoch {
+            if !response.is_live && is_newly_satisfied_epoch {
                 // The validator has successfully completed doppelganger checks for a new epoch.
                 doppelganger_state.remaining_epochs =
                     doppelganger_state.remaining_epochs.saturating_sub(1);
