@@ -113,7 +113,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(
                 &local_keypair,
-                config,
+                config.clone(),
                 network_globals.clone(),
                 &log,
                 fork_context,

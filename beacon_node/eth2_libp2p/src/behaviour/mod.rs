@@ -1,7 +1,3 @@
-use crate::peer_manager::{
-    score::{PeerAction, ReportSource},
-    ConnectionDirection, PeerManager, PeerManagerEvent,
-};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
@@ -10,6 +6,13 @@ use crate::types::{
 };
 use crate::Eth2Enr;
 use crate::{behaviour::gossipsub_scoring_parameters::PeerScoreSettings, Subnet};
+use crate::{
+    config::gossipsub_config,
+    peer_manager::{
+        score::{PeerAction, ReportSource},
+        ConnectionDirection, PeerManager, PeerManagerEvent,
+    },
+};
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
@@ -147,7 +150,7 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        net_conf: &NetworkConfig,
+        mut net_conf: NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
         fork_context: Arc<ForkContext>,
@@ -184,6 +187,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             max_subscribed_topics: 200, //TODO change this to a constant
             max_subscriptions_per_request: 100, //this is according to the current go implementation
         };
+
+        net_conf.gs_config = gossipsub_config(fork_context.clone());
 
         // Initialize the compression transform.
         let snappy_transform = SnappyTransform::new(net_conf.gs_config.max_transmit_size());
@@ -230,7 +235,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
             gossipsub,
             identify,
-            peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
+            peer_manager: PeerManager::new(local_key, &net_conf, network_globals.clone(), log)
                 .await?,
             events: VecDeque::new(),
             peers_to_dc: VecDeque::new(),

@@ -43,7 +43,8 @@ strum = { version = "0.20", features = ["derive"] }
 superstruct = "0.2.0"
 
 [dependencies.libp2p]
-version = "0.35.1"
+# version = "0.35.1"
+path = "/home/pawan/eth2/rust-libp2p"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 
