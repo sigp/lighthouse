@@ -165,7 +165,11 @@ fn main() {
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
-    if !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+    //
+    // Only apply this optimization for the beacon node. It's the only process with a substantial
+    // memory footprint.
+    let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
+    if is_beacon_node && !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
         if let Err(e) = configure_memory_allocator() {
             eprintln!(
                 "Unable to configure the memory allocator: {} \n\
