@@ -192,7 +192,7 @@ fn find_reorgs() {
         .unwrap();
     let prev_block_root = harness
         .chain
-        .block_root_at_slot(prev_slot)
+        .block_root_at_slot(prev_slot, WhenSlotSkipped::None)
         .unwrap()
         .unwrap();
     assert_eq!(
