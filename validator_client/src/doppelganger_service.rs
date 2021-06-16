@@ -40,6 +40,7 @@ use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
 /// pubkey with regards to doppelganger protection.
+#[derive(Debug, PartialEq)]
 pub enum DoppelgangerStatus {
     /// Doppelganger protection has approved this for signing.
     ///
@@ -100,7 +101,8 @@ struct LivenessResponses {
 pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 2;
 
 /// Store the per-validator status of doppelganger checking.
-pub struct DopplegangerState {
+#[derive(Debug, PartialEq)]
+pub struct DoppelgangerState {
     /// The next epoch for which the validator should be checked for liveness.
     ///
     /// Whilst `self.remaining_epochs > 0`, if a validator is found to be live in this epoch or any
@@ -116,7 +118,7 @@ pub struct DopplegangerState {
     remaining_epochs: u64,
 }
 
-impl DopplegangerState {
+impl DoppelgangerState {
     /// Returns `true` if the validator is *not* safe to sign.
     fn requires_further_checks(&self) -> bool {
         self.remaining_epochs > 0
@@ -215,12 +217,20 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
 #[derive(Clone)]
 pub struct DoppelgangerService<T> {
-    pub slot_clock: T,
-    pub doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DopplegangerState>>>,
-    pub log: Logger,
+    slot_clock: T,
+    doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>>,
+    log: Logger,
 }
 
 impl<T: 'static + SlotClock> DoppelgangerService<T> {
+    pub fn new(slot_clock: T, log: Logger) -> Self {
+        Self {
+            slot_clock,
+            doppelganger_states: <_>::default(),
+            log,
+        }
+    }
+
     pub fn start_update_service<E: EthSpec>(
         self,
         context: RuntimeContext<E>,
@@ -359,7 +369,7 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
             DEFAULT_REMAINING_DETECTION_EPOCHS
         };
 
-        let state = DopplegangerState {
+        let state = DoppelgangerState {
             next_check_epoch: current_epoch.saturating_add(1_u64),
             remaining_epochs,
         };
@@ -520,7 +530,7 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
         if violators_exist {
             crit!(
                 self.log,
-                "Doppleganger(s) detected";
+                "Doppelganger(s) detected";
                 "msg" => "A doppelganger occurs when two different validator clients run the \
                     same public key. This validator client detected another instance of a local \
                     validator on the network and is shutting down to prevent potential slashable \
@@ -610,7 +620,7 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
                 if doppelganger_state.remaining_epochs == 0 {
                     info!(
                         self.log,
-                        "Doppleganger detection complete";
+                        "Doppelganger detection complete";
                         "msg" => "starting validator",
                         "validator_index" => response.index
                     );
@@ -624,5 +634,167 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use environment::null_logger;
+    use slot_clock::TestingSlotClock;
+    use std::time::Duration;
+    use types::{
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
+        MainnetEthSpec,
+    };
+
+    type E = MainnetEthSpec;
+
+    struct TestBuilder {
+        validator_count: usize,
+    }
+
+    impl Default for TestBuilder {
+        fn default() -> Self {
+            Self { validator_count: 8 }
+        }
+    }
+
+    impl TestBuilder {
+        fn build(self) -> TestScenario {
+            let mut rng = XorShiftRng::from_seed([42; 16]);
+            let slot_clock =
+                TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            let log = null_logger().unwrap();
+
+            TestScenario {
+                validators: (0..self.validator_count)
+                    .map(|_| PublicKeyBytes::random_for_test(&mut rng))
+                    .collect(),
+                doppelganger: DoppelgangerService::new(slot_clock, log),
+            }
+        }
+    }
+
+    struct TestScenario {
+        validators: Vec<PublicKeyBytes>,
+        doppelganger: DoppelgangerService<TestingSlotClock>,
+    }
+
+    impl TestScenario {
+        pub fn set_slot(self, slot: Slot) -> Self {
+            self.doppelganger.slot_clock.set_slot(slot.into());
+            self
+        }
+
+        pub fn register_all_validators(self) -> Self {
+            for validator in &self.validators {
+                self.doppelganger
+                    .register_new_validator::<E>(*validator)
+                    .unwrap();
+            }
+            assert_eq!(
+                self.doppelganger.doppelganger_states.read().len(),
+                self.validators.len(),
+                "all validators should be registered"
+            );
+            self
+        }
+
+        pub fn assert_all_enabled(self) -> Self {
+            for validator in &self.validators {
+                assert_eq!(
+                    self.doppelganger.validator_status(*validator),
+                    DoppelgangerStatus::SigningEnabled(*validator),
+                    "all validators should be enabled"
+                );
+            }
+            self
+        }
+
+        pub fn assert_all_disabled(self) -> Self {
+            for validator in &self.validators {
+                assert_eq!(
+                    self.doppelganger.validator_status(*validator),
+                    DoppelgangerStatus::SigningDisabled(*validator),
+                    "all validators should be enabled"
+                );
+            }
+
+            let expected_map: HashMap<PublicKeyBytes, u64> = self
+                .validators
+                .iter()
+                .enumerate()
+                .map(|(index, pubkey)| (*pubkey, index as u64))
+                .collect();
+            let generated_map = self
+                .doppelganger
+                .compute_detection_indices_map(&|pubkey| expected_map.get(&pubkey).copied());
+
+            assert_eq!(
+                expected_map.len(),
+                generated_map.len(),
+                "should declare all indices for detection"
+            );
+
+            for (pubkey, index) in expected_map {
+                assert_eq!(
+                    generated_map.get(&index),
+                    Some(&pubkey),
+                    "map should be consistent"
+                );
+            }
+
+            self
+        }
+
+        pub fn assert_all_states(self, status: DoppelgangerState) -> Self {
+            for validator in &self.validators {
+                assert_eq!(
+                    *self
+                        .doppelganger
+                        .doppelganger_states
+                        .read()
+                        .get(&validator)
+                        .expect("validator should be present"),
+                    status,
+                    "all validators should match provided state"
+                );
+            }
+            self
+        }
+    }
+
+    #[test]
+    fn enabled_in_genesis_epoch() {
+        let genesis_epoch = E::default_spec().genesis_slot.epoch(E::slots_per_epoch());
+        for slot in genesis_epoch.slot_iter(E::slots_per_epoch()) {
+            TestBuilder::default()
+                .build()
+                .set_slot(slot)
+                .register_all_validators()
+                .assert_all_enabled()
+                .assert_all_states(DoppelgangerState {
+                    next_check_epoch: genesis_epoch + 1,
+                    remaining_epochs: 0,
+                });
+        }
+    }
+
+    #[test]
+    fn disabled_after_genesis_epoch() {
+        let epoch = E::default_spec().genesis_slot.epoch(E::slots_per_epoch()) + 1;
+
+        for slot in epoch.slot_iter(E::slots_per_epoch()) {
+            TestBuilder::default()
+                .build()
+                .set_slot(slot)
+                .register_all_validators()
+                .assert_all_disabled()
+                .assert_all_states(DoppelgangerState {
+                    next_check_epoch: epoch + 1,
+                    remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+                });
+        }
     }
 }

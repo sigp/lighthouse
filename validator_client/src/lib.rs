@@ -357,14 +357,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let doppelganger_service = if config.disable_doppelganger_detection {
             None
         } else {
-            let service = DoppelgangerService {
-                slot_clock: slot_clock.clone(),
-                log: context
+            let service = DoppelgangerService::new(
+                slot_clock.clone(),
+                context
                     .service_context(DOPPELGANGER_SERVICE_NAME.into())
                     .log()
                     .clone(),
-                doppelganger_states: <_>::default(),
-            };
+            );
 
             validator_store.attach_doppelganger_service(service.clone())?;
 
