@@ -612,6 +612,10 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
                 doppelganger_state.remaining_epochs =
                     doppelganger_state.remaining_epochs.saturating_sub(1);
 
+                // Since we just satisfied the `previous_epoch`, the next epoch to satisfy should be
+                // the one following that.
+                doppelganger_state.next_check_epoch = previous_epoch.saturating_add(1_u64);
+
                 info!(
                     self.log,
                     "Found no doppelganger";
@@ -945,35 +949,6 @@ mod test {
             L: Fn(Epoch, Epoch, Vec<u64>) -> F,
             F: Future<Output = LivenessResponses>,
         {
-            /*
-            // Create a simulator for a beacon node which can return liveness data.
-            let get_liveness = |current_epoch, previous_epoch, detection_indices: Vec<_>| {
-                let mut liveness_responses = LivenessResponses {
-                    current_epoch_responses: detection_indices
-                        .iter()
-                        .map(|i| LivenessResponseData {
-                            index: *i as u64,
-                            epoch: current_epoch,
-                            is_live: false,
-                        })
-                        .collect(),
-                    previous_epoch_responses: detection_indices
-                        .iter()
-                        .map(|i| LivenessResponseData {
-                            index: *i as u64,
-                            epoch: previous_epoch,
-                            is_live: false,
-                        })
-                        .collect(),
-                };
-
-                // Allow the caller to modify the responses.
-                modify_liveness_responses(&mut liveness_responses);
-
-                future::ready(liveness_responses)
-            };
-            */
-
             // Create a simulated shutdown sender.
             let mut did_shutdown = false;
             let mut shutdown_func = || did_shutdown = true;
@@ -1026,8 +1001,10 @@ mod test {
             .assert_all_enabled();
     }
 
-    #[test]
-    fn detect_after_genesis_with_previous_epoch_doppelganger() {
+    fn detect_after_genesis_test<F>(mutate_responses: F)
+    where
+        F: Fn(&mut LivenessResponses),
+    {
         let epoch = genesis_epoch() + 1;
         let slot = epoch.start_slot(E::slots_per_epoch());
 
@@ -1057,7 +1034,8 @@ mod test {
             )
             // All validators should be disabled since they started after genesis.
             .assert_all_disabled()
-            // Now, simulate a check where there are doppelgangers in the previous epoch.
+            // Now, simulate a check where we apply `mutate_responses` which *must* create some
+            // doppelgangers.
             .simulate_detect_doppelgangers(
                 // Perform this check in the next slot.
                 slot + 1,
@@ -1074,8 +1052,7 @@ mod test {
                     let mut liveness_responses =
                         get_false_responses(current_epoch, previous_epoch, &detection_indices);
 
-                    // There's a doppelganger!
-                    liveness_responses.previous_epoch_responses[0].is_live = true;
+                    mutate_responses(&mut liveness_responses);
 
                     future::ready(liveness_responses)
                 },
@@ -1086,6 +1063,96 @@ mod test {
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: epoch + 1,
                 remaining_epochs: u64::max_value(),
+            });
+    }
+
+    #[test]
+    fn detect_after_genesis_with_current_epoch_doppelganger() {
+        detect_after_genesis_test(|liveness_responses| {
+            liveness_responses.current_epoch_responses[0].is_live = true
+        })
+    }
+
+    #[test]
+    fn detect_after_genesis_with_previous_epoch_doppelganger() {
+        detect_after_genesis_test(|liveness_responses| {
+            liveness_responses.previous_epoch_responses[0].is_live = true
+        })
+    }
+
+    #[test]
+    fn no_doppelgangers_for_adequate_time() {
+        let initial_epoch = genesis_epoch() + 42;
+        let initial_slot = initial_epoch.start_slot(E::slots_per_epoch());
+        let activation_slot = (initial_epoch + 3).end_slot(E::slots_per_epoch());
+
+        let mut scenario = TestBuilder::default()
+            .build()
+            .set_slot(initial_slot)
+            .register_all_validators()
+            .assert_all_disabled();
+
+        for slot in initial_slot.as_u64()..=activation_slot.as_u64() {
+            let slot = Slot::new(slot);
+            let epoch = slot.epoch(E::slots_per_epoch());
+
+            scenario = scenario.simulate_detect_doppelgangers(
+                slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, epoch);
+                    assert_eq!(previous_epoch, epoch - 1);
+                    assert_eq!(
+                        detection_indices.iter().copied().collect::<HashSet<_>>(),
+                        (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
+                        "all validators should be included in query"
+                    );
+
+                    let liveness_responses =
+                        get_false_responses(current_epoch, previous_epoch, &detection_indices);
+
+                    future::ready(liveness_responses)
+                },
+            );
+
+            let is_first_epoch = epoch == initial_epoch;
+            let is_second_epoch = epoch == initial_epoch + 1;
+            let is_satisfaction_slot = slot == epoch.end_slot(E::slots_per_epoch());
+            let epochs_since_start = epoch.as_u64().checked_sub(initial_epoch.as_u64()).unwrap();
+
+            let expected_state = if is_first_epoch || is_second_epoch {
+                DoppelgangerState {
+                    next_check_epoch: initial_epoch + 1,
+                    remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+                }
+            } else if !is_satisfaction_slot {
+                DoppelgangerState {
+                    next_check_epoch: epoch - 1,
+                    remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS
+                        .saturating_sub(epochs_since_start.saturating_sub(2)),
+                }
+            } else {
+                DoppelgangerState {
+                    next_check_epoch: epoch,
+                    remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS
+                        .saturating_sub(epochs_since_start.saturating_sub(1)),
+                }
+            };
+
+            scenario = scenario.assert_all_states(&expected_state);
+
+            scenario = if slot < activation_slot {
+                scenario.assert_all_disabled()
+            } else {
+                scenario.assert_all_enabled()
+            };
+        }
+
+        scenario
+            .assert_all_enabled()
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: activation_slot.epoch(E::slots_per_epoch()),
+                remaining_epochs: 0,
             });
     }
 }
