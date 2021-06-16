@@ -14,17 +14,17 @@
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same slot and in the same subcommittee.
 
-use crate::store::attestation::SlotData;
 use crate::types::consts::altair::TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE;
 use bitvec::vec::BitVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
+use types::slot_data::SlotData;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =
-    AutoPruningSlotContainer<Slot, SyncContributorSlotHashSet<E>, E>;
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncContributorSlotHashSet<E>, E>;
 pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncAggregatorSlotHashSet, E>;
@@ -547,13 +547,13 @@ mod tests {
 
     type E = types::MainnetEthSpec;
 
-    macro_rules! test_suite {
-        ($mod_name: ident, $type: ident, $period_type: ident) => {
+    macro_rules! test_suite_epoch {
+        ($mod_name: ident, $type: ident) => {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
 
-                fn single_period_test(store: &mut $type<E>, period: $period_type) {
+                fn single_period_test(store: &mut $type<E>, period: Epoch) {
                     let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
 
                     for &i in &validator_indices {
@@ -587,7 +587,7 @@ mod tests {
                 fn single_period() {
                     let mut store = $type::default();
 
-                    single_period_test(&mut store, $period_type::new(0));
+                    single_period_test(&mut store, Epoch::new(0));
 
                     assert_eq!(store.items.len(), 1, "should have a single bitfield stored");
                 }
@@ -598,7 +598,7 @@ mod tests {
                     let max_cap = store.max_capacity();
 
                     for i in 0..max_cap * 3 {
-                        let period = $period_type::new(i);
+                        let period = Epoch::new(i);
 
                         single_period_test(&mut store, period);
 
@@ -639,7 +639,7 @@ mod tests {
                         store_periods.sort_unstable();
 
                         let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
-                            .map($period_type::new)
+                            .map(Epoch::new)
                             .collect::<Vec<_>>();
 
                         assert_eq!(
@@ -665,7 +665,7 @@ mod tests {
                             continue;
                         }
 
-                        let period = $period_type::from(i);
+                        let period = Epoch::from(i);
 
                         single_period_test(&mut store, period);
 
@@ -690,7 +690,7 @@ mod tests {
                         let highest = period.as_u64();
                         let expected_periods = (lowest..=highest)
                             .filter(|i| !to_skip.contains(i))
-                            .map($period_type::new)
+                            .map(Epoch::new)
                             .collect::<Vec<_>>();
 
                         assert_eq!(
@@ -704,275 +704,285 @@ mod tests {
         };
     }
 
-    test_suite!(observed_attesters, ObservedAttesters, Epoch);
-    test_suite!(observed_sync_contributors, ObservedSyncContributors, Slot);
-    test_suite!(observed_aggregators, ObservedAggregators, Epoch);
+    test_suite_epoch!(observed_attesters, ObservedAttesters);
+    test_suite_epoch!(observed_aggregators, ObservedAggregators);
 
-    fn single_period_test(store: &mut ObservedSyncAggregators<E>, key: SlotSubcommitteeIndex) {
-        let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
+    macro_rules! test_suite_slot {
+        ($mod_name: ident, $type: ident) => {
+            #[cfg(test)]
+            mod $mod_name {
+                use super::*;
 
-        for &i in &validator_indices {
-            assert_eq!(
-                store.validator_has_been_observed(key, i),
-                Ok(false),
-                "should indicate an unknown item is unknown"
-            );
-            assert_eq!(
-                store.observe_validator(key, i),
-                Ok(false),
-                "should observe new item"
-            );
-        }
+                fn single_period_test(store: &mut $type<E>, key: SlotSubcommitteeIndex) {
+                    let validator_indices = [0, 1, 2, 3, 5, 6, 7, 18, 22];
 
-        for &i in &validator_indices {
-            assert_eq!(
-                store.validator_has_been_observed(key, i),
-                Ok(true),
-                "should indicate a known item is known"
-            );
-            assert_eq!(
-                store.observe_validator(key, i),
-                Ok(true),
-                "should acknowledge an existing item"
-            );
-        }
-    }
+                    for &i in &validator_indices {
+                        assert_eq!(
+                            store.validator_has_been_observed(key, i),
+                            Ok(false),
+                            "should indicate an unknown item is unknown"
+                        );
+                        assert_eq!(
+                            store.observe_validator(key, i),
+                            Ok(false),
+                            "should observe new item"
+                        );
+                    }
 
-    #[test]
-    fn single_period() {
-        let mut store = ObservedSyncAggregators::default();
+                    for &i in &validator_indices {
+                        assert_eq!(
+                            store.validator_has_been_observed(key, i),
+                            Ok(true),
+                            "should indicate a known item is known"
+                        );
+                        assert_eq!(
+                            store.observe_validator(key, i),
+                            Ok(true),
+                            "should acknowledge an existing item"
+                        );
+                    }
+                }
 
-        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 0));
+                #[test]
+                fn single_period() {
+                    let mut store = $type::default();
 
-        assert_eq!(store.items.len(), 1, "should have a single bitfield stored");
-    }
+                    single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 0));
 
-    #[test]
-    fn single_period_multiple_subcommittees() {
-        let mut store = ObservedSyncAggregators::default();
+                    assert_eq!(store.items.len(), 1, "should have a single bitfield stored");
+                }
 
-        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 0));
-        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 1));
-        single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 2));
+                #[test]
+                fn single_period_multiple_subcommittees() {
+                    let mut store = $type::default();
 
-        assert_eq!(store.items.len(), 3, "should have three hash sets stored");
-    }
+                    single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 0));
+                    single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 1));
+                    single_period_test(&mut store, SlotSubcommitteeIndex::new(Slot::new(0), 2));
 
-    #[test]
-    fn mulitple_contiguous_periods_same_subcommittee() {
-        let mut store = ObservedSyncAggregators::default();
-        let max_cap = store.max_capacity();
+                    assert_eq!(store.items.len(), 3, "should have three hash sets stored");
+                }
 
-        for i in 0..max_cap * 3 {
-            let period = SlotSubcommitteeIndex::new(Slot::new(i), 0);
+                #[test]
+                fn mulitple_contiguous_periods_same_subcommittee() {
+                    let mut store = $type::default();
+                    let max_cap = store.max_capacity();
 
-            single_period_test(&mut store, period);
+                    for i in 0..max_cap * 3 {
+                        let period = SlotSubcommitteeIndex::new(Slot::new(i), 0);
 
-            /*
-             * Ensure that the number of sets is correct.
-             */
+                        single_period_test(&mut store, period);
 
-            if i < max_cap {
-                assert_eq!(
-                    store.items.len(),
-                    i as usize + 1,
-                    "should have a {} items stored",
-                    i + 1
-                );
-            } else {
-                assert_eq!(
-                    store.items.len(),
-                    max_cap as usize,
-                    "should have max_capacity items stored"
-                );
+                        /*
+                         * Ensure that the number of sets is correct.
+                         */
+
+                        if i < max_cap {
+                            assert_eq!(
+                                store.items.len(),
+                                i as usize + 1,
+                                "should have a {} items stored",
+                                i + 1
+                            );
+                        } else {
+                            assert_eq!(
+                                store.items.len(),
+                                max_cap as usize,
+                                "should have max_capacity items stored"
+                            );
+                        }
+
+                        /*
+                         *  Ensure that all the sets have the expected slots
+                         */
+
+                        let mut store_periods = store
+                            .items
+                            .iter()
+                            .map(|(period, _set)| *period)
+                            .collect::<Vec<_>>();
+
+                        assert!(
+                            store_periods.len() <= store.max_capacity() as usize,
+                            "store size should not exceed max"
+                        );
+
+                        store_periods.sort_unstable();
+
+                        let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
+                            .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), 0))
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            expected_periods, store_periods,
+                            "should have expected slots"
+                        );
+                    }
+                }
+
+                #[test]
+                fn mulitple_non_contiguous_periods_same_subcommitte() {
+                    let mut store = $type::default();
+                    let max_cap = store.max_capacity();
+
+                    let to_skip = vec![1_u64, 3, 4, 5];
+                    let periods = (0..max_cap * 3)
+                        .into_iter()
+                        .filter(|i| !to_skip.contains(i))
+                        .collect::<Vec<_>>();
+
+                    for &i in &periods {
+                        if to_skip.contains(&i) {
+                            continue;
+                        }
+
+                        let period = SlotSubcommitteeIndex::new(Slot::from(i), 0);
+
+                        single_period_test(&mut store, period);
+
+                        /*
+                         *  Ensure that all the sets have the expected slots
+                         */
+
+                        let mut store_periods = store
+                            .items
+                            .iter()
+                            .map(|(period, _)| *period)
+                            .collect::<Vec<_>>();
+
+                        store_periods.sort_unstable();
+
+                        assert!(
+                            store_periods.len() <= store.max_capacity() as usize,
+                            "store size should not exceed max"
+                        );
+
+                        let lowest = store.get_lowest_permissible().as_u64();
+                        let highest = period.slot.as_u64();
+                        let expected_periods = (lowest..=highest)
+                            .filter(|i| !to_skip.contains(i))
+                            .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), 0))
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            expected_periods,
+                            &store_periods[..],
+                            "should have expected epochs"
+                        );
+                    }
+                }
+
+                #[test]
+                fn mulitple_contiguous_periods_different_subcommittee() {
+                    let mut store = $type::default();
+                    let max_cap = store.max_capacity();
+
+                    for i in 0..max_cap * 3 {
+                        let period = SlotSubcommitteeIndex::new(Slot::new(i), i);
+
+                        single_period_test(&mut store, period);
+
+                        /*
+                         * Ensure that the number of sets is correct.
+                         */
+
+                        if i < max_cap {
+                            assert_eq!(
+                                store.items.len(),
+                                i as usize + 1,
+                                "should have a {} items stored",
+                                i + 1
+                            );
+                        } else {
+                            assert_eq!(
+                                store.items.len(),
+                                max_cap as usize,
+                                "should have max_capacity items stored"
+                            );
+                        }
+
+                        /*
+                         *  Ensure that all the sets have the expected slots
+                         */
+
+                        let mut store_periods = store
+                            .items
+                            .iter()
+                            .map(|(period, _set)| *period)
+                            .collect::<Vec<_>>();
+
+                        assert!(
+                            store_periods.len() <= store.max_capacity() as usize,
+                            "store size should not exceed max"
+                        );
+
+                        store_periods.sort_unstable();
+
+                        let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
+                            .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), i))
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            expected_periods, store_periods,
+                            "should have expected slots"
+                        );
+                    }
+                }
+
+                #[test]
+                fn mulitple_non_contiguous_periods_different_subcommitte() {
+                    let mut store = $type::default();
+                    let max_cap = store.max_capacity();
+
+                    let to_skip = vec![1_u64, 3, 4, 5];
+                    let periods = (0..max_cap * 3)
+                        .into_iter()
+                        .filter(|i| !to_skip.contains(i))
+                        .collect::<Vec<_>>();
+
+                    for &i in &periods {
+                        if to_skip.contains(&i) {
+                            continue;
+                        }
+
+                        let period = SlotSubcommitteeIndex::new(Slot::from(i), i);
+
+                        single_period_test(&mut store, period);
+
+                        /*
+                         *  Ensure that all the sets have the expected slots
+                         */
+
+                        let mut store_periods = store
+                            .items
+                            .iter()
+                            .map(|(period, _)| *period)
+                            .collect::<Vec<_>>();
+
+                        store_periods.sort_unstable();
+
+                        assert!(
+                            store_periods.len() <= store.max_capacity() as usize,
+                            "store size should not exceed max"
+                        );
+
+                        let lowest = store.get_lowest_permissible().as_u64();
+                        let highest = period.slot.as_u64();
+                        let expected_periods = (lowest..=highest)
+                            .filter(|i| !to_skip.contains(i))
+                            .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), i))
+                            .collect::<Vec<_>>();
+
+                        assert_eq!(
+                            expected_periods,
+                            &store_periods[..],
+                            "should have expected epochs"
+                        );
+                    }
+                }
             }
-
-            /*
-             *  Ensure that all the sets have the expected slots
-             */
-
-            let mut store_periods = store
-                .items
-                .iter()
-                .map(|(period, _set)| *period)
-                .collect::<Vec<_>>();
-
-            assert!(
-                store_periods.len() <= store.max_capacity() as usize,
-                "store size should not exceed max"
-            );
-
-            store_periods.sort_unstable();
-
-            let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
-                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), 0))
-                .collect::<Vec<_>>();
-
-            assert_eq!(
-                expected_periods, store_periods,
-                "should have expected slots"
-            );
-        }
+        };
     }
-
-    #[test]
-    fn mulitple_non_contiguous_periods_same_subcommitte() {
-        let mut store = ObservedSyncAggregators::default();
-        let max_cap = store.max_capacity();
-
-        let to_skip = vec![1_u64, 3, 4, 5];
-        let periods = (0..max_cap * 3)
-            .into_iter()
-            .filter(|i| !to_skip.contains(i))
-            .collect::<Vec<_>>();
-
-        for &i in &periods {
-            if to_skip.contains(&i) {
-                continue;
-            }
-
-            let period = SlotSubcommitteeIndex::new(Slot::from(i), 0);
-
-            single_period_test(&mut store, period);
-
-            /*
-             *  Ensure that all the sets have the expected slots
-             */
-
-            let mut store_periods = store
-                .items
-                .iter()
-                .map(|(period, _)| *period)
-                .collect::<Vec<_>>();
-
-            store_periods.sort_unstable();
-
-            assert!(
-                store_periods.len() <= store.max_capacity() as usize,
-                "store size should not exceed max"
-            );
-
-            let lowest = store.get_lowest_permissible().as_u64();
-            let highest = period.slot.as_u64();
-            let expected_periods = (lowest..=highest)
-                .filter(|i| !to_skip.contains(i))
-                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), 0))
-                .collect::<Vec<_>>();
-
-            assert_eq!(
-                expected_periods,
-                &store_periods[..],
-                "should have expected epochs"
-            );
-        }
-    }
-
-    #[test]
-    fn mulitple_contiguous_periods_different_subcommittee() {
-        let mut store = ObservedSyncAggregators::default();
-        let max_cap = store.max_capacity();
-
-        for i in 0..max_cap * 3 {
-            let period = SlotSubcommitteeIndex::new(Slot::new(i), i);
-
-            single_period_test(&mut store, period);
-
-            /*
-             * Ensure that the number of sets is correct.
-             */
-
-            if i < max_cap {
-                assert_eq!(
-                    store.items.len(),
-                    i as usize + 1,
-                    "should have a {} items stored",
-                    i + 1
-                );
-            } else {
-                assert_eq!(
-                    store.items.len(),
-                    max_cap as usize,
-                    "should have max_capacity items stored"
-                );
-            }
-
-            /*
-             *  Ensure that all the sets have the expected slots
-             */
-
-            let mut store_periods = store
-                .items
-                .iter()
-                .map(|(period, _set)| *period)
-                .collect::<Vec<_>>();
-
-            assert!(
-                store_periods.len() <= store.max_capacity() as usize,
-                "store size should not exceed max"
-            );
-
-            store_periods.sort_unstable();
-
-            let expected_periods = (i.saturating_sub(max_cap - 1)..=i)
-                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), i))
-                .collect::<Vec<_>>();
-
-            assert_eq!(
-                expected_periods, store_periods,
-                "should have expected slots"
-            );
-        }
-    }
-
-    #[test]
-    fn mulitple_non_contiguous_periods_different_subcommitte() {
-        let mut store = ObservedSyncAggregators::default();
-        let max_cap = store.max_capacity();
-
-        let to_skip = vec![1_u64, 3, 4, 5];
-        let periods = (0..max_cap * 3)
-            .into_iter()
-            .filter(|i| !to_skip.contains(i))
-            .collect::<Vec<_>>();
-
-        for &i in &periods {
-            if to_skip.contains(&i) {
-                continue;
-            }
-
-            let period = SlotSubcommitteeIndex::new(Slot::from(i), i);
-
-            single_period_test(&mut store, period);
-
-            /*
-             *  Ensure that all the sets have the expected slots
-             */
-
-            let mut store_periods = store
-                .items
-                .iter()
-                .map(|(period, _)| *period)
-                .collect::<Vec<_>>();
-
-            store_periods.sort_unstable();
-
-            assert!(
-                store_periods.len() <= store.max_capacity() as usize,
-                "store size should not exceed max"
-            );
-
-            let lowest = store.get_lowest_permissible().as_u64();
-            let highest = period.slot.as_u64();
-            let expected_periods = (lowest..=highest)
-                .filter(|i| !to_skip.contains(i))
-                .map(|i| SlotSubcommitteeIndex::new(Slot::new(i), i))
-                .collect::<Vec<_>>();
-
-            assert_eq!(
-                expected_periods,
-                &store_periods[..],
-                "should have expected epochs"
-            );
-        }
-    }
+    test_suite_slot!(observed_sync_contributors, ObservedSyncContributors);
+    test_suite_slot!(observed_sync_aggregators, ObservedSyncAggregators);
 }

@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, Signature, SignedRoot, Slot};
 
-use crate::attestation::SlotData;
+use crate::slot_data::SlotData;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -15,7 +15,7 @@ pub struct SyncCommitteeSignature {
     pub beacon_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    // Signature by the validator over the block root of `slot`
+    // Signature by the validator over `beacon_block_root`.
     pub signature: Signature,
 }
 

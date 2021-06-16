@@ -173,6 +173,13 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.pubkeys.get(i)
     }
 
+    /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
+    pub fn get_pubkey_from_pubkey_bytes(&self, pubkey: &PublicKeyBytes) -> Option<&PublicKey> {
+        self.get_index(pubkey)
+            .map(|index| self.get(index))
+            .flatten()
+    }
+
     /// Get the public key (in bytes form) for a validator with index `i`.
     pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
         self.pubkey_bytes.get(i)

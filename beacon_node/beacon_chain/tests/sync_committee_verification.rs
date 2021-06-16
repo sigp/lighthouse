@@ -4,7 +4,7 @@
 extern crate lazy_static;
 
 use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
 use store::{SignedContributionAndProof, SyncCommitteeSignature};
@@ -45,6 +45,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 fn get_valid_sync_signature(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     slot: Slot,
+    relative_sync_committee: RelativeSyncCommittee,
 ) -> (SyncCommitteeSignature, usize, SecretKey, SyncSubnetId) {
     let head_state = harness
         .chain
@@ -56,7 +57,7 @@ fn get_valid_sync_signature(
         .expect("should get head state")
         .beacon_block_root;
     let (signature, _) = harness
-        .make_sync_signatures(&head_state, head_block_root, slot)
+        .make_sync_signatures(&head_state, head_block_root, slot, relative_sync_committee)
         .get(0)
         .expect("sync signatures should exist")
         .get(0)
@@ -75,6 +76,7 @@ fn get_valid_sync_signature(
 
 fn get_valid_sync_contribution(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    relative_sync_committee: RelativeSyncCommittee,
 ) -> (SignedContributionAndProof<E>, usize, SecretKey) {
     let head_state = harness
         .chain
@@ -86,8 +88,12 @@ fn get_valid_sync_contribution(
         .head()
         .expect("should get head state")
         .beacon_block_root;
-    let sync_contributions =
-        harness.make_sync_contributions(&head_state, head_block_root, head_state.slot());
+    let sync_contributions = harness.make_sync_contributions(
+        &head_state,
+        head_block_root,
+        head_state.slot(),
+        relative_sync_committee,
+    );
 
     let (_, contribution_opt) = sync_contributions
         .get(0)
@@ -171,7 +177,8 @@ fn aggregated_gossip_verification() {
 
     let current_slot = harness.chain.slot().expect("should get slot");
 
-    let (valid_aggregate, aggregator_index, aggregator_sk) = get_valid_sync_contribution(&harness);
+    let (valid_aggregate, aggregator_index, aggregator_sk) =
+        get_valid_sync_contribution(&harness, RelativeSyncCommittee::Current);
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
@@ -471,6 +478,37 @@ fn aggregated_gossip_verification() {
         SyncCommitteeError::AggregatorAlreadyKnown(index)
         if index == aggregator_index as u64
     );
+
+    /*
+     * The following test ensures that:
+     *
+     * A sync committee contribution for the slot before the sync committee period boundary is verified
+     * using the `head_state.next_sync_committee`.
+     */
+
+    // Advance to the slot before the 3rd sync committee period because `current_sync_committee = next_sync_committee`
+    // at genesis.
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(
+        (2 * harness.spec.epochs_per_sync_committee_period.as_u64() * E::slots_per_epoch()) - 1,
+    );
+
+    harness
+        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .expect("should add block");
+
+    // **Incorrectly** create a sync contribution using the current sync committee
+    let (next_valid_contribution, next_aggregator_index, _) =
+        get_valid_sync_contribution(&harness, RelativeSyncCommittee::Current);
+
+    assert_invalid!(
+        "sync signature on incorrect subnet",
+        next_valid_contribution.clone(),
+        SyncCommitteeError::AggregatorNotInCommittee{
+            aggregator_index: index
+        }
+        if index == next_aggregator_index as u64
+    );
 }
 
 /// Tests the verification conditions for sync committee signatures on the gossip network.
@@ -489,7 +527,7 @@ fn unaggregated_gossip_verification() {
     let current_slot = harness.chain.slot().expect("should get slot");
 
     let (valid_sync_signature, expected_validator_index, validator_sk, subnet_id) =
-        get_valid_sync_signature(&harness, current_slot);
+        get_valid_sync_signature(&harness, current_slot, RelativeSyncCommittee::Current);
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
@@ -638,5 +676,38 @@ fn unaggregated_gossip_verification() {
             slot,
         }
         if validator_index == expected_validator_index as u64 && slot == current_slot
+    );
+
+    /*
+     * The following test ensures that:
+     *
+     * A sync committee signature for the slot before the sync committee period boundary is verified
+     * using the `head_state.next_sync_committee`.
+     */
+
+    // Advance to the slot before the 3rd sync committee period because `current_sync_committee = next_sync_committee`
+    // at genesis.
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(
+        (2 * harness.spec.epochs_per_sync_committee_period.as_u64() * E::slots_per_epoch()) - 1,
+    );
+
+    harness
+        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .expect("should add block");
+
+    // **Incorrectly** create a sync signature using the current sync committee
+    let (next_valid_sync_signature, _, _, next_subnet_id) =
+        get_valid_sync_signature(&harness, target_slot, RelativeSyncCommittee::Current);
+
+    assert_invalid!(
+        "sync signature on incorrect subnet",
+        next_valid_sync_signature.clone(),
+        next_subnet_id,
+        SyncCommitteeError::InvalidSubnetId {
+            received,
+            expected,
+        }
+        if received == subnet_id && !expected.contains(&subnet_id)
     );
 }

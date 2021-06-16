@@ -1,5 +1,5 @@
 use super::{AggregateSignature, EthSpec, SignedRoot};
-use crate::attestation::SlotData;
+use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeSignature};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
@@ -27,9 +27,16 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
 }
 
 impl<T: EthSpec> SyncCommitteeContribution<T> {
+    /// Create a `SyncCommitteeContribution` from:
+    ///
+    /// - `signature`: A single `SyncCommitteeSignature`.
+    /// - `subcommittee_index`: The subcommittee this contribution pertains to out of the broader
+    ///     sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
+    ///     this signature was seen on.
+    /// - `validator_sync_committee_index`: The index of the validator **within** the subcommittee.
     pub fn from_signature(
         signature: &SyncCommitteeSignature,
-        subnet_id: u64,
+        subcommittee_index: u64,
         validator_sync_committee_index: usize,
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
@@ -38,7 +45,7 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
         Ok(Self {
             slot: signature.slot,
             beacon_block_root: signature.beacon_block_root,
-            subcommittee_index: subnet_id,
+            subcommittee_index,
             aggregation_bits: bits,
             signature: AggregateSignature::from(&signature.signature),
         })

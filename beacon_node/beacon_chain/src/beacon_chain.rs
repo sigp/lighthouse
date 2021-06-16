@@ -636,11 +636,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the current sync committee at the head of the canonical chain.
+    /// Returns the current sync committee at the slot after the head of the canonical chain. This
+    /// is useful because sync committees assigned to `slot` sign for `slot - 1`.
     ///
     /// See `Self::head` for more information.
-    pub fn head_current_sync_committee(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
-        self.with_head(|s| Ok(s.beacon_state.current_sync_committee()?.clone()))
+    pub fn head_sync_committee_next_slot(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        self.with_head(|s| {
+            Ok(s.beacon_state
+                .get_sync_committee_for_next_slot(&self.spec)?)
+        })
     }
 
     /// Returns info representing the head block and state.
@@ -1218,7 +1222,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified_sync_signature: VerifiedSyncSignature,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
         let sync_signature = verified_sync_signature.sync_signature();
-        let positions_by_subnet_id = verified_sync_signature.subnet_positions();
+        let positions_by_subnet_id: &HashMap<SyncSubnetId, Vec<usize>> =
+            verified_sync_signature.subnet_positions();
         for (subnet_id, positions) in positions_by_subnet_id.iter() {
             for position in positions {
                 let _timer =
@@ -1303,27 +1308,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn add_contribution_to_block_inclusion_pool(
         &self,
         contribution: VerifiedSyncContribution<T>,
-    ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
+    ) -> Result<(), SyncCommitteeError> {
         let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork =
-                self.with_head(|head| Ok::<_, SyncCommitteeError>(head.beacon_state.fork()))?;
-
             self.op_pool
-                .insert_sync_contribution(
-                    // TODO: address this clone.
-                    contribution.contribution().clone(),
-                    &fork,
-                    self.genesis_validators_root,
-                    &self.spec,
-                )
+                .insert_sync_contribution(contribution.contribution())
                 .map_err(Error::from)?;
         }
 
-        Ok(contribution)
+        Ok(())
     }
 
     /// Filter an attestation from the op pool for shuffling compatibility.
@@ -2228,7 +2224,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let sync_aggregate = self
             .op_pool
-            .get_sync_aggregate(&state, &self.spec)
+            .get_sync_aggregate(&state)
+            .map_err(BlockProductionError::OpPoolError)?
             .unwrap_or_else(|| {
                 warn!(
                     self.log,

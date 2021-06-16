@@ -4,10 +4,10 @@
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::attestation::SlotData;
 use types::consts::altair::{
     SYNC_COMMITTEE_SUBNET_COUNT, TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE,
 };
+use types::slot_data::SlotData;
 use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
 pub type ObservedSyncContributions<E> = ObservedAggregates<SyncCommitteeContribution<E>, E>;

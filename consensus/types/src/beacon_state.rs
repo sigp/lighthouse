@@ -1566,6 +1566,28 @@ impl<T: EthSpec> BeaconState<T> {
         (self.previous_epoch() - self.finalized_checkpoint().epoch)
             > spec.min_epochs_to_inactivity_penalty
     }
+
+    /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees
+    /// assigned to `slot` sign for `slot - 1`. This creates the exceptional logic below when
+    /// transitioning between sync committee periods.
+    pub fn get_sync_committee_for_next_slot(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Arc<SyncCommittee<T>>, Error> {
+        let next_slot_epoch = self
+            .slot()
+            .saturating_add(Slot::new(1))
+            .epoch(T::slots_per_epoch());
+
+        let sync_committee = if self.current_epoch().sync_committee_period(spec)
+            == next_slot_epoch.sync_committee_period(spec)
+        {
+            self.current_sync_committee()?.clone()
+        } else {
+            self.next_sync_committee()?.clone()
+        };
+        Ok(sync_committee)
+    }
 }
 
 impl From<RelativeEpochError> for Error {
