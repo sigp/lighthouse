@@ -15,7 +15,12 @@
 //! prevents a stale-mate where all validators will cease to function for a few epochs and then all
 //! start at the same time.
 //!
-//! ## Warning
+//! ## Caveat
+//!
+//! Presently doppelganger protection will never advance if the call at the last slot of each epoch
+//! fails. This call is critical to ensuring that validators are able to start performing.
+//!
+//! ## Disclaimer
 //!
 //! The Doppelganger service is not perfect. It makes assumptions that any existing validator is
 //! performing their duties as required and that the network is able to relay those messages to the
@@ -666,6 +671,14 @@ mod test {
         E::default_spec().genesis_slot.epoch(E::slots_per_epoch())
     }
 
+    fn check_detection_indices(detection_indices: &[u64]) {
+        assert_eq!(
+            detection_indices.iter().copied().collect::<HashSet<_>>(),
+            (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
+            "all validators should be included in detection indices"
+        );
+    }
+
     struct TestBuilder {
         validator_count: usize,
     }
@@ -1020,11 +1033,7 @@ mod test {
                 |current_epoch, previous_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, epoch);
                     assert_eq!(previous_epoch, genesis_epoch());
-                    assert_eq!(
-                        detection_indices.iter().copied().collect::<HashSet<_>>(),
-                        (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
-                        "all validators should be included in query"
-                    );
+                    check_detection_indices(&detection_indices);
 
                     let liveness_responses =
                         get_false_responses(current_epoch, previous_epoch, &detection_indices);
@@ -1043,11 +1052,7 @@ mod test {
                 |current_epoch, previous_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, epoch);
                     assert_eq!(previous_epoch, genesis_epoch());
-                    assert_eq!(
-                        detection_indices.iter().copied().collect::<HashSet<_>>(),
-                        (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
-                        "all validators should be included in query"
-                    );
+                    check_detection_indices(&detection_indices);
 
                     let mut liveness_responses =
                         get_false_responses(current_epoch, previous_epoch, &detection_indices);
@@ -1102,11 +1107,7 @@ mod test {
                 |current_epoch, previous_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, epoch);
                     assert_eq!(previous_epoch, epoch - 1);
-                    assert_eq!(
-                        detection_indices.iter().copied().collect::<HashSet<_>>(),
-                        (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
-                        "all validators should be included in query"
-                    );
+                    check_detection_indices(&detection_indices);
 
                     let liveness_responses =
                         get_false_responses(current_epoch, previous_epoch, &detection_indices);
@@ -1153,6 +1154,62 @@ mod test {
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: activation_slot.epoch(E::slots_per_epoch()),
                 remaining_epochs: 0,
+            });
+    }
+
+    #[test]
+    fn time_skips_forward() {
+        let initial_epoch = genesis_epoch() + 1;
+        let initial_slot = initial_epoch.start_slot(E::slots_per_epoch());
+        let skipped_forward_epoch = initial_epoch + 42;
+        let skipped_forward_slot = skipped_forward_epoch.end_slot(E::slots_per_epoch());
+
+        TestBuilder::default()
+            .build()
+            .set_slot(initial_slot)
+            .register_all_validators()
+            .assert_all_disabled()
+            // First, simulate a check in the initialization epoch.
+            .simulate_detect_doppelgangers(
+                initial_slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, initial_epoch);
+                    assert_eq!(previous_epoch, initial_epoch - 1);
+                    check_detection_indices(&detection_indices);
+
+                    future::ready(get_false_responses(
+                        current_epoch,
+                        previous_epoch,
+                        &detection_indices,
+                    ))
+                },
+            )
+            .assert_all_disabled()
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: initial_epoch + 1,
+                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+            })
+            // Simulate a check in the skipped forward slot
+            .simulate_detect_doppelgangers(
+                skipped_forward_slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, skipped_forward_epoch);
+                    assert_eq!(previous_epoch, skipped_forward_epoch - 1);
+                    check_detection_indices(&detection_indices);
+
+                    future::ready(get_false_responses(
+                        current_epoch,
+                        previous_epoch,
+                        &detection_indices,
+                    ))
+                },
+            )
+            .assert_all_disabled()
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: skipped_forward_epoch,
+                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS - 1,
             });
     }
 }
