@@ -71,7 +71,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    doppelganger_service: Option<DoppelgangerService<T, E>>,
+    doppelganger_service: Option<DoppelgangerService<T>>,
     fork_service: ForkService<T, E>,
 }
 
@@ -101,7 +101,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// operating on the network at the same time.
     pub fn attach_doppelganger_service(
         &mut self,
-        service: DoppelgangerService<T, E>,
+        service: DoppelgangerService<T>,
     ) -> Result<(), String> {
         if self.doppelganger_service.is_some() {
             return Err("Cannot attach doppelganger service twice".to_string());
@@ -109,7 +109,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Ensure all existing validators are registered with the service.
         for pubkey in self.validators.read().iter_voting_pubkeys() {
-            service.register_new_validator(*pubkey)?
+            service.register_new_validator::<E>(*pubkey)?
         }
 
         self.doppelganger_service = Some(service);
@@ -156,7 +156,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_def.enabled = enable;
 
         if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
-            doppelganger_service.register_new_validator(validator_pubkey)?;
+            doppelganger_service.register_new_validator::<E>(validator_pubkey)?;
         }
 
         self.validators

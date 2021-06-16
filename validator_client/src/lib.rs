@@ -62,6 +62,8 @@ const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
 
+const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
+
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
@@ -69,7 +71,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    doppelganger_service: Option<DoppelgangerService<SystemTimeSlotClock, T>>,
+    doppelganger_service: Option<DoppelgangerService<SystemTimeSlotClock>>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
@@ -357,7 +359,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         } else {
             let service = DoppelgangerService {
                 slot_clock: slot_clock.clone(),
-                context: context.service_context("doppelganger".into()),
+                log: context
+                    .service_context(DOPPELGANGER_SERVICE_NAME.into())
+                    .log()
+                    .clone(),
                 doppelganger_states: <_>::default(),
             };
 
@@ -409,6 +414,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             doppelganger_service
                 .clone()
                 .start_update_service(
+                    self.context
+                        .service_context(DOPPELGANGER_SERVICE_NAME.into()),
                     self.validator_store.clone(),
                     self.duties_service.beacon_nodes.clone(),
                 )

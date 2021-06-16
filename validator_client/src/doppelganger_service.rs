@@ -214,42 +214,57 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 }
 
 #[derive(Clone)]
-pub struct DoppelgangerService<T, E: EthSpec> {
+pub struct DoppelgangerService<T> {
     pub slot_clock: T,
-    pub context: RuntimeContext<E>,
     pub doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DopplegangerState>>>,
+    pub log: Logger,
 }
 
-impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
-    pub fn start_update_service(
+impl<T: 'static + SlotClock> DoppelgangerService<T> {
+    pub fn start_update_service<E: EthSpec>(
         self,
+        context: RuntimeContext<E>,
         validator_store: ValidatorStore<T, E>,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     ) -> Result<(), String> {
-        let log = self.context.log().clone();
-
         // Define the `get_index` function as one that uses the validator store.
         let get_index = move |pubkey| validator_store.validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
-        let inner_log = log.clone();
+        let log = self.log.clone();
         let get_liveness = move |current_epoch, previous_epoch, validator_indices| {
             beacon_node_liveness(
                 beacon_nodes.clone(),
-                inner_log.clone(),
+                log.clone(),
                 current_epoch,
                 previous_epoch,
                 validator_indices,
             )
         };
 
+        let mut shutdown_sender = context.executor.shutdown_sender();
+        let log = self.log.clone();
+        let mut shutdown_func = move || {
+            if let Err(e) =
+                shutdown_sender.try_send(ShutdownReason::Failure("Doppelganger detected."))
+            {
+                crit!(
+                    log,
+                    "Failed to send shutdown signal";
+                    "msg" => "terminate this process immediately",
+                    "error" => ?e
+                );
+            }
+        };
+
         info!(
-            log,
+            self.log,
             "Doppelganger detection service started";
         );
 
         let doppelganger_service = self.clone();
-        self.context.executor.spawn(
+        let log = self.log.clone();
+        context.executor.spawn(
             async move {
                 loop {
                     let slot_duration = doppelganger_service.slot_clock.slot_duration();
@@ -270,7 +285,12 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
                     if let Some(slot) = doppelganger_service.slot_clock.now() {
                         if let Err(e) = doppelganger_service
-                            .detect_doppelgangers(slot, &get_index, &get_liveness)
+                            .detect_doppelgangers::<E, _, _, _, _>(
+                                slot,
+                                &get_index,
+                                &get_liveness,
+                                &mut shutdown_func,
+                            )
                             .await
                         {
                             error!(
@@ -301,7 +321,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
             })
             .unwrap_or_else(|| {
                 crit!(
-                    self.context.log(),
+                    self.log,
                     "Validator unknown to doppelganger service";
                     "msg" => "preventing validator from performing duties",
                     "pubkey" => ?validator
@@ -314,7 +334,10 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
     ///
     /// Validators added during the genesis epoch will not have doppelganger protection applied to
     /// them.
-    pub fn register_new_validator(&self, validator: PublicKeyBytes) -> Result<(), String> {
+    pub fn register_new_validator<E: EthSpec>(
+        &self,
+        validator: PublicKeyBytes,
+    ) -> Result<(), String> {
         let current_epoch = self
             .slot_clock
             .now()
@@ -354,16 +377,19 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
     /// This function is relatively complex when it comes to generic parameters. This is to allow
     /// for simple unit testing. Using these generics, we can test the `DoppelgangerService` without
     /// needing a BN API or a `ValidatorStore`.
-    async fn detect_doppelgangers<I, L, F>(
+    async fn detect_doppelgangers<E, I, L, F, S>(
         &self,
         request_slot: Slot,
         get_index: &I,
         get_liveness: &L,
+        shutdown_func: &mut S,
     ) -> Result<(), String>
     where
+        E: EthSpec,
         I: Fn(PublicKeyBytes) -> Option<u64>,
         L: Fn(Epoch, Epoch, Vec<u64>) -> F,
         F: Future<Output = LivenessResponses>,
+        S: FnMut(),
     {
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
         let previous_epoch = request_epoch.saturating_sub(1_u64);
@@ -383,7 +409,12 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         let liveness_responses = get_liveness(request_epoch, previous_epoch, indices_only).await;
 
         // Process the responses, attempting to detect doppelgangers.
-        self.process_liveness_responses(request_slot, liveness_responses, &indices_map)
+        self.process_liveness_responses::<E, _>(
+            request_slot,
+            liveness_responses,
+            &indices_map,
+            shutdown_func,
+        )
     }
 
     /// Get a map of `validator_index` -> `validator_pubkey` for all validators still requiring
@@ -424,13 +455,16 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
     /// Process the liveness responses from the BN, potentially updating doppelganger states or
     /// shutting down the VC.
-    fn process_liveness_responses(
+    fn process_liveness_responses<E: EthSpec, S>(
         &self,
         request_slot: Slot,
         liveness_responses: LivenessResponses,
         indices_map: &HashMap<u64, PublicKeyBytes>,
-    ) -> Result<(), String> {
-        let log = self.context.log();
+        shutdown_func: &mut S,
+    ) -> Result<(), String>
+    where
+        S: FnMut(),
+    {
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
         let previous_epoch = request_epoch.saturating_sub(1_u64);
         let LivenessResponses {
@@ -456,7 +490,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 pubkey
             } else {
                 crit!(
-                    log,
+                    self.log,
                     "Inconsistent indices map";
                     "validator_index" => response.index,
                 );
@@ -469,7 +503,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                 state.next_check_epoch
             } else {
                 crit!(
-                    log,
+                    self.log,
                     "Inconsistent doppelganger state";
                     "validator_pubkey" => ?pubkey,
                 );
@@ -485,7 +519,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
         let violators_exist = !violators.is_empty();
         if violators_exist {
             crit!(
-                log,
+                self.log,
                 "Doppleganger(s) detected";
                 "msg" => "A doppelganger occurs when two different validator clients run the \
                     same public key. This validator client detected another instance of a local \
@@ -566,7 +600,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                     doppelganger_state.remaining_epochs.saturating_sub(1);
 
                 info!(
-                    log,
+                    self.log,
                     "Found no doppelganger";
                     "further_checks_remaining" => doppelganger_state.remaining_epochs,
                     "epoch" => response.index,
@@ -575,7 +609,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
                 if doppelganger_state.remaining_epochs == 0 {
                     info!(
-                        log,
+                        self.log,
                         "Doppleganger detection complete";
                         "msg" => "starting validator",
                         "validator_index" => response.index
@@ -586,12 +620,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
 
         // Attempt to shutdown the validator client if there are any detected duplicate validators.
         if violators_exist {
-            let _ = self
-                .context
-                .executor
-                .shutdown_sender()
-                .try_send(ShutdownReason::Failure("Doppelganger detected."))
-                .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
+            shutdown_func();
         }
 
         Ok(())
