@@ -682,26 +682,49 @@ mod test {
     }
 
     impl TestScenario {
+        pub fn pubkey_to_index_map(&self) -> HashMap<PublicKeyBytes, u64> {
+            self.validators
+                .iter()
+                .enumerate()
+                .map(|(index, pubkey)| (*pubkey, index as u64))
+                .collect()
+        }
+
         pub fn set_slot(self, slot: Slot) -> Self {
             self.doppelganger.slot_clock.set_slot(slot.into());
             self
         }
 
         pub fn register_all_validators(self) -> Self {
-            for validator in &self.validators {
-                self.doppelganger
-                    .register_new_validator::<E>(*validator)
-                    .unwrap();
+            let mut this = self;
+            for i in 0..this.validators.len() {
+                this = this.register_validator(i as u64);
             }
-            assert_eq!(
-                self.doppelganger.doppelganger_states.read().len(),
-                self.validators.len(),
-                "all validators should be registered"
-            );
+            this
+        }
+
+        pub fn register_validator(self, index: u64) -> Self {
+            let pubkey = *self
+                .validators
+                .get(index as usize)
+                .expect("index should exist");
+
+            self.doppelganger
+                .register_new_validator::<E>(pubkey)
+                .unwrap();
+            self.doppelganger
+                .doppelganger_states
+                .read()
+                .get(&pubkey)
+                .expect("validator should be registered");
+
             self
         }
 
         pub fn assert_all_enabled(self) -> Self {
+            /*
+             * 1. Ensure all validators have the correct status.
+             */
             for validator in &self.validators {
                 assert_eq!(
                     self.doppelganger.validator_status(*validator),
@@ -709,10 +732,26 @@ mod test {
                     "all validators should be enabled"
                 );
             }
+
+            /*
+             * 2. Ensure a correct detection indices map is generated.
+             */
+            let pubkey_to_index = self.pubkey_to_index_map();
+            let generated_map = self
+                .doppelganger
+                .compute_detection_indices_map(&|pubkey| pubkey_to_index.get(&pubkey).copied());
+            assert!(
+                generated_map.is_empty(),
+                "there should be no indices for detection if all validators are enabled"
+            );
+
             self
         }
 
         pub fn assert_all_disabled(self) -> Self {
+            /*
+             * 1. Ensure all validators have the correct status.
+             */
             for validator in &self.validators {
                 assert_eq!(
                     self.doppelganger.validator_status(*validator),
@@ -721,23 +760,20 @@ mod test {
                 );
             }
 
-            let expected_map: HashMap<PublicKeyBytes, u64> = self
-                .validators
-                .iter()
-                .enumerate()
-                .map(|(index, pubkey)| (*pubkey, index as u64))
-                .collect();
+            /*
+             * 2. Ensure a correct detection indices map is generated.
+             */
+            let pubkey_to_index = self.pubkey_to_index_map();
             let generated_map = self
                 .doppelganger
-                .compute_detection_indices_map(&|pubkey| expected_map.get(&pubkey).copied());
+                .compute_detection_indices_map(&|pubkey| pubkey_to_index.get(&pubkey).copied());
 
             assert_eq!(
-                expected_map.len(),
+                pubkey_to_index.len(),
                 generated_map.len(),
                 "should declare all indices for detection"
             );
-
-            for (pubkey, index) in expected_map {
+            for (pubkey, index) in pubkey_to_index {
                 assert_eq!(
                     generated_map.get(&index),
                     Some(&pubkey),
@@ -748,19 +784,54 @@ mod test {
             self
         }
 
-        pub fn assert_all_states(self, status: DoppelgangerState) -> Self {
-            for validator in &self.validators {
-                assert_eq!(
-                    *self
-                        .doppelganger
-                        .doppelganger_states
-                        .read()
-                        .get(&validator)
-                        .expect("validator should be present"),
-                    status,
-                    "all validators should match provided state"
-                );
+        pub fn assert_all_states(self, state: &DoppelgangerState) -> Self {
+            let mut this = self;
+            for i in 0..this.validators.len() {
+                this = this.assert_state(i as u64, state);
             }
+            this
+        }
+
+        pub fn assert_state(self, index: u64, state: &DoppelgangerState) -> Self {
+            let pubkey = *self
+                .validators
+                .get(index as usize)
+                .expect("index should exist");
+
+            assert_eq!(
+                self.doppelganger
+                    .doppelganger_states
+                    .read()
+                    .get(&pubkey)
+                    .expect("validator should be present"),
+                state,
+                "validator should match provided state"
+            );
+
+            self
+        }
+
+        pub fn assert_unregistered(self, index: u64) -> Self {
+            let pubkey = *self
+                .validators
+                .get(index as usize)
+                .expect("index should exist in test scenario");
+
+            assert!(
+                self.doppelganger
+                    .doppelganger_states
+                    .read()
+                    .get(&pubkey)
+                    .is_none(),
+                "validator should not be present in states"
+            );
+
+            assert_eq!(
+                self.doppelganger.validator_status(pubkey),
+                DoppelgangerStatus::UnknownToDoppelganger(pubkey),
+                "validator status should be unknown"
+            );
+
             self
         }
     }
@@ -774,7 +845,7 @@ mod test {
                 .set_slot(slot)
                 .register_all_validators()
                 .assert_all_enabled()
-                .assert_all_states(DoppelgangerState {
+                .assert_all_states(&DoppelgangerState {
                     next_check_epoch: genesis_epoch + 1,
                     remaining_epochs: 0,
                 });
@@ -791,10 +862,32 @@ mod test {
                 .set_slot(slot)
                 .register_all_validators()
                 .assert_all_disabled()
-                .assert_all_states(DoppelgangerState {
+                .assert_all_states(&DoppelgangerState {
                     next_check_epoch: epoch + 1,
                     remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
                 });
         }
+    }
+
+    #[test]
+    fn unregistered_validator() {
+        // Non-genesis slot
+        let epoch = Epoch::new(3);
+
+        TestBuilder::default()
+            .build()
+            .set_slot(epoch.start_slot(E::slots_per_epoch()))
+            // Register only validator 1.
+            .register_validator(1)
+            // Ensure validator 1 was registered.
+            .assert_state(
+                1,
+                &DoppelgangerState {
+                    next_check_epoch: epoch + 1,
+                    remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+                },
+            )
+            // Ensure validator 2 was not registered.
+            .assert_unregistered(2);
     }
 }
