@@ -1105,7 +1105,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_sync_signature_for_gossip(
         &self,
         sync_signature: SyncCommitteeSignature,
-        subnet_id: Option<SyncSubnetId>,
+        subnet_id: SyncSubnetId,
     ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
         metrics::inc_counter(&metrics::SYNC_SIGNATURE_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::SYNC_SIGNATURE_GOSSIP_VERIFICATION_TIMES);

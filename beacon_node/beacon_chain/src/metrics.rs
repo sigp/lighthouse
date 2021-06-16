@@ -879,6 +879,7 @@ fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain:
             contributor_sum += count;
         }
     }
+    drop(contributors);
     set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS, contributor_sum);
 
     let sync_aggregators = chain.observed_sync_aggregators.read();
@@ -890,6 +891,7 @@ fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain:
             aggregator_sum += count;
         }
     }
+    drop(sync_aggregators);
     set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS, aggregator_sum);
 }
 

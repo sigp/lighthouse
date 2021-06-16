@@ -443,7 +443,7 @@ impl VerifiedSyncSignature {
     /// verify that it was received on the correct subnet.
     pub fn verify<T: BeaconChainTypes>(
         sync_signature: SyncCommitteeSignature,
-        subnet_id: Option<SyncSubnetId>,
+        subnet_id: SyncSubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         // Ensure sync committee signature is for the current slot (within a
@@ -465,35 +465,31 @@ impl VerifiedSyncSignature {
         let sync_committee = chain.head_sync_committee_next_slot()?;
         let subnet_positions = sync_committee.subcommittee_positions_for_public_key(&pubkey)?;
 
-        if let Some(subnet_id) = subnet_id {
-            if !subnet_positions.contains_key(&subnet_id) {
-                return Err(Error::InvalidSubnetId {
-                    received: subnet_id,
-                    expected: subnet_positions.keys().cloned().collect::<Vec<_>>(),
-                });
-            }
-        };
+        if !subnet_positions.contains_key(&subnet_id) {
+            return Err(Error::InvalidSubnetId {
+                received: subnet_id,
+                expected: subnet_positions.keys().cloned().collect::<Vec<_>>(),
+            });
+        }
 
         /*
          * The sync committee message is the first valid message received for the participating validator
          * for the slot, sync_signature.slot.
          */
         let validator_index = sync_signature.validator_index;
-        for subnet_id in subnet_positions.keys() {
-            if chain
-                .observed_sync_contributors
-                .read()
-                .validator_has_been_observed(
-                    SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
-                    validator_index as usize,
-                )
-                .map_err(BeaconChainError::from)?
-            {
-                return Err(Error::PriorSyncSignatureKnown {
-                    validator_index,
-                    slot: sync_signature.slot,
-                });
-            }
+        if chain
+            .observed_sync_contributors
+            .read()
+            .validator_has_been_observed(
+                SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
+                validator_index as usize,
+            )
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorSyncSignatureKnown {
+                validator_index,
+                slot: sync_signature.slot,
+            });
         }
 
         // The aggregate signature of the sync committee message is valid.
@@ -505,21 +501,19 @@ impl VerifiedSyncSignature {
         // It's important to double check that the sync committee message still hasn't been observed, since
         // there can be a race-condition if we receive two sync committee messages at the same time and
         // process them in different threads.
-        for subnet_id in subnet_positions.keys() {
-            if chain
-                .observed_sync_contributors
-                .write()
-                .observe_validator(
-                    SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
-                    validator_index as usize,
-                )
-                .map_err(BeaconChainError::from)?
-            {
-                return Err(Error::PriorSyncSignatureKnown {
-                    validator_index,
-                    slot: sync_signature.slot,
-                });
-            }
+        if chain
+            .observed_sync_contributors
+            .write()
+            .observe_validator(
+                SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
+                validator_index as usize,
+            )
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorSyncSignatureKnown {
+                validator_index,
+                slot: sync_signature.slot,
+            });
         }
 
         Ok(Self {

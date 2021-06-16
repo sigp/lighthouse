@@ -658,7 +658,7 @@ fn unaggregated_gossip_verification() {
 
     harness
         .chain
-        .verify_sync_signature_for_gossip(valid_sync_signature.clone(), Some(subnet_id))
+        .verify_sync_signature_for_gossip(valid_sync_signature.clone(), subnet_id)
         .expect("valid sync signature should be verified");
 
     /*
