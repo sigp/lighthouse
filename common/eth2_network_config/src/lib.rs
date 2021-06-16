@@ -242,6 +242,13 @@ mod tests {
     type E = MainnetEthSpec;
 
     #[test]
+    fn mainnet_config_eq_chain_spec() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
+        let spec = ChainSpec::mainnet();
+        assert_eq!(spec, config.chain_spec::<E>().unwrap());
+    }
+
+    #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)

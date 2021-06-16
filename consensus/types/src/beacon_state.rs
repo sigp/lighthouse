@@ -728,26 +728,17 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
-    /// Get the validator indices of all validators from `sync_committee` identified by
-    /// `sync_committee_bits`.
-    pub fn get_sync_committee_participant_indices(
+    /// Get the validator indices of all validators from `sync_committee`.
+    pub fn get_sync_committee_indices(
         &mut self,
         sync_committee: &SyncCommittee<T>,
-        sync_committee_bits: &BitVector<T::SyncCommitteeSize>,
     ) -> Result<Vec<usize>, Error> {
         sync_committee
             .pubkeys
             .iter()
-            .zip(sync_committee_bits.iter())
-            .flat_map(|(pubkey, bit)| {
-                if bit {
-                    let validator_index_res = self
-                        .get_validator_index(&pubkey)
-                        .and_then(|opt| opt.ok_or(Error::PubkeyCacheInconsistent));
-                    Some(validator_index_res)
-                } else {
-                    None
-                }
+            .map(|pubkey| {
+                self.get_validator_index(&pubkey)?
+                    .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
     }
