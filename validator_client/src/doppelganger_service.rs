@@ -596,6 +596,9 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
             //
             // This has the effect of stopping validator activity even if the validator client
             // fails to shut down.
+            //
+            // A weird side-effect is that the BN will keep getting liveness queries that will be
+            // ignored by the VC. Since the VC *should* shutdown anyway, this seems fine.
             if violators_exist {
                 doppelganger_state.remaining_epochs = u64::max_value();
                 continue;
@@ -641,14 +644,23 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
 mod test {
     use super::*;
     use environment::null_logger;
+    use futures::executor::block_on;
     use slot_clock::TestingSlotClock;
+    use std::collections::HashSet;
+    use std::future;
     use std::time::Duration;
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
         MainnetEthSpec,
     };
 
+    const DEFAULT_VALIDATORS: usize = 8;
+
     type E = MainnetEthSpec;
+
+    fn genesis_epoch() -> Epoch {
+        E::default_spec().genesis_slot.epoch(E::slots_per_epoch())
+    }
 
     struct TestBuilder {
         validator_count: usize,
@@ -656,7 +668,9 @@ mod test {
 
     impl Default for TestBuilder {
         fn default() -> Self {
-            Self { validator_count: 8 }
+            Self {
+                validator_count: DEFAULT_VALIDATORS,
+            }
         }
     }
 
@@ -838,15 +852,14 @@ mod test {
 
     #[test]
     fn enabled_in_genesis_epoch() {
-        let genesis_epoch = E::default_spec().genesis_slot.epoch(E::slots_per_epoch());
-        for slot in genesis_epoch.slot_iter(E::slots_per_epoch()) {
+        for slot in genesis_epoch().slot_iter(E::slots_per_epoch()) {
             TestBuilder::default()
                 .build()
                 .set_slot(slot)
                 .register_all_validators()
                 .assert_all_enabled()
                 .assert_all_states(&DoppelgangerState {
-                    next_check_epoch: genesis_epoch + 1,
+                    next_check_epoch: genesis_epoch() + 1,
                     remaining_epochs: 0,
                 });
         }
@@ -854,7 +867,7 @@ mod test {
 
     #[test]
     fn disabled_after_genesis_epoch() {
-        let epoch = E::default_spec().genesis_slot.epoch(E::slots_per_epoch()) + 1;
+        let epoch = genesis_epoch() + 1;
 
         for slot in epoch.slot_iter(E::slots_per_epoch()) {
             TestBuilder::default()
@@ -871,8 +884,8 @@ mod test {
 
     #[test]
     fn unregistered_validator() {
-        // Non-genesis slot
-        let epoch = Epoch::new(3);
+        // Non-genesis epoch
+        let epoch = genesis_epoch() + 2;
 
         TestBuilder::default()
             .build()
@@ -889,5 +902,190 @@ mod test {
             )
             // Ensure validator 2 was not registered.
             .assert_unregistered(2);
+    }
+
+    enum ShouldShutdown {
+        Yes,
+        No,
+    }
+
+    fn get_false_responses(
+        current_epoch: Epoch,
+        previous_epoch: Epoch,
+        detection_indices: &[u64],
+    ) -> LivenessResponses {
+        LivenessResponses {
+            current_epoch_responses: detection_indices
+                .iter()
+                .map(|i| LivenessResponseData {
+                    index: *i as u64,
+                    epoch: current_epoch,
+                    is_live: false,
+                })
+                .collect(),
+            previous_epoch_responses: detection_indices
+                .iter()
+                .map(|i| LivenessResponseData {
+                    index: *i as u64,
+                    epoch: previous_epoch,
+                    is_live: false,
+                })
+                .collect(),
+        }
+    }
+
+    impl TestScenario {
+        pub fn simulate_detect_doppelgangers<L, F>(
+            self,
+            slot: Slot,
+            should_shutdown: ShouldShutdown,
+            get_liveness: L,
+        ) -> Self
+        where
+            L: Fn(Epoch, Epoch, Vec<u64>) -> F,
+            F: Future<Output = LivenessResponses>,
+        {
+            /*
+            // Create a simulator for a beacon node which can return liveness data.
+            let get_liveness = |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                let mut liveness_responses = LivenessResponses {
+                    current_epoch_responses: detection_indices
+                        .iter()
+                        .map(|i| LivenessResponseData {
+                            index: *i as u64,
+                            epoch: current_epoch,
+                            is_live: false,
+                        })
+                        .collect(),
+                    previous_epoch_responses: detection_indices
+                        .iter()
+                        .map(|i| LivenessResponseData {
+                            index: *i as u64,
+                            epoch: previous_epoch,
+                            is_live: false,
+                        })
+                        .collect(),
+                };
+
+                // Allow the caller to modify the responses.
+                modify_liveness_responses(&mut liveness_responses);
+
+                future::ready(liveness_responses)
+            };
+            */
+
+            // Create a simulated shutdown sender.
+            let mut did_shutdown = false;
+            let mut shutdown_func = || did_shutdown = true;
+
+            // Create a simulated validator store that can resolve pubkeys to indices.
+            let pubkey_to_index = self.pubkey_to_index_map();
+            let get_index = |pubkey| pubkey_to_index.get(&pubkey).copied();
+
+            block_on(self.doppelganger.detect_doppelgangers::<E, _, _, _, _>(
+                slot,
+                &get_index,
+                &get_liveness,
+                &mut shutdown_func,
+            ))
+            .expect("detection should not error");
+
+            match should_shutdown {
+                ShouldShutdown::Yes if !did_shutdown => panic!("vc failed to shutdown"),
+                ShouldShutdown::No if did_shutdown => panic!("vc shutdown when it shouldn't"),
+                _ => (),
+            }
+
+            self
+        }
+    }
+
+    #[test]
+    fn detect_at_genesis() {
+        let epoch = genesis_epoch();
+        let slot = epoch.start_slot(E::slots_per_epoch());
+
+        TestBuilder::default()
+            .build()
+            .set_slot(slot)
+            .register_all_validators()
+            // All validators should have signing enabled since it's the genesis epoch.
+            .assert_all_enabled()
+            .simulate_detect_doppelgangers(
+                slot,
+                ShouldShutdown::No,
+                |_, _, _| {
+                    panic!("the beacon node should not get a request if there are no doppelganger validators");
+
+                    // The compiler needs this, otherwise it complains that this isn't a future.
+                    #[allow(unreachable_code)]
+                    future::ready(get_false_responses(Epoch::new(0), Epoch::new(0), &[]))
+                },
+            )
+            // All validators should be enabled.
+            .assert_all_enabled();
+    }
+
+    #[test]
+    fn detect_after_genesis_with_previous_epoch_doppelganger() {
+        let epoch = genesis_epoch() + 1;
+        let slot = epoch.start_slot(E::slots_per_epoch());
+
+        TestBuilder::default()
+            .build()
+            .set_slot(slot)
+            .register_all_validators()
+            .assert_all_disabled()
+            // First, simulate a check where there are no doppelgangers.
+            .simulate_detect_doppelgangers(
+                slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, epoch);
+                    assert_eq!(previous_epoch, genesis_epoch());
+                    assert_eq!(
+                        detection_indices.iter().copied().collect::<HashSet<_>>(),
+                        (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
+                        "all validators should be included in query"
+                    );
+
+                    let liveness_responses =
+                        get_false_responses(current_epoch, previous_epoch, &detection_indices);
+
+                    future::ready(liveness_responses)
+                },
+            )
+            // All validators should be disabled since they started after genesis.
+            .assert_all_disabled()
+            // Now, simulate a check where there are doppelgangers in the previous epoch.
+            .simulate_detect_doppelgangers(
+                // Perform this check in the next slot.
+                slot + 1,
+                ShouldShutdown::Yes,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, epoch);
+                    assert_eq!(previous_epoch, genesis_epoch());
+                    assert_eq!(
+                        detection_indices.iter().copied().collect::<HashSet<_>>(),
+                        (0..DEFAULT_VALIDATORS as u64).collect::<HashSet<_>>(),
+                        "all validators should be included in query"
+                    );
+
+                    let mut liveness_responses =
+                        get_false_responses(current_epoch, previous_epoch, &detection_indices);
+
+                    // There's a doppelganger!
+                    liveness_responses.previous_epoch_responses[0].is_live = true;
+
+                    future::ready(liveness_responses)
+                },
+            )
+            // All validators should still be disabled.
+            .assert_all_disabled()
+            // The states of all validators should be jammed with `u64::max_value()`.
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: epoch + 1,
+                remaining_epochs: u64::max_value(),
+            });
     }
 }
