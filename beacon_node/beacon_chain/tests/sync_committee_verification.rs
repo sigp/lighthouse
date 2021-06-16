@@ -535,7 +535,7 @@ fn unaggregated_gossip_verification() {
                     matches!(
                         harness
                             .chain
-                            .verify_sync_signature_for_gossip($attn_getter, Some($subnet_getter))
+                            .verify_sync_signature_for_gossip($attn_getter, $subnet_getter)
                             .err()
                             .expect(&format!(
                                 "{} should error during verify_sync_signature_for_gossip",
