@@ -21,7 +21,7 @@ use types::{
     SyncSubnetId, ValidatorSubscription,
 };
 
-const SLOT_DURATION_MILLIS: u64 = 400;
+const SLOT_DURATION_MILLIS: u64 = 200;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -480,7 +480,7 @@ mod sync_committee_service {
         .unwrap();
         let subnet_id = subnet_ids.iter().next().unwrap();
 
-        // Note: the unsubscription event takes a full epoch (8 * 0.4 secs = 3.2 secs)
+        // Note: the unsubscription event takes a full epoch (8 * 0.2 secs = 1.6 secs)
         let events = get_events(
             &mut sync_committee_service,
             None,
@@ -505,5 +505,66 @@ mod sync_committee_service {
 
         // Should be unsubscribed at the end.
         assert_eq!(sync_committee_service.subscription_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn same_subscription_with_lower_until_epoch() {
+        // subscription config
+        let validator_index = 1;
+        let until_epoch = Epoch::new(2);
+        let sync_committee_indices = vec![1];
+
+        // create the attestation service and subscriptions
+        let mut sync_committee_service = get_sync_committee_service();
+
+        let subscriptions = vec![SyncCommitteeSubscription {
+            validator_index,
+            sync_committee_indices: sync_committee_indices.clone(),
+            until_epoch,
+        }];
+
+        // submit the subscriptions
+        sync_committee_service
+            .validator_subscriptions(subscriptions)
+            .unwrap();
+
+        // Get all immediate events (won't include unsubscriptions)
+        let events = get_events(&mut sync_committee_service, None, 1).await;
+        assert_matches!(
+            events[..],
+            [
+                SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(_)),
+                SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(_)),
+                SubnetServiceMessage::DiscoverPeers(_),
+            ]
+        );
+
+        // Additional subscriptions which shouldn't emit any non-discovery events
+        // Event 1 is a duplicate of an existing subscription
+        // Event 2 is the same subscription with lower `until_epoch` than the existing subscription
+        let subscriptions = vec![
+            SyncCommitteeSubscription {
+                validator_index,
+                sync_committee_indices: sync_committee_indices.clone(),
+                until_epoch,
+            },
+            SyncCommitteeSubscription {
+                validator_index,
+                sync_committee_indices: sync_committee_indices.clone(),
+                until_epoch: until_epoch - 1,
+            },
+        ];
+
+        // submit the subscriptions
+        sync_committee_service
+            .validator_subscriptions(subscriptions)
+            .unwrap();
+
+        // Get all immediate events (won't include unsubscriptions)
+        let events = get_events(&mut sync_committee_service, None, 1).await;
+        assert_matches!(events[..], [SubnetServiceMessage::DiscoverPeers(_),]);
+
+        // Should be unsubscribed at the end.
+        assert_eq!(sync_committee_service.subscription_count(), 1);
     }
 }

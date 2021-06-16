@@ -1,7 +1,7 @@
 //! This service keeps track of which sync committee subnet the beacon node should be subscribed to at any
 //! given time. It schedules subscriptions to sync committee subnets and requests peer discoveries.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -40,10 +40,10 @@ pub struct SyncCommitteeService<T: BeaconChainTypes> {
     pub(crate) beacon_chain: Arc<BeaconChain<T>>,
 
     /// The collection of all currently subscribed subnets.
-    subscriptions: HashSet<ExactSubnet>,
+    subscriptions: HashMap<SyncSubnetId, Epoch>,
 
     /// A collection of timeouts for when to unsubscribe from a subnet.
-    unsubscriptions: HashSetDelay<ExactSubnet>,
+    unsubscriptions: HashSetDelay<SyncSubnetId>,
 
     /// The waker for the current thread.
     waker: Option<std::task::Waker>,
@@ -77,7 +77,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         SyncCommitteeService {
             events: VecDeque::with_capacity(10),
             beacon_chain,
-            subscriptions: HashSet::new(),
+            subscriptions: HashMap::new(),
             unsubscriptions: HashSetDelay::new(Duration::from_secs(default_timeout)),
             waker: None,
             subscribe_all_subnets: config.subscribe_all_subnets,
@@ -227,9 +227,21 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
     /// Adds a subscription event and an associated unsubscription event if required.
     fn subscribe_to_subnet(&mut self, exact_subnet: ExactSubnet) -> Result<(), &'static str> {
-        // Return if we already have a subscription for exact_subnet
-        if self.subscriptions.contains(&exact_subnet) || self.subscribe_all_subnets {
+        // Return if we have subscribed to all subnets
+        if self.subscribe_all_subnets {
             return Ok(());
+        }
+
+        // Return if we already have a subscription for exact_subnet
+        if self.subscriptions.get(&exact_subnet.subnet_id) == Some(&exact_subnet.until_epoch) {
+            return Ok(());
+        }
+
+        // Return if we already have subscription set to expire later than the current request.
+        if let Some(until_epoch) = self.subscriptions.get(&exact_subnet.subnet_id) {
+            if *until_epoch >= exact_subnet.until_epoch {
+                return Ok(());
+            }
         }
 
         // initialise timing variables
@@ -242,12 +254,14 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let until_slot = exact_subnet.until_epoch.end_slot(slots_per_epoch);
         // Calculate the duration to the unsubscription event.
-        // There are two main cases. Attempting to subscribe to the current slot and all others.
         let expected_end_subscription_duration = if current_slot >= until_slot {
-            self.beacon_chain
-                .slot_clock
-                .duration_to_next_slot()
-                .ok_or("Unable to determine duration to next slot")?
+            warn!(
+                self.log,
+                "Sync committee subscription is past expiration";
+                "current_slot" => current_slot,
+                "exact_subnet" => ?exact_subnet,
+            );
+            return Ok(());
         } else {
             let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
@@ -260,39 +274,47 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                 + slot_duration
         };
 
-        // We are not currently subscribed and have no waiting subscription, create one
-        debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
-        self.subscriptions.insert(exact_subnet.clone());
-        self.events
-            .push_back(SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(
-                exact_subnet.subnet_id,
-            )));
+        if !self.subscriptions.contains_key(&exact_subnet.subnet_id) {
+            // We are not currently subscribed and have no waiting subscription, create one
+            debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
+            self.subscriptions
+                .insert(exact_subnet.subnet_id, exact_subnet.until_epoch);
+            self.events
+                .push_back(SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(
+                    exact_subnet.subnet_id,
+                )));
 
-        // add the subnet to the ENR bitfield
-        self.events
-            .push_back(SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(
-                exact_subnet.subnet_id,
-            )));
+            // add the subnet to the ENR bitfield
+            self.events
+                .push_back(SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(
+                    exact_subnet.subnet_id,
+                )));
 
-        // add an unsubscription event to remove ourselves from the subnet once completed
-        self.unsubscriptions
-            .insert_at(exact_subnet, expected_end_subscription_duration);
+            // add an unsubscription event to remove ourselves from the subnet once completed
+            self.unsubscriptions
+                .insert_at(exact_subnet.subnet_id, expected_end_subscription_duration);
+        } else {
+            // We are already subscribed, extend the unsubscription duration
+            self.unsubscriptions
+                .update_timeout(&exact_subnet.subnet_id, expected_end_subscription_duration);
+        }
+
         Ok(())
     }
 
     /// A queued unsubscription is ready.
-    fn handle_unsubscriptions(&mut self, exact_subnet: ExactSubnet) {
-        debug!(self.log, "Unsubscribing from subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
+    fn handle_unsubscriptions(&mut self, subnet_id: SyncSubnetId) {
+        debug!(self.log, "Unsubscribing from subnet"; "subnet" => *subnet_id);
 
-        self.subscriptions.remove(&exact_subnet);
+        self.subscriptions.remove(&subnet_id);
         self.events
             .push_back(SubnetServiceMessage::Unsubscribe(Subnet::SyncCommittee(
-                exact_subnet.subnet_id,
+                subnet_id,
             )));
 
         self.events
             .push_back(SubnetServiceMessage::EnrRemove(Subnet::SyncCommittee(
-                exact_subnet.subnet_id,
+                subnet_id,
             )));
     }
 }
