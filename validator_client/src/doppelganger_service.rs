@@ -734,6 +734,14 @@ mod test {
             this
         }
 
+        pub fn register_validators(self, validators: &[u64]) -> Self {
+            let mut this = self;
+            for i in validators {
+                this = this.register_validator(*i);
+            }
+            this
+        }
+
         pub fn register_validator(self, index: u64) -> Self {
             let pubkey = *self
                 .validators
@@ -1268,5 +1276,70 @@ mod test {
                 next_check_epoch: initial_epoch + 1,
                 remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
             });
+    }
+
+    #[test]
+    fn staggered_entry() {
+        let early_epoch = genesis_epoch() + 42;
+        let early_slot = early_epoch.start_slot(E::slots_per_epoch());
+        let early_activation_slot = (early_epoch + 3).end_slot(E::slots_per_epoch());
+
+        let late_epoch = early_epoch + 1;
+        let late_slot = late_epoch.start_slot(E::slots_per_epoch());
+        let late_activation_slot = (late_epoch + 3).end_slot(E::slots_per_epoch());
+
+        let early_validators: Vec<u64> = (0..DEFAULT_VALIDATORS as u64 / 2).collect();
+        let late_validators: Vec<u64> =
+            (DEFAULT_VALIDATORS as u64 / 2..DEFAULT_VALIDATORS as u64).collect();
+
+        let mut scenario = TestBuilder::default()
+            .build()
+            .set_slot(early_slot)
+            .register_validators(&early_validators)
+            .set_slot(late_slot)
+            .register_validators(&late_validators)
+            .assert_all_disabled();
+
+        for slot in early_slot.as_u64()..=late_activation_slot.as_u64() {
+            let slot = Slot::new(slot);
+
+            scenario = scenario.simulate_detect_doppelgangers(
+                slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    future::ready(get_false_responses(
+                        current_epoch,
+                        previous_epoch,
+                        &detection_indices,
+                    ))
+                },
+            );
+
+            for index in 0..DEFAULT_VALIDATORS as u64 {
+                let pubkey = *scenario.validators.get(index as usize).unwrap();
+
+                let should_be_disabled = if early_validators.contains(&index) {
+                    slot < early_activation_slot
+                } else if late_validators.contains(&index) {
+                    slot < late_activation_slot
+                } else {
+                    unreachable!("inconsistent test");
+                };
+
+                if should_be_disabled {
+                    assert_eq!(
+                        scenario.doppelganger.validator_status(pubkey),
+                        DoppelgangerStatus::SigningDisabled(pubkey)
+                    )
+                } else {
+                    assert_eq!(
+                        scenario.doppelganger.validator_status(pubkey),
+                        DoppelgangerStatus::SigningEnabled(pubkey)
+                    )
+                }
+            }
+        }
+
+        scenario.assert_all_enabled();
     }
 }
