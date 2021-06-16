@@ -1212,4 +1212,61 @@ mod test {
                 remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS - 1,
             });
     }
+
+    #[test]
+    fn time_skips_backward() {
+        let initial_epoch = genesis_epoch() + 42;
+        let initial_slot = initial_epoch.start_slot(E::slots_per_epoch());
+        let skipped_backward_epoch = initial_epoch - 12;
+        let skipped_backward_slot = skipped_backward_epoch.end_slot(E::slots_per_epoch());
+
+        TestBuilder::default()
+            .build()
+            .set_slot(initial_slot)
+            .register_all_validators()
+            .assert_all_disabled()
+            // First, simulate a check in the initialization epoch.
+            .simulate_detect_doppelgangers(
+                initial_slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, initial_epoch);
+                    assert_eq!(previous_epoch, initial_epoch - 1);
+                    check_detection_indices(&detection_indices);
+
+                    future::ready(get_false_responses(
+                        current_epoch,
+                        previous_epoch,
+                        &detection_indices,
+                    ))
+                },
+            )
+            .assert_all_disabled()
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: initial_epoch + 1,
+                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+            })
+            // Simulate a check in the skipped backward slot
+            .simulate_detect_doppelgangers(
+                skipped_backward_slot,
+                ShouldShutdown::No,
+                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, skipped_backward_epoch);
+                    assert_eq!(previous_epoch, skipped_backward_epoch - 1);
+                    check_detection_indices(&detection_indices);
+
+                    future::ready(get_false_responses(
+                        current_epoch,
+                        previous_epoch,
+                        &detection_indices,
+                    ))
+                },
+            )
+            .assert_all_disabled()
+            // When time skips backward we should *not* allow doppelganger advancement.
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: initial_epoch + 1,
+                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+            });
+    }
 }
