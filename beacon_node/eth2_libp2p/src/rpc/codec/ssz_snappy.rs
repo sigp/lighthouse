@@ -2,7 +2,7 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
-use crate::rpc::{methods::*, OutboundRequest, InboundRequest, RPCCodedResponse, RPCResponse};
+use crate::rpc::{methods::*, InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -147,9 +147,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                         ))),
                     },
                     Protocol::BlocksByRoot => match self.protocol.version {
-                        Version::V1 => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-                            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                        }))),
+                        Version::V1 => {
+                            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
+                                block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+                            })))
+                        }
                     },
                     Protocol::Ping => match self.protocol.version {
                         Version::V1 => Ok(Some(InboundRequest::Ping(Ping {

@@ -4,7 +4,7 @@ pub(crate) mod ssz_snappy;
 use self::base::{BaseInboundCodec, BaseOutboundCodec};
 use self::ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec};
 use crate::rpc::protocol::RPCError;
-use crate::rpc::{InboundRequest, RPCCodedResponse, OutboundRequest};
+use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse};
 use libp2p::bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 use types::EthSpec;
