@@ -235,7 +235,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-      run:  make vendor
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   cargo-udeps:
     name: cargo-udeps
     runs-on: ubuntu-latest
