@@ -38,7 +38,7 @@ impl<TSpec: EthSpec> BehaviourHandler<TSpec> {
 pub enum BehaviourHandlerIn<TSpec: EthSpec> {
     Delegate(DelegateIn<TSpec>),
     /// Start the shutdown process.
-    Shutdown(Option<(RequestId, RPCRequest<TSpec>)>),
+    Shutdown(Option<(RequestId, OutboundRequest<TSpec>)>),
 }
 
 impl<TSpec: EthSpec> ProtocolsHandler for BehaviourHandler<TSpec> {

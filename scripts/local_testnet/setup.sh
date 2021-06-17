@@ -32,8 +32,8 @@ lcli \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
 	--eth1-id $NETWORK_ID \
 	--eth1-follow-distance 1 \
-	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--seconds-per-slot $SECONDS_PER_SLOT \
+	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--force
 
 echo Specification generated at $TESTNET_DIR.

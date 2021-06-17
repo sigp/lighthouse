@@ -353,8 +353,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             "matched_head" => summary.is_previous_epoch_head_attester,
                             "epoch" => prev_epoch,
                             "validator" => id,
-
-                        )
+                        );
                     } else if summary.is_active_in_previous_epoch
                         && !summary.is_previous_epoch_attester
                     {
@@ -364,6 +363,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             "epoch" => prev_epoch,
                             "validator" => id,
                         )
+                    } else if !summary.is_active_in_previous_epoch {
+                        // Monitored validator is not active, due to awaiting activation
+                        // or being exited/withdrawn. Do not attempt to report on its
+                        // attestations.
+                        continue;
                     }
 
                     if summary.is_previous_epoch_attester {

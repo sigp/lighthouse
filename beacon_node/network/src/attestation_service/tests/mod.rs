@@ -147,10 +147,10 @@ async fn get_events<S: Stream<Item = AttServiceMessage> + Unpin>(
     };
 
     tokio::select! {
-        _ = collect_stream_fut => {return events}
+        _ = collect_stream_fut => {events}
         _ = tokio::time::sleep(
         Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
-    ) => { return events; }
+    ) => { events }
         }
 }
 

@@ -12,6 +12,7 @@ pub struct ServerSentEventHandler<T: EthSpec> {
     finalized_tx: Sender<EventKind<T>>,
     head_tx: Sender<EventKind<T>>,
     exit_tx: Sender<EventKind<T>>,
+    chain_reorg: Sender<EventKind<T>>,
     log: Logger,
 }
 
@@ -22,6 +23,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (finalized_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
         let (head_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
         let (exit_tx, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
+        let (chain_reorg, _) = broadcast::channel(DEFAULT_CHANNEL_CAPACITY);
 
         Self {
             attestation_tx,
@@ -29,6 +31,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             finalized_tx,
             head_tx,
             exit_tx,
+            chain_reorg,
             log,
         }
     }
@@ -39,6 +42,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (finalized_tx, _) = broadcast::channel(capacity);
         let (head_tx, _) = broadcast::channel(capacity);
         let (exit_tx, _) = broadcast::channel(capacity);
+        let (chain_reorg, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -46,6 +50,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             finalized_tx,
             head_tx,
             exit_tx,
+            chain_reorg,
             log,
         }
     }
@@ -65,6 +70,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .map(|count| trace!(self.log, "Registering server-sent head event"; "receiver_count" => count)),
             EventKind::VoluntaryExit(exit) => self.exit_tx.send(EventKind::VoluntaryExit(exit))
                 .map(|count| trace!(self.log, "Registering server-sent voluntary exit event"; "receiver_count" => count)),
+            EventKind::ChainReorg(reorg) => self.chain_reorg.send(EventKind::ChainReorg(reorg))
+                .map(|count| trace!(self.log, "Registering server-sent chain reorg event"; "receiver_count" => count)),
         };
         if let Err(SendError(event)) = result {
             trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);
@@ -91,6 +98,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         self.exit_tx.subscribe()
     }
 
+    pub fn subscribe_reorgs(&self) -> Receiver<EventKind<T>> {
+        self.chain_reorg.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -109,5 +120,9 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn has_exit_subscribers(&self) -> bool {
         self.exit_tx.receiver_count() > 0
+    }
+
+    pub fn has_reorg_subscribers(&self) -> bool {
+        self.chain_reorg.receiver_count() > 0
     }
 }

@@ -281,7 +281,7 @@ mod sign {
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0xINVALID_VALUE_\",\"current_version\":\"0x02020202\",\"epoch\":\"1545\"},",
-            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: \\\'I\\\', index: 0 })\", line: 1, column: 237097)",
+            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: 'I', index: 0 })\", line: 1, column: 237097)",
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0x01010101\",\"current_version\":\"INVALID_VALUE\",\"epoch\":\"1545\"},",
@@ -293,7 +293,7 @@ mod sign {
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0x01010101\",\"current_version\":\"0xINVALID_VALUE_\",\"epoch\":\"1545\"},",
-            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: \\\'I\\\', index: 0 })\", line: 1, column: 237128)"
+            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: 'I', index: 0 })\", line: 1, column: 237128)"
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0x01010101\",\"current_version\":\"0x02020202\",\"epoch\":},",

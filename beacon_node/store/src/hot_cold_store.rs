@@ -285,12 +285,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
+        let mut ops: Vec<KeyValueStoreOp> = Vec::new();
         if state.slot < self.get_split_slot() {
-            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_cold_state(state_root, &state, &mut ops)?;
             self.cold_db.do_atomically(ops)
         } else {
-            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_hot_state(state_root, state, &mut ops)?;
             self.hot_db.do_atomically(ops)
         }

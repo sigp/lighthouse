@@ -20,6 +20,7 @@ clap = "2.33.3"
 eth2_interop_keypairs = { path = "../common/eth2_interop_keypairs" }
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
+task_executor = { path = "../common/task_executor" }
 types = { path = "../consensus/types" }
 safe_arith = { path = "../consensus/safe_arith" }
 serde = "1.0.116"
