@@ -39,7 +39,7 @@ use types::{
     Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
-    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeSignature, VariableList,
+    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeMessage, VariableList,
     VoluntaryExit,
 };
 
@@ -89,7 +89,7 @@ pub enum AttestationStrategy {
 }
 
 /// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
-/// `state.next_sync_committee` when creating sync signatures or contributions.
+/// `state.next_sync_committee` when creating sync messages or contributions.
 #[derive(Clone, Debug)]
 pub enum RelativeSyncCommittee {
     Current,
@@ -165,7 +165,7 @@ pub type HarnessAttestations<E> = Vec<(
 )>;
 
 pub type HarnessSyncContributions<E> = Vec<(
-    Vec<(SyncCommitteeSignature, usize)>,
+    Vec<(SyncCommitteeMessage, usize)>,
     Option<SignedContributionAndProof<E>>,
 )>;
 
@@ -610,14 +610,14 @@ where
             .collect()
     }
 
-    /// A list of sync signatures for the given state.
-    pub fn make_sync_signatures(
+    /// A list of sync messages for the given state.
+    pub fn make_sync_committee_messages(
         &self,
         state: &BeaconState<E>,
         head_block_root: Hash256,
         signature_slot: Slot,
         relative_sync_committee: RelativeSyncCommittee,
-    ) -> Vec<Vec<(SyncCommitteeSignature, usize)>> {
+    ) -> Vec<Vec<(SyncCommitteeMessage, usize)>> {
         let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
             RelativeSyncCommittee::Current => state
                 .current_sync_committee()
@@ -644,7 +644,7 @@ where
                             .expect("should find validator index")
                             .expect("pubkey should exist in the beacon chain");
 
-                        let sync_signature = SyncCommitteeSignature::new::<E>(
+                        let sync_message = SyncCommitteeMessage::new::<E>(
                             signature_slot,
                             head_block_root,
                             validator_index as u64,
@@ -654,7 +654,7 @@ where
                             &self.spec,
                         );
 
-                        (sync_signature, subcommittee_position)
+                        (sync_message, subcommittee_position)
                     })
                     .collect()
             })
@@ -784,15 +784,15 @@ where
         slot: Slot,
         relative_sync_committee: RelativeSyncCommittee,
     ) -> HarnessSyncContributions<E> {
-        let sync_signatures =
-            self.make_sync_signatures(&state, block_hash, slot, relative_sync_committee);
+        let sync_messages =
+            self.make_sync_committee_messages(&state, block_hash, slot, relative_sync_committee);
 
-        let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_signatures
+        let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_messages
             .iter()
             .enumerate()
             .map(|(subnet_id, committee_signatures)| {
-                // If there are any sync signatures in this committee, create an aggregate.
-                if let Some((sync_signature, subcommittee_position)) = committee_signatures.first() {
+                // If there are any sync messages in this committee, create an aggregate.
+                if let Some((sync_message, subcommittee_position)) = committee_signatures.first() {
                     let sync_committee: Arc<SyncCommittee<E>> = state.current_sync_committee()
                         .expect("should be called on altair beacon state").clone();
 
@@ -820,7 +820,7 @@ where
                             subnet_id, slot, committee_signatures.len()
                         ));
 
-                    let default = SyncCommitteeContribution::from_signature(&sync_signature, subnet_id as u64, *subcommittee_position)
+                    let default = SyncCommitteeContribution::from_signature(&sync_message, subnet_id as u64, *subcommittee_position)
                         .expect("should derive sync contribution");
 
                     let aggregate =
@@ -850,10 +850,7 @@ where
                 }
             }).collect();
 
-        sync_signatures
-            .into_iter()
-            .zip(sync_contributions)
-            .collect()
+        sync_messages.into_iter().zip(sync_contributions).collect()
     }
 
     pub fn make_attester_slashing(&self, validator_indices: Vec<u64>) -> AttesterSlashing<E> {

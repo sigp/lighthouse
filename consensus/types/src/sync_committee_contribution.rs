@@ -1,6 +1,6 @@
 use super::{AggregateSignature, EthSpec, SignedRoot};
 use crate::slot_data::SlotData;
-use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeSignature};
+use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -14,7 +14,7 @@ pub enum Error {
     SubnetCountIsZero(ArithError),
 }
 
-/// An aggregation of `SyncCommitteeSignature`s, used in creating a `SignedContributionAndProof`.
+/// An aggregation of `SyncCommitteeMessage`s, used in creating a `SignedContributionAndProof`.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "T: EthSpec")]
@@ -29,13 +29,13 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
 impl<T: EthSpec> SyncCommitteeContribution<T> {
     /// Create a `SyncCommitteeContribution` from:
     ///
-    /// - `signature`: A single `SyncCommitteeSignature`.
+    /// - `signature`: A single `SyncCommitteeMessage`.
     /// - `subcommittee_index`: The subcommittee this contribution pertains to out of the broader
     ///     sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
     ///     this signature was seen on.
     /// - `validator_sync_committee_index`: The index of the validator **within** the subcommittee.
     pub fn from_signature(
-        signature: &SyncCommitteeSignature,
+        signature: &SyncCommitteeMessage,
         subcommittee_index: u64,
         validator_sync_committee_index: usize,
     ) -> Result<Self, Error> {

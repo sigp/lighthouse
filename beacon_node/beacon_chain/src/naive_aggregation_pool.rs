@@ -476,7 +476,7 @@ mod tests {
     use store::BitVector;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
-        Fork, Hash256, SyncCommitteeSignature,
+        Fork, Hash256, SyncCommitteeMessage,
     };
 
     type E = types::MainnetEthSpec;
@@ -511,7 +511,7 @@ mod tests {
         i: usize,
         genesis_validators_root: Hash256,
     ) {
-        let sync_signature = SyncCommitteeSignature::new::<E>(
+        let sync_message = SyncCommitteeMessage::new::<E>(
             a.slot,
             a.beacon_block_root,
             i as u64,
@@ -521,7 +521,7 @@ mod tests {
             &E::default_spec(),
         );
         let signed_contribution: SyncCommitteeContribution<E> =
-            SyncCommitteeContribution::from_signature(&sync_signature, a.subcommittee_index, i)
+            SyncCommitteeContribution::from_signature(&sync_message, a.subcommittee_index, i)
                 .unwrap();
 
         a.aggregate(&signed_contribution);

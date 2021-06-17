@@ -31,7 +31,7 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::sync_committee_verification::{
-    Error as SyncCommitteeError, VerifiedSyncContribution, VerifiedSyncSignature,
+    Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
@@ -245,7 +245,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
-    /// Maintains a record of which validators have been seen sending sync signatures in recent epochs.
+    /// Maintains a record of which validators have been seen sending sync messages in recent epochs.
     pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
@@ -1202,18 +1202,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Accepts some `SyncCommitteeSignature` from the network and attempts to verify it, returning `Ok(_)` if
+    /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
     /// it is valid to be (re)broadcast on the gossip network.
-    pub fn verify_sync_signature_for_gossip(
+    pub fn verify_sync_committee_message_for_gossip(
         &self,
-        sync_signature: SyncCommitteeSignature,
+        sync_message: SyncCommitteeMessage,
         subnet_id: SyncSubnetId,
-    ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
-        metrics::inc_counter(&metrics::SYNC_SIGNATURE_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::SYNC_SIGNATURE_GOSSIP_VERIFICATION_TIMES);
+    ) -> Result<VerifiedSyncCommitteeMessage, SyncCommitteeError> {
+        metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedSyncSignature::verify(sync_signature, subnet_id, self).map(|v| {
-            metrics::inc_counter(&metrics::SYNC_SIGNATURE_PROCESSING_SUCCESSES);
+        VerifiedSyncCommitteeMessage::verify(sync_message, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_SUCCESSES);
             v
         })
     }
@@ -1301,27 +1301,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(unaggregated_attestation)
     }
 
-    /// Accepts a `VerifiedSyncSignature` and attempts to apply it to the "naive
+    /// Accepts a `VerifiedSyncCommitteeMessage` and attempts to apply it to the "naive
     /// aggregation pool".
     ///
     /// The naive aggregation pool is used by local validators to produce
     /// `SignedContributionAndProof`.
     ///
-    /// If the sync signature is too old (low slot) to be included in the pool it is simply dropped
+    /// If the sync message is too old (low slot) to be included in the pool it is simply dropped
     /// and no error is returned.
     pub fn add_to_naive_sync_aggregation_pool(
         &self,
-        verified_sync_signature: VerifiedSyncSignature,
-    ) -> Result<VerifiedSyncSignature, SyncCommitteeError> {
-        let sync_signature = verified_sync_signature.sync_signature();
+        verified_sync_committee_message: VerifiedSyncCommitteeMessage,
+    ) -> Result<VerifiedSyncCommitteeMessage, SyncCommitteeError> {
+        let sync_message = verified_sync_committee_message.sync_message();
         let positions_by_subnet_id: &HashMap<SyncSubnetId, Vec<usize>> =
-            verified_sync_signature.subnet_positions();
+            verified_sync_committee_message.subnet_positions();
         for (subnet_id, positions) in positions_by_subnet_id.iter() {
             for position in positions {
                 let _timer =
                     metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_AGG_POOL);
                 let contribution = SyncCommitteeContribution::from_signature(
-                    sync_signature,
+                    sync_message,
                     subnet_id.into(),
                     *position,
                 )?;
@@ -1333,10 +1333,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     Ok(outcome) => trace!(
                         self.log,
-                        "Stored unaggregated sync committee signature";
+                        "Stored unaggregated sync committee message";
                         "outcome" => ?outcome,
-                        "index" => sync_signature.validator_index,
-                        "slot" => sync_signature.slot.as_u64(),
+                        "index" => sync_message.validator_index,
+                        "slot" => sync_message.slot.as_u64(),
                     ),
                     Err(NaiveAggregationError::SlotTooLow {
                         slot,
@@ -1344,7 +1344,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }) => {
                         trace!(
                             self.log,
-                            "Refused to store unaggregated sync committee signature";
+                            "Refused to store unaggregated sync committee message";
                             "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
                             "slot" => slot.as_u64(),
                         );
@@ -1352,17 +1352,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Err(e) => {
                         error!(
                                 self.log,
-                                "Failed to store unaggregated sync committee signature";
+                                "Failed to store unaggregated sync committee message";
                                 "error" => ?e,
-                                "index" => sync_signature.validator_index,
-                                "slot" => sync_signature.slot.as_u64(),
+                                "index" => sync_message.validator_index,
+                                "slot" => sync_message.slot.as_u64(),
                         );
                         return Err(Error::from(e).into());
                     }
                 };
             }
         }
-        Ok(verified_sync_signature)
+        Ok(verified_sync_committee_message)
     }
 
     /// Accepts a `VerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.

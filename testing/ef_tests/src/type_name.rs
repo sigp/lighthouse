@@ -69,7 +69,7 @@ type_name_generic!(SignedContributionAndProof);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);
 type_name_generic!(SyncCommitteeContribution);
-type_name!(SyncCommitteeSignature);
+type_name!(SyncCommitteeMessage);
 type_name!(SyncAggregatorSelectionData);
 type_name_generic!(SyncAggregate);
 type_name_generic!(SyncCommittee);

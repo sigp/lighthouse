@@ -250,13 +250,13 @@ mod ssz_static {
     }
 
     #[test]
-    fn sync_committee_signature() {
-        SszStaticHandler::<SyncCommitteeSignature, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<SyncCommitteeSignature, MainnetEthSpec>::altair_only().run();
+    fn sync_committee_message() {
+        SszStaticHandler::<SyncCommitteeMessage, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeMessage, MainnetEthSpec>::altair_only().run();
     }
 
     #[test]
-    fn sync_committee_signing_data() {
+    fn sync_aggregator_selection_data() {
         SszStaticHandler::<SyncAggregatorSelectionData, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncAggregatorSelectionData, MainnetEthSpec>::altair_only().run();
     }

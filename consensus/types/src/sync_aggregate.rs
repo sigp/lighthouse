@@ -24,7 +24,7 @@ impl From<ArithError> for Error {
 #[serde(bound = "T: EthSpec")]
 pub struct SyncAggregate<T: EthSpec> {
     pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,
-    pub sync_committee_signature: AggregateSignature,
+    pub sync_committee_message: AggregateSignature,
 }
 
 impl<T: EthSpec> SyncAggregate<T> {
@@ -33,7 +33,7 @@ impl<T: EthSpec> SyncAggregate<T> {
     pub fn new() -> Self {
         Self {
             sync_committee_bits: BitVector::default(),
-            sync_committee_signature: AggregateSignature::infinity(),
+            sync_committee_message: AggregateSignature::infinity(),
         }
     }
 
@@ -59,7 +59,7 @@ impl<T: EthSpec> SyncAggregate<T> {
                 }
             }
             sync_aggregate
-                .sync_committee_signature
+                .sync_committee_message
                 .add_assign_aggregate(&contribution.signature);
         }
         Ok(sync_aggregate)
@@ -72,7 +72,7 @@ impl<T: EthSpec> SyncAggregate<T> {
     pub fn empty() -> Self {
         Self {
             sync_committee_bits: BitVector::default(),
-            sync_committee_signature: AggregateSignature::empty(),
+            sync_committee_message: AggregateSignature::empty(),
         }
     }
 }
