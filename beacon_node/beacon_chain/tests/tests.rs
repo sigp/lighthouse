@@ -154,7 +154,7 @@ fn find_reorgs() {
     );
 
     let head_state = harness.chain.head_beacon_state().unwrap();
-    let head_slot = head_state.slot;
+    let head_slot = head_state.slot();
     let genesis_state = harness
         .chain
         .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
@@ -168,7 +168,7 @@ fn find_reorgs() {
             .find_reorg_slot(&genesis_state, harness.chain.genesis_block_root)
             .unwrap(),
         head_state
-            .finalized_checkpoint
+            .finalized_checkpoint()
             .epoch
             .start_slot(MinimalEthSpec::slots_per_epoch())
     );
