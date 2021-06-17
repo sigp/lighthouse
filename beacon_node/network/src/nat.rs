@@ -83,7 +83,7 @@ pub fn construct_upnp_mappings<T: EthSpec>(
                         "tcp",
                         &log,
                     ).and_then(|_| {
-                        let external_socket = external_ip.as_ref().map(|ip| SocketAddr::new(ip.clone().into(), config.tcp_port)).map_err(|_| ());
+                        let external_socket = external_ip.as_ref().map(|ip| SocketAddr::new((*ip).into(), config.tcp_port)).map_err(|_| ());
                         info!(log, "UPnP TCP route established"; "external_socket" => format!("{}:{}", external_socket.as_ref().map(|ip| ip.to_string()).unwrap_or_else(|_| "".into()), config.tcp_port));
                         external_socket
                     }).ok();

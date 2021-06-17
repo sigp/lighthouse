@@ -587,7 +587,7 @@ where
                 match std::mem::replace(&mut info.state, InboundState::Poisoned) {
                     InboundState::Idle(substream) if !deactivated => {
                         if !info.pending_items.is_empty() {
-                            let to_send = std::mem::replace(&mut info.pending_items, vec![]);
+                            let to_send = std::mem::take(&mut info.pending_items);
                             let fut = process_inbound_substream(
                                 substream,
                                 info.remaining_chunks,
@@ -665,8 +665,7 @@ where
                                 // elements
 
                                 if !deactivated && !info.pending_items.is_empty() {
-                                    let to_send =
-                                        std::mem::replace(&mut info.pending_items, vec![]);
+                                    let to_send = std::mem::take(&mut info.pending_items);
                                     let fut = process_inbound_substream(
                                         substream,
                                         info.remaining_chunks,

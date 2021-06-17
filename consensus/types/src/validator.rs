@@ -93,10 +93,10 @@ mod tests {
 
         let epoch = Epoch::new(0);
 
-        assert_eq!(v.is_active_at(epoch), false);
-        assert_eq!(v.is_exited_at(epoch), false);
-        assert_eq!(v.is_withdrawable_at(epoch), false);
-        assert_eq!(v.slashed, false);
+        assert!(!v.is_active_at(epoch));
+        assert!(!v.is_exited_at(epoch));
+        assert!(!v.is_withdrawable_at(epoch));
+        assert!(!v.slashed);
     }
 
     #[test]
@@ -108,9 +108,9 @@ mod tests {
             ..Validator::default()
         };
 
-        assert_eq!(v.is_active_at(epoch - 1), false);
-        assert_eq!(v.is_active_at(epoch), true);
-        assert_eq!(v.is_active_at(epoch + 1), true);
+        assert!(!v.is_active_at(epoch - 1));
+        assert!(v.is_active_at(epoch));
+        assert!(v.is_active_at(epoch + 1));
     }
 
     #[test]
@@ -122,9 +122,9 @@ mod tests {
             ..Validator::default()
         };
 
-        assert_eq!(v.is_exited_at(epoch - 1), false);
-        assert_eq!(v.is_exited_at(epoch), true);
-        assert_eq!(v.is_exited_at(epoch + 1), true);
+        assert!(!v.is_exited_at(epoch - 1));
+        assert!(v.is_exited_at(epoch));
+        assert!(v.is_exited_at(epoch + 1));
     }
 
     #[test]
@@ -136,9 +136,9 @@ mod tests {
             ..Validator::default()
         };
 
-        assert_eq!(v.is_withdrawable_at(epoch - 1), false);
-        assert_eq!(v.is_withdrawable_at(epoch), true);
-        assert_eq!(v.is_withdrawable_at(epoch + 1), true);
+        assert!(!v.is_withdrawable_at(epoch - 1));
+        assert!(v.is_withdrawable_at(epoch));
+        assert!(v.is_withdrawable_at(epoch + 1));
     }
 
     ssz_and_tree_hash_tests!(Validator);
