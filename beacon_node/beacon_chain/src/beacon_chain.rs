@@ -468,7 +468,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let old_block_root = snapshot.beacon_block_root;
 
             // The earliest slot for which the two chains may have a common history.
-            let lowest_slot = std::cmp::min(new_state.slot, old_state.slot);
+            let lowest_slot = std::cmp::min(new_state.slot(), old_state.slot());
 
             // Create an iterator across `$state`, assuming that the block at `$state.slot` has the
             // block root of `$block_root`.
@@ -479,7 +479,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // in all the iterator wrapping.
             macro_rules! aligned_roots_iter {
                 ($state: ident, $block_root: ident) => {
-                    std::iter::once(Ok(($state.slot, $block_root)))
+                    std::iter::once(Ok(($state.slot(), $block_root)))
                         .chain($state.rev_iter_block_roots(&self.spec))
                         .skip_while(|result| {
                             result
@@ -520,7 +520,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // We provide this potentially-inaccurate-but-safe information to avoid onerous
             // database reads during times of deep reorgs.
             Ok(old_state
-                .finalized_checkpoint
+                .finalized_checkpoint()
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()))
         })
