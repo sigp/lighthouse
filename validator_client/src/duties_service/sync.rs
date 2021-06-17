@@ -198,6 +198,14 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
         .ok_or(Error::UnableToReadSlotClock)?
         .epoch(E::slots_per_epoch());
 
+    // If the Altair fork is yet to be activated, do not attempt to poll for duties.
+    if spec
+        .altair_fork_epoch
+        .map_or(true, |altair_epoch| current_epoch < altair_epoch)
+    {
+        return Ok(());
+    }
+
     let current_sync_committee_period = current_epoch.sync_committee_period(spec)?;
     let next_sync_committee_period = current_sync_committee_period + 1;
 

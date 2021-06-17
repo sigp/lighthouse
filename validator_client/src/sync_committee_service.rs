@@ -64,6 +64,20 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         }
     }
 
+    /// Check if the Altair fork has been activated and therefore sync duties should be performed.
+    ///
+    /// Slot clock errors are mapped to `false`.
+    fn altair_fork_activated(&self) -> bool {
+        self.duties_service
+            .spec
+            .altair_fork_epoch
+            .and_then(|fork_epoch| {
+                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
+                Some(current_epoch >= fork_epoch)
+            })
+            .unwrap_or(false)
+    }
+
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
@@ -86,6 +100,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
                     let log = self.context.log();
                     sleep(duration_to_next_slot + slot_duration / 3).await;
+
+                    // Do nothing if the Altair fork has not yet occurred.
+                    if !self.altair_fork_activated() {
+                        continue;
+                    }
 
                     if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
                         crit!(
