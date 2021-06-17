@@ -660,7 +660,7 @@ lazy_static! {
 // Fourth lazy-static block is used to account for macro recursion limit.
 lazy_static! {
     /*
-     * Sync Committee Signature Verification
+     * Sync Committee Message Verification
      */
     pub static ref SYNC_MESSAGE_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_sync_committee_message_processing_requests_total",
@@ -730,6 +730,10 @@ lazy_static! {
         "beacon_sync_contribution_processing_signature_seconds",
         "Time spent on the signature verification of sync contribution processing"
     );
+
+        /*
+     * General Sync Committee Contribution Processing
+     */
     pub static ref SYNC_MESSAGE_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_sync_committee_message_processing_signature_setup_seconds",
         "Time spent on setting up for the signature verification of sync message processing"

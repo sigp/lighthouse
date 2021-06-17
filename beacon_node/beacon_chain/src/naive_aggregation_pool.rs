@@ -521,7 +521,7 @@ mod tests {
             &E::default_spec(),
         );
         let signed_contribution: SyncCommitteeContribution<E> =
-            SyncCommitteeContribution::from_signature(&sync_message, a.subcommittee_index, i)
+            SyncCommitteeContribution::from_message(&sync_message, a.subcommittee_index, i)
                 .unwrap();
 
         a.aggregate(&signed_contribution);

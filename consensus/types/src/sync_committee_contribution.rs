@@ -29,13 +29,13 @@ pub struct SyncCommitteeContribution<T: EthSpec> {
 impl<T: EthSpec> SyncCommitteeContribution<T> {
     /// Create a `SyncCommitteeContribution` from:
     ///
-    /// - `signature`: A single `SyncCommitteeMessage`.
+    /// - `message`: A single `SyncCommitteeMessage`.
     /// - `subcommittee_index`: The subcommittee this contribution pertains to out of the broader
     ///     sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
-    ///     this signature was seen on.
+    ///     this message was seen on.
     /// - `validator_sync_committee_index`: The index of the validator **within** the subcommittee.
-    pub fn from_signature(
-        signature: &SyncCommitteeMessage,
+    pub fn from_message(
+        message: &SyncCommitteeMessage,
         subcommittee_index: u64,
         validator_sync_committee_index: usize,
     ) -> Result<Self, Error> {
@@ -43,11 +43,11 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
         bits.set(validator_sync_committee_index, true)
             .map_err(Error::SszTypesError)?;
         Ok(Self {
-            slot: signature.slot,
-            beacon_block_root: signature.beacon_block_root,
+            slot: message.slot,
+            beacon_block_root: message.beacon_block_root,
             subcommittee_index,
             aggregation_bits: bits,
-            signature: AggregateSignature::from(&signature.signature),
+            signature: AggregateSignature::from(&message.signature),
         })
     }
 

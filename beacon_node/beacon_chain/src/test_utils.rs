@@ -615,7 +615,7 @@ where
         &self,
         state: &BeaconState<E>,
         head_block_root: Hash256,
-        signature_slot: Slot,
+        message_slot: Slot,
         relative_sync_committee: RelativeSyncCommittee,
     ) -> Vec<Vec<(SyncCommitteeMessage, usize)>> {
         let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
@@ -645,7 +645,7 @@ where
                             .expect("pubkey should exist in the beacon chain");
 
                         let sync_message = SyncCommitteeMessage::new::<E>(
-                            signature_slot,
+                            message_slot,
                             head_block_root,
                             validator_index as u64,
                             &self.validator_keypairs[validator_index].sk,
@@ -790,9 +790,9 @@ where
         let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_messages
             .iter()
             .enumerate()
-            .map(|(subnet_id, committee_signatures)| {
+            .map(|(subnet_id, committee_messages)| {
                 // If there are any sync messages in this committee, create an aggregate.
-                if let Some((sync_message, subcommittee_position)) = committee_signatures.first() {
+                if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
                     let sync_committee: Arc<SyncCommittee<E>> = state.current_sync_committee()
                         .expect("should be called on altair beacon state").clone();
 
@@ -817,17 +817,17 @@ where
                         })
                         .unwrap_or_else(|| panic!(
                             "Committee {} at slot {} with {} signing validators does not have any aggregators",
-                            subnet_id, slot, committee_signatures.len()
+                            subnet_id, slot, committee_messages.len()
                         ));
 
-                    let default = SyncCommitteeContribution::from_signature(&sync_message, subnet_id as u64, *subcommittee_position)
+                    let default = SyncCommitteeContribution::from_message(&sync_message, subnet_id as u64, *subcommittee_position)
                         .expect("should derive sync contribution");
 
                     let aggregate =
-                            committee_signatures.iter().skip(1)
+                            committee_messages.iter().skip(1)
                                 .fold(default, |mut agg, (sig, position)| {
                                     let contribution =
-                                        SyncCommitteeContribution::from_signature(sig, subnet_id as u64, *position)
+                                        SyncCommitteeContribution::from_message(sig, subnet_id as u64, *position)
                                         .expect("should derive sync contribution");
                                     agg.aggregate(&contribution);
                                     agg

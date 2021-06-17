@@ -1391,7 +1391,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for position in positions {
                 let _timer =
                     metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_AGG_POOL);
-                let contribution = SyncCommitteeContribution::from_signature(
+                let contribution = SyncCommitteeContribution::from_message(
                     sync_message,
                     subnet_id.into(),
                     *position,

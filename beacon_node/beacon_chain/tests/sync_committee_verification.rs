@@ -215,8 +215,8 @@ fn aggregated_gossip_verification() {
             a.message.contribution.slot = future_slot;
             a
         },
-        SyncCommitteeError::FutureSlot { signature_slot, latest_permissible_slot }
-        if signature_slot == future_slot && latest_permissible_slot == current_slot
+        SyncCommitteeError::FutureSlot { message_slot, latest_permissible_slot }
+        if message_slot == future_slot && latest_permissible_slot == current_slot
     );
 
     let early_slot = current_slot
@@ -234,11 +234,11 @@ fn aggregated_gossip_verification() {
             a
         },
         SyncCommitteeError::PastSlot {
-            signature_slot,
+            message_slot,
 
             earliest_permissible_slot
         }
-        if signature_slot == early_slot
+        if message_slot == early_slot
             && earliest_permissible_slot == current_slot - 1
     );
 
@@ -586,10 +586,10 @@ fn unaggregated_gossip_verification() {
         },
         subnet_id,
         SyncCommitteeError::FutureSlot {
-            signature_slot,
+            message_slot,
             latest_permissible_slot,
         }
-        if signature_slot == future_slot && latest_permissible_slot == current_slot
+        if message_slot == future_slot && latest_permissible_slot == current_slot
     );
 
     // Subtract an additional slot since the harness will be exactly on the start of the
@@ -608,11 +608,11 @@ fn unaggregated_gossip_verification() {
         },
         subnet_id,
         SyncCommitteeError::PastSlot {
-            signature_slot,
+            message_slot,
 
             earliest_permissible_slot,
         }
-        if signature_slot == early_slot && earliest_permissible_slot == current_slot - 1
+        if message_slot == early_slot && earliest_permissible_slot == current_slot - 1
     );
 
     /*

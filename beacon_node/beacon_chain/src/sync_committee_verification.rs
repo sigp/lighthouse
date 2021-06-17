@@ -76,7 +76,7 @@ pub enum Error {
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureSlot {
-        signature_slot: Slot,
+        message_slot: Slot,
         latest_permissible_slot: Slot,
     },
     /// The sync committee message is from a slot that is prior to the earliest permissible slot (with
@@ -86,7 +86,7 @@ pub enum Error {
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     PastSlot {
-        signature_slot: Slot,
+        message_slot: Slot,
         earliest_permissible_slot: Slot,
     },
     /// The sync committee message's aggregation bits were empty when they shouldn't be.
@@ -568,15 +568,15 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
     chain: &BeaconChain<T>,
     sync_contribution: &U,
 ) -> Result<(), Error> {
-    let signature_slot = sync_contribution.get_slot();
+    let message_slot = sync_contribution.get_slot();
 
     let latest_permissible_slot = chain
         .slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if signature_slot > latest_permissible_slot {
+    if message_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
-            signature_slot,
+            message_slot,
             latest_permissible_slot,
         });
     }
@@ -586,9 +586,9 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
 
-    if signature_slot < earliest_permissible_slot {
+    if message_slot < earliest_permissible_slot {
         return Err(Error::PastSlot {
-            signature_slot,
+            message_slot,
             earliest_permissible_slot,
         });
     }
