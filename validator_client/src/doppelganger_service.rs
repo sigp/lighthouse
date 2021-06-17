@@ -4,6 +4,7 @@ use environment::RuntimeContext;
 use slog::{crit, error, info};
 use slot_clock::SlotClock;
 use std::sync::Arc;
+use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec};
 
@@ -121,7 +122,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                                 .context
                                 .executor
                                 .shutdown_sender()
-                                .try_send("Doppelganger detected.")
+                                .try_send(ShutdownReason::Failure("Doppelganger detected."))
                                 .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
                         }
                     }

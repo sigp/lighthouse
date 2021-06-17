@@ -7187,6 +7187,7 @@ dependencies = [
  "slog-async",
  "slog-term",
  "slot_clock",
+ "task_executor",
  "tempfile",
  "tokio 1.5.0",
  "tree_hash",
