@@ -71,8 +71,9 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    doppelganger_service: Option<DoppelgangerService<T>>,
+    doppelganger_service: Option<DoppelgangerService>,
     fork_service: ForkService<T, E>,
+    slot_clock: T,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
@@ -93,6 +94,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             temp_dir: None,
             doppelganger_service: None,
+            slot_clock: fork_service.slot_clock(),
             fork_service,
         }
     }
@@ -101,7 +103,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// operating on the network at the same time.
     pub fn attach_doppelganger_service(
         &mut self,
-        service: DoppelgangerService<T>,
+        service: DoppelgangerService,
     ) -> Result<(), String> {
         if self.doppelganger_service.is_some() {
             return Err("Cannot attach doppelganger service twice".to_string());
@@ -109,7 +111,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Ensure all existing validators are registered with the service.
         for pubkey in self.validators.read().iter_voting_pubkeys() {
-            service.register_new_validator::<E>(*pubkey)?
+            service.register_new_validator::<E, _>(*pubkey, &self.slot_clock)?
         }
 
         self.doppelganger_service = Some(service);
@@ -119,10 +121,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
         self.validators.clone()
-    }
-
-    pub fn slot_clock(&self) -> T {
-        self.fork_service.slot_clock()
     }
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
@@ -156,7 +154,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_def.enabled = enable;
 
         if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
-            doppelganger_service.register_new_validator::<E>(validator_pubkey)?;
+            doppelganger_service
+                .register_new_validator::<E, _>(validator_pubkey, &self.slot_clock)?;
         }
 
         self.validators

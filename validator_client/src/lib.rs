@@ -71,7 +71,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    doppelganger_service: Option<DoppelgangerService<SystemTimeSlotClock>>,
+    doppelganger_service: Option<DoppelgangerService>,
     validator_store: ValidatorStore<SystemTimeSlotClock, T>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
@@ -358,7 +358,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             None
         } else {
             let service = DoppelgangerService::new(
-                slot_clock.clone(),
                 context
                     .service_context(DOPPELGANGER_SERVICE_NAME.into())
                     .log()
@@ -417,6 +416,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         .service_context(DOPPELGANGER_SERVICE_NAME.into()),
                     self.validator_store.clone(),
                     self.duties_service.beacon_nodes.clone(),
+                    self.duties_service.slot_clock.clone(),
                 )
                 .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
         } else {

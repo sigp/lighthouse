@@ -221,26 +221,25 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 }
 
 #[derive(Clone)]
-pub struct DoppelgangerService<T> {
-    slot_clock: T,
+pub struct DoppelgangerService {
     doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>>,
     log: Logger,
 }
 
-impl<T: 'static + SlotClock> DoppelgangerService<T> {
-    pub fn new(slot_clock: T, log: Logger) -> Self {
+impl DoppelgangerService {
+    pub fn new(log: Logger) -> Self {
         Self {
-            slot_clock,
             doppelganger_states: <_>::default(),
             log,
         }
     }
 
-    pub fn start_update_service<E: EthSpec>(
+    pub fn start_update_service<E: EthSpec, T: 'static + SlotClock>(
         self,
         context: RuntimeContext<E>,
         validator_store: ValidatorStore<T, E>,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+        slot_clock: T,
     ) -> Result<(), String> {
         // Define the `get_index` function as one that uses the validator store.
         let get_index = move |pubkey| validator_store.validator_index(&pubkey);
@@ -282,11 +281,9 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
         context.executor.spawn(
             async move {
                 loop {
-                    let slot_duration = doppelganger_service.slot_clock.slot_duration();
+                    let slot_duration = slot_clock.slot_duration();
 
-                    if let Some(duration_to_next_slot) =
-                        doppelganger_service.slot_clock.duration_to_next_slot()
-                    {
+                    if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
                         // Run the doppelganger protection check 75% through each epoch. This
                         // *should* mean that the BN has seen the blocks and attestations for this
                         // slot.
@@ -298,7 +295,7 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
                         continue;
                     }
 
-                    if let Some(slot) = doppelganger_service.slot_clock.now() {
+                    if let Some(slot) = slot_clock.now() {
                         if let Err(e) = doppelganger_service
                             .detect_doppelgangers::<E, _, _, _, _>(
                                 slot,
@@ -349,16 +346,16 @@ impl<T: 'static + SlotClock> DoppelgangerService<T> {
     ///
     /// Validators added during the genesis epoch will not have doppelganger protection applied to
     /// them.
-    pub fn register_new_validator<E: EthSpec>(
+    pub fn register_new_validator<E: EthSpec, T: SlotClock>(
         &self,
         validator: PublicKeyBytes,
+        slot_clock: &T,
     ) -> Result<(), String> {
-        let current_epoch = self
-            .slot_clock
+        let current_epoch = slot_clock
             .now()
             .ok_or_else(|| "Unable to read slot clock when registering validator".to_string())?
             .epoch(E::slots_per_epoch());
-        let genesis_epoch = self.slot_clock.genesis_slot().epoch(E::slots_per_epoch());
+        let genesis_epoch = slot_clock.genesis_slot().epoch(E::slots_per_epoch());
 
         let remaining_epochs = if current_epoch <= genesis_epoch {
             // Disable doppelganger protection when the validator was initialized before genesis.
@@ -702,14 +699,16 @@ mod test {
                 validators: (0..self.validator_count)
                     .map(|_| PublicKeyBytes::random_for_test(&mut rng))
                     .collect(),
-                doppelganger: DoppelgangerService::new(slot_clock, log),
+                doppelganger: DoppelgangerService::new(log),
+                slot_clock,
             }
         }
     }
 
     struct TestScenario {
         validators: Vec<PublicKeyBytes>,
-        doppelganger: DoppelgangerService<TestingSlotClock>,
+        doppelganger: DoppelgangerService,
+        slot_clock: TestingSlotClock,
     }
 
     impl TestScenario {
@@ -722,7 +721,7 @@ mod test {
         }
 
         pub fn set_slot(self, slot: Slot) -> Self {
-            self.doppelganger.slot_clock.set_slot(slot.into());
+            self.slot_clock.set_slot(slot.into());
             self
         }
 
@@ -749,7 +748,7 @@ mod test {
                 .expect("index should exist");
 
             self.doppelganger
-                .register_new_validator::<E>(pubkey)
+                .register_new_validator::<E, _>(pubkey, &self.slot_clock)
                 .unwrap();
             self.doppelganger
                 .doppelganger_states
