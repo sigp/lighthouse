@@ -60,6 +60,7 @@ struct ApiTester {
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: SignedBeaconBlock<E>,
+    reorg_block: SignedBeaconBlock<E>,
     attestations: Vec<Attestation<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
@@ -103,6 +104,10 @@ impl ApiTester {
         );
 
         let (next_block, _next_state) =
+            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+
+        // `make_block` adds random graffiti, so this will produce an alternate block
+        let (reorg_block, _reorg_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
         let head_state_root = head.beacon_state_root();
@@ -213,6 +218,7 @@ impl ApiTester {
             chain,
             client,
             next_block,
+            reorg_block,
             attestations,
             attester_slashing,
             proposer_slashing,
@@ -236,6 +242,10 @@ impl ApiTester {
         let head = harness.chain.head().unwrap();
 
         let (next_block, _next_state) =
+            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+
+        // `make_block` adds random graffiti, so this will produce an alternate block
+        let (reorg_block, _reorg_state) =
             harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
 
         let head_state_root = head.beacon_state_root();
@@ -320,6 +330,7 @@ impl ApiTester {
             chain,
             client,
             next_block,
+            reorg_block,
             attestations,
             attester_slashing,
             proposer_slashing,
@@ -2232,6 +2243,36 @@ impl ApiTester {
             block_events.as_slice(),
             &[expected_block, expected_finalized, expected_head]
         );
+
+        // Test a reorg event
+        let mut chain_reorg_event_future = self
+            .client
+            .get_events::<E>(&[EventTopic::ChainReorg])
+            .await
+            .unwrap();
+
+        let expected_reorg = EventKind::ChainReorg(SseChainReorg {
+            slot: self.next_block.slot(),
+            depth: 1,
+            old_head_block: self.next_block.canonical_root(),
+            old_head_state: self.next_block.state_root(),
+            new_head_block: self.reorg_block.canonical_root(),
+            new_head_state: self.reorg_block.state_root(),
+            epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
+        });
+
+        self.client
+            .post_beacon_blocks(&self.reorg_block)
+            .await
+            .unwrap();
+
+        let reorg_event = poll_events(
+            &mut chain_reorg_event_future,
+            1,
+            Duration::from_millis(10000),
+        )
+        .await;
+        assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
 
         self
     }

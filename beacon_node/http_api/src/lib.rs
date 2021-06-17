@@ -2153,6 +2153,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::FinalizedCheckpoint => {
                                     event_handler.subscribe_finalized()
                                 }
+                                api_types::EventTopic::ChainReorg => {
+                                    event_handler.subscribe_reorgs()
+                                }
                             };
 
                             receivers.push(BroadcastStream::new(receiver).map(|msg| {
