@@ -234,6 +234,8 @@ impl DoppelgangerService {
         }
     }
 
+    /// Starts a reoccurring future which will try to keep the doppelganger service updated each
+    /// slot.
     pub fn start_update_service<E: EthSpec, T: 'static + SlotClock>(
         self,
         context: RuntimeContext<E>,
