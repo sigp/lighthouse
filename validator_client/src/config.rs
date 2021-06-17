@@ -43,6 +43,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for sending metrics to a remote explorer endpoint.
+    pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, disable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub disable_doppelganger_detection: bool,
@@ -73,6 +75,7 @@ impl Default for Config {
             graffiti_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            monitoring_api: None,
             disable_doppelganger_detection: false,
         }
     }
@@ -236,6 +239,16 @@ impl Config {
                 .map_err(|_| "Invalid allow-origin value")?;
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
+        }
+        /*
+         * Explorer metrics
+         */
+        if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            config.monitoring_api = Some(monitoring_api::Config {
+                db_path: None,
+                freezer_db_path: None,
+                monitoring_endpoint: monitoring_endpoint.to_string(),
+            });
         }
 
         if cli_args.is_present("disable-doppelganger-detection") {

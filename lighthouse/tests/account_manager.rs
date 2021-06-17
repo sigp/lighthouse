@@ -1,9 +1,8 @@
-#![cfg(not(debug_assertions))]
-
 use account_manager::{
     validator::{
         create::*,
         import::{self, CMD as IMPORT_CMD},
+        modify::{ALL, CMD as MODIFY_CMD, DISABLE, ENABLE, PUBKEY_FLAG},
         CMD as VALIDATOR_CMD,
     },
     wallet::{
@@ -35,8 +34,8 @@ use validator_dir::ValidatorDir;
 
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
-    let target_dir = env!("CARGO_BIN_EXE_lighthouse");
-    let path = target_dir
+    let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
+    let path = lighthouse_bin
         .parse::<PathBuf>()
         .expect("should parse CARGO_TARGET_DIR");
 
@@ -477,10 +476,21 @@ fn validator_import_launchpad() {
     // Validator should be registered with slashing protection.
     check_slashing_protection(&dst_dir, std::iter::once(keystore.public_key().unwrap()));
 
+    // Disable all the validators in validator_definition.
+    output_result(
+        validator_cmd()
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
+            .arg(MODIFY_CMD)
+            .arg(DISABLE)
+            .arg(format!("--{}", ALL)),
+    )
+    .unwrap();
+
     let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
 
-    let expected_def = ValidatorDefinition {
-        enabled: true,
+    let mut expected_def = ValidatorDefinition {
+        enabled: false,
         description: "".into(),
         graffiti: None,
         voting_public_key: keystore.public_key().unwrap(),
@@ -492,7 +502,28 @@ fn validator_import_launchpad() {
     };
 
     assert!(
-        defs.as_slice() == &[expected_def],
+        defs.as_slice() == &[expected_def.clone()],
+        "validator defs file should be accurate"
+    );
+
+    // Enable keystore validator again
+    output_result(
+        validator_cmd()
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
+            .arg(MODIFY_CMD)
+            .arg(ENABLE)
+            .arg(format!("--{}", PUBKEY_FLAG))
+            .arg(format!("{}", keystore.public_key().unwrap())),
+    )
+    .unwrap();
+
+    let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
+
+    expected_def.enabled = true;
+
+    assert!(
+        defs.as_slice() == &[expected_def.clone()],
         "validator defs file should be accurate"
     );
 }

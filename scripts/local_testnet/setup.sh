@@ -30,8 +30,8 @@ lcli \
 	--min-genesis-time $GENESIS_TIME \
 	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
-	--eth1-id $BOOTNODE_PORT \
-	--eth1-follow-distance 16 \
+	--eth1-id $NETWORK_ID \
+	--eth1-follow-distance 1 \
 	--seconds-per-slot $SECONDS_PER_SLOT \
 	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--force

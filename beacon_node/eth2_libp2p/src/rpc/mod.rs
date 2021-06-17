@@ -21,35 +21,37 @@ use types::EthSpec;
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, Ping, RPCCodedResponse, RPCResponse};
-pub(crate) use protocol::{RPCProtocol, RPCRequest};
+pub(crate) use protocol::{InboundRequest, RPCProtocol};
 
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, MaxRequestBlocks,
     RPCResponseErrorCode, RequestId, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
+pub(crate) use outbound::OutboundRequest;
 pub use protocol::{Protocol, RPCError};
 
 pub(crate) mod codec;
 mod handler;
 pub mod methods;
+mod outbound;
 mod protocol;
 mod rate_limiter;
 
 /// RPC events sent from Lighthouse.
 #[derive(Debug, Clone)]
-pub enum RPCSend<T: EthSpec> {
+pub enum RPCSend<TSpec: EthSpec> {
     /// A request sent from Lighthouse.
     ///
     /// The `RequestId` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(RequestId, RPCRequest<T>),
+    Request(RequestId, OutboundRequest<TSpec>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
     /// peer. The second parameter is a single chunk of a response. These go over *inbound*
     /// connections.
-    Response(SubstreamId, RPCCodedResponse<T>),
+    Response(SubstreamId, RPCCodedResponse<TSpec>),
 }
 
 /// RPC events received from outside Lighthouse.
@@ -59,7 +61,7 @@ pub enum RPCReceived<T: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(SubstreamId, RPCRequest<T>),
+    Request(SubstreamId, InboundRequest<T>),
     /// A response received from the outside.
     ///
     /// The `RequestId` corresponds to the application given ID of the original request sent to the
@@ -150,7 +152,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        event: RPCRequest<TSpec>,
+        event: OutboundRequest<TSpec>,
     ) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
@@ -188,7 +190,8 @@ where
     fn inject_connected(&mut self, peer_id: &PeerId) {
         // find the peer's meta-data
         debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
-        let rpc_event = RPCSend::Request(RequestId::Behaviour, RPCRequest::MetaData(PhantomData));
+        let rpc_event =
+            RPCSend::Request(RequestId::Behaviour, OutboundRequest::MetaData(PhantomData));
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id: *peer_id,
             handler: NotifyHandler::Any,

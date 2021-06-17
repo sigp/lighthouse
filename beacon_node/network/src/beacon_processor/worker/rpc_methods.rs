@@ -2,7 +2,7 @@ use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2_libp2p::rpc::StatusMessage;
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             && local.finalized_root != Hash256::zero()
             && self
                 .chain
-                .root_at_slot(start_slot(remote.finalized_epoch))
+                .block_root_at_slot(start_slot(remote.finalized_epoch), WhenSlotSkipped::Prev)
                 .map(|root_opt| root_opt != Some(remote.finalized_root))?
         {
             // The remote's finalized epoch is less than or equal to ours, but the block root is
@@ -197,10 +197,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // remove all skip slots
-        let block_roots = block_roots
-            .into_iter()
-            .filter_map(|root| root)
-            .collect::<Vec<_>>();
+        let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
         let mut blocks_sent = 0;
         for root in block_roots {

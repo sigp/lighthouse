@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use std::str::FromStr;
 use types::{Hash256, SignedBeaconBlock, Slot};
@@ -37,7 +37,7 @@ impl BlockId {
                 .map(|head| head.current_justified_checkpoint.root)
                 .map_err(warp_utils::reject::beacon_chain_error),
             CoreBlockId::Slot(slot) => chain
-                .block_root_at_slot(*slot)
+                .block_root_at_slot(*slot, WhenSlotSkipped::None)
                 .map_err(warp_utils::reject::beacon_chain_error)
                 .and_then(|root_opt| {
                     root_opt.ok_or_else(|| {

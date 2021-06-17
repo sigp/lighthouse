@@ -84,6 +84,11 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         self.peers.read().connected_peer_ids().count()
     }
 
+    /// Returns the number of libp2p connected peers with outbound-only connections.
+    pub fn connected_outbound_only_peers(&self) -> usize {
+        self.peers.read().connected_outbound_only_peers().count()
+    }
+
     /// Returns the number of libp2p peers that are either connected or being dialed.
     pub fn connected_or_dialing_peers(&self) -> usize {
         self.peers.read().connected_or_dialing_peers().count()

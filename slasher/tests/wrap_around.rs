@@ -8,7 +8,7 @@ use types::Epoch;
 #[test]
 fn attestation_pruning_empty_wrap_around() {
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into());
+    let mut config = Config::new(tempdir.path().into()).for_testing();
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 16;
@@ -42,7 +42,7 @@ fn attestation_pruning_empty_wrap_around() {
 #[test]
 fn pruning_with_map_full() {
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into());
+    let mut config = Config::new(tempdir.path().into()).for_testing();
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 1024;

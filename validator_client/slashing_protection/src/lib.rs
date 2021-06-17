@@ -30,6 +30,7 @@ pub enum NotSafe {
     UnregisteredValidator(PublicKeyBytes),
     InvalidBlock(InvalidBlock),
     InvalidAttestation(InvalidAttestation),
+    PermissionsError,
     IOError(ErrorKind),
     SQLError(String),
     SQLPoolError(String),

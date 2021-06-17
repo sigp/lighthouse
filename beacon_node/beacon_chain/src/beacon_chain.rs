@@ -32,10 +32,11 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
+use eth2::types::{EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
+use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use slasher::Slasher;
@@ -58,6 +59,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
+use task_executor::ShutdownReason;
 use types::beacon_state::CloneConfig;
 use types::*;
 
@@ -83,6 +85,18 @@ pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
+
+/// Defines the behaviour when a block/block-root for a skipped slot is requested.
+pub enum WhenSlotSkipped {
+    /// If the slot is a skip slot, return `None`.
+    ///
+    /// This is how the HTTP API behaves.
+    None,
+    /// If the slot it a skip slot, return the previous non-skipped block.
+    ///
+    /// This is generally how the specification behaves.
+    Prev,
+}
 
 /// The result of a chain segment processing.
 pub enum ChainSegmentResult<T: EthSpec> {
@@ -254,7 +268,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
-    pub shutdown_sender: Sender<&'static str>,
+    pub shutdown_sender: Sender<ShutdownReason>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -441,15 +455,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|result| result.map_err(|e| e.into())))
     }
 
-    /// Traverse backwards from `block_root` to find the root of the ancestor block at `slot`.
-    pub fn get_ancestor_block_root(
+    /// Iterate through the current chain to find the slot intersecting with the given beacon state.
+    /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
+    /// and no intersection is found, the finalized slot will be returned.
+    pub fn find_reorg_slot(
         &self,
-        block_root: Hash256,
-        slot: Slot,
-    ) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots_from(block_root)?, |mut iter| {
-            iter.find(|(_, ancestor_slot)| *ancestor_slot == slot)
-                .map(|(ancestor_block_root, _)| ancestor_block_root)
+        new_state: &BeaconState<T::EthSpec>,
+        new_block_root: Hash256,
+    ) -> Result<Slot, Error> {
+        self.with_head(|snapshot| {
+            let old_state = &snapshot.beacon_state;
+            let old_block_root = snapshot.beacon_block_root;
+
+            // The earliest slot for which the two chains may have a common history.
+            let lowest_slot = std::cmp::min(new_state.slot, old_state.slot);
+
+            // Create an iterator across `$state`, assuming that the block at `$state.slot` has the
+            // block root of `$block_root`.
+            //
+            // The iterator will be skipped until the next value returns `lowest_slot`.
+            //
+            // This is a macro instead of a function or closure due to the complex types invloved
+            // in all the iterator wrapping.
+            macro_rules! aligned_roots_iter {
+                ($state: ident, $block_root: ident) => {
+                    std::iter::once(Ok(($state.slot, $block_root)))
+                        .chain($state.rev_iter_block_roots(&self.spec))
+                        .skip_while(|result| {
+                            result
+                                .as_ref()
+                                .map_or(false, |(slot, _)| *slot > lowest_slot)
+                        })
+                };
+            }
+
+            // Create iterators across old/new roots where iterators both start at the same slot.
+            let mut new_roots = aligned_roots_iter!(new_state, new_block_root);
+            let mut old_roots = aligned_roots_iter!(old_state, old_block_root);
+
+            // Whilst *both* of the iterators are still returning values, try and find a common
+            // ancestor between them.
+            while let (Some(old), Some(new)) = (old_roots.next(), new_roots.next()) {
+                let (old_slot, old_root) = old?;
+                let (new_slot, new_root) = new?;
+
+                // Sanity check to detect programming errors.
+                if old_slot != new_slot {
+                    return Err(Error::InvalidReorgSlotIter { new_slot, old_slot });
+                }
+
+                if old_root == new_root {
+                    // A common ancestor has been found.
+                    return Ok(old_slot);
+                }
+            }
+
+            // If no common ancestor is found, declare that the re-org happened at the previous
+            // finalized slot.
+            //
+            // Sometimes this will result in the return slot being *lower* than the actual reorg
+            // slot. However, assuming we don't re-org through a finalized slot, it will never be
+            // *higher*.
+            //
+            // We provide this potentially-inaccurate-but-safe information to avoid onerous
+            // database reads during times of deep reorgs.
+            Ok(old_state
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()))
         })
     }
 
@@ -488,17 +561,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
     ///
+    /// Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
+    ///
     /// ## Errors
     ///
     /// May return a database error.
     pub fn block_at_slot(
         &self,
-        slot: Slot,
+        request_slot: Slot,
+        skips: WhenSlotSkipped,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let root = process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root)
-        })?;
+        let root = self.block_root_at_slot(request_slot, skips)?;
 
         if let Some(block_root) = root {
             Ok(self.store.get_item(&block_root)?)
@@ -520,21 +593,132 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
-    /// Returns `Ok(None)` if the given `Slot` was skipped.
+    ///
+    /// ## Notes
+    ///
+    /// - Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
+    pub fn block_root_at_slot(
+        &self,
+        request_slot: Slot,
+        skips: WhenSlotSkipped,
+    ) -> Result<Option<Hash256>, Error> {
+        match skips {
+            WhenSlotSkipped::None => self.block_root_at_slot_skips_none(request_slot),
+            WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(request_slot),
+        }
+    }
+
+    /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
+    ///
+    /// ## Notes
+    ///
+    /// - Returns `Ok(None)` if the given `Slot` was skipped.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
     ///
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn block_root_at_slot(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            let root_opt = iter
-                .find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root);
-            if let (Some(root), Some((prev_root, _))) = (root_opt, iter.next()) {
-                return (prev_root != root).then(|| root);
+    fn block_root_at_slot_skips_none(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        if request_slot > self.slot()? {
+            return Ok(None);
+        } else if request_slot == self.spec.genesis_slot {
+            return Ok(Some(self.genesis_block_root));
+        }
+
+        let prev_slot = request_slot.saturating_sub(1_u64);
+
+        // Try an optimized path of reading the root directly from the head state.
+        let fast_lookup: Option<Option<Hash256>> = self.with_head(|head| {
+            let state = &head.beacon_state;
+
+            // Try find the root for the `request_slot`.
+            let request_root_opt = match state.slot.cmp(&request_slot) {
+                // It's always a skip slot if the head is less than the request slot, return early.
+                Ordering::Less => return Ok(Some(None)),
+                // The request slot is the head slot.
+                Ordering::Equal => Some(head.beacon_block_root),
+                // Try find the request slot in the state.
+                Ordering::Greater => state.get_block_root(request_slot).ok().copied(),
+            };
+
+            if let Some(request_root) = request_root_opt {
+                if let Ok(prev_root) = state.get_block_root(prev_slot) {
+                    return Ok(Some((*prev_root != request_root).then(|| request_root)));
+                }
             }
-            root_opt
-        })
+
+            // Fast lookup is not possible.
+            Ok::<_, Error>(None)
+        })?;
+        if let Some(root_opt) = fast_lookup {
+            return Ok(root_opt);
+        }
+
+        if let Some(((prev_root, _), (curr_root, curr_slot))) =
+            process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
+                iter.tuple_windows().next()
+            })?
+        {
+            // Sanity check.
+            if curr_slot != request_slot {
+                return Err(Error::InconsistentForwardsIter {
+                    request_slot,
+                    slot: curr_slot,
+                });
+            }
+            Ok((curr_root != prev_root).then(|| curr_root))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
+    ///
+    /// ## Notes
+    ///
+    /// - Returns the root at the previous non-skipped slot if the given `Slot` was skipped.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    fn block_root_at_slot_skips_prev(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        if request_slot > self.slot()? {
+            return Ok(None);
+        } else if request_slot == self.spec.genesis_slot {
+            return Ok(Some(self.genesis_block_root));
+        }
+
+        // Try an optimized path of reading the root directly from the head state.
+        let fast_lookup: Option<Hash256> = self.with_head(|head| {
+            if head.beacon_block.slot() <= request_slot {
+                // Return the head root if all slots between the request and the head are skipped.
+                Ok(Some(head.beacon_block_root))
+            } else if let Ok(root) = head.beacon_state.get_block_root(request_slot) {
+                // Return the root if it's easily accessible from the head state.
+                Ok(Some(*root))
+            } else {
+                // Fast lookup is not possible.
+                Ok::<_, Error>(None)
+            }
+        })?;
+        if let Some(root) = fast_lookup {
+            return Ok(Some(root));
+        }
+
+        process_results(self.forwards_iter_block_roots(request_slot)?, |mut iter| {
+            if let Some((root, slot)) = iter.next() {
+                if slot == request_slot {
+                    Ok(Some(root))
+                } else {
+                    // Sanity check.
+                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                }
+            } else {
+                Ok(None)
+            }
+        })?
     }
 
     /// Returns the block at the given root, if any.
@@ -822,16 +1006,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         Ok(map)
-    }
-
-    /// Returns the block canonical root of the current canonical chain at a given slot.
-    ///
-    /// Returns `None` if the given slot doesn't exist in the chain.
-    pub fn root_at_slot(&self, target_slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_block_roots()?, |mut iter| {
-            iter.find(|(_, slot)| *slot == target_slot)
-                .map(|(root, _)| root)
-        })
     }
 
     /// Returns the block canonical root of the current canonical chain at a given slot, starting from the given state.
@@ -1699,7 +1873,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "error" => ?e,
                     );
                     crit!(self.log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
-                    shutdown_sender.try_send("Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint.")
+                    shutdown_sender
+                        .try_send(ShutdownReason::Failure(
+                            "Weak subjectivity checkpoint verification failed. Provided block root is not a checkpoint."
+                        ))
                         .map_err(|err| BlockError::BeaconChainError(BeaconChainError::WeakSubjectivtyShutdownError(err)))?;
                     return Err(BlockError::WeakSubjectivityConflict);
                 }
@@ -2164,14 +2341,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
         // between calls to fork choice without swapping between chains. This seems like an
         // extreme-enough scenario that a warning is fine.
-        let is_reorg = current_head.block_root
-            != new_head
-                .beacon_state
-                .get_block_root(current_head.slot)
-                .map(|root| *root)
-                .unwrap_or_else(|_| Hash256::random());
+        let is_reorg = new_head
+            .beacon_state
+            .get_block_root(current_head.slot)
+            .map_or(true, |root| *root != current_head.block_root);
+
+        let mut reorg_distance = Slot::new(0);
 
         if is_reorg {
+            match self.find_reorg_slot(&new_head.beacon_state, new_head.beacon_block_root) {
+                Ok(slot) => reorg_distance = current_head.slot.saturating_sub(slot),
+                Err(e) => {
+                    warn!(
+                        self.log,
+                        "Could not find re-org depth";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+
             metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
             warn!(
                 self.log,
@@ -2181,6 +2369,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "new_head_parent" => %new_head.beacon_block.parent_root(),
                 "new_head" => %beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
+                "reorg_distance" => reorg_distance,
             );
         } else {
             debug!(
@@ -2320,10 +2509,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_head_subscribers() {
                 if let Ok(Some(current_duty_dependent_root)) =
-                    self.root_at_slot(target_epoch_start_slot - 1)
+                    self.block_root_at_slot(target_epoch_start_slot - 1, WhenSlotSkipped::Prev)
                 {
-                    if let Ok(Some(previous_duty_dependent_root)) =
-                        self.root_at_slot(prev_target_epoch_start_slot - 1)
+                    if let Ok(Some(previous_duty_dependent_root)) = self
+                        .block_root_at_slot(prev_target_epoch_start_slot - 1, WhenSlotSkipped::Prev)
                     {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,
@@ -2345,6 +2534,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Unable to find current target root, cannot register head event"
                     );
                 }
+            }
+
+            if is_reorg && event_handler.has_reorg_subscribers() {
+                event_handler.register(EventKind::ChainReorg(SseChainReorg {
+                    slot: head_slot,
+                    depth: reorg_distance.as_u64(),
+                    old_head_block: current_head.block_root,
+                    old_head_state: current_head.state_root,
+                    new_head_block: beacon_block_root,
+                    new_head_state: state_root,
+                    epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                }));
             }
         }
 
@@ -2811,7 +3012,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Get a channel to request shutting down.
-    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+    pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.shutdown_sender.clone()
     }
 

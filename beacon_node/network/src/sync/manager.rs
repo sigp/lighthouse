@@ -554,6 +554,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
+        debug!(
+            self.log,
+            "Searching for block";
+            "peer_id" => %peer_id,
+            "block" => %block_hash
+        );
+
         let request = BlocksByRootRequest {
             block_roots: VariableList::from(vec![block_hash]),
         };

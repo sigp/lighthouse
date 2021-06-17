@@ -689,6 +689,18 @@ pub struct SseHead {
     pub epoch_transition: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseChainReorg {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub depth: u64,
+    pub old_head_block: Hash256,
+    pub old_head_state: Hash256,
+    pub new_head_block: Hash256,
+    pub new_head_state: Hash256,
+    pub epoch: Epoch,
+}
+
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
@@ -697,6 +709,7 @@ pub enum EventKind<T: EthSpec> {
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
+    ChainReorg(SseChainReorg),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -707,6 +720,7 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::Attestation(_) => "attestation",
             EventKind::VoluntaryExit(_) => "voluntary_exit",
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
+            EventKind::ChainReorg(_) => "chain_reorg",
         }
     }
 
@@ -734,6 +748,9 @@ impl<T: EthSpec> EventKind<T> {
             )?)),
             "block" => Ok(EventKind::Block(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
+            )?)),
+            "chain_reorg" => Ok(EventKind::ChainReorg(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Chain Reorg: {:?}", e)),
             )?)),
             "finalized_checkpoint" => Ok(EventKind::FinalizedCheckpoint(
                 serde_json::from_str(data).map_err(|e| {
@@ -768,6 +785,7 @@ pub enum EventTopic {
     Attestation,
     VoluntaryExit,
     FinalizedCheckpoint,
+    ChainReorg,
 }
 
 impl FromStr for EventTopic {
@@ -780,6 +798,7 @@ impl FromStr for EventTopic {
             "attestation" => Ok(EventTopic::Attestation),
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
+            "chain_reorg" => Ok(EventTopic::ChainReorg),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -793,6 +812,7 @@ impl fmt::Display for EventTopic {
             EventTopic::Attestation => write!(f, "attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
+            EventTopic::ChainReorg => write!(f, "chain_reorg"),
         }
     }
 }
