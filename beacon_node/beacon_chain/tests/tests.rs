@@ -625,7 +625,14 @@ fn block_roots_skip_slot_behaviour() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Test should be longer than the block roots to ensure a DB lookup is triggered.
-    let chain_length = harness.chain.head().unwrap().beacon_state.block_roots.len() as u64 * 3;
+    let chain_length = harness
+        .chain
+        .head()
+        .unwrap()
+        .beacon_state
+        .block_roots()
+        .len() as u64
+        * 3;
 
     let skipped_slots = [1, 6, 7, 10, chain_length];
 
