@@ -4,7 +4,7 @@ use crate::*;
 ///
 /// The iterator has the following characteristics:
 ///
-/// - Will only return *at most* `state.block_roots.len()` entries.
+/// - Will only return *at most* `state.block_roots().len()` entries.
 /// - Will not return slots prior to the genesis_slot.
 /// - Each call to next will result in a slot one less than the prior one (or `None`).
 /// - Skipped slots will contain the block root from the prior non-skipped slot.
@@ -22,7 +22,7 @@ impl<'a, T: EthSpec> BlockRootsIter<'a, T> {
         Self {
             state,
             genesis_slot,
-            prev: state.slot,
+            prev: state.slot(),
         }
     }
 }
@@ -35,8 +35,8 @@ impl<'a, T: EthSpec> Iterator for BlockRootsIter<'a, T> {
             && self.prev
                 > self
                     .state
-                    .slot
-                    .saturating_sub(self.state.block_roots.len() as u64)
+                    .slot()
+                    .saturating_sub(self.state.block_roots().len() as u64)
         {
             self.prev = self.prev.saturating_sub(1_u64);
             Some(
@@ -73,12 +73,13 @@ mod test {
 
         let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
 
-        for i in 0..state.block_roots.len() {
-            state.block_roots[i] = root_slot(i).1;
+        for i in 0..state.block_roots().len() {
+            state.block_roots_mut()[i] = root_slot(i).1;
         }
 
         assert_eq!(
-            state.slot, spec.genesis_slot,
+            state.slot(),
+            spec.genesis_slot,
             "test assume a genesis slot state"
         );
         assert_eq!(
@@ -87,22 +88,22 @@ mod test {
             "state at genesis slot has no history"
         );
 
-        state.slot = Slot::new(1);
+        *state.slot_mut() = Slot::new(1);
         assert_eq!(
             all_roots(&state, &spec),
             vec![root_slot(0)],
             "first slot after genesis has one slot history"
         );
 
-        state.slot = Slot::new(2);
+        *state.slot_mut() = Slot::new(2);
         assert_eq!(
             all_roots(&state, &spec),
             vec![root_slot(1), root_slot(0)],
             "second slot after genesis has two slot history"
         );
 
-        state.slot = Slot::from(state.block_roots.len() + 2);
-        let expected = (2..state.block_roots.len() + 2)
+        *state.slot_mut() = Slot::from(state.block_roots().len() + 2);
+        let expected = (2..state.block_roots().len() + 2)
             .rev()
             .map(|i| (Slot::from(i), *state.get_block_root(Slot::from(i)).unwrap()))
             .collect::<Vec<_>>();
@@ -120,12 +121,13 @@ mod test {
 
         let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
 
-        for i in 0..state.block_roots.len() {
-            state.block_roots[i] = root_slot(i).1;
+        for i in 0..state.block_roots().len() {
+            state.block_roots_mut()[i] = root_slot(i).1;
         }
 
         assert_eq!(
-            state.slot, spec.genesis_slot,
+            state.slot(),
+            spec.genesis_slot,
             "test assume a genesis slot state"
         );
         assert_eq!(
@@ -134,14 +136,14 @@ mod test {
             "state at genesis slot has no history"
         );
 
-        state.slot = Slot::new(5);
+        *state.slot_mut() = Slot::new(5);
         assert_eq!(
             all_roots(&state, &spec),
             vec![root_slot(4)],
             "first slot after genesis has one slot history"
         );
 
-        state.slot = Slot::new(6);
+        *state.slot_mut() = Slot::new(6);
         assert_eq!(
             all_roots(&state, &spec),
             vec![root_slot(5), root_slot(4)],
