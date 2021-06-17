@@ -353,11 +353,11 @@ mod tests {
     #[test]
     fn lock() {
         let lock = Lock::new();
-        assert_eq!(lock.lock(), false);
-        assert_eq!(lock.lock(), true);
-        assert_eq!(lock.lock(), true);
+        assert!(!lock.lock());
+        assert!(lock.lock());
+        assert!(lock.lock());
         lock.unlock();
-        assert_eq!(lock.lock(), false);
-        assert_eq!(lock.lock(), true);
+        assert!(!lock.lock());
+        assert!(lock.lock());
     }
 }

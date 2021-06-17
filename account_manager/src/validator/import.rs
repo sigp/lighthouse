@@ -242,7 +242,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .map_err(|e| {
                 format!(
                     "Error registering validator {}: {:?}",
-                    voting_pubkey.to_hex_string(),
+                    voting_pubkey.as_hex_string(),
                     e
                 )
             })?;

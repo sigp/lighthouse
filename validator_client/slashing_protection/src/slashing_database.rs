@@ -160,7 +160,7 @@ impl SlashingDatabase {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
             if self.get_validator_id_opt(&txn, pubkey)?.is_none() {
-                stmt.execute(&[pubkey.to_hex_string()])?;
+                stmt.execute(&[pubkey.as_hex_string()])?;
             }
         }
         Ok(())
@@ -205,7 +205,7 @@ impl SlashingDatabase {
         Ok(txn
             .query_row(
                 "SELECT id FROM validators WHERE public_key = ?1",
-                params![&public_key.to_hex_string()],
+                params![&public_key.as_hex_string()],
                 |row| row.get(0),
             )
             .optional()?)
@@ -990,11 +990,9 @@ mod tests {
             assert_eq!(db.conn_pool.max_size(), POOL_SIZE);
             assert_eq!(db.conn_pool.connection_timeout(), CONNECTION_TIMEOUT);
             let conn = db.conn_pool.get().unwrap();
-            assert_eq!(
-                conn.pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
-                    .unwrap(),
-                true
-            );
+            assert!(conn
+                .pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
+                .unwrap());
             assert_eq!(
                 conn.pragma_query_value(None, "locking_mode", |row| { row.get::<_, String>(0) })
                     .unwrap()
