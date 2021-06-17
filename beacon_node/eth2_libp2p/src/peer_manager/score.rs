@@ -216,6 +216,13 @@ impl RealScore {
         self.set_lighthouse_score(0f64);
     }
 
+    // Set the gossipsub_score to a specific f64.
+    // Used in testing to induce score status changes during a heartbeat.
+    #[cfg(test)]
+    pub fn set_gossipsub_score(&mut self, score: f64) {
+        self.gossipsub_score = score;
+    }
+
     /// Applies time-based logic such as decay rates to the score.
     /// This function should be called periodically.
     pub fn update(&mut self) {
@@ -291,6 +298,8 @@ apply!(update_gossipsub_score, new_score: f64, ignore: bool);
 apply!(test_add, score: f64);
 #[cfg(test)]
 apply!(test_reset);
+#[cfg(test)]
+apply!(set_gossipsub_score, score: f64);
 
 impl Score {
     pub fn score(&self) -> f64 {

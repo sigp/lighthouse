@@ -20,6 +20,7 @@ async fn returns_200_ok() {
                 listen_addr: Ipv4Addr::new(127, 0, 0, 1),
                 listen_port: 0,
                 allow_origin: None,
+                allocator_metrics_enabled: true,
             },
             chain: None,
             db_path: None,

@@ -27,20 +27,39 @@ curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/j
 ```json
 {
   "data": {
-    "pid": 1728254,
-    "pid_num_threads": 47,
-    "pid_mem_resident_set_size": 510054400,
-    "pid_mem_virtual_memory_size": 3963158528,
-    "sys_virt_mem_total": 16715530240,
-    "sys_virt_mem_available": 4065374208,
-    "sys_virt_mem_used": 11383402496,
-    "sys_virt_mem_free": 1368662016,
-    "sys_virt_mem_percent": 75.67906,
-    "sys_loadavg_1": 4.92,
-    "sys_loadavg_5": 5.53,
-    "sys_loadavg_15": 5.58
+    "sys_virt_mem_total": 16671133696,
+    "sys_virt_mem_available": 8273715200,
+    "sys_virt_mem_used": 7304818688,
+    "sys_virt_mem_free": 2998190080,
+    "sys_virt_mem_percent": 50.37101,
+    "sys_virt_mem_cached": 5013975040,
+    "sys_virt_mem_buffers": 1354149888,
+    "sys_loadavg_1": 2.29,
+    "sys_loadavg_5": 3.48,
+    "sys_loadavg_15": 3.72,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "system_seconds_total": 5728,
+    "user_seconds_total": 33680,
+    "iowait_seconds_total": 873,
+    "idle_seconds_total": 177530,
+    "cpu_time_total": 217447,
+    "disk_node_bytes_total": 358443397120,
+    "disk_node_bytes_free": 70025089024,
+    "disk_node_reads_total": 1141863,
+    "disk_node_writes_total": 1377993,
+    "network_node_bytes_total_received": 2405639308,
+    "network_node_bytes_total_transmit": 328304685,
+    "misc_node_boot_ts_seconds": 1620629638,
+    "misc_os": "linux",
+    "pid": 4698,
+    "pid_num_threads": 25,
+    "pid_mem_resident_set_size": 783757312,
+    "pid_mem_virtual_memory_size": 2564665344,
+    "pid_process_seconds_total": 22
   }
 }
+
 ```
 
 ### `/lighthouse/syncing`
