@@ -10,7 +10,6 @@ pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const BASE_CONFIG_FILE: &str = "config.yaml";
-// pub const ALTAIR_CONFIG_FILE: &str = "altair.yaml";
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
@@ -243,15 +242,20 @@ mod tests {
     type E = MainnetEthSpec;
 
     #[test]
+    fn mainnet_config_eq_chain_spec() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
+        let spec = ChainSpec::mainnet();
+        assert_eq!(spec, config.chain_spec::<E>().unwrap());
+    }
+
+    #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
-            if net.name == "mainnet" || net.name == "pyrmont" || net.name == "prater" {
-                // Ensure we can parse the YAML config to a chain spec.
-                config.chain_spec::<MainnetEthSpec>().unwrap();
-            }
+            // Ensure we can parse the YAML config to a chain spec.
+            config.chain_spec::<MainnetEthSpec>().unwrap();
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),

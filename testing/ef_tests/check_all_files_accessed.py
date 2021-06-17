@@ -1,4 +1,4 @@
-#! /bin/python
+#!/usr/bin/env python3
 
 # The purpose of this script is to compare a list of file names that were accessed during testing
 # against all the file names in the eth2.0-spec-tests repository. It then checks to see which files

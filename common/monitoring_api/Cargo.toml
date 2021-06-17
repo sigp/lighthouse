@@ -1,0 +1,24 @@
+[package]
+name = "monitoring_api"
+version = "0.1.0"
+authors = ["pawan <pawandhananjay@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11.0", features = ["json","stream"] }
+futures = "0.3.7"
+task_executor = { path = "../task_executor" }
+tokio = "1.1.0"
+eth2 = {path = "../eth2"}
+serde_json = "1.0.58"
+serde = "1.0.116"
+serde_derive = "1.0.116"
+lighthouse_version = { path = "../lighthouse_version"}
+lighthouse_metrics = { path = "../lighthouse_metrics" }
+slog = "2.5.2"
+store = { path = "../../beacon_node/store" }
+lazy_static = "1.4.0"
+regex = "1"
+sensitive_url = { path = "../sensitive_url" }

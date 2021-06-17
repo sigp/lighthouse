@@ -395,7 +395,7 @@ impl ChainSpec {
             inactivity_score_bias: 4,
             inactivity_score_recovery_rate: 16,
             min_sync_committee_participants: 1,
-            epochs_per_sync_committee_period: Epoch::new(512),
+            epochs_per_sync_committee_period: Epoch::new(256),
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
