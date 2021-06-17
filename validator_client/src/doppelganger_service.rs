@@ -122,7 +122,7 @@ impl<T: 'static + SlotClock, E: EthSpec> DoppelgangerService<T, E> {
                                 .context
                                 .executor
                                 .shutdown_sender()
-                                .try_send(ShutdownReason::Success("Doppelganger detected."))
+                                .try_send(ShutdownReason::Failure("Doppelganger detected."))
                                 .map_err(|e| format!("Could not send shutdown signal: {}", e))?;
                         }
                     }

@@ -54,7 +54,7 @@ echo "Starting the doppelganger validator client"
 
 # Use same keys as keys from VC1, but connect to BN2
 # This process should not last longer than 2 epochs
-timeout 128 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+timeout 1 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
 DOPPELGANGER_EXIT=$?
 
 echo "Shutting down"
@@ -65,4 +65,8 @@ mv ../local_testnet/vars.env.bkp ../local_testnet/vars.env
 
 echo "Done"
 
-exit $DOPPELGANGER_EXIT
+if [ $DOPPELGANGER_EXIT -eq 124 ]; then
+    exit 1
+fi
+
+exit 0
