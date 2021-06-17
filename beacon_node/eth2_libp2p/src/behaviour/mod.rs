@@ -595,7 +595,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => %peer_id);
 
         self.eth2_rpc
-            .send_request(peer_id, id, RPCRequest::Ping(ping));
+            .send_request(peer_id, id, OutboundRequest::Ping(ping));
     }
 
     /// Sends a Pong response to the peer.
@@ -610,7 +610,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let event = RPCRequest::MetaData(PhantomData);
+        let event = OutboundRequest::MetaData(PhantomData);
         self.eth2_rpc
             .send_request(peer_id, RequestId::Behaviour, event);
     }
@@ -749,17 +749,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 let peer_request_id = (handler_id, id);
                 match request {
                     /* Behaviour managed protocols: Ping and Metadata */
-                    RPCRequest::Ping(ping) => {
+                    InboundRequest::Ping(ping) => {
                         // inform the peer manager and send the response
                         self.peer_manager.ping_request(&peer_id, ping.data);
                         // send a ping response
                         self.pong(peer_request_id, peer_id);
                     }
-                    RPCRequest::MetaData(_) => {
+                    InboundRequest::MetaData(_) => {
                         // send the requested meta-data
                         self.send_meta_data_response((handler_id, id), peer_id);
                     }
-                    RPCRequest::Goodbye(reason) => {
+                    InboundRequest::Goodbye(reason) => {
                         // queue for disconnection without a goodbye message
                         debug!(
                             self.log, "Peer sent Goodbye";
@@ -775,18 +775,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // inform the application layer early.
                     }
                     /* Protocols propagated to the Network */
-                    RPCRequest::Status(msg) => {
+                    InboundRequest::Status(msg) => {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager.peer_statusd(&peer_id);
                         // propagate the STATUS message upwards
                         self.propagate_request(peer_request_id, peer_id, Request::Status(msg))
                     }
-                    RPCRequest::BlocksByRange(req) => self.propagate_request(
+                    InboundRequest::BlocksByRange(req) => self.propagate_request(
                         peer_request_id,
                         peer_id,
                         Request::BlocksByRange(req),
                     ),
-                    RPCRequest::BlocksByRoot(req) => {
+                    InboundRequest::BlocksByRoot(req) => {
                         self.propagate_request(peer_request_id, peer_id, Request::BlocksByRoot(req))
                     }
                 }
@@ -834,7 +834,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 peer_id,
                 handler: NotifyHandler::Any,
                 event: BehaviourHandlerIn::Shutdown(
-                    reason.map(|reason| (RequestId::Behaviour, RPCRequest::Goodbye(reason))),
+                    reason.map(|reason| (RequestId::Behaviour, OutboundRequest::Goodbye(reason))),
                 ),
             });
         }
@@ -878,7 +878,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             handler: NotifyHandler::Any,
                             event: BehaviourHandlerIn::Shutdown(Some((
                                 RequestId::Behaviour,
-                                RPCRequest::Goodbye(reason),
+                                OutboundRequest::Goodbye(reason),
                             ))),
                         });
                     }
@@ -1293,12 +1293,12 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for RPCRequest<TSpec> {
-    fn from(req: Request) -> RPCRequest<TSpec> {
+impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
+    fn from(req: Request) -> OutboundRequest<TSpec> {
         match req {
-            Request::BlocksByRoot(r) => RPCRequest::BlocksByRoot(r),
-            Request::BlocksByRange(r) => RPCRequest::BlocksByRange(r),
-            Request::Status(s) => RPCRequest::Status(s),
+            Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
+            Request::BlocksByRange(r) => OutboundRequest::BlocksByRange(r),
+            Request::Status(s) => OutboundRequest::Status(s),
         }
     }
 }

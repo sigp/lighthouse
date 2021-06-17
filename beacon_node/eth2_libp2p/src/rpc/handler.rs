@@ -2,9 +2,10 @@
 #![allow(clippy::cognitive_complexity)]
 
 use super::methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination};
-use super::protocol::{Protocol, RPCError, RPCProtocol, RPCRequest};
+use super::protocol::{Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend};
-use crate::rpc::protocol::{InboundFramed, OutboundFramed};
+use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
+use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::{Sink, SinkExt};
@@ -90,7 +91,7 @@ where
     events_out: SmallVec<[HandlerEvent<TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(RequestId, RPCRequest<TSpec>); 4]>,
+    dial_queue: SmallVec<[(RequestId, OutboundRequest<TSpec>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
@@ -186,7 +187,7 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
         /// The framed negotiated substream.
         substream: Box<OutboundFramed<NegotiatedSubstream, TSpec>>,
         /// Keeps track of the actual request sent.
-        request: RPCRequest<TSpec>,
+        request: OutboundRequest<TSpec>,
     },
     /// Closing an outbound substream>
     Closing(Box<OutboundFramed<NegotiatedSubstream, TSpec>>),
@@ -221,7 +222,7 @@ where
     }
 
     /// Initiates the handler's shutdown process, sending an optional last message to the peer.
-    pub fn shutdown(&mut self, final_msg: Option<(RequestId, RPCRequest<TSpec>)>) {
+    pub fn shutdown(&mut self, final_msg: Option<(RequestId, OutboundRequest<TSpec>)>) {
         if matches!(self.state, HandlerState::Active) {
             if !self.dial_queue.is_empty() {
                 debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
@@ -247,7 +248,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: RequestId, req: RPCRequest<TSpec>) {
+    fn send_request(&mut self, id: RequestId, req: OutboundRequest<TSpec>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -303,8 +304,8 @@ where
     type OutEvent = HandlerEvent<TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
-    type OutboundProtocol = RPCRequest<TSpec>;
-    type OutboundOpenInfo = (RequestId, RPCRequest<TSpec>); // Keep track of the id and the request
+    type OutboundProtocol = OutboundRequest<TSpec>;
+    type OutboundOpenInfo = (RequestId, OutboundRequest<TSpec>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
