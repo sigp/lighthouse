@@ -179,9 +179,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Returns all voting pubkeys for all enabled validators.
     ///
-    /// Keys are wrapped in the `DoppelgangerStatus` struct to indicate if signing is enabled or disabled.
-    /// Signing may be disabled if services like doppelganger protection are active for some
-    /// validator.
+    /// The `filter_func` allows for filtering pubkeys based upon their `DoppelgangerStatus`. There
+    /// are two primary functions used here:
+    ///
+    /// - `DoppelgangerStatus::only_safe`: only returns pubkeys which have passed doppelganger
+    ///     protection and are safe-enough to sign messages.
+    /// - `DoppelgangerStatus::ignored`: returns all the pubkeys from `only_safe` *plus* those still
+    ///     undergoing protection. This is useful for collecting duties or other non-signing tasks.
     #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
     pub fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
     where
