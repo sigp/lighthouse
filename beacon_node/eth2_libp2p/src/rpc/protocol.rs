@@ -1,17 +1,13 @@
 use super::methods::*;
 use crate::rpc::{
-    codec::{
-        base::{BaseInboundCodec, BaseOutboundCodec},
-        ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec},
-        InboundCodec, OutboundCodec,
-    },
+    codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
     methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
     MaxRequestBlocks, MAX_REQUEST_BLOCKS,
 };
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
-use futures::{FutureExt, SinkExt, StreamExt};
-use libp2p::core::{InboundUpgrade, OutboundUpgrade, ProtocolName, UpgradeInfo};
+use futures::{FutureExt, StreamExt};
+use libp2p::core::{InboundUpgrade, ProtocolName, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::io;
@@ -78,7 +74,7 @@ const TTFB_TIMEOUT: u64 = 5;
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Protocol names to be used.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
     /// The Status protocol name.
     Status,
@@ -276,7 +272,7 @@ impl ProtocolName for ProtocolId {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, TSpec> = (RPCRequest<TSpec>, InboundFramed<TSocket, TSpec>);
+pub type InboundOutput<TSocket, TSpec> = (InboundRequest<TSpec>, InboundFramed<TSocket, TSpec>);
 pub type InboundFramed<TSocket, TSpec> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
 
@@ -308,7 +304,7 @@ where
 
             // MetaData requests should be empty, return the stream
             match protocol_name {
-                Protocol::MetaData => Ok((RPCRequest::MetaData(PhantomData), socket)),
+                Protocol::MetaData => Ok((InboundRequest::MetaData(PhantomData), socket)),
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -328,13 +324,8 @@ where
     }
 }
 
-/* Outbound request */
-
-// Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
-// `OutboundUpgrade`
-
 #[derive(Debug, Clone, PartialEq)]
-pub enum RPCRequest<TSpec: EthSpec> {
+pub enum InboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(BlocksByRangeRequest),
@@ -343,7 +334,7 @@ pub enum RPCRequest<TSpec: EthSpec> {
     MetaData(PhantomData<TSpec>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
+impl<TSpec: EthSpec> UpgradeInfo for InboundRequest<TSpec> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -354,36 +345,36 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCRequest<TSpec> {
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> RPCRequest<TSpec> {
+impl<TSpec: EthSpec> InboundRequest<TSpec> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RPCRequest::Status(_) => vec![ProtocolId::new(
+            InboundRequest::Status(_) => vec![ProtocolId::new(
                 Protocol::Status,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::Goodbye(_) => vec![ProtocolId::new(
+            InboundRequest::Goodbye(_) => vec![ProtocolId::new(
                 Protocol::Goodbye,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::BlocksByRange(_) => vec![ProtocolId::new(
+            InboundRequest::BlocksByRange(_) => vec![ProtocolId::new(
                 Protocol::BlocksByRange,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::BlocksByRoot(_) => vec![ProtocolId::new(
+            InboundRequest::BlocksByRoot(_) => vec![ProtocolId::new(
                 Protocol::BlocksByRoot,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::Ping(_) => vec![ProtocolId::new(
+            InboundRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            RPCRequest::MetaData(_) => vec![ProtocolId::new(
+            InboundRequest::MetaData(_) => vec![ProtocolId::new(
                 Protocol::MetaData,
                 Version::V1,
                 Encoding::SSZSnappy,
@@ -396,24 +387,24 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
     /// Number of responses expected for this request.
     pub fn expected_responses(&self) -> u64 {
         match self {
-            RPCRequest::Status(_) => 1,
-            RPCRequest::Goodbye(_) => 0,
-            RPCRequest::BlocksByRange(req) => req.count,
-            RPCRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
-            RPCRequest::Ping(_) => 1,
-            RPCRequest::MetaData(_) => 1,
+            InboundRequest::Status(_) => 1,
+            InboundRequest::Goodbye(_) => 0,
+            InboundRequest::BlocksByRange(req) => req.count,
+            InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            InboundRequest::Ping(_) => 1,
+            InboundRequest::MetaData(_) => 1,
         }
     }
 
     /// Gives the corresponding `Protocol` to this request.
     pub fn protocol(&self) -> Protocol {
         match self {
-            RPCRequest::Status(_) => Protocol::Status,
-            RPCRequest::Goodbye(_) => Protocol::Goodbye,
-            RPCRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            RPCRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            RPCRequest::Ping(_) => Protocol::Ping,
-            RPCRequest::MetaData(_) => Protocol::MetaData,
+            InboundRequest::Status(_) => Protocol::Status,
+            InboundRequest::Goodbye(_) => Protocol::Goodbye,
+            InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
+            InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            InboundRequest::Ping(_) => Protocol::Ping,
+            InboundRequest::MetaData(_) => Protocol::MetaData,
         }
     }
 
@@ -423,52 +414,17 @@ impl<TSpec: EthSpec> RPCRequest<TSpec> {
         match self {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
-            RPCRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
-            RPCRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            RPCRequest::Status(_) => unreachable!(),
-            RPCRequest::Goodbye(_) => unreachable!(),
-            RPCRequest::Ping(_) => unreachable!(),
-            RPCRequest::MetaData(_) => unreachable!(),
+            InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
+            InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            InboundRequest::Status(_) => unreachable!(),
+            InboundRequest::Goodbye(_) => unreachable!(),
+            InboundRequest::Ping(_) => unreachable!(),
+            InboundRequest::MetaData(_) => unreachable!(),
         }
     }
 }
 
 /* RPC Response type - used for outbound upgrades */
-
-/* Outbound upgrades */
-
-pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
-
-impl<TSocket, TSpec> OutboundUpgrade<TSocket> for RPCRequest<TSpec>
-where
-    TSpec: EthSpec + Send + 'static,
-    TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    type Output = OutboundFramed<TSocket, TSpec>;
-    type Error = RPCError;
-    type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
-
-    fn upgrade_outbound(self, socket: TSocket, protocol: Self::Info) -> Self::Future {
-        // convert to a tokio compatible socket
-        let socket = socket.compat();
-        let codec = match protocol.encoding {
-            Encoding::SSZSnappy => {
-                let ssz_snappy_codec =
-                    BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(protocol, MAX_RPC_SIZE));
-                OutboundCodec::SSZSnappy(ssz_snappy_codec)
-            }
-        };
-
-        let mut socket = Framed::new(socket, codec);
-
-        async {
-            socket.send(self).await?;
-            socket.close().await?;
-            Ok(socket)
-        }
-        .boxed()
-    }
-}
 
 /// Error in RPC Encoding/Decoding.
 #[derive(Debug, Clone, PartialEq, AsStaticStr)]
@@ -556,15 +512,15 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for RPCRequest<TSpec> {
+impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCRequest::Status(status) => write!(f, "Status Message: {}", status),
-            RPCRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
-            RPCRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
-            RPCRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
-            RPCRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
-            RPCRequest::MetaData(_) => write!(f, "MetaData request"),
+            InboundRequest::Status(status) => write!(f, "Status Message: {}", status),
+            InboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
+            InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
+            InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
+            InboundRequest::MetaData(_) => write!(f, "MetaData request"),
         }
     }
 }

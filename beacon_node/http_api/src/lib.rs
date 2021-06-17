@@ -1259,7 +1259,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET config/fork_schedule
     let get_config_fork_schedule = config_path
-        .clone()
         .and(warp::path("fork_schedule"))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1274,7 +1273,6 @@ pub fn serve<T: BeaconChainTypes>(
     // GET config/spec
     let serve_legacy_spec = ctx.config.serve_legacy_spec;
     let get_config_spec = config_path
-        .clone()
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1291,7 +1289,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET config/deposit_contract
     let get_config_deposit_contract = config_path
-        .clone()
         .and(warp::path("deposit_contract"))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -2159,6 +2156,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::FinalizedCheckpoint => {
                                     event_handler.subscribe_finalized()
+                                }
+                                api_types::EventTopic::ChainReorg => {
+                                    event_handler.subscribe_reorgs()
                                 }
                             };
 

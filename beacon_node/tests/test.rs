@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![recursion_limit = "256"]
 
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{

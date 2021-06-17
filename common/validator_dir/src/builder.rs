@@ -231,7 +231,7 @@ impl<'a> Builder<'a> {
                 if self.store_withdrawal_keystore {
                     // Write the withdrawal password to file.
                     write_password_to_file(
-                        password_dir.join(withdrawal_keypair.pk.to_hex_string()),
+                        password_dir.join(withdrawal_keypair.pk.as_hex_string()),
                         withdrawal_password.as_bytes(),
                     )?;
 
