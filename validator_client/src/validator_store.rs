@@ -496,15 +496,25 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Take the fork early to avoid lock interleaving.
         let fork = self.fork();
 
-        let proof = self.with_validator_keypair(validator_pubkey, |keypair| {
-            SelectionProof::new::<E>(
-                slot,
-                &keypair.sk,
-                &fork,
-                self.genesis_validators_root,
-                &self.spec,
-            )
-        })?;
+        // Bypass the `with_validator_keypair` function.
+        //
+        // This is because we don't care about doppelganger protection when it comes to selection
+        // proofs. They are not slashable and we need them to subscribe to subnets on the BN.
+        //
+        // As long as we disallow `SignedAggregateAndProof` then these selection proofs will never
+        // be published on the network.
+        let validators_lock = self.validators.read();
+        let keypair = validators_lock
+            .voting_keypair(&validator_pubkey)
+            .ok_or(Error::UnknownPubkey(validator_pubkey))?;
+
+        let proof = SelectionProof::new::<E>(
+            slot,
+            &keypair.sk,
+            &fork,
+            self.genesis_validators_root,
+            &self.spec,
+        );
 
         metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
 
