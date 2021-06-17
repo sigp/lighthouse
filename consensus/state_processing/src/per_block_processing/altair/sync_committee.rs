@@ -46,7 +46,7 @@ pub fn process_sync_aggregate<T: EthSpec>(
 
     let pubkey_refs = participant_pubkeys.iter().collect::<Vec<_>>();
     if !aggregate
-        .sync_committee_message
+        .sync_committee_signature
         .eth2_fast_aggregate_verify(signing_root, &pubkey_refs)
     {
         return Err(SyncAggregateInvalid::SignatureInvalid.into());
