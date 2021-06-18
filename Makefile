@@ -146,8 +146,6 @@ audit:
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
-	# Run check first to verify
-	cargo +$(PINNED_NIGHTLY) check -v --tests --all-targets --release
 	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.

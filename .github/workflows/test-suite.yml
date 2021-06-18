@@ -198,9 +198,12 @@ jobs:
       run: rustup toolchain install $PINNED_NIGHTLY
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked
+    - name: Create Cargo config dir
+      run: mkdir -p .cargo
+    - name: Install custom Cargo config
+      run: cp -f .github/custom/config.toml .cargo/config.toml
     - name: Run cargo udeps to identify unused crates in the dependency graph
       run: make udeps
     env:
       # Allow warnings on Nightly
       RUSTFLAGS: ""
-      CARGO_LOG: "cargo::ops::registry=debug"
