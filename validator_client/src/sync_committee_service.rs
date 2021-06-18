@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
-    SyncContributionData, SyncDuty, SyncSelectionProof,
+    SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
 };
 
 // FIXME(altair): randomise joining
@@ -275,7 +275,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         self,
         slot: Slot,
         beacon_block_root: Hash256,
-        aggregators: HashMap<u64, Vec<(u64, PublicKeyBytes, SyncSelectionProof)>>,
+        aggregators: HashMap<SyncSubnetId, Vec<(u64, PublicKeyBytes, SyncSelectionProof)>>,
         aggregate_instant: Instant,
     ) {
         for (subnet_id, subnet_aggregators) in aggregators {
@@ -299,7 +299,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         self,
         slot: Slot,
         beacon_block_root: Hash256,
-        subnet_id: u64,
+        subnet_id: SyncSubnetId,
         subnet_aggregators: Vec<(u64, PublicKeyBytes, SyncSelectionProof)>,
         aggregate_instant: Instant,
     ) -> Result<(), ()> {
@@ -313,7 +313,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 let sync_contribution_data = SyncContributionData {
                     slot,
                     beacon_block_root,
-                    subcommittee_index: subnet_id,
+                    subcommittee_index: subnet_id.into(),
                 };
 
                 beacon_node

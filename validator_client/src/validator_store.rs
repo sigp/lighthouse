@@ -13,7 +13,7 @@ use types::{
     graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
     Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedRoot, Slot, SyncCommitteeContribution,
-    SyncCommitteeSignature, SyncSelectionProof,
+    SyncCommitteeSignature, SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -387,7 +387,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
-        subnet_id: u64,
+        subnet_id: SyncSubnetId,
     ) -> Option<SyncSelectionProof> {
         let validators = self.validators.read();
         let voting_keypair = validators.voting_keypair(validator_pubkey)?;
@@ -397,7 +397,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         Some(SyncSelectionProof::new::<E>(
             slot,
-            subnet_id,
+            subnet_id.into(),
             &voting_keypair.sk,
             &self.fork(slot.epoch(E::slots_per_epoch())),
             self.genesis_validators_root,

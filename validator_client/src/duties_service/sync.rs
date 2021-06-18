@@ -5,7 +5,9 @@ use slog::{crit, debug, info, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{ChainSpec, Epoch, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof};
+use types::{
+    ChainSpec, Epoch, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId,
+};
 
 pub struct SyncDutiesMap {
     /// Map from sync committee period to duties for members of that sync committee.
@@ -30,7 +32,7 @@ pub struct ValidatorDuties {
     ///
     /// The slot is the slot at which the signed contribution and proof should be broadcast,
     /// which is 1 less than the slot for which the `duty` was computed.
-    aggregation_proofs: RwLock<HashMap<(Slot, u64), SyncSelectionProof>>,
+    aggregation_proofs: RwLock<HashMap<(Slot, SyncSubnetId), SyncSelectionProof>>,
 }
 
 /// Duties for a single slot.
@@ -42,7 +44,7 @@ pub struct SlotDuties {
     /// subnets).
     pub duties: Vec<SyncDuty>,
     /// Map from subnet ID to validator index and selection proof of each aggregator.
-    pub aggregators: HashMap<u64, Vec<(u64, PublicKeyBytes, SyncSelectionProof)>>,
+    pub aggregators: HashMap<SyncSubnetId, Vec<(u64, PublicKeyBytes, SyncSelectionProof)>>,
 }
 
 impl Default for SyncDutiesMap {
@@ -92,68 +94,45 @@ impl SyncDutiesMap {
     ) -> Option<SlotDuties> {
         // Sync duties lag their assigned slot by 1
         let duty_slot = wall_clock_slot + 1;
-        // However, selection proofs do not.
-        let proof_slot = wall_clock_slot;
 
-        let duty_period = duty_slot
-            .epoch(E::slots_per_epoch())
-            .sync_committee_period(spec)
-            .ok()?;
-        let proof_period = proof_slot
+        let sync_committee_period = duty_slot
             .epoch(E::slots_per_epoch())
             .sync_committee_period(spec)
             .ok()?;
 
         let committees_reader = self.committees.read();
-
-        let all_committee_duties = if duty_period == proof_period {
-            // Easy case, just fetch everything from one committee period.
-            vec![(duty_period, committees_reader.get(&duty_period)?)]
-        } else {
-            // Edge case (at period boundary). Duties come from next sync committee period while
-            // proofs come from current sync committee period.
-            vec![
-                (duty_period, committees_reader.get(&duty_period)?),
-                (proof_period, committees_reader.get(&proof_period)?),
-            ]
-        };
+        let committee_duties = committees_reader.get(&sync_committee_period)?;
 
         let mut duties = vec![];
         let mut aggregators = HashMap::new();
 
-        for (sync_committee_period, committee_duties) in all_committee_duties {
-            committee_duties
-                .validators
-                .read()
-                .values()
-                // Filter out non-members & failed subnet IDs
-                .filter_map(|opt_duties| {
-                    let duty = opt_duties.as_ref()?;
-                    let subnet_ids = duty.duty.subnet_ids::<E>().ok()?; // FIXME(sproul): log error?
-                    Some((duty, subnet_ids))
-                })
-                // Add duties for members to the vec of all duties, and aggregators to the
-                // aggregators map.
-                .for_each(|(validator_duty, subnet_ids)| {
-                    if sync_committee_period == duty_period {
-                        duties.push(validator_duty.duty.clone());
-                    }
+        committee_duties
+            .validators
+            .read()
+            .values()
+            // Filter out non-members & failed subnet IDs.
+            .filter_map(|opt_duties| {
+                let duty = opt_duties.as_ref()?;
+                let subnet_ids = duty.duty.subnet_ids::<E>().ok()?;
+                Some((duty, subnet_ids))
+            })
+            // Add duties for members to the vec of all duties, and aggregators to the
+            // aggregators map.
+            .for_each(|(validator_duty, subnet_ids)| {
+                duties.push(validator_duty.duty.clone());
 
-                    if sync_committee_period == proof_period {
-                        let proofs = validator_duty.aggregation_proofs.read();
+                let proofs = validator_duty.aggregation_proofs.read();
 
-                        for subnet_id in subnet_ids {
-                            if let Some(proof) = proofs.get(&(wall_clock_slot, subnet_id)) {
-                                aggregators.entry(subnet_id).or_insert_with(Vec::new).push((
-                                    validator_duty.duty.validator_index,
-                                    validator_duty.duty.pubkey,
-                                    proof.clone(),
-                                ));
-                            }
-                        }
+                for subnet_id in subnet_ids {
+                    if let Some(proof) = proofs.get(&(wall_clock_slot, subnet_id)) {
+                        aggregators.entry(subnet_id).or_insert_with(Vec::new).push((
+                            validator_duty.duty.validator_index,
+                            validator_duty.duty.pubkey,
+                            proof.clone(),
+                        ));
                     }
-                });
-        }
+                }
+            });
 
         Some(SlotDuties {
             duties,
@@ -344,7 +323,7 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
     for epoch in (start_epoch.as_u64()..end_epoch.as_u64()).map(Epoch::new) {
         // Generate proofs.
-        let validator_proofs: Vec<(u64, Vec<((Slot, u64), SyncSelectionProof)>)> = validators
+        let validator_proofs: Vec<(u64, Vec<_>)> = validators
             .iter()
             .filter_map(|duty| {
                 let subnet_ids = duty
@@ -360,8 +339,11 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
                 let proofs = epoch
                     .slot_iter(E::slots_per_epoch())
-                    .cartesian_product(subnet_ids)
-                    .filter_map(|(slot, subnet_id)| {
+                    .cartesian_product(&subnet_ids)
+                    .filter_map(|(duty_slot, &subnet_id)| {
+                        // Construct proof for prior slot.
+                        let slot = duty_slot - 1;
+
                         let proof = duties_service
                             .validator_store
                             .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
@@ -394,7 +376,7 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                                 "Validator is sync aggregator";
                                 "validator_index" => duty.validator_index,
                                 "slot" => slot,
-                                "subnet_id" => subnet_id,
+                                "subnet_id" => %subnet_id,
                             );
                             Some(((slot, subnet_id), proof))
                         } else {
