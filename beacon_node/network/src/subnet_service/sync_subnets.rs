@@ -123,7 +123,6 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
             let subnet_ids = match SyncSubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
                 &subscription.sync_committee_indices,
-                &self.beacon_chain.spec,
             ) {
                 Ok(subnet_ids) => subnet_ids,
                 Err(e) => {
