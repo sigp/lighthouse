@@ -12,7 +12,7 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2021-03-01
+  PINNED_NIGHTLY: nightly-2021-06-09
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -198,6 +198,10 @@ jobs:
       run: rustup toolchain install $PINNED_NIGHTLY
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked
+    - name: Create Cargo config dir
+      run: mkdir -p .cargo
+    - name: Install custom Cargo config
+      run: cp -f .github/custom/config.toml .cargo/config.toml
     - name: Run cargo udeps to identify unused crates in the dependency graph
       run: make udeps
     env:

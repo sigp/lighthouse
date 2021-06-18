@@ -1,4 +1,5 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
+#![recursion_limit = "256"]
 
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
@@ -2333,7 +2334,7 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
     };
 
     tokio::select! {
-            _ = collect_stream_fut => {return events}
+            _ = collect_stream_fut => {events}
             _ = tokio::time::sleep(timeout) => { return events; }
     }
 }
