@@ -14,7 +14,7 @@ use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
     per_block_processing::errors::{
         AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-        ProposerSlashingValidationError, SyncSignatureValidationError,
+        ProposerSlashingValidationError, SyncCommitteeMessageValidationError,
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
@@ -60,7 +60,7 @@ pub enum BeaconChainError {
     },
     CannotAttestToFutureState,
     AttestationValidationError(AttestationValidationError),
-    SyncSignatureValidationError(SyncSignatureValidationError),
+    SyncCommitteeMessageValidationError(SyncCommitteeMessageValidationError),
     ExitValidationError(ExitValidationError),
     ProposerSlashingValidationError(ProposerSlashingValidationError),
     AttesterSlashingValidationError(AttesterSlashingValidationError),
@@ -114,11 +114,19 @@ pub enum BeaconChainError {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
     },
+    InconsistentForwardsIter {
+        request_slot: Slot,
+        slot: Slot,
+    },
+    InvalidReorgSlotIter {
+        old_slot: Slot,
+        new_slot: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
-easy_from_to!(SyncSignatureValidationError, BeaconChainError);
+easy_from_to!(SyncCommitteeMessageValidationError, BeaconChainError);
 easy_from_to!(ExitValidationError, BeaconChainError);
 easy_from_to!(ProposerSlashingValidationError, BeaconChainError);
 easy_from_to!(AttesterSlashingValidationError, BeaconChainError);

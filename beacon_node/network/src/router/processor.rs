@@ -10,7 +10,7 @@ use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use store::SyncCommitteeSignature;
+use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
@@ -314,7 +314,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
-        sync_signature: SyncCommitteeSignature,
+        sync_signature: SyncCommitteeMessage,
         subnet_id: SyncSubnetId,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_signature(

@@ -259,7 +259,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     *contribution_and_proof,
                 );
             }
-            PubsubMessage::SyncCommitteeSignature(sync_committtee_msg) => {
+            PubsubMessage::SyncCommitteeMessage(sync_committtee_msg) => {
                 debug!(
                     self.log,
                     "Received sync committee signature";

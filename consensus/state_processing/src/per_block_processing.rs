@@ -9,7 +9,7 @@ pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
-pub use altair::sync_committee::process_sync_committee;
+pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::BlockSignatureVerifier;
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use process_operations::process_operations;
@@ -130,7 +130,7 @@ pub fn per_block_processing<T: EthSpec>(
     process_operations(state, block.body(), verify_signatures, spec)?;
 
     if let BeaconBlockRef::Altair(inner) = block {
-        process_sync_committee(state, &inner.body.sync_aggregate, proposer_index, spec)?;
+        process_sync_aggregate(state, &inner.body.sync_aggregate, proposer_index, spec)?;
     }
 
     Ok(())

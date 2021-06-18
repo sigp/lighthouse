@@ -25,12 +25,14 @@ use tree_hash_derive::TreeHash;
 pub use self::committee_cache::CommitteeCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
+pub use iter::BlockRootsIter;
 pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
 mod clone_config;
 mod exit_cache;
+mod iter;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
@@ -255,7 +257,7 @@ where
     #[superstruct(only(Altair))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair))]
-    pub next_sync_committee: SyncCommittee<T>,
+    pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -728,26 +730,17 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
-    /// Get the validator indices of all validators from `sync_committee` identified by
-    /// `sync_committee_bits`.
-    pub fn get_sync_committee_participant_indices(
+    /// Get the validator indices of all validators from `sync_committee`.
+    pub fn get_sync_committee_indices(
         &mut self,
         sync_committee: &SyncCommittee<T>,
-        sync_committee_bits: &BitVector<T::SyncCommitteeSize>,
     ) -> Result<Vec<usize>, Error> {
         sync_committee
             .pubkeys
             .iter()
-            .zip(sync_committee_bits.iter())
-            .flat_map(|(pubkey, bit)| {
-                if bit {
-                    let validator_index_res = self
-                        .get_validator_index(&pubkey)
-                        .and_then(|opt| opt.ok_or(Error::PubkeyCacheInconsistent));
-                    Some(validator_index_res)
-                } else {
-                    None
-                }
+            .map(|pubkey| {
+                self.get_validator_index(&pubkey)?
+                    .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
     }
@@ -837,6 +830,13 @@ impl<T: EthSpec> BeaconState<T> {
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
+    }
+
+    /// Returns an iterator across the past block roots of `state` in descending slot-order.
+    ///
+    /// See the docs for `BlockRootsIter` for more detail.
+    pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a, T> {
+        BlockRootsIter::new(self, spec.genesis_slot)
     }
 
     /// Return the block root at a recent `slot`.
@@ -1513,6 +1513,28 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
         (self.previous_epoch() - self.finalized_checkpoint().epoch)
             > spec.min_epochs_to_inactivity_penalty
+    }
+
+    /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees
+    /// assigned to `slot` sign for `slot - 1`. This creates the exceptional logic below when
+    /// transitioning between sync committee periods.
+    pub fn get_sync_committee_for_next_slot(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Arc<SyncCommittee<T>>, Error> {
+        let next_slot_epoch = self
+            .slot()
+            .saturating_add(Slot::new(1))
+            .epoch(T::slots_per_epoch());
+
+        let sync_committee = if self.current_epoch().sync_committee_period(spec)
+            == next_slot_epoch.sync_committee_period(spec)
+        {
+            self.current_sync_committee()?.clone()
+        } else {
+            self.next_sync_committee()?.clone()
+        };
+        Ok(sync_committee)
     }
 }
 

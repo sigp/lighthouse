@@ -523,11 +523,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             return;
         }
         // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
-        if self
+        if !self
             .unsubscriptions
             .keys()
-            .find(|s| s.subnet_id == subnet_id)
-            .is_none()
+            .any(|s| s.subnet_id == subnet_id)
         {
             // we are not at capacity, unsubscribe from the current subnet.
             debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
@@ -569,11 +568,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         for subnet_id in to_remove_subnets {
             // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
-            if self
+            if !self
                 .unsubscriptions
                 .keys()
-                .find(|s| s.subnet_id == *subnet_id)
-                .is_none()
+                .any(|s| s.subnet_id == *subnet_id)
             {
                 self.events
                     .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(

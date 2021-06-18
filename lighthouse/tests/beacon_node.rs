@@ -257,6 +257,7 @@ fn eth1_endpoints_flag() {
                 "https://infura.io/secret"
             );
             assert_eq!(config.eth1.endpoints[1].to_string(), "https://infura.io/");
+            assert!(config.sync_eth1_chain);
         });
 }
 #[test]
@@ -797,6 +798,15 @@ fn slasher_broadcast_flag() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+pub fn malloc_tuning_flag() {
+    CommandLineTest::new()
+        .flag("disable-malloc-tuning", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.http_metrics.allocator_metrics_enabled);
         });
 }
 #[test]

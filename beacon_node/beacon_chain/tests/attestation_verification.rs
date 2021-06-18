@@ -3,10 +3,11 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+use beacon_chain::{
+    attestation_verification::Error as AttnError,
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    BeaconChain, BeaconChainTypes, WhenSlotSkipped,
 };
-use beacon_chain::{attestation_verification::Error as AttnError, BeaconChain, BeaconChainTypes};
 use int_to_bytes::int_to_bytes32;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
@@ -912,7 +913,7 @@ fn attestation_that_skips_epochs() {
     let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
     let earlier_block = harness
         .chain
-        .block_at_slot(earlier_slot)
+        .block_at_slot(earlier_slot, WhenSlotSkipped::Prev)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
 

@@ -56,7 +56,7 @@ use tokio::sync::{mpsc, oneshot};
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeSignature, SyncSubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 use worker::{Toolbox, Worker};
@@ -106,7 +106,7 @@ const MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN: usize = 4_096;
 /// before we start dropping them.
 const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
-/// The maximum number of queued `SyncCommitteeSignature` objects that will be stored before we start dropping
+/// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
 const MAX_SYNC_SIGNATURE_QUEUE_LEN: usize = 1_024;
 
@@ -323,7 +323,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn gossip_sync_signature(
         message_id: MessageId,
         peer_id: PeerId,
-        sync_signature: SyncCommitteeSignature,
+        sync_signature: SyncCommitteeMessage,
         subnet_id: SyncSubnetId,
         seen_timestamp: Duration,
     ) -> Self {
@@ -537,7 +537,7 @@ pub enum Work<T: BeaconChainTypes> {
     GossipSyncSignature {
         message_id: MessageId,
         peer_id: PeerId,
-        sync_signature: Box<SyncCommitteeSignature>,
+        sync_signature: Box<SyncCommitteeMessage>,
         subnet_id: SyncSubnetId,
         seen_timestamp: Duration,
     },

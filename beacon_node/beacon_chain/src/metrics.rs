@@ -660,18 +660,18 @@ lazy_static! {
 // Fourth lazy-static block is used to account for macro recursion limit.
 lazy_static! {
     /*
-     * Sync Committee Signature Verification
+     * Sync Committee Message Verification
      */
-    pub static ref SYNC_SIGNATURE_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_sync_signature_processing_requests_total",
-        "Count of all sync signatures submitted for processing"
+    pub static ref SYNC_MESSAGE_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_sync_committee_message_processing_requests_total",
+        "Count of all sync messages submitted for processing"
     );
-    pub static ref SYNC_SIGNATURE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_sync_signature_processing_successes_total",
-        "Number of sync signatures verified for gossip"
+    pub static ref SYNC_MESSAGE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_sync_committee_message_processing_successes_total",
+        "Number of sync messages verified for gossip"
     );
-    pub static ref SYNC_SIGNATURE_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
-        "beacon_sync_signature_gossip_verification_seconds",
+    pub static ref SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_committee_message_gossip_verification_seconds",
         "Full runtime of sync contribution gossip verification"
     );
 
@@ -729,6 +729,18 @@ lazy_static! {
     pub static ref SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_sync_contribution_processing_signature_seconds",
         "Time spent on the signature verification of sync contribution processing"
+    );
+
+        /*
+     * General Sync Committee Contribution Processing
+     */
+    pub static ref SYNC_MESSAGE_PROCESSING_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_committee_message_processing_signature_setup_seconds",
+        "Time spent on setting up for the signature verification of sync message processing"
+    );
+    pub static ref SYNC_MESSAGE_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_sync_committee_message_processing_signature_seconds",
+        "Time spent on the signature verification of sync message processing"
     );
 }
 
@@ -862,24 +874,29 @@ fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &B
 fn scrape_sync_committee_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &BeaconChain<T>) {
     let prev_slot = slot_now - 1;
 
-    if let Some(count) = chain
-        .observed_sync_contributors
-        .read()
-        .observed_validator_count(prev_slot)
-    {
-        set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS, count);
+    let contributors = chain.observed_sync_contributors.read();
+    let mut contributor_sum = 0;
+    for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
+        if let Some(count) =
+            contributors.observed_validator_count(SlotSubcommitteeIndex::new(prev_slot, i))
+        {
+            contributor_sum += count;
+        }
     }
+    drop(contributors);
+    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS, contributor_sum);
 
     let sync_aggregators = chain.observed_sync_aggregators.read();
-    let mut sum = 0;
+    let mut aggregator_sum = 0;
     for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
         if let Some(count) =
             sync_aggregators.observed_validator_count(SlotSubcommitteeIndex::new(prev_slot, i))
         {
-            sum += count;
+            aggregator_sum += count;
         }
     }
-    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS, sum);
+    drop(sync_aggregators);
+    set_gauge_by_usize(&SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS, aggregator_sum);
 }
 
 fn set_gauge_by_slot(gauge: &Result<IntGauge>, value: Slot) {

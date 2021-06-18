@@ -62,14 +62,14 @@ pub enum GossipKind {
     SignedContributionAndProof,
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
     #[strum(serialize = "sync_committee")]
-    SyncCommitteeSignature(SyncSubnetId),
+    SyncCommitteeMessage(SyncSubnetId),
 }
 
 impl std::fmt::Display for GossipKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
-            GossipKind::SyncCommitteeSignature(subnet_id) => {
+            GossipKind::SyncCommitteeMessage(subnet_id) => {
                 write!(f, "sync_committee_{}", **subnet_id)
             }
             x => f.write_str(x.as_ref()),
@@ -144,7 +144,7 @@ impl GossipTopic {
                 topic => match committee_topic_index(topic) {
                     Some(subnet_id) => match subnet_id {
                         Subnet::Attestation(s) => GossipKind::Attestation(s),
-                        Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeSignature(s),
+                        Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
                     },
                     None => return Err(format!("Unknown topic: {}", topic)),
                 },
@@ -181,7 +181,7 @@ impl Into<String> for GossipTopic {
             GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
             GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
             GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
-            GossipKind::SyncCommitteeSignature(index) => {
+            GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
         };
@@ -209,7 +209,7 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
             GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
             GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
-            GossipKind::SyncCommitteeSignature(index) => {
+            GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
         };
@@ -228,7 +228,7 @@ impl From<Subnet> for GossipKind {
     fn from(subnet_id: Subnet) -> Self {
         match subnet_id {
             Subnet::Attestation(s) => GossipKind::Attestation(s),
-            Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeSignature(s),
+            Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
         }
     }
 }
@@ -240,7 +240,7 @@ pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
     let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
     match gossip_topic.kind() {
         GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
-        GossipKind::SyncCommitteeSignature(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
+        GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
         _ => None,
     }
 }
@@ -285,7 +285,7 @@ mod tests {
                 BeaconAggregateAndProof,
                 SignedContributionAndProof,
                 Attestation(SubnetId::new(42)),
-                SyncCommitteeSignature(SyncSubnetId::new(42)),
+                SyncCommitteeMessage(SyncSubnetId::new(42)),
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
@@ -386,7 +386,7 @@ mod tests {
 
         assert_eq!(
             "sync_committee",
-            SyncCommitteeSignature(SyncSubnetId::new(42)).as_ref()
+            SyncCommitteeMessage(SyncSubnetId::new(42)).as_ref()
         );
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());

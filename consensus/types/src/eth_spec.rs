@@ -182,6 +182,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn sync_committee_size() -> usize {
         Self::SyncCommitteeSize::to_usize()
     }
+
+    /// Returns the `SYNC_COMMITTEE_SIZE / SyncCommitteeSubnetCount`.
+    fn sync_subcommittee_size() -> usize {
+        Self::SyncSubcommitteeSize::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
