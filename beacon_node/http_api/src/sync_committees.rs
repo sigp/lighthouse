@@ -2,7 +2,7 @@
 
 use crate::publish_pubsub_message;
 use beacon_chain::sync_committee_verification::{
-    Error as SyncCommitteeError, VerifiedSyncSignature,
+    Error as SyncVerificationError, VerifiedSyncSignature,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig,
@@ -13,9 +13,11 @@ use eth2_libp2p::PubsubMessage;
 use network::NetworkMessage;
 use slog::{error, warn, Logger};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeSignature, SyncDuty,
+    SyncSubnetId,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -111,9 +113,45 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
     let mut failures = vec![];
 
     for (i, sync_committee_signature) in sync_committee_signatures.iter().enumerate() {
-        let verified =
-            match VerifiedSyncSignature::verify(sync_committee_signature.clone(), None, chain) {
-                Ok(verified) => verified,
+        let subnet_positions = match get_subnet_positions_for_sync_committee_message(
+            sync_committee_signature,
+            chain,
+        ) {
+            Ok(positions) => positions,
+            Err(e) => {
+                error!(
+                    log,
+                    "Unable to compute subnet positions for sync message";
+                    "error" => ?e,
+                    "slot" => sync_committee_signature.slot,
+                );
+                failures.push(api_types::Failure::new(i, format!("Verification: {:?}", e)));
+                continue;
+            }
+        };
+
+        // Verify and publish on all relevant subnets.
+        //
+        // The number of assigned subnets on any practical network should be ~1, so the apparent
+        // inefficiency of verifying multiple times is not a real inefficiency.
+        let mut verified_for_pool = None;
+        for subnet_id in subnet_positions.keys().copied() {
+            match VerifiedSyncSignature::verify(
+                sync_committee_signature.clone(),
+                Some(subnet_id),
+                chain,
+            ) {
+                Ok(verified) => {
+                    publish_pubsub_message(
+                        &network_tx,
+                        PubsubMessage::SyncCommitteeSignature(Box::new((
+                            subnet_id,
+                            verified.sync_signature().clone(),
+                        ))),
+                    )?;
+
+                    verified_for_pool = Some(verified);
+                }
                 Err(e) => {
                     error!(
                         log,
@@ -124,29 +162,20 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                         "validator_index" => sync_committee_signature.validator_index,
                     );
                     failures.push(api_types::Failure::new(i, format!("Verification: {:?}", e)));
-                    continue;
                 }
-            };
-
-        // Publish on all relevant subnets.
-        for subnet_id in verified.subnet_positions().keys().copied() {
-            publish_pubsub_message(
-                &network_tx,
-                PubsubMessage::SyncCommitteeSignature(Box::new((
-                    subnet_id,
-                    verified.sync_signature().clone(),
-                ))),
-            )?;
+            }
         }
 
-        if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
-            error!(
-                log,
-                "Unable to add sync committee signature to pool";
-                "error" => ?e,
-                "slot" => sync_committee_signature.slot,
-                "validator_index" => sync_committee_signature.validator_index,
-            );
+        if let Some(verified) = verified_for_pool {
+            if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
+                error!(
+                    log,
+                    "Unable to add sync committee signature to pool";
+                    "error" => ?e,
+                    "slot" => sync_committee_signature.slot,
+                    "validator_index" => sync_committee_signature.validator_index,
+                );
+            }
         }
     }
 
@@ -158,6 +187,20 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             failures,
         ))
     }
+}
+
+/// Get the set of all subnet assignments for a `SyncCommitteeSignature`.
+pub fn get_subnet_positions_for_sync_committee_message<T: BeaconChainTypes>(
+    sync_message: &SyncCommitteeSignature,
+    chain: &BeaconChain<T>,
+) -> Result<HashMap<SyncSubnetId, Vec<usize>>, SyncVerificationError> {
+    let pubkey = chain
+        .validator_pubkey_bytes(sync_message.validator_index as usize)?
+        .ok_or(SyncVerificationError::UnknownValidatorIndex(
+            sync_message.validator_index as usize,
+        ))?;
+    let sync_committee = chain.head_sync_committee_next_slot()?;
+    Ok(sync_committee.subcommittee_positions_for_public_key(&pubkey)?)
 }
 
 /// Receive signed contributions and proofs, storing them in the op pool and broadcasting.
@@ -190,7 +233,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             }
             // If we already know the contribution, don't broadcast it or attempt to
             // further verify it. Return success.
-            Err(SyncCommitteeError::SyncContributionAlreadyKnown(_)) => continue,
+            Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
             Err(e) => {
                 error!(
                     log,
