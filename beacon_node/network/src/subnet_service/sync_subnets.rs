@@ -1,7 +1,7 @@
 //! This service keeps track of which sync committee subnet the beacon node should be subscribed to at any
 //! given time. It schedules subscriptions to sync committee subnets and requests peer discoveries.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{hash_map::Entry, HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -274,11 +274,10 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                 + slot_duration
         };
 
-        if !self.subscriptions.contains_key(&exact_subnet.subnet_id) {
+        if let Entry::Vacant(e) = self.subscriptions.entry(exact_subnet.subnet_id) {
             // We are not currently subscribed and have no waiting subscription, create one
             debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
-            self.subscriptions
-                .insert(exact_subnet.subnet_id, exact_subnet.until_epoch);
+            e.insert(exact_subnet.until_epoch);
             self.events
                 .push_back(SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(
                     exact_subnet.subnet_id,

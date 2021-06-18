@@ -47,7 +47,7 @@ impl SyncSubnetId {
             T::SyncCommitteeSize::to_u64().safe_div(spec.sync_committee_subnet_count)?;
 
         sync_committee_indices
-            .into_iter()
+            .iter()
             .map(|index| index.safe_div(subnet_size).map(Self::new))
             .collect::<Result<_, _>>()
     }

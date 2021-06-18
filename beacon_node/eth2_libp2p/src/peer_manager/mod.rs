@@ -580,20 +580,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
-                    peer_info.meta_data = Some(meta_data);
                 } else {
                     debug!(self.log, "Received old metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                     // Updating metadata even in this case to prevent storing
-                    // incorrect  `metadata.attnets` for a peer
-                    peer_info.meta_data = Some(meta_data);
+                    // incorrect  `attnets/syncnets` for a peer
                 }
             } else {
                 // we have no meta-data for this peer, update
                 debug!(self.log, "Obtained peer's metadata";
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
-                peer_info.meta_data = Some(meta_data);
             }
+            peer_info.meta_data = Some(meta_data);
         } else {
             crit!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
