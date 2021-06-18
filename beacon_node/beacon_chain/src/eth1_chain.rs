@@ -612,11 +612,9 @@ fn collect_valid_votes<T: EthSpec>(
         .eth1_data_votes
         .iter()
         .filter_map(|vote| {
-            if let Some(block_num) = votes_to_consider.get(vote) {
-                Some((vote.clone(), *block_num))
-            } else {
-                None
-            }
+            votes_to_consider
+                .get(vote)
+                .map(|block_num| (vote.clone(), *block_num))
         })
         .for_each(|(eth1_data, block_number)| {
             valid_votes
@@ -764,8 +762,8 @@ mod test {
 
             let eth1_chain = get_eth1_chain();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 
@@ -797,8 +795,8 @@ mod test {
             let eth1_chain = get_eth1_chain();
             let max_deposits = <E as EthSpec>::MaxDeposits::to_u64();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 
@@ -879,8 +877,8 @@ mod test {
 
             let eth1_chain = get_eth1_chain();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 
@@ -903,8 +901,8 @@ mod test {
 
             let eth1_chain = get_eth1_chain();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 

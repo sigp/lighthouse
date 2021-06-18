@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "1.3.0"
+version = "1.4.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
@@ -39,3 +39,4 @@ account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
 web3 = "0.14.0"
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
+sensitive_url = { path = "../common/sensitive_url" }

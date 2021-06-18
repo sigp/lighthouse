@@ -20,10 +20,11 @@
 //!
 //! ```
 //! use remote_signer_consumer::RemoteSignerHttpConsumer;
-//! use reqwest::{ClientBuilder, Url};
+//! use reqwest::ClientBuilder;
+//! use sensitive_url::SensitiveUrl;
 //! use tokio::time::Duration;
 //!
-//! let url: Url = "http://127.0.0.1:9000".parse().unwrap();
+//! let url = SensitiveUrl::parse("http://127.0.0.1:9000").unwrap();
 //! let reqwest_client = ClientBuilder::new()
 //!       .timeout(Duration::from_secs(2))
 //!       .build()
@@ -115,6 +116,7 @@ mod http_client;
 
 pub use http_client::RemoteSignerHttpConsumer;
 pub use reqwest::Url;
+use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use types::{AttestationData, BeaconBlock, Domain, Epoch, EthSpec, Fork, Hash256, SignedRoot};
 
@@ -125,7 +127,7 @@ pub enum Error {
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(String),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
-    InvalidUrl(Url),
+    InvalidUrl(SensitiveUrl),
     /// The supplied parameter is invalid.
     InvalidParameter(String),
 }

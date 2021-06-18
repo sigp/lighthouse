@@ -17,6 +17,8 @@ pub mod http_api;
 
 pub use cli::cli_app;
 pub use config::Config;
+use lighthouse_metrics::set_gauge;
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
@@ -28,7 +30,7 @@ use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::types::StateId;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Url};
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode};
 use fork_service::{ForkService, ForkServiceBuilder};
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
@@ -125,6 +127,17 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             None
         };
 
+        // Start the explorer client which periodically sends validator process
+        // and system metrics to the configured endpoint.
+        if let Some(monitoring_config) = &config.monitoring_api {
+            let monitoring_client =
+                MonitoringHttpClient::new(monitoring_config, context.log().clone())?;
+            monitoring_client.auto_update(
+                context.executor.clone(),
+                vec![ProcessType::Validator, ProcessType::System],
+            );
+        };
+
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)
             .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
 
@@ -209,13 +222,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 })?;
         }
 
-        let beacon_node_urls: Vec<Url> = config
+        let beacon_nodes: Vec<BeaconNodeHttpClient> = config
             .beacon_nodes
-            .iter()
-            .map(|s| s.parse())
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
-        let beacon_nodes: Vec<BeaconNodeHttpClient> = beacon_node_urls
+            .clone()
             .into_iter()
             .map(|url| {
                 let beacon_node_http_client = ClientBuilder::new()
@@ -229,10 +238,19 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             })
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
+        let num_nodes = beacon_nodes.len();
         let candidates = beacon_nodes
             .into_iter()
             .map(CandidateBeaconNode::new)
             .collect();
+
+        // Set the count for beacon node fallbacks excluding the primary beacon node
+        set_gauge(
+            &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
+            num_nodes.saturating_sub(1) as i64,
+        );
+        // Initialize the number of connected, synced fallbacks to 0.
+        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
@@ -413,7 +431,7 @@ async fn init_from_beacon_node<E: EthSpec>(
     loop {
         beacon_nodes.update_unready_candidates().await;
         let num_available = beacon_nodes.num_available().await;
-        let num_total = beacon_nodes.num_total().await;
+        let num_total = beacon_nodes.num_total();
         if num_available > 0 {
             info!(
                 context.log(),

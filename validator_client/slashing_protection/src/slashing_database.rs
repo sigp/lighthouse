@@ -5,9 +5,10 @@ use crate::interchange::{
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
+use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::Duration;
 use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
@@ -46,13 +47,13 @@ impl SlashingDatabase {
     ///
     /// Error if a database (or any file) already exists at `path`.
     pub fn create(path: &Path) -> Result<Self, NotSafe> {
-        let file = OpenOptions::new()
+        let _file = OpenOptions::new()
             .write(true)
             .read(true)
             .create_new(true)
             .open(path)?;
 
-        Self::set_db_file_permissions(&file)?;
+        restrict_file_permissions(path).map_err(|_| NotSafe::PermissionsError)?;
         let conn_pool = Self::open_conn_pool(path)?;
         let conn = conn_pool.get()?;
 
@@ -121,21 +122,6 @@ impl SlashingDatabase {
         Ok(())
     }
 
-    /// Set the database file to readable and writable only by its owner (0600).
-    #[cfg(unix)]
-    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut perm = file.metadata()?.permissions();
-        perm.set_mode(0o600);
-        file.set_permissions(perm)?;
-        Ok(())
-    }
-
-    // TODO: add support for Windows ACLs
-    #[cfg(windows)]
-    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {}
-
     /// Creates an empty transaction and drops it. Used to test whether the database is locked.
     pub fn test_transaction(&self) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
@@ -174,7 +160,7 @@ impl SlashingDatabase {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
             if self.get_validator_id_opt(&txn, pubkey)?.is_none() {
-                stmt.execute(&[pubkey.to_hex_string()])?;
+                stmt.execute(&[pubkey.as_hex_string()])?;
             }
         }
         Ok(())
@@ -219,7 +205,7 @@ impl SlashingDatabase {
         Ok(txn
             .query_row(
                 "SELECT id FROM validators WHERE public_key = ?1",
-                params![&public_key.to_hex_string()],
+                params![&public_key.as_hex_string()],
                 |row| row.get(0),
             )
             .optional()?)
@@ -1004,11 +990,9 @@ mod tests {
             assert_eq!(db.conn_pool.max_size(), POOL_SIZE);
             assert_eq!(db.conn_pool.connection_timeout(), CONNECTION_TIMEOUT);
             let conn = db.conn_pool.get().unwrap();
-            assert_eq!(
-                conn.pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
-                    .unwrap(),
-                true
-            );
+            assert!(conn
+                .pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
+                .unwrap());
             assert_eq!(
                 conn.pragma_query_value(None, "locking_mode", |row| { row.get::<_, String>(0) })
                     .unwrap()

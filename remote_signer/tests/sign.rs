@@ -20,14 +20,14 @@ mod sign {
     fn storage_error() {
         let (test_signer, tmp_dir) = set_up_api_test_signer_to_sign_message();
         let test_block_body = get_test_block_body(0xc137);
-        set_permissions(tmp_dir.path(), 0o40311);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40311);
+        restrict_permissions(tmp_dir.path());
+        restrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         let url = format!("{}/sign/{}", test_signer.address, PUBLIC_KEY_1);
 
         let response = http_post_custom_body(&url, &test_block_body);
-        set_permissions(tmp_dir.path(), 0o40755);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
+        unrestrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         assert_sign_error(response, 500, "Storage error: PermissionDenied");
 
@@ -281,7 +281,7 @@ mod sign {
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0xINVALID_VALUE_\",\"current_version\":\"0x02020202\",\"epoch\":\"1545\"},",
-            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: \\\'I\\\', index: 0 })\", line: 1, column: 237097)",
+            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: 'I', index: 0 })\", line: 1, column: 237097)",
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0x01010101\",\"current_version\":\"INVALID_VALUE\",\"epoch\":\"1545\"},",
@@ -293,7 +293,7 @@ mod sign {
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0x01010101\",\"current_version\":\"0xINVALID_VALUE_\",\"epoch\":\"1545\"},",
-            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: \\\'I\\\', index: 0 })\", line: 1, column: 237128)"
+            "Unable to parse body message from JSON: Error(\"invalid hex (InvalidHexCharacter { c: 'I', index: 0 })\", line: 1, column: 237128)"
         );
         testcase(
             "\"fork\":{\"previous_version\":\"0x01010101\",\"current_version\":\"0x02020202\",\"epoch\":},",

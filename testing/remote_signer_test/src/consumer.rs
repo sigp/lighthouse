@@ -1,7 +1,8 @@
 use crate::*;
 use remote_signer_client::api_response::SignatureApiResponse;
-use remote_signer_consumer::{Error, RemoteSignerHttpConsumer, RemoteSignerObject, Url};
+use remote_signer_consumer::{Error, RemoteSignerHttpConsumer, RemoteSignerObject};
 use reqwest::ClientBuilder;
+use sensitive_url::SensitiveUrl;
 use serde::Serialize;
 use tokio::runtime::Builder;
 use tokio::time::Duration;
@@ -15,7 +16,7 @@ pub fn set_up_test_consumer_with_timeout(
     test_signer_address: &str,
     timeout: u64,
 ) -> RemoteSignerHttpConsumer {
-    let url: Url = test_signer_address.parse().unwrap();
+    let url = SensitiveUrl::parse(test_signer_address).unwrap();
     let reqwest_client = ClientBuilder::new()
         .timeout(Duration::from_secs(timeout))
         .build()
@@ -140,5 +141,12 @@ pub fn assert_sign_ok(resp: ApiTestResponse, expected_signature: &str) {
 
 pub fn assert_sign_error(resp: ApiTestResponse, http_status: u16, error_msg: &str) {
     assert_eq!(resp.status, http_status);
-    assert_eq!(resp.json["error"].as_str().unwrap(), error_msg);
+    assert_eq!(
+        resp.json["error"]
+            .as_str()
+            .unwrap()
+            // cross-platform compatiblity
+            .replace("\\", ""),
+        error_msg
+    );
 }

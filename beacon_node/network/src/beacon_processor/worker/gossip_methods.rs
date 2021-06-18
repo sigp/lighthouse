@@ -854,7 +854,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
-                debug!(
+                trace!(
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => %peer_id,

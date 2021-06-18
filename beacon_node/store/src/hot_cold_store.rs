@@ -106,6 +106,11 @@ pub enum HotColdDBError {
     IterationError {
         unexpected_key: BytesKey,
     },
+    AttestationStateIsFinalized {
+        split_slot: Slot,
+        request_slot: Option<Slot>,
+        state_root: Hash256,
+    },
 }
 
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
@@ -280,12 +285,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Store a state in the store.
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
+        let mut ops: Vec<KeyValueStoreOp> = Vec::new();
         if state.slot < self.get_split_slot() {
-            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_cold_state(state_root, &state, &mut ops)?;
             self.cold_db.do_atomically(ops)
         } else {
-            let mut ops: Vec<KeyValueStoreOp> = Vec::new();
             self.store_hot_state(state_root, state, &mut ops)?;
             self.hot_db.do_atomically(ops)
         }
@@ -345,8 +349,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
-        if slot.map_or(false, |slot| slot < self.get_split_slot()) {
-            Ok(None)
+        let split_slot = self.get_split_slot();
+
+        if slot.map_or(false, |slot| slot < split_slot) {
+            Err(HotColdDBError::AttestationStateIsFinalized {
+                split_slot,
+                request_slot: slot,
+                state_root: *state_root,
+            }
+            .into())
         } else {
             self.load_hot_state(state_root, BlockReplay::InconsistentStateRoots)
         }

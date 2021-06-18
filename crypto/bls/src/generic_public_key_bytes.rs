@@ -70,7 +70,7 @@ impl<Pub> GenericPublicKeyBytes<Pub> {
     }
 
     /// Returns `self.serialize()` as a `0x`-prefixed hex string.
-    pub fn to_hex_string(&self) -> String {
+    pub fn as_hex_string(&self) -> String {
         format!("{:?}", self)
     }
 

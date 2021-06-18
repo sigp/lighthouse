@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! This crate provides a simluation that creates `n` beacon node and validator clients, each with
 //! `v` validators. A deposit contract is deployed at the start of the simulation using a local
 //! `ganache-cli` instance (you must have `ganache-cli` installed and avaliable on your path). All

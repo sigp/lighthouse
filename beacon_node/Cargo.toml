@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "1.3.0"
+version = "1.4.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
 edition = "2018"
 
@@ -44,3 +44,5 @@ hyper = "0.14.4"
 lighthouse_version = { path = "../common/lighthouse_version" }
 hex = "0.4.2"
 slasher = { path = "../slasher" }
+monitoring_api = { path = "../common/monitoring_api" }
+sensitive_url = { path = "../common/sensitive_url" }

@@ -1,8 +1,9 @@
 [package]
 name = "lighthouse"
-version = "1.3.0"
+version = "1.4.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
+autotests = false
 
 [features]
 # Writes debugging .ssz files to /tmp during block processing.
@@ -43,8 +44,16 @@ account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+serde_json = "1.0.59"
+task_executor = { path = "../common/task_executor" }
+malloc_utils = { path = "../common/malloc_utils" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
+eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
+
+[[test]]
+name = "lighthouse_tests"
+path = "tests/main.rs"

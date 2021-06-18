@@ -294,9 +294,8 @@ mod tests {
             "after first push sub should have len {}",
             len
         );
-        assert_eq!(
-            sub.is_empty(arena).expect("should exist"),
-            false,
+        assert!(
+            !sub.is_empty(arena).expect("should exist"),
             "new sub should not be empty"
         );
 
@@ -375,9 +374,8 @@ mod tests {
             0,
             "new sub should have len 0"
         );
-        assert_eq!(
+        assert!(
             sub.is_empty(arena).expect("should exist"),
-            true,
             "new sub should be empty"
         );
 
@@ -397,9 +395,8 @@ mod tests {
             0,
             "new sub should have len 0"
         );
-        assert_eq!(
+        assert!(
             sub_01.is_empty(arena).expect("should exist"),
-            true,
             "new sub should be empty"
         );
 
@@ -409,9 +406,8 @@ mod tests {
             0,
             "new sub should have len 0"
         );
-        assert_eq!(
+        assert!(
             sub_02.is_empty(arena).expect("should exist"),
-            true,
             "new sub should be empty"
         );
 
@@ -432,9 +428,8 @@ mod tests {
             0,
             "new sub should have len 0"
         );
-        assert_eq!(
+        assert!(
             sub_01.is_empty(arena).expect("should exist"),
-            true,
             "new sub should be empty"
         );
 
@@ -446,9 +441,8 @@ mod tests {
             0,
             "new sub should have len 0"
         );
-        assert_eq!(
+        assert!(
             sub_02.is_empty(arena).expect("should exist"),
-            true,
             "new sub should be empty"
         );
 
@@ -474,9 +468,8 @@ mod tests {
                     0,
                     "new sub should have len 0"
                 );
-                assert_eq!(
+                assert!(
                     sub.is_empty(arena).expect("should exist"),
-                    true,
                     "new sub should be empty"
                 );
                 subs.push(sub);
@@ -492,9 +485,8 @@ mod tests {
                 0,
                 "new sub should have len 0"
             );
-            assert_eq!(
+            assert!(
                 sub.is_empty(arena).expect("should exist"),
-                true,
                 "new sub should be empty"
             );
             subs.push(sub);

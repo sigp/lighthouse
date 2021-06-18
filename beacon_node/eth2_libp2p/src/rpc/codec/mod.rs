@@ -4,7 +4,7 @@ pub(crate) mod ssz_snappy;
 use self::base::{BaseInboundCodec, BaseOutboundCodec};
 use self::ssz_snappy::{SSZSnappyInboundCodec, SSZSnappyOutboundCodec};
 use crate::rpc::protocol::RPCError;
-use crate::rpc::{RPCCodedResponse, RPCRequest};
+use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse};
 use libp2p::bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 use types::EthSpec;
@@ -29,7 +29,7 @@ impl<T: EthSpec> Encoder<RPCCodedResponse<T>> for InboundCodec<T> {
 }
 
 impl<TSpec: EthSpec> Decoder for InboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+    type Item = InboundRequest<TSpec>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -39,10 +39,14 @@ impl<TSpec: EthSpec> Decoder for InboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for OutboundCodec<TSpec> {
+impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for OutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: OutboundRequest<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         match self {
             OutboundCodec::SSZSnappy(codec) => codec.encode(item, dst),
         }

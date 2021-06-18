@@ -30,11 +30,11 @@ mod sign_randao {
 
         testcase(
             "\"beacon_proposer\"",
-            "Unable to parse block from JSON: Error(\"invalid type: string \\\"49463\\\", expected struct BeaconBlock\", line: 0, column: 0)"
+            "Unable to parse block from JSON: Error(\"invalid type: string \"49463\", expected struct BeaconBlock\", line: 0, column: 0)"
         );
         testcase(
             "\"beacon_attester\"",
-            "Unable to parse attestation from JSON: Error(\"invalid type: string \\\"49463\\\", expected struct AttestationData\", line: 0, column: 0)"
+            "Unable to parse attestation from JSON: Error(\"invalid type: string \"49463\", expected struct AttestationData\", line: 0, column: 0)"
         );
         testcase("\"blah\"", "Unsupported bls_domain parameter: blah");
 
