@@ -673,9 +673,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        /* TODO
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL);
-        */
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL);
 
         if let Err(e) = self
             .chain
@@ -689,9 +687,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
 
-        /* TODO
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL);
-        */
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee contribution received from the gossip network and:
@@ -753,9 +749,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "peer" => %peer_id,
             )
         }
-        /* TODO
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL);
-        */
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL);
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
@@ -1102,10 +1096,21 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// network.
     pub fn handle_sync_committee_message_failure(
         &self,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         _message_id: MessageId,
-        _message_type: &str,
-        _error: SyncCommitteeError,
+        message_type: &str,
+        error: SyncCommitteeError,
     ) {
+        metrics::register_sync_committee_error(&error);
+        /*
+        TODO: propagate errors for scoring
+        */
+        debug!(
+            self.log,
+            "Invalid sync committee message from network";
+            "reason" => ?error,
+            "peer_id" => %peer_id,
+            "type" => ?message_type,
+        );
     }
 }

@@ -108,7 +108,7 @@ const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
-const MAX_SYNC_SIGNATURE_QUEUE_LEN: usize = 1_024;
+const MAX_SYNC_MESSAGE_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedContributionAndProof` objects that will be stored before we
 /// start dropping them.
@@ -721,7 +721,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut attestation_debounce = TimeLatch::default();
 
         // TODO: check
-        let mut sync_signature_queue = LifoQueue::new(MAX_SYNC_SIGNATURE_QUEUE_LEN);
+        let mut sync_message_queue = LifoQueue::new(MAX_SYNC_MESSAGE_QUEUE_LEN);
         let mut sync_contribution_queue = LifoQueue::new(MAX_SYNC_CONTRIBUTION_QUEUE_LEN);
 
         // Using a FIFO queue for voluntary exits since it prevents exit censoring. I don't have
@@ -947,7 +947,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipAttesterSlashing { .. } => {
                                 gossip_attester_slashing_queue.push(work, work_id, &self.log)
                             }
-                            Work::GossipSyncSignature { .. } => sync_signature_queue.push(work),
+                            Work::GossipSyncSignature { .. } => sync_message_queue.push(work),
                             Work::GossipSyncContribution { .. } => {
                                 sync_contribution_queue.push(work)
                             }
@@ -977,6 +977,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
                     aggregate_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_SYNC_MESSAGE_QUEUE_TOTAL,
+                    sync_message_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_QUEUE_TOTAL,
+                    sync_contribution_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
