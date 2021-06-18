@@ -882,8 +882,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                             );
                             ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
                                 peer_id,
-                                attestation,
                                 message_id,
+                                attestation,
                                 seen_timestamp,
                             })
                         }
@@ -898,10 +898,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                             );
                             ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
                                 peer_id,
-                                should_import,
                                 message_id,
                                 attestation,
                                 subnet_id,
+                                should_import,
                                 seen_timestamp,
                             })
                         }
