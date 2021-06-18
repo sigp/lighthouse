@@ -340,6 +340,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let attestation_data = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_attestation_data(slot, committee_index)
                     .await
@@ -402,6 +406,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         match self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_POST],
+                );
                 beacon_node
                     .post_beacon_pool_attestations(attestations_slice)
                     .await
@@ -454,6 +462,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let aggregated_attestation = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::AGGREGATES_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_aggregate_attestation(
                         attestation_data_ref.slot,
@@ -506,6 +518,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             match self
                 .beacon_nodes
                 .first_success(RequireSynced::No, |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::AGGREGATES_HTTP_POST],
+                    );
                     beacon_node
                         .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
                         .await
