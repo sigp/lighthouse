@@ -203,3 +203,4 @@ jobs:
     env:
       # Allow warnings on Nightly
       RUSTFLAGS: ""
+      CARGO_LOG: "cargo::ops::registry=debug"
