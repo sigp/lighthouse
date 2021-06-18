@@ -3507,12 +3507,13 @@ dependencies = [
 [[package]]
 name = "libp2p"
 version = "0.35.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "atomic",
  "bytes 1.0.1",
  "futures 0.3.14",
  "lazy_static",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "libp2p-dns",
  "libp2p-gossipsub",
  "libp2p-identify",
@@ -3528,38 +3529,6 @@ dependencies = [
  "pin-project 1.0.7",
  "smallvec",
  "wasm-timer",
-]
-
-[[package]]
-name = "libp2p-core"
-version = "0.27.1"
-dependencies = [
- "asn1_der",
- "bs58 0.4.0",
- "ed25519-dalek",
- "either",
- "fnv",
- "futures 0.3.14",
- "futures-timer",
- "lazy_static",
- "libsecp256k1",
- "log",
- "multihash",
- "multistream-select 0.10.1",
- "parity-multiaddr 0.11.1",
- "parking_lot",
- "pin-project 1.0.7",
- "prost",
- "prost-build",
- "rand 0.7.3",
- "ring",
- "rw-stream-sink",
- "sha2 0.9.3",
- "smallvec",
- "thiserror",
- "unsigned-varint 0.7.0",
- "void",
- "zeroize",
 ]
 
 [[package]]
@@ -3597,17 +3566,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-core"
+version = "0.27.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
+dependencies = [
+ "asn1_der",
+ "bs58 0.4.0",
+ "ed25519-dalek",
+ "either",
+ "fnv",
+ "futures 0.3.14",
+ "futures-timer",
+ "lazy_static",
+ "libsecp256k1",
+ "log",
+ "multihash",
+ "multistream-select 0.10.1",
+ "parity-multiaddr 0.11.1",
+ "parking_lot",
+ "pin-project 1.0.7",
+ "prost",
+ "prost-build",
+ "rand 0.7.3",
+ "ring",
+ "rw-stream-sink",
+ "sha2 0.9.3",
+ "smallvec",
+ "thiserror",
+ "unsigned-varint 0.7.0",
+ "void",
+ "zeroize",
+]
+
+[[package]]
 name = "libp2p-dns"
 version = "0.27.0"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "futures 0.3.14",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
 ]
 
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.28.0"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -3616,7 +3620,7 @@ dependencies = [
  "fnv",
  "futures 0.3.14",
  "hex_fmt",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "libp2p-swarm",
  "log",
  "prost",
@@ -3632,9 +3636,10 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.27.0"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "futures 0.3.14",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "libp2p-swarm",
  "log",
  "prost",
@@ -3646,11 +3651,12 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.27.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
  "futures 0.3.14",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "nohash-hasher",
  "parking_lot",
@@ -3662,12 +3668,13 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.29.0"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "bytes 1.0.1",
  "curve25519-dalek",
  "futures 0.3.14",
  "lazy_static",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "prost",
  "prost-build",
@@ -3682,10 +3689,11 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.27.2"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "either",
  "futures 0.3.14",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "rand 0.7.3",
  "smallvec",
@@ -3696,6 +3704,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.22.0"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "quote",
  "syn",
@@ -3704,6 +3713,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.27.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "async-io",
  "futures 0.3.14",
@@ -3712,7 +3722,7 @@ dependencies = [
  "if-watch",
  "ipnet",
  "libc",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "socket2 0.3.19",
  "tokio 1.5.0",
@@ -3721,11 +3731,12 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.28.0"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "either",
  "futures 0.3.14",
  "futures-rustls",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "quicksink",
  "rw-stream-sink",
@@ -3737,9 +3748,10 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.30.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "futures 0.3.14",
- "libp2p-core 0.27.1",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "parking_lot",
  "thiserror",
  "yamux",
@@ -4181,6 +4193,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.10.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "bytes 1.0.1",
  "futures 0.3.14",
@@ -4524,6 +4537,7 @@ dependencies = [
 [[package]]
 name = "parity-multiaddr"
 version = "0.11.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "arrayref",
  "bs58 0.4.0",
