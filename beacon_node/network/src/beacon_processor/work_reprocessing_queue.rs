@@ -139,13 +139,13 @@ enum QueuedAttestationId {
 }
 
 impl<T: EthSpec> QueuedAggregate<T> {
-    pub fn root(&self) -> &Hash256 {
+    pub fn beacon_block_root(&self) -> &Hash256 {
         &self.attestation.message.aggregate.data.beacon_block_root
     }
 }
 
 impl<T: EthSpec> QueuedUnaggregate<T> {
-    pub fn root(&self) -> &Hash256 {
+    pub fn beacon_block_root(&self) -> &Hash256 {
         &self.attestation.data.beacon_block_root
     }
 }
@@ -322,7 +322,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 // Register this attestation for the corresponding root.
                 self.awaiting_attestations_per_root
-                    .entry(*queued_aggregate.root())
+                    .entry(*queued_aggregate.beacon_block_root())
                     .or_default()
                     .push(att_id);
 
@@ -353,7 +353,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 // Register this attestation for the corresponding root.
                 self.awaiting_attestations_per_root
-                    .entry(*queued_unaggregate.root())
+                    .entry(*queued_unaggregate.beacon_block_root())
                     .or_default()
                     .push(att_id);
 
@@ -443,14 +443,20 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         self.queued_aggregates
                             .remove(&id)
                             .map(|(aggregate, _delay_key)| {
-                                (*aggregate.root(), ReadyWork::Aggregate(aggregate))
+                                (
+                                    *aggregate.beacon_block_root(),
+                                    ReadyWork::Aggregate(aggregate),
+                                )
                             })
                     }
                     QueuedAttestationId::Unaggregate(id) => self
                         .queued_unaggregates
                         .remove(&id)
                         .map(|(unaggregate, _delay_key)| {
-                            (*unaggregate.root(), ReadyWork::Unaggregate(unaggregate))
+                            (
+                                *unaggregate.beacon_block_root(),
+                                ReadyWork::Unaggregate(unaggregate),
+                            )
                         }),
                 } {
                     if self.ready_work_tx.try_send(work).is_err() {
