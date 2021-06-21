@@ -59,10 +59,10 @@ const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
 /// Specific timeout constants for HTTP requests involved in different validator duties.
 /// This can help ensure that proper endpoint fallback occurs.
-const HTTP_ATTESTATION_TIMEOUT: Duration = Duration::from_secs(1);
-const HTTP_ATTESTER_DUTIES_TIMEOUT: Duration = Duration::from_secs(1);
-const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u64 = 2;
-const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u64 = 3;
+const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
+const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
@@ -237,10 +237,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .iter()
             .enumerate()
             .map(|(i, url)| {
-                let secs_per_slot = context.eth2_config.spec.seconds_per_slot;
+                let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+
                 let beacon_node_http_client = ClientBuilder::new()
                     // Set default timeout to be the full slot duration.
-                    .timeout(Duration::from_secs(secs_per_slot))
+                    .timeout(slot_duration)
                     .build()
                     .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
 
@@ -251,17 +252,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         "Fallback endpoints are available, using optimized timeouts.";
                     );
                     Timeouts {
-                        attestation: HTTP_ATTESTATION_TIMEOUT,
-                        attester_duties: HTTP_ATTESTER_DUTIES_TIMEOUT,
-                        proposal: Duration::from_millis(
-                            secs_per_slot * 1_000 / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
-                        ),
-                        proposer_duties: Duration::from_millis(
-                            secs_per_slot * 1_000 / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
-                        ),
+                        attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+                        attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                        proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+                        proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
                     }
                 } else {
-                    Timeouts::set_all(Duration::from_secs(secs_per_slot))
+                    Timeouts::set_all(slot_duration)
                 };
 
                 Ok(BeaconNodeHttpClient::from_components(

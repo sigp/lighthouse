@@ -20,7 +20,7 @@ pub use eth2;
 pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: u64 = 4;
+const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
@@ -71,13 +71,13 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         )
         .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         let beacon_node_http_client = ClientBuilder::new()
-            .timeout(Duration::from_secs(HTTP_TIMEOUT))
+            .timeout(HTTP_TIMEOUT)
             .build()
             .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
         Ok(BeaconNodeHttpClient::from_components(
             beacon_node_url,
             beacon_node_http_client,
-            Timeouts::set_all(Duration::from_secs(HTTP_TIMEOUT)),
+            Timeouts::set_all(HTTP_TIMEOUT),
         ))
     }
 }
