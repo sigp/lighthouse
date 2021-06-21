@@ -233,6 +233,11 @@ impl TestRig {
             .unwrap();
     }
 
+    pub fn enqueue_rpc_block(&self) {
+        let (event, _rx) = WorkEvent::rpc_beacon_block(Box::new(self.next_block.clone()));
+        self.beacon_processor_tx.try_send(event).unwrap();
+    }
+
     pub fn enqueue_unaggregated_attestation(&self) {
         let (attestation, subnet_id) = self.attestations.first().unwrap().clone();
         self.beacon_processor_tx
@@ -560,10 +565,14 @@ fn import_gossip_attestation() {
     );
 }
 
+enum BlockImportMethod {
+    Gossip,
+    Rpc,
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
-#[test]
-fn import_unknown_block_gossip_attestation() {
+fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
     let mut rig = TestRig::new(SMALL_CHAIN);
 
     // Send the attestation but not the block, and check that it was not imported.
@@ -582,9 +591,22 @@ fn import_unknown_block_gossip_attestation() {
 
     // Send the block and ensure that the attestation is received back and imported.
 
-    rig.enqueue_gossip_block();
+    let block_event = match import_method {
+        BlockImportMethod::Gossip => {
+            rig.enqueue_gossip_block();
+            GOSSIP_BLOCK
+        }
+        BlockImportMethod::Rpc => {
+            rig.enqueue_rpc_block();
+            RPC_BLOCK
+        }
+    };
 
-    rig.assert_event_journal_contains_ordered(&[GOSSIP_BLOCK, UNKNOWN_BLOCK_ATTESTATION]);
+    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_ATTESTATION]);
+
+    // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
+    // responsibility of the sync manager to do this.
+    rig.chain.fork_choice().unwrap();
 
     assert_eq!(
         rig.head_root(),
@@ -599,10 +621,19 @@ fn import_unknown_block_gossip_attestation() {
     );
 }
 
+#[test]
+fn attestation_to_unknown_block_processed_after_gossip_block() {
+    attestation_to_unknown_block_processed(BlockImportMethod::Gossip)
+}
+
+#[test]
+fn attestation_to_unknown_block_processed_after_rpc_block() {
+    attestation_to_unknown_block_processed(BlockImportMethod::Rpc)
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
-#[test]
-fn import_unknown_block_gossip_aggregated_attestation() {
+fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
     let mut rig = TestRig::new(SMALL_CHAIN);
 
     // Empty the op pool.
@@ -627,9 +658,22 @@ fn import_unknown_block_gossip_aggregated_attestation() {
 
     // Send the block and ensure that the attestation is received back and imported.
 
-    rig.enqueue_gossip_block();
+    let block_event = match import_method {
+        BlockImportMethod::Gossip => {
+            rig.enqueue_gossip_block();
+            GOSSIP_BLOCK
+        }
+        BlockImportMethod::Rpc => {
+            rig.enqueue_rpc_block();
+            RPC_BLOCK
+        }
+    };
 
-    rig.assert_event_journal_contains_ordered(&[GOSSIP_BLOCK, UNKNOWN_BLOCK_AGGREGATE]);
+    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_AGGREGATE]);
+
+    // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
+    // responsibility of the sync manager to do this.
+    rig.chain.fork_choice().unwrap();
 
     assert_eq!(
         rig.head_root(),
@@ -642,6 +686,16 @@ fn import_unknown_block_gossip_aggregated_attestation() {
         initial_attns + 1,
         "Attestation should have been included."
     );
+}
+
+#[test]
+fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
+    aggregate_attestation_to_unknown_block(BlockImportMethod::Gossip)
+}
+
+#[test]
+fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
+    aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc)
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed

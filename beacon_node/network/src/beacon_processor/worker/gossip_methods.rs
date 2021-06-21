@@ -468,6 +468,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "Failed to inform block import";
+                        "source" => "gossip",
                         "block_root" => %block_root,
                     )
                 };

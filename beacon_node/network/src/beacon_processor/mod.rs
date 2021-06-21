@@ -1192,7 +1192,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      * Verification for beacon blocks received during syncing via RPC.
                      */
                     Work::RpcBlock { block, result_tx } => {
-                        worker.process_rpc_block(*block, result_tx)
+                        worker.process_rpc_block(*block, result_tx, work_reprocessing_tx)
                     }
                     /*
                      * Verification for a chain segment (multiple blocks).
