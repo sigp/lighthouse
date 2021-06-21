@@ -7,6 +7,7 @@ use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use types::{
@@ -42,6 +43,10 @@ pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
+    /// Boolean to track whether the service has posted subscriptions to the BN at least once.
+    ///
+    /// This acts as a latch that fires once upon start-up, and then never again.
+    first_subscription_done: AtomicBool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
@@ -59,6 +64,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 slot_clock,
                 beacon_nodes,
                 context,
+                first_subscription_done: AtomicBool::new(false),
             }),
         }
     }
@@ -370,7 +376,8 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         info!(
             log,
-            "Successfully published signed contributions";
+            "Successfully published sync contributions";
+            "subnet" => %subnet_id,
             "beacon_block_root" => %beacon_block_root,
             "num_signers" => contribution.aggregation_bits.num_set_bits(),
             "slot" => slot,
@@ -402,13 +409,16 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
         let mut duty_slots = vec![];
+        let mut all_succeeded = true;
 
         // At the start of every epoch during the current period, re-post the subscriptions
         // to the beacon node. This covers the case where the BN has forgotten the subscriptions
         // due to a restart, or where the VC has switched to a fallback BN.
         let current_period = sync_period_of_slot::<E>(slot, spec)?;
 
-        if slot.as_u64() % E::slots_per_epoch() == 0 {
+        if !self.first_subscription_done.load(Ordering::Relaxed)
+            || slot.as_u64() % E::slots_per_epoch() == 0
+        {
             duty_slots.push((slot, current_period));
         }
 
@@ -453,6 +463,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         "Missing duties for subscription";
                         "slot" => duty_slot,
                     );
+                    all_succeeded = false;
                 }
             }
         }
@@ -490,6 +501,12 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 "slot" => slot,
                 "error" => %e,
             );
+            all_succeeded = false;
+        }
+
+        // Disable first-subscription latch once all duties have succeeded once.
+        if all_succeeded {
+            self.first_subscription_done.store(true, Ordering::Relaxed);
         }
 
         Ok(())
