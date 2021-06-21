@@ -1888,7 +1888,7 @@ pub fn serve<T: BeaconChainTypes>(
                         let should_register = {
                             let validator_monitor = chain.validator_monitor.read();
                             validator_monitor.auto_register_enabled()
-                                && validator_monitor
+                                && !validator_monitor
                                     .contains_validator(subscription.validator_index)
                         };
                         if should_register {
