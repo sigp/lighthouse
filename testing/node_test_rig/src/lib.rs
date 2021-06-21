@@ -77,7 +77,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         Ok(BeaconNodeHttpClient::from_components(
             beacon_node_url,
             beacon_node_http_client,
-            Timeouts::default(HTTP_TIMEOUT),
+            Timeouts::set_all(Duration::from_secs(HTTP_TIMEOUT)),
         ))
     }
 }
