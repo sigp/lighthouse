@@ -44,6 +44,7 @@ struct TestRig {
     next_block: SignedBeaconBlock<E>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
+    next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
@@ -124,6 +125,18 @@ impl TestRig {
             .flatten()
             .collect::<Vec<_>>();
 
+        let next_block_aggregate_attestations = harness
+            .make_attestations(
+                &harness.get_all_validators(),
+                &next_state,
+                next_block.state_root(),
+                next_block.canonical_root().into(),
+                next_block.slot(),
+            )
+            .into_iter()
+            .filter_map(|(_, aggregate_opt)| aggregate_opt)
+            .collect::<Vec<_>>();
+
         assert!(
             !next_block_attestations.is_empty(),
             "precondition: attestation for next block are not empty"
@@ -193,6 +206,7 @@ impl TestRig {
             next_block,
             attestations,
             next_block_attestations,
+            next_block_aggregate_attestations,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -272,6 +286,22 @@ impl TestRig {
                 attestation,
                 subnet_id,
                 true,
+                Duration::from_secs(0),
+            ))
+            .unwrap();
+    }
+
+    pub fn enqueue_next_block_aggregated_attestation(&self) {
+        let aggregate = self
+            .next_block_aggregate_attestations
+            .first()
+            .unwrap()
+            .clone();
+        self.beacon_processor_tx
+            .try_send(WorkEvent::aggregated_attestation(
+                junk_message_id(),
+                junk_peer_id(),
+                aggregate,
                 Duration::from_secs(0),
             ))
             .unwrap();
@@ -569,6 +599,51 @@ fn import_unknown_block_gossip_attestation() {
     );
 }
 
+/// Ensure that attestations that reference an unknown block get properly re-queued and
+/// re-processed upon importing the block.
+#[test]
+fn import_unknown_block_gossip_aggregated_attestation() {
+    let mut rig = TestRig::new(SMALL_CHAIN);
+
+    // Empty the op pool.
+    rig.chain
+        .op_pool
+        .prune_attestations(u64::max_value().into());
+    assert_eq!(rig.chain.op_pool.num_attestations(), 0);
+
+    // Send the attestation but not the block, and check that it was not imported.
+
+    let initial_attns = rig.chain.op_pool.num_attestations();
+
+    rig.enqueue_next_block_aggregated_attestation();
+
+    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.op_pool.num_attestations(),
+        initial_attns,
+        "Attestation should not have been included."
+    );
+
+    // Send the block and ensure that the attestation is received back and imported.
+
+    rig.enqueue_gossip_block();
+
+    rig.assert_event_journal_contains_ordered(&[GOSSIP_BLOCK, UNKNOWN_BLOCK_AGGREGATE]);
+
+    assert_eq!(
+        rig.head_root(),
+        rig.next_block.canonical_root(),
+        "Block should be imported and become head."
+    );
+
+    assert_eq!(
+        rig.chain.op_pool.num_attestations(),
+        initial_attns + 1,
+        "Attestation should have been included."
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[test]
@@ -598,6 +673,40 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns,
+        "Attestation should not have been included."
+    );
+}
+
+/// Ensure that aggregate that reference an unknown block get properly re-queued and re-processed
+/// when the block is not seen.
+#[test]
+fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
+    let mut rig = TestRig::new(SMALL_CHAIN);
+
+    // Send the attestation but not the block, and check that it was not imported.
+
+    let initial_attns = rig.chain.op_pool.num_attestations();
+
+    rig.enqueue_next_block_aggregated_attestation();
+
+    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO]);
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        initial_attns,
+        "Attestation should not have been included."
+    );
+
+    // Ensure that the attestation is received back but not imported.
+
+    rig.assert_event_journal_with_timeout(
+        &[UNKNOWN_BLOCK_AGGREGATE, WORKER_FREED, NOTHING_TO_DO],
+        Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+    );
+
+    assert_eq!(
+        rig.chain.op_pool.num_attestations(),
         initial_attns,
         "Attestation should not have been included."
     );
