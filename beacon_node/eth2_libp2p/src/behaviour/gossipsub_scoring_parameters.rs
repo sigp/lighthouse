@@ -333,8 +333,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             t_params.mesh_message_deliveries_window =
                 Duration::from_secs(MESH_MESSAGE_DELIVERIES_WINDOW);
             t_params.mesh_failure_penalty_decay = t_params.mesh_message_deliveries_decay;
-            t_params.mesh_message_deliveries_weight = -self.max_positive_score
-                / (t_params.topic_weight * t_params.mesh_message_deliveries_threshold.powi(2));
+            t_params.mesh_message_deliveries_weight = -t_params.topic_weight;
             t_params.mesh_failure_penalty_weight = t_params.mesh_message_deliveries_weight;
             if decay_slots >= current_slot.as_u64() {
                 t_params.mesh_message_deliveries_threshold = 0.0;
