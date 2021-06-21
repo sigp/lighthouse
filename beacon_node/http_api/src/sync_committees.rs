@@ -2,7 +2,7 @@
 
 use crate::publish_pubsub_message;
 use beacon_chain::sync_committee_verification::{
-    Error as SyncVerificationError, VerifiedSyncSignature,
+    Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig,
@@ -16,7 +16,7 @@ use slot_clock::SlotClock;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
-    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeSignature, SyncDuty,
+    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
     SyncSubnetId,
 };
 
@@ -105,7 +105,7 @@ fn convert_to_response(duties: Vec<Option<SyncDuty>>) -> SyncDuties {
 
 /// Receive sync committee duties, storing them in the pools & broadcasting them.
 pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
-    sync_committee_signatures: Vec<SyncCommitteeSignature>,
+    sync_committee_signatures: Vec<SyncCommitteeMessage>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     chain: &BeaconChain<T>,
     log: Logger,
@@ -136,17 +136,17 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
         // inefficiency of verifying multiple times is not a real inefficiency.
         let mut verified_for_pool = None;
         for subnet_id in subnet_positions.keys().copied() {
-            match VerifiedSyncSignature::verify(
+            match VerifiedSyncCommitteeMessage::verify(
                 sync_committee_signature.clone(),
-                Some(subnet_id),
+                subnet_id,
                 chain,
             ) {
                 Ok(verified) => {
                     publish_pubsub_message(
                         &network_tx,
-                        PubsubMessage::SyncCommitteeSignature(Box::new((
+                        PubsubMessage::SyncCommitteeMessage(Box::new((
                             subnet_id,
-                            verified.sync_signature().clone(),
+                            verified.sync_message().clone(),
                         ))),
                     )?;
 
@@ -189,9 +189,9 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
     }
 }
 
-/// Get the set of all subnet assignments for a `SyncCommitteeSignature`.
+/// Get the set of all subnet assignments for a `SyncCommitteeMessage`.
 pub fn get_subnet_positions_for_sync_committee_message<T: BeaconChainTypes>(
-    sync_message: &SyncCommitteeSignature,
+    sync_message: &SyncCommitteeMessage,
     chain: &BeaconChain<T>,
 ) -> Result<HashMap<SyncSubnetId, Vec<usize>>, SyncVerificationError> {
     let pubkey = chain

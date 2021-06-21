@@ -705,7 +705,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/pool/sync_committees`
     pub async fn post_beacon_pool_sync_committee_signatures(
         &self,
-        signatures: &[SyncCommitteeSignature],
+        signatures: &[SyncCommitteeMessage],
     ) -> Result<(), Error> {
         let mut path = self.eth_path()?;
 

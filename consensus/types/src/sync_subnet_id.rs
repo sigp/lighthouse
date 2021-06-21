@@ -46,7 +46,7 @@ impl SyncSubnetId {
         let subcommittee_size = T::SyncSubcommitteeSize::to_u64();
 
         sync_committee_indices
-            .into_iter()
+            .iter()
             .map(|index| index.safe_div(subcommittee_size).map(Self::new))
             .collect()
     }

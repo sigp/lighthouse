@@ -933,10 +933,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // check if we have the batch for our optimistic start. If not, request it first.
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
-            if !self.batches.contains_key(&epoch) {
+            if let Entry::Vacant(entry) = self.batches.entry(epoch) {
                 if let Some(peer) = idle_peers.pop() {
                     let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH);
-                    self.batches.insert(epoch, optimistic_batch);
+                    entry.insert(optimistic_batch);
                     self.send_batch(network, epoch, peer)?;
                 }
             }

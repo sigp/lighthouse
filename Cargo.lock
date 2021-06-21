@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -651,6 +651,7 @@ dependencies = [
  "hyper 0.14.7",
  "lighthouse_version",
  "logging",
+ "monitoring_api",
  "node_test_rig",
  "rand 0.7.3",
  "sensitive_url",
@@ -843,7 +844,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1100,6 +1101,7 @@ dependencies = [
  "http_metrics",
  "lazy_static",
  "lighthouse_metrics",
+ "monitoring_api",
  "network",
  "parking_lot",
  "prometheus",
@@ -1298,9 +1300,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52fb27eab85b17fbb9f6fd667089e07d6a2eb8743d02639ee7f6a7a7729c9c94"
+checksum = "4ec02e091aa634e2c3ada4a392989e7c3116673ef0ac5b72232439094d73b7fd"
 dependencies = [
  "cfg-if 1.0.0",
  "crossbeam-utils",
@@ -1311,11 +1313,10 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4feb231f0d4d6af81aed15928e58ecf5816aa62a2393e2c82f46973e92a9a278"
+checksum = "d82cfc11ce7f2c3faef78d8a684447b40d503d9681acebed6cb728d45940c4db"
 dependencies = [
- "autocfg 1.0.1",
  "cfg-if 1.0.0",
  "lazy_static",
 ]
@@ -1721,7 +1722,7 @@ dependencies = [
  "hkdf",
  "k256",
  "lazy_static",
- "libp2p-core",
+ "libp2p-core 0.27.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru_time_cache",
  "parking_lot",
  "rand 0.7.3",
@@ -2936,6 +2937,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
+ "malloc_utils",
  "prometheus",
  "reqwest",
  "serde",
@@ -3397,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -3505,14 +3507,13 @@ dependencies = [
 [[package]]
 name = "libp2p"
 version = "0.35.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc225a49973cf9ab10d0cdd6a4b8f0cda299df9b760824bbb623f15f8f0c95a"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "atomic",
  "bytes 1.0.1",
  "futures 0.3.14",
  "lazy_static",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "libp2p-dns",
  "libp2p-gossipsub",
  "libp2p-identify",
@@ -3523,7 +3524,7 @@ dependencies = [
  "libp2p-tcp",
  "libp2p-websocket",
  "libp2p-yamux",
- "parity-multiaddr",
+ "parity-multiaddr 0.11.1",
  "parking_lot",
  "pin-project 1.0.7",
  "smallvec",
@@ -3547,8 +3548,41 @@ dependencies = [
  "libsecp256k1",
  "log",
  "multihash",
- "multistream-select",
- "parity-multiaddr",
+ "multistream-select 0.10.2",
+ "parity-multiaddr 0.11.2",
+ "parking_lot",
+ "pin-project 1.0.7",
+ "prost",
+ "prost-build",
+ "rand 0.7.3",
+ "ring",
+ "rw-stream-sink",
+ "sha2 0.9.3",
+ "smallvec",
+ "thiserror",
+ "unsigned-varint 0.7.0",
+ "void",
+ "zeroize",
+]
+
+[[package]]
+name = "libp2p-core"
+version = "0.27.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
+dependencies = [
+ "asn1_der",
+ "bs58 0.4.0",
+ "ed25519-dalek",
+ "either",
+ "fnv",
+ "futures 0.3.14",
+ "futures-timer",
+ "lazy_static",
+ "libsecp256k1",
+ "log",
+ "multihash",
+ "multistream-select 0.10.1",
+ "parity-multiaddr 0.11.1",
  "parking_lot",
  "pin-project 1.0.7",
  "prost",
@@ -3567,19 +3601,17 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5153b6db68fd4baa3b304e377db744dd8fea8ff4e4504509ee636abcde88d3e3"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "futures 0.3.14",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
 ]
 
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "502dc5fcbfec4aa1c63ef3f7307ffe20e90c1a1387bf23ed0bec087f2dde58a1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -3588,7 +3620,7 @@ dependencies = [
  "fnv",
  "futures 0.3.14",
  "hex_fmt",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "libp2p-swarm",
  "log",
  "prost",
@@ -3604,11 +3636,10 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b40fb36a059b7a8cce1514bd8b546fa612e006c9937caa7f5950cb20021fe91e"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "futures 0.3.14",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "libp2p-swarm",
  "log",
  "prost",
@@ -3620,13 +3651,12 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "350ce8b3923594aedabd5d6e3f875d058435052a29c3f32df378bc70d10be464"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
  "futures 0.3.14",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "nohash-hasher",
  "parking_lot",
@@ -3638,14 +3668,13 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4aca322b52a0c5136142a7c3971446fb1e9964923a526c9cc6ef3b7c94e57778"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "bytes 1.0.1",
  "curve25519-dalek",
  "futures 0.3.14",
  "lazy_static",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "prost",
  "prost-build",
@@ -3660,12 +3689,11 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7955b973e1fd2bd61ffd43ce261c1223f61f4aacd5bae362a924993f9a25fd98"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "either",
  "futures 0.3.14",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "rand 0.7.3",
  "smallvec",
@@ -3676,8 +3704,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c564ebaa36a64839f51eaddb0243aaaa29ce64affb56129193cc3248b72af273"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "quote",
  "syn",
@@ -3686,8 +3713,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88a5aef80e519a6cb8e2663605142f97baaaea1a252eecbf8756184765f7471b"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "async-io",
  "futures 0.3.14",
@@ -3696,7 +3722,7 @@ dependencies = [
  "if-watch",
  "ipnet",
  "libc",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "socket2 0.3.19",
  "tokio 1.5.0",
@@ -3705,13 +3731,12 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3b1c6a3431045da8b925ed83384e4c5163e14b990572307fca9c507435d4d22"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "either",
  "futures 0.3.14",
  "futures-rustls",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "log",
  "quicksink",
  "rw-stream-sink",
@@ -3723,11 +3748,10 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4819358c542a86ff95f6ae691efb4b94ddaf477079b01a686f5705b79bfc232a"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
 dependencies = [
  "futures 0.3.14",
- "libp2p-core",
+ "libp2p-core 0.27.1 (git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub)",
  "parking_lot",
  "thiserror",
  "yamux",
@@ -3774,7 +3798,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3793,6 +3817,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "logging",
+ "malloc_utils",
  "remote_signer",
  "serde_json",
  "slashing_protection",
@@ -3919,6 +3944,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b823e83b2affd8f40a9ee8c29dbc56404c1e34cd2710921f2801e2cf29527afa"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "malloc_utils"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "lighthouse_metrics",
+ "parking_lot",
 ]
 
 [[package]]
@@ -4084,6 +4119,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "monitoring_api"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "futures 0.3.14",
+ "lazy_static",
+ "lighthouse_metrics",
+ "lighthouse_version",
+ "regex",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "store",
+ "task_executor",
+ "tokio 1.5.0",
+]
+
+[[package]]
 name = "multihash"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4132,6 +4188,19 @@ dependencies = [
  "safemem",
  "tempfile",
  "twoway",
+]
+
+[[package]]
+name = "multistream-select"
+version = "0.10.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
+dependencies = [
+ "bytes 1.0.1",
+ "futures 0.3.14",
+ "log",
+ "pin-project 1.0.7",
+ "smallvec",
+ "unsigned-varint 0.7.0",
 ]
 
 [[package]]
@@ -4463,6 +4532,23 @@ dependencies = [
  "store",
  "superstruct",
  "types",
+]
+
+[[package]]
+name = "parity-multiaddr"
+version = "0.11.1"
+source = "git+https://github.com/pawanjay176/rust-libp2p?branch=message-id-gossipsub#388181aae3dacc8e6cf58aca2206e0a3dec41a6c"
+dependencies = [
+ "arrayref",
+ "bs58 0.4.0",
+ "byteorder",
+ "data-encoding",
+ "multihash",
+ "percent-encoding",
+ "serde",
+ "static_assertions",
+ "unsigned-varint 0.7.0",
+ "url",
 ]
 
 [[package]]
@@ -7211,6 +7297,7 @@ dependencies = [
  "lighthouse_version",
  "lockfile",
  "logging",
+ "monitoring_api",
  "parking_lot",
  "rand 0.7.3",
  "rayon",

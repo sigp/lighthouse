@@ -1,7 +1,3 @@
-use crate::peer_manager::{
-    score::{PeerAction, ReportSource},
-    ConnectionDirection, PeerManager, PeerManagerEvent,
-};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
@@ -10,6 +6,13 @@ use crate::types::{
 };
 use crate::Eth2Enr;
 use crate::{behaviour::gossipsub_scoring_parameters::PeerScoreSettings, Subnet};
+use crate::{
+    config::gossipsub_config,
+    peer_manager::{
+        score::{PeerAction, ReportSource},
+        ConnectionDirection, PeerManager, PeerManagerEvent,
+    },
+};
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
@@ -147,7 +150,7 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        net_conf: &NetworkConfig,
+        mut net_conf: NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
         fork_context: Arc<ForkContext>,
@@ -184,6 +187,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             max_subscribed_topics: 200, //TODO change this to a constant
             max_subscriptions_per_request: 100, //this is according to the current go implementation
         };
+
+        net_conf.gs_config = gossipsub_config(fork_context.clone());
 
         // Initialize the compression transform.
         let snappy_transform = SnappyTransform::new(net_conf.gs_config.max_transmit_size());
@@ -230,7 +235,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
             gossipsub,
             identify,
-            peer_manager: PeerManager::new(local_key, net_conf, network_globals.clone(), log)
+            peer_manager: PeerManager::new(local_key, &net_conf, network_globals.clone(), log)
                 .await?,
             events: VecDeque::new(),
             peers_to_dc: VecDeque::new(),
@@ -587,7 +592,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => %peer_id);
 
         self.eth2_rpc
-            .send_request(peer_id, id, RPCRequest::Ping(ping));
+            .send_request(peer_id, id, OutboundRequest::Ping(ping));
     }
 
     /// Sends a Pong response to the peer.
@@ -602,7 +607,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let event = RPCRequest::MetaData(PhantomData);
+        let event = OutboundRequest::MetaData(PhantomData);
         self.eth2_rpc
             .send_request(peer_id, RequestId::Behaviour, event);
     }
@@ -741,17 +746,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 let peer_request_id = (handler_id, id);
                 match request {
                     /* Behaviour managed protocols: Ping and Metadata */
-                    RPCRequest::Ping(ping) => {
+                    InboundRequest::Ping(ping) => {
                         // inform the peer manager and send the response
                         self.peer_manager.ping_request(&peer_id, ping.data);
                         // send a ping response
                         self.pong(peer_request_id, peer_id);
                     }
-                    RPCRequest::MetaData(_) => {
+                    InboundRequest::MetaData(_) => {
                         // send the requested meta-data
                         self.send_meta_data_response((handler_id, id), peer_id);
                     }
-                    RPCRequest::Goodbye(reason) => {
+                    InboundRequest::Goodbye(reason) => {
                         // queue for disconnection without a goodbye message
                         debug!(
                             self.log, "Peer sent Goodbye";
@@ -767,18 +772,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // inform the application layer early.
                     }
                     /* Protocols propagated to the Network */
-                    RPCRequest::Status(msg) => {
+                    InboundRequest::Status(msg) => {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager.peer_statusd(&peer_id);
                         // propagate the STATUS message upwards
                         self.propagate_request(peer_request_id, peer_id, Request::Status(msg))
                     }
-                    RPCRequest::BlocksByRange(req) => self.propagate_request(
+                    InboundRequest::BlocksByRange(req) => self.propagate_request(
                         peer_request_id,
                         peer_id,
                         Request::BlocksByRange(req),
                     ),
-                    RPCRequest::BlocksByRoot(req) => {
+                    InboundRequest::BlocksByRoot(req) => {
                         self.propagate_request(peer_request_id, peer_id, Request::BlocksByRoot(req))
                     }
                 }
@@ -826,7 +831,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 peer_id,
                 handler: NotifyHandler::Any,
                 event: BehaviourHandlerIn::Shutdown(
-                    reason.map(|reason| (RequestId::Behaviour, RPCRequest::Goodbye(reason))),
+                    reason.map(|reason| (RequestId::Behaviour, OutboundRequest::Goodbye(reason))),
                 ),
             });
         }
@@ -870,7 +875,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             handler: NotifyHandler::Any,
                             event: BehaviourHandlerIn::Shutdown(Some((
                                 RequestId::Behaviour,
-                                RPCRequest::Goodbye(reason),
+                                OutboundRequest::Goodbye(reason),
                             ))),
                         });
                     }
@@ -956,7 +961,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 add(Attestation(SubnetId::new(id)));
             }
             for id in 0..sync_committee_subnet_count {
-                add(SyncCommitteeSignature(SyncSubnetId::new(id)));
+                add(SyncCommitteeMessage(SyncSubnetId::new(id)));
             }
         }
         WhitelistSubscriptionFilter(possible_hashes)
@@ -1290,12 +1295,12 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for RPCRequest<TSpec> {
-    fn from(req: Request) -> RPCRequest<TSpec> {
+impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
+    fn from(req: Request) -> OutboundRequest<TSpec> {
         match req {
-            Request::BlocksByRoot(r) => RPCRequest::BlocksByRoot(r),
-            Request::BlocksByRange(r) => RPCRequest::BlocksByRange(r),
-            Request::Status(s) => RPCRequest::Status(s),
+            Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
+            Request::BlocksByRange(r) => OutboundRequest::BlocksByRange(r),
+            Request::Status(s) => OutboundRequest::Status(s),
         }
     }
 }

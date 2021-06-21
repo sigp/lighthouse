@@ -236,7 +236,7 @@ pub fn cli_run<T: EthSpec>(
             .map_err(|e| {
                 format!(
                     "Error registering validator {}: {:?}",
-                    voting_pubkey.to_hex_string(),
+                    voting_pubkey.as_hex_string(),
                     e
                 )
             })?;
@@ -250,7 +250,7 @@ pub fn cli_run<T: EthSpec>(
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
-        println!("{}/{}\t{}", i + 1, n, voting_pubkey.to_hex_string());
+        println!("{}/{}\t{}", i + 1, n, voting_pubkey.as_hex_string());
     }
 
     Ok(())

@@ -25,12 +25,14 @@ use tree_hash_derive::TreeHash;
 pub use self::committee_cache::CommitteeCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
+pub use iter::BlockRootsIter;
 pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
 mod clone_config;
 mod exit_cache;
+mod iter;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
@@ -754,26 +756,17 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
-    /// Get the validator indices of all validators from `sync_committee` identified by
-    /// `sync_committee_bits`.
-    pub fn get_sync_committee_participant_indices(
+    /// Get the validator indices of all validators from `sync_committee`.
+    pub fn get_sync_committee_indices(
         &mut self,
         sync_committee: &SyncCommittee<T>,
-        sync_committee_bits: &BitVector<T::SyncCommitteeSize>,
     ) -> Result<Vec<usize>, Error> {
         sync_committee
             .pubkeys
             .iter()
-            .zip(sync_committee_bits.iter())
-            .flat_map(|(pubkey, bit)| {
-                if bit {
-                    let validator_index_res = self
-                        .get_validator_index(&pubkey)
-                        .and_then(|opt| opt.ok_or(Error::PubkeyCacheInconsistent));
-                    Some(validator_index_res)
-                } else {
-                    None
-                }
+            .map(|pubkey| {
+                self.get_validator_index(&pubkey)?
+                    .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
     }
@@ -889,6 +882,13 @@ impl<T: EthSpec> BeaconState<T> {
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
+    }
+
+    /// Returns an iterator across the past block roots of `state` in descending slot-order.
+    ///
+    /// See the docs for `BlockRootsIter` for more detail.
+    pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a, T> {
+        BlockRootsIter::new(self, spec.genesis_slot)
     }
 
     /// Return the block root at a recent `slot`.

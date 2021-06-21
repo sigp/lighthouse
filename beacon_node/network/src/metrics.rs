@@ -1,4 +1,7 @@
-use beacon_chain::attestation_verification::Error as AttnError;
+use beacon_chain::{
+    attestation_verification::Error as AttnError,
+    sync_committee_verification::Error as SyncCommitteeError,
+};
 use eth2_libp2p::PubsubMessage;
 use eth2_libp2p::{
     types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
@@ -7,7 +10,7 @@ use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use std::{collections::HashMap, sync::Arc};
 use strum::AsStaticRef;
-use types::{subnet_id::subnet_id_to_string, EthSpec};
+use types::{subnet_id::subnet_id_to_string, sync_subnet_id::sync_subnet_id_to_string, EthSpec};
 
 lazy_static! {
 
@@ -20,15 +23,27 @@ lazy_static! {
         &["protocol"]
     );
 
-    pub static ref GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "gossipsub_subscribed_subnets",
-        "Subnets currently subscribed to",
+    pub static ref GOSSIPSUB_SUBSCRIBED_ATTESTATION_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_subscribed_attestation_subnets",
+        "Attestation subnets currently subscribed to",
         &["subnet"]
     );
 
-    pub static ref GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
-        "gossipsub_peers_per_subnet_topic_count",
-        "Peers subscribed per subnet topic",
+    pub static ref GOSSIPSUB_SUBSCRIBED_SYNC_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_subscribed_sync_subnets",
+        "Sync subnets currently subscribed to",
+        &["subnet"]
+    );
+
+    pub static ref GOSSIPSUB_SUBSCRIBED_PEERS_ATTESTATION_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_peers_per_attestation_subnet_topic_count",
+        "Peers subscribed per attestation subnet topic",
+        &["subnet"]
+    );
+
+    pub static ref GOSSIPSUB_SUBSCRIBED_PEERS_SYNC_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_peers_per_sync_subnet_topic_count",
+        "Peers subscribed per sync subnet topic",
         &["subnet"]
     );
 
@@ -38,7 +53,13 @@ lazy_static! {
         &["topic_hash"]
     );
 
-    pub static ref MESH_PEERS_PER_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+    pub static ref MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_mesh_peers_per_subnet_topic",
+        "Mesh peers per subnet topic",
+        &["subnet"]
+    );
+
+    pub static ref MESH_PEERS_PER_SYNC_SUBNET_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "gossipsub_mesh_peers_per_subnet_topic",
         "Mesh peers per subnet topic",
         &["subnet"]
@@ -50,9 +71,15 @@ lazy_static! {
         &["topic_hash"]
     );
 
-    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
-        "gossipsub_avg_peer_score_per_subnet_topic",
-        "Average peer's score per subnet topic",
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_ATTESTATION_SUBNET_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_avg_peer_score_per_attestation_subnet_topic",
+        "Average peer's score per attestation subnet topic",
+        &["subnet"]
+    );
+
+    pub static ref AVG_GOSSIPSUB_PEER_SCORE_PER_SYNC_SUBNET_TOPIC: Result<GaugeVec> = try_create_float_gauge_vec(
+        "gossipsub_avg_peer_score_per_sync_subnet_topic",
+        "Average peer's score per sync committee subnet topic",
         &["subnet"]
     );
 
@@ -133,6 +160,14 @@ lazy_static! {
         "gossipsub_aggregated_attestations_rx_total",
         "Count of gossip aggregated attestations received"
     );
+    pub static ref GOSSIP_SYNC_COMMITTEE_MESSAGE_RX: Result<IntCounter> = try_create_int_counter(
+        "gossipsub_sync_committee_message_rx_total",
+        "Count of gossip sync committee messages received"
+    );
+    pub static ref GOSSIP_SYNC_COMMITTEE_CONTRIBUTION_RX: Result<IntCounter> = try_create_int_counter(
+        "gossipsub_sync_committee_contribution_received_total",
+        "Count of gossip sync committee contributions received"
+    );
 
 
     /*
@@ -149,6 +184,14 @@ lazy_static! {
     pub static ref GOSSIP_AGGREGATED_ATTESTATIONS_TX: Result<IntCounter> = try_create_int_counter(
         "gossipsub_aggregated_attestations_tx_total",
         "Count of gossip aggregated attestations transmitted"
+    );
+    pub static ref GOSSIP_SYNC_COMMITTEE_MESSAGE_TX: Result<IntCounter> = try_create_int_counter(
+        "gossipsub_sync_committee_message_tx_total",
+        "Count of gossip sync committee messages transmitted"
+    );
+    pub static ref GOSSIP_SYNC_COMMITTEE_CONTRIBUTION_TX: Result<IntCounter> = try_create_int_counter(
+        "gossipsub_sync_committee_contribution_tx_total",
+        "Count of gossip sync committee contributions transmitted"
     );
 
     /*
@@ -322,6 +365,32 @@ lazy_static! {
         "beacon_processor_aggregated_attestation_imported_total",
         "Total number of aggregated attestations imported to fork choice, etc."
     );
+    // Sync committee messages.
+    pub static ref BEACON_PROCESSOR_SYNC_MESSAGE_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_sync_message_queue_total",
+        "Count of sync committee messages waiting to be processed."
+    );
+    pub static ref BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_sync_message_verified_total",
+        "Total number of sync committee messages verified for gossip."
+    );
+    pub static ref BEACON_PROCESSOR_SYNC_MESSAGE_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_sync_message_imported_total",
+        "Total number of sync committee messages imported to fork choice, etc."
+    );
+    // Sync contribution.
+    pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_sync_contribution_queue_total",
+        "Count of sync committee contributions waiting to be processed."
+    );
+    pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_sync_contribution_verified_total",
+        "Total number of sync committee contributions verified for gossip."
+    );
+    pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_sync_contribution_imported_total",
+        "Total number of sync committee contributions imported to fork choice, etc."
+    );
 }
 
 lazy_static! {
@@ -329,6 +398,12 @@ lazy_static! {
         try_create_int_counter_vec(
             "gossipsub_attestation_errors_per_type",
             "Gossipsub attestation errors per error type",
+            &["type"]
+        );
+    pub static ref GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_sync_committee_errors_per_type",
+            "Gossipsub sync_committee errors per error type",
             &["type"]
         );
     pub static ref INBOUND_LIBP2P_BYTES: Result<IntGauge> =
@@ -384,6 +459,10 @@ pub fn register_attestation_error(error: &AttnError) {
     inc_counter_vec(&GOSSIP_ATTESTATION_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
+pub fn register_sync_committee_error(error: &SyncCommitteeError) {
+    inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
 /// Inspects the `messages` that were being sent to the network and updates Prometheus metrics.
 pub fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
     for message in messages {
@@ -399,6 +478,12 @@ pub fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
             PubsubMessage::AggregateAndProofAttestation(_) => {
                 inc_counter(&GOSSIP_AGGREGATED_ATTESTATIONS_TX)
             }
+            PubsubMessage::SyncCommitteeMessage(_) => {
+                inc_counter(&GOSSIP_SYNC_COMMITTEE_MESSAGE_TX)
+            }
+            PubsubMessage::SignedContributionAndProof(_) => {
+                inc_counter(&GOSSIP_SYNC_COMMITTEE_CONTRIBUTION_TX)
+            }
             _ => {}
         }
     }
@@ -411,6 +496,10 @@ pub fn expose_receive_metrics<T: EthSpec>(message: &PubsubMessage<T>) {
         PubsubMessage::Attestation(_) => inc_counter(&GOSSIP_UNAGGREGATED_ATTESTATIONS_RX),
         PubsubMessage::AggregateAndProofAttestation(_) => {
             inc_counter(&GOSSIP_AGGREGATED_ATTESTATIONS_RX)
+        }
+        PubsubMessage::SyncCommitteeMessage(_) => inc_counter(&GOSSIP_SYNC_COMMITTEE_MESSAGE_RX),
+        PubsubMessage::SignedContributionAndProof(_) => {
+            inc_counter(&GOSSIP_SYNC_COMMITTEE_CONTRIBUTION_RX)
         }
         _ => {}
     }
@@ -429,7 +518,10 @@ pub fn update_gossip_metrics<T: EthSpec>(
     let _ = AVG_GOSSIPSUB_PEER_SCORE_PER_MAIN_TOPIC
         .as_ref()
         .map(|gauge| gauge.reset());
-    let _ = AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC
+    let _ = AVG_GOSSIPSUB_PEER_SCORE_PER_ATTESTATION_SUBNET_TOPIC
+        .as_ref()
+        .map(|gauge| gauge.reset());
+    let _ = AVG_GOSSIPSUB_PEER_SCORE_PER_SYNC_SUBNET_TOPIC
         .as_ref()
         .map(|gauge| gauge.reset());
 
@@ -460,20 +552,40 @@ pub fn update_gossip_metrics<T: EthSpec>(
     // reset the mesh peers, showing all subnets
     for subnet_id in 0..T::default_spec().attestation_subnet_count {
         let _ = get_int_gauge(
-            &MESH_PEERS_PER_SUBNET_TOPIC,
+            &MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC,
             &[subnet_id_to_string(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = get_int_gauge(
-            &GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
+            &GOSSIPSUB_SUBSCRIBED_ATTESTATION_SUBNET_TOPIC,
             &[subnet_id_to_string(subnet_id)],
         )
         .map(|v| v.set(0));
 
         let _ = get_int_gauge(
-            &GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
+            &GOSSIPSUB_SUBSCRIBED_PEERS_ATTESTATION_SUBNET_TOPIC,
             &[subnet_id_to_string(subnet_id)],
+        )
+        .map(|v| v.set(0));
+    }
+
+    for subnet_id in 0..T::default_spec().sync_committee_subnet_count {
+        let _ = get_int_gauge(
+            &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
+            &[sync_subnet_id_to_string(subnet_id)],
+        )
+        .map(|v| v.set(0));
+
+        let _ = get_int_gauge(
+            &GOSSIPSUB_SUBSCRIBED_SYNC_SUBNET_TOPIC,
+            &[sync_subnet_id_to_string(subnet_id)],
+        )
+        .map(|v| v.set(0));
+
+        let _ = get_int_gauge(
+            &GOSSIPSUB_SUBSCRIBED_PEERS_SYNC_SUBNET_TOPIC,
+            &[sync_subnet_id_to_string(subnet_id)],
         )
         .map(|v| v.set(0));
     }
@@ -483,7 +595,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             if let GossipKind::Attestation(subnet_id) = topic.kind() {
                 let _ = get_int_gauge(
-                    &GOSSIPSUB_SUBSCRIBED_SUBNET_TOPIC,
+                    &GOSSIPSUB_SUBSCRIBED_ATTESTATION_SUBNET_TOPIC,
                     &[subnet_id_to_string(subnet_id.into())],
                 )
                 .map(|v| v.set(1));
@@ -501,7 +613,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
                 match topic.kind() {
                     GossipKind::Attestation(subnet_id) => {
                         if let Some(v) = get_int_gauge(
-                            &GOSSIPSUB_SUBSCRIBED_PEERS_SUBNET_TOPIC,
+                            &GOSSIPSUB_SUBSCRIBED_PEERS_ATTESTATION_SUBNET_TOPIC,
                             &[subnet_id_to_string(subnet_id.into())],
                         ) {
                             v.inc()
@@ -510,8 +622,26 @@ pub fn update_gossip_metrics<T: EthSpec>(
                         // average peer scores
                         if let Some(score) = gossipsub.peer_score(peer_id) {
                             if let Some(v) = get_gauge(
-                                &AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
+                                &AVG_GOSSIPSUB_PEER_SCORE_PER_ATTESTATION_SUBNET_TOPIC,
                                 &[subnet_id_to_string(subnet_id.into())],
+                            ) {
+                                v.add(score)
+                            };
+                        }
+                    }
+                    GossipKind::SyncCommitteeMessage(subnet_id) => {
+                        if let Some(v) = get_int_gauge(
+                            &GOSSIPSUB_SUBSCRIBED_PEERS_SYNC_SUBNET_TOPIC,
+                            &[sync_subnet_id_to_string(subnet_id.into())],
+                        ) {
+                            v.inc()
+                        };
+
+                        // average peer scores
+                        if let Some(score) = gossipsub.peer_score(peer_id) {
+                            if let Some(v) = get_gauge(
+                                &AVG_GOSSIPSUB_PEER_SCORE_PER_SYNC_SUBNET_TOPIC,
+                                &[sync_subnet_id_to_string(subnet_id.into())],
                             ) {
                                 v.add(score)
                             };
@@ -539,8 +669,17 @@ pub fn update_gossip_metrics<T: EthSpec>(
                 GossipKind::Attestation(subnet_id) => {
                     // average peer scores
                     if let Some(v) = get_gauge(
-                        &AVG_GOSSIPSUB_PEER_SCORE_PER_SUBNET_TOPIC,
+                        &AVG_GOSSIPSUB_PEER_SCORE_PER_ATTESTATION_SUBNET_TOPIC,
                         &[subnet_id_to_string(subnet_id.into())],
+                    ) {
+                        v.set(v.get() / (*peers as f64))
+                    };
+                }
+                GossipKind::SyncCommitteeMessage(subnet_id) => {
+                    // average peer scores
+                    if let Some(v) = get_gauge(
+                        &AVG_GOSSIPSUB_PEER_SCORE_PER_SYNC_SUBNET_TOPIC,
+                        &[sync_subnet_id_to_string(subnet_id.into())],
                     ) {
                         v.set(v.get() / (*peers as f64))
                     };
@@ -564,8 +703,16 @@ pub fn update_gossip_metrics<T: EthSpec>(
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
                     if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_SUBNET_TOPIC,
+                        &MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC,
                         &[subnet_id_to_string(subnet_id.into())],
+                    ) {
+                        v.set(peers as i64)
+                    };
+                }
+                GossipKind::SyncCommitteeMessage(subnet_id) => {
+                    if let Some(v) = get_int_gauge(
+                        &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
+                        &[sync_subnet_id_to_string(subnet_id.into())],
                     ) {
                         v.set(peers as i64)
                     };

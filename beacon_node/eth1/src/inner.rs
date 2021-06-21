@@ -2,10 +2,12 @@ use crate::Config;
 use crate::{
     block_cache::{BlockCache, Eth1Block},
     deposit_cache::{DepositCache, SszDepositCache},
+    service::EndpointsCache,
 };
 use parking_lot::RwLock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use types::ChainSpec;
 
 #[derive(Default)]
@@ -28,6 +30,7 @@ impl DepositUpdater {
 pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
+    pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,
     pub spec: ChainSpec,
@@ -87,6 +90,7 @@ impl SszEth1Cache {
                 cache: self.deposit_cache.to_deposit_cache()?,
                 last_processed_block: self.last_processed_block,
             }),
+            endpoints_cache: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
             // present and future eth1 nodes.
             remote_head_block: RwLock::new(None),

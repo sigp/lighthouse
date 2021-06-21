@@ -26,4 +26,23 @@ lazy_static! {
     pub static ref ENDPOINT_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
         "eth1_endpoint_requests", "The number of eth1 requests for each endpoint", &["endpoint"]
     );
+
+    /*
+     * Eth1 rpc connection
+     */
+
+    pub static ref ETH1_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth1_connected", "Set to 1 if connected to an eth1 node, otherwise set to 0"
+    );
+
+    pub static ref ETH1_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth1_fallback_configured", "Number of configured eth1 fallbacks"
+    );
+
+    // Note: This metric only checks if an eth1 fallback is configured, not if it is connected and synced.
+    // Checking for liveness of the fallback would require moving away from lazy checking of fallbacks.
+    pub static ref ETH1_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "eth1_sync_fallback_connected", "Set to 1 if an eth1 fallback is connected, otherwise set to 0"
+    );
+
 }

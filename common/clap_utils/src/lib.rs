@@ -6,6 +6,8 @@ use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub mod flags;
+
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \
                                         or when there is no default public network to connect to. \

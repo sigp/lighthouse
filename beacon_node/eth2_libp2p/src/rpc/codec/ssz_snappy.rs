@@ -2,7 +2,7 @@ use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
-use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
+use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
 use crate::{rpc::methods::*, EnrSyncCommitteeBitfield};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
@@ -157,7 +157,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
 
 // Decoder for inbound streams: Decodes RPC requests from peers
 impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
-    type Item = RPCRequest<TSpec>;
+    type Item = InboundRequest<TSpec>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -200,21 +200,21 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 // since we have already checked `length` above.
                 match self.protocol.version {
                     Version::V1 => match self.protocol.message_name {
-                        Protocol::Status => Ok(Some(RPCRequest::Status(
+                        Protocol::Status => Ok(Some(InboundRequest::Status(
                             StatusMessage::from_ssz_bytes(&decoded_buffer)?,
                         ))),
-                        Protocol::Goodbye => Ok(Some(RPCRequest::Goodbye(
+                        Protocol::Goodbye => Ok(Some(InboundRequest::Goodbye(
                             GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
                         ))),
-                        Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
+                        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
                             BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
                         ))),
                         Protocol::BlocksByRoot => {
-                            Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
                                 block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
                             })))
                         }
-                        Protocol::Ping => Ok(Some(RPCRequest::Ping(Ping {
+                        Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
                             data: u64::from_ssz_bytes(&decoded_buffer)?,
                         }))),
 
@@ -224,18 +224,18 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             if !decoded_buffer.is_empty() {
                                 Err(RPCError::InvalidData)
                             } else {
-                                Ok(Some(RPCRequest::MetaData(PhantomData)))
+                                Ok(Some(InboundRequest::MetaData(PhantomData)))
                             }
                         }
                     },
                     // Receiving a Rpc request for protocol version 2 for range and root requests
                     Version::V2 => match self.protocol.message_name {
                         // Request type doesn't change, only response type
-                        Protocol::BlocksByRange => Ok(Some(RPCRequest::BlocksByRange(
+                        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
                             BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
                         ))),
                         Protocol::BlocksByRoot => {
-                            Ok(Some(RPCRequest::BlocksByRoot(BlocksByRootRequest {
+                            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
                                 block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
                             })))
                         }
@@ -245,7 +245,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                             if !decoded_buffer.is_empty() {
                                 Err(RPCError::InvalidData)
                             } else {
-                                Ok(Some(RPCRequest::MetaData(PhantomData)))
+                                Ok(Some(InboundRequest::MetaData(PhantomData)))
                             }
                         }
                         _ => Err(RPCError::ErrorResponse(
@@ -296,17 +296,21 @@ impl<TSpec: EthSpec> SSZSnappyOutboundCodec<TSpec> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<TSpec: EthSpec> Encoder<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: OutboundRequest<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         let bytes = match item {
-            RPCRequest::Status(req) => req.as_ssz_bytes(),
-            RPCRequest::Goodbye(req) => req.as_ssz_bytes(),
-            RPCRequest::BlocksByRange(req) => req.as_ssz_bytes(),
-            RPCRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
-            RPCRequest::Ping(req) => req.as_ssz_bytes(),
-            RPCRequest::MetaData(_) => return Ok(()), // no metadata to encode
+            OutboundRequest::Status(req) => req.as_ssz_bytes(),
+            OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
+            OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
+            OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::Ping(req) => req.as_ssz_bytes(),
+            OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
@@ -476,7 +480,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> OutboundCodec<RPCRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
+impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<TSpec> {
     type CodecErrorType = ErrorType;
 
     fn decode_error(

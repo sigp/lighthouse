@@ -499,7 +499,7 @@ where
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
 
-pub fn sync_committee_signature_set_from_pubkeys<'a, T>(
+pub fn sync_committee_message_set_from_pubkeys<'a, T>(
     pubkey: Cow<'a, PublicKey>,
     signature: &'a AggregateSignature,
     epoch: Epoch,

@@ -67,7 +67,7 @@ fn cache_state<T: EthSpec>(
     // Note: increment the state slot here to allow use of our `state_root` and `block_root`
     // getter/setter functions.
     //
-    // This is a bit hacky, however it gets the job safely without lots of code.
+    // This is a bit hacky, however it gets the job done safely without lots of code.
     let previous_slot = state.slot();
     state.slot_mut().safe_add_assign(1)?;
 

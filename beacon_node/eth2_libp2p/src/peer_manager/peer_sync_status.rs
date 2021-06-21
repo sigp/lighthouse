@@ -64,7 +64,6 @@ impl PeerSyncStatus {
 
     pub fn update(&mut self, new_state: PeerSyncStatus) -> bool {
         if *self == new_state {
-            *self = new_state;
             false // state was not updated
         } else {
             *self = new_state;

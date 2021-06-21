@@ -40,7 +40,7 @@ pub struct SlotDuties {
     /// List of duties for all sync committee members at this slot
     ///
     /// Note: this is intentionally NOT split by subnet so that we only sign
-    /// one `SyncCommitteeSignature` per validator (recall a validator may be part of multiple
+    /// one `SyncCommitteeMessage` per validator (recall a validator may be part of multiple
     /// subnets).
     pub duties: Vec<SyncDuty>,
     /// Map from subnet ID to validator index and selection proof of each aggregator.

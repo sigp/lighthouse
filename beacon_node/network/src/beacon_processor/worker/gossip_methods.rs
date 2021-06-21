@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeSignature, SyncSubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{super::block_delay_queue::QueuedBlock, Worker};
@@ -279,7 +279,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Unknown parent for gossip block";
                     "root" => %block.canonical_root()
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_committee_message(SyncMessage::UnknownBlock(peer_id, block));
                 return;
             }
             Err(e @ BlockError::FutureSlot { .. })
@@ -441,7 +441,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_committee_message(SyncMessage::UnknownBlock(peer_id, block));
             }
             other => {
                 debug!(
@@ -637,13 +637,13 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        sync_signature: SyncCommitteeSignature,
+        sync_signature: SyncCommitteeMessage,
         subnet_id: SyncSubnetId,
         _seen_timestamp: Duration,
     ) {
         let sync_signature = match self
             .chain
-            .verify_sync_signature_for_gossip(sync_signature, Some(subnet_id))
+            .verify_sync_committee_message_for_gossip(sync_signature, subnet_id)
         {
             Ok(sync_signature) => sync_signature,
             Err(e) => {
@@ -673,9 +673,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        /* TODO
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL);
-        */
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL);
 
         if let Err(e) = self
             .chain
@@ -689,9 +687,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
 
-        /* TODO
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL);
-        */
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee contribution received from the gossip network and:
@@ -753,9 +749,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "peer" => %peer_id,
             )
         }
-        /* TODO
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL);
-        */
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL);
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
@@ -931,7 +925,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // TODO: Maintain this attestation and re-process once sync completes
                 // TODO: We then score based on whether we can download the block and re-process.
-                debug!(
+                trace!(
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => %peer_id,
@@ -1098,14 +1092,25 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
     }
 
-    /// Handle an error whilst verifying a `SyncCommitteeSignature` or `SyncCommitteeContribution` from the
+    /// Handle an error whilst verifying a `SyncCommitteeMessage` or `SyncCommitteeContribution` from the
     /// network.
     pub fn handle_sync_committee_message_failure(
         &self,
-        _peer_id: PeerId,
+        peer_id: PeerId,
         _message_id: MessageId,
-        _message_type: &str,
-        _error: SyncCommitteeError,
+        message_type: &str,
+        error: SyncCommitteeError,
     ) {
+        metrics::register_sync_committee_error(&error);
+        /*
+        TODO: propagate errors for scoring
+        */
+        debug!(
+            self.log,
+            "Invalid sync committee message from network";
+            "reason" => ?error,
+            "peer_id" => %peer_id,
+            "type" => ?message_type,
+        );
     }
 }

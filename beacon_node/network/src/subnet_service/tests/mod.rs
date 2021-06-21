@@ -21,7 +21,7 @@ use types::{
     SyncSubnetId, ValidatorSubscription,
 };
 
-const SLOT_DURATION_MILLIS: u64 = 200;
+const SLOT_DURATION_MILLIS: u64 = 400;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -129,11 +129,11 @@ async fn get_events<S: Stream<Item = SubnetServiceMessage> + Unpin>(
     };
 
     tokio::select! {
-        _ = collect_stream_fut => {return events}
+        _ = collect_stream_fut => events,
         _ = tokio::time::sleep(
         Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
-    ) => { return events; }
-        }
+    ) => events
+    }
 }
 
 mod attestation_service {
@@ -475,7 +475,6 @@ mod sync_committee_service {
 
         let subnet_ids = SyncSubnetId::compute_subnets_for_sync_committee::<MinimalEthSpec>(
             &sync_committee_indices,
-            &sync_committee_service.beacon_chain.spec,
         )
         .unwrap();
         let subnet_id = subnet_ids.iter().next().unwrap();
@@ -483,7 +482,7 @@ mod sync_committee_service {
         // Note: the unsubscription event takes a full epoch (8 * 0.2 secs = 1.6 secs)
         let events = get_events(
             &mut sync_committee_service,
-            None,
+            Some(5),
             MinimalEthSpec::slots_per_epoch() as u32,
         )
         .await;

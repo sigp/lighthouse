@@ -1,11 +1,11 @@
-use crate::common::{altair::get_base_reward_per_increment, increase_balance};
+use crate::common::{altair::get_base_reward_per_increment, decrease_balance, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
 use types::{BeaconState, ChainSpec, Domain, EthSpec, SigningData, SyncAggregate, Unsigned};
 
-pub fn process_sync_committee<T: EthSpec>(
+pub fn process_sync_aggregate<T: EthSpec>(
     state: &mut BeaconState<T>,
     aggregate: &SyncAggregate<T>,
     proposer_index: u64,
@@ -68,14 +68,18 @@ pub fn process_sync_committee<T: EthSpec>(
         .safe_div(WEIGHT_DENOMINATOR.safe_sub(PROPOSER_WEIGHT)?)?;
 
     // Apply participant and proposer rewards
-    let participant_indices = state.get_sync_committee_participant_indices(
-        &current_sync_committee,
-        &aggregate.sync_committee_bits,
-    )?;
+    let committee_indices = state.get_sync_committee_indices(&current_sync_committee)?;
 
-    for participant_index in participant_indices {
-        increase_balance(state, participant_index as usize, participant_reward)?;
-        increase_balance(state, proposer_index as usize, proposer_reward)?;
+    for (participant_index, participation_bit) in committee_indices
+        .into_iter()
+        .zip(aggregate.sync_committee_bits.iter())
+    {
+        if participation_bit {
+            increase_balance(state, participant_index as usize, participant_reward)?;
+            increase_balance(state, proposer_index as usize, proposer_reward)?;
+        } else {
+            decrease_balance(state, participant_index as usize, participant_reward)?;
+        }
     }
 
     Ok(())

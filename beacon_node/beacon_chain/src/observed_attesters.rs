@@ -6,10 +6,10 @@
 //! - `ObservedAggregators`: allows filtering aggregated attestations from the same aggregators in
 //!   the same epoch
 //!
-//! Provides an additional two structs that help us filter out sync committee signature and
+//! Provides an additional two structs that help us filter out sync committee message and
 //! contribution gossip from validators that have already published messages this slot:
 //!
-//! - `ObservedSyncContributors`: allows filtering sync committee signatures from the same validator in
+//! - `ObservedSyncContributors`: allows filtering sync committee messages from the same validator in
 //!   the same slot.
 //! - `ObservedSyncAggregators`: allows filtering sync committee contributions from the same aggregators in
 //!   the same slot and in the same subcommittee.

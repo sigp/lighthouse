@@ -12,7 +12,7 @@ use state_processing::per_block_processing::{
         altair, base, process_attester_slashings, process_deposits, process_exits,
         process_proposer_slashings,
     },
-    process_sync_committee, VerifySignatures,
+    process_sync_aggregate, VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
@@ -42,6 +42,10 @@ pub trait Operation<E: EthSpec>: TypeName + Debug + Sync + Sized {
 
     fn filename() -> String {
         format!("{}.ssz_snappy", Self::handler_name())
+    }
+
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        true
     }
 
     fn decode(path: &Path, spec: &ChainSpec) -> Result<Self, Error>;
@@ -167,11 +171,15 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
 
 impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     fn handler_name() -> String {
-        "sync_committee".into()
+        "sync_aggregate".into()
     }
 
     fn filename() -> String {
         "sync_aggregate.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base
     }
 
     fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -184,7 +192,7 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
-        process_sync_committee(state, self, proposer_index, spec)
+        process_sync_aggregate(state, self, proposer_index, spec)
     }
 }
 
@@ -239,11 +247,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        match fork_name {
-            // Base fork doesn't have sync aggregate tests
-            ForkName::Base => O::handler_name() != "sync_committee",
-            _ => true,
-        }
+        O::is_enabled_for_fork(fork_name)
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {

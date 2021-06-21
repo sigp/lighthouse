@@ -1,24 +1,24 @@
 //! Provides verification for the following sync committee messages:
 //!
-//! - "Unaggregated" `SyncCommitteeSignature` received from either gossip or the HTTP API.
+//! - "Unaggregated" `SyncCommitteeMessage` received from either gossip or the HTTP API.
 //! - "Aggregated" `SignedContributionAndProof` received from gossip or the HTTP API.
 //!
 //! For clarity, we define:
 //!
-//! - Unaggregated: a `SyncCommitteeSignature` object.
+//! - Unaggregated: a `SyncCommitteeMessage` object.
 //! - Aggregated: a `SignedContributionAndProof` which has zero or more signatures.
 //!   - Note: "zero or more" may soon change to "one or more".
 //!
 //! Similar to the `crate::block_verification` module, we try to avoid doing duplicate verification
-//! work as a sync committee signature passes through different stages of verification. We represent these
+//! work as a sync committee message passes through different stages of verification. We represent these
 //! different stages of verification with wrapper types. These wrapper-types flow in a particular
 //! pattern:
 //!
 //! ```ignore
-//!      types::SyncCommitteeSignature      types::SignedContributionAndProof
+//!      types::SyncCommitteeMessage      types::SignedContributionAndProof
 //!              |                                    |
 //!              ▼                                    ▼
-//!      VerifiedSyncSignature               VerifiedSyncContribution
+//!      VerifiedSyncCommitteeMessage               VerifiedSyncContribution
 //!              |                                    |
 //!              -------------------------------------
 //!                                |
@@ -41,11 +41,11 @@ use derivative::Derivative;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::errors::SyncSignatureValidationError;
+use state_processing::per_block_processing::errors::SyncCommitteeMessageValidationError;
 use state_processing::signature_sets::{
     signed_sync_aggregate_selection_proof_signature_set, signed_sync_aggregate_signature_set,
     sync_committee_contribution_signature_set_from_pubkeys,
-    sync_committee_signature_set_from_pubkeys,
+    sync_committee_message_set_from_pubkeys,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ use types::sync_committee::Error as SyncCommitteeError;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, BeaconStateError,
     EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
-    SyncCommitteeSignature, SyncSelectionProof, SyncSubnetId,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
@@ -76,7 +76,7 @@ pub enum Error {
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     FutureSlot {
-        signature_slot: Slot,
+        message_slot: Slot,
         latest_permissible_slot: Slot,
     },
     /// The sync committee message is from a slot that is prior to the earliest permissible slot (with
@@ -86,7 +86,7 @@ pub enum Error {
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     PastSlot {
-        signature_slot: Slot,
+        message_slot: Slot,
         earliest_permissible_slot: Slot,
     },
     /// The sync committee message's aggregation bits were empty when they shouldn't be.
@@ -167,10 +167,10 @@ pub enum Error {
     ///
     /// ## Peer scoring
     ///
-    /// It's unclear if this sync signature is valid, however we have already observed a
+    /// It's unclear if this sync message is valid, however we have already observed a
     /// signature from this validator for this slot and should not observe
     /// another.
-    PriorSyncSignatureKnown { validator_index: u64, slot: Slot },
+    PriorSyncCommitteeMessageKnown { validator_index: u64, slot: Slot },
     /// The sync committee message was received on an invalid sync committee message subnet.
     ///
     /// ## Peer scoring
@@ -180,12 +180,12 @@ pub enum Error {
         received: SyncSubnetId,
         expected: Vec<SyncSubnetId>,
     },
-    /// The sync signature failed the `state_processing` verification stage.
+    /// The sync message failed the `state_processing` verification stage.
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    Invalid(SyncSignatureValidationError),
+    Invalid(SyncCommitteeMessageValidationError),
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -270,10 +270,10 @@ pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     signed_aggregate: SignedContributionAndProof<T::EthSpec>,
 }
 
-/// Wraps a `SyncCommitteeSignature` that has been verified for propagation on the gossip network.
+/// Wraps a `SyncCommitteeMessage` that has been verified for propagation on the gossip network.
 #[derive(Clone)]
-pub struct VerifiedSyncSignature {
-    sync_signature: SyncCommitteeSignature,
+pub struct VerifiedSyncCommitteeMessage {
+    sync_message: SyncCommitteeMessage,
     subnet_positions: HashMap<SyncSubnetId, Vec<usize>>,
 }
 
@@ -411,7 +411,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .observe_validator(observed_key, aggregator_index as usize)
             .map_err(BeaconChainError::from)?
         {
-            return Err(Error::PriorSyncSignatureKnown {
+            return Err(Error::PriorSyncCommitteeMessageKnown {
                 validator_index: aggregator_index,
                 slot: contribution.slot,
             });
@@ -435,69 +435,65 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
     }
 }
 
-impl VerifiedSyncSignature {
-    /// Returns `Ok(Self)` if the `sync_signature` is valid to be (re)published on the gossip
+impl VerifiedSyncCommitteeMessage {
+    /// Returns `Ok(Self)` if the `sync_message` is valid to be (re)published on the gossip
     /// network.
     ///
-    /// `subnet_id` is the subnet from which we received this sync signature. This function will
+    /// `subnet_id` is the subnet from which we received this sync message. This function will
     /// verify that it was received on the correct subnet.
     pub fn verify<T: BeaconChainTypes>(
-        sync_signature: SyncCommitteeSignature,
-        subnet_id: Option<SyncSubnetId>,
+        sync_message: SyncCommitteeMessage,
+        subnet_id: SyncSubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
-        // Ensure sync committee signature is for the current slot (within a
+        // Ensure sync committee message is for the current slot (within a
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future sync committee messages for later processing.
-        verify_propagation_slot_range(chain, &sync_signature)?;
+        verify_propagation_slot_range(chain, &sync_message)?;
 
-        // Sync signatures must be for a known block. If the block is unknown, we simply drop the
+        // Sync messages must be for a known block. If the block is unknown, we simply drop the
         // sync committee message and do not delay consideration for later.
-        verify_head_block_is_known(chain, sync_signature.beacon_block_root)?;
+        verify_head_block_is_known(chain, sync_message.beacon_block_root)?;
 
         let pubkey = chain
-            .validator_pubkey_bytes(sync_signature.validator_index as usize)?
+            .validator_pubkey_bytes(sync_message.validator_index as usize)?
             .ok_or(Error::UnknownValidatorIndex(
-                sync_signature.validator_index as usize,
+                sync_message.validator_index as usize,
             ))?;
 
         let sync_committee = chain.head_sync_committee_next_slot()?;
         let subnet_positions = sync_committee.subcommittee_positions_for_public_key(&pubkey)?;
 
-        if let Some(subnet_id) = subnet_id {
-            if !subnet_positions.contains_key(&subnet_id) {
-                return Err(Error::InvalidSubnetId {
-                    received: subnet_id,
-                    expected: subnet_positions.keys().cloned().collect::<Vec<_>>(),
-                });
-            }
-        };
+        if !subnet_positions.contains_key(&subnet_id) {
+            return Err(Error::InvalidSubnetId {
+                received: subnet_id,
+                expected: subnet_positions.keys().cloned().collect::<Vec<_>>(),
+            });
+        }
 
         /*
          * The sync committee message is the first valid message received for the participating validator
-         * for the slot, sync_signature.slot.
+         * for the slot, sync_message.slot.
          */
-        let validator_index = sync_signature.validator_index;
-        for subnet_id in subnet_positions.keys() {
-            if chain
-                .observed_sync_contributors
-                .read()
-                .validator_has_been_observed(
-                    SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
-                    validator_index as usize,
-                )
-                .map_err(BeaconChainError::from)?
-            {
-                return Err(Error::PriorSyncSignatureKnown {
-                    validator_index,
-                    slot: sync_signature.slot,
-                });
-            }
+        let validator_index = sync_message.validator_index;
+        if chain
+            .observed_sync_contributors
+            .read()
+            .validator_has_been_observed(
+                SlotSubcommitteeIndex::new(sync_message.slot, subnet_id.into()),
+                validator_index as usize,
+            )
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorSyncCommitteeMessageKnown {
+                validator_index,
+                slot: sync_message.slot,
+            });
         }
 
         // The aggregate signature of the sync committee message is valid.
-        verify_sync_signature(chain, &sync_signature, &pubkey)?;
+        verify_sync_committee_message(chain, &sync_message, &pubkey)?;
 
         // Now that the sync committee message has been fully verified, store that we have received a valid
         // sync committee message from this validator.
@@ -505,25 +501,23 @@ impl VerifiedSyncSignature {
         // It's important to double check that the sync committee message still hasn't been observed, since
         // there can be a race-condition if we receive two sync committee messages at the same time and
         // process them in different threads.
-        for subnet_id in subnet_positions.keys() {
-            if chain
-                .observed_sync_contributors
-                .write()
-                .observe_validator(
-                    SlotSubcommitteeIndex::new(sync_signature.slot, subnet_id.into()),
-                    validator_index as usize,
-                )
-                .map_err(BeaconChainError::from)?
-            {
-                return Err(Error::PriorSyncSignatureKnown {
-                    validator_index,
-                    slot: sync_signature.slot,
-                });
-            }
+        if chain
+            .observed_sync_contributors
+            .write()
+            .observe_validator(
+                SlotSubcommitteeIndex::new(sync_message.slot, subnet_id.into()),
+                validator_index as usize,
+            )
+            .map_err(BeaconChainError::from)?
+        {
+            return Err(Error::PriorSyncCommitteeMessageKnown {
+                validator_index,
+                slot: sync_message.slot,
+            });
         }
 
         Ok(Self {
-            sync_signature,
+            sync_message,
             subnet_positions,
         })
     }
@@ -533,15 +527,15 @@ impl VerifiedSyncSignature {
         chain.add_to_naive_sync_aggregation_pool(self)
     }
 
-    /// Returns the subcommittee positions for the sync signature, keyed on the `SyncSubnetId` for
+    /// Returns the subcommittee positions for the sync message, keyed on the `SyncSubnetId` for
     /// the subnets the signature should be sent on.
     pub fn subnet_positions(&self) -> &HashMap<SyncSubnetId, Vec<usize>> {
         &self.subnet_positions
     }
 
-    /// Returns the wrapped `SyncCommitteeSignature`.
-    pub fn sync_signature(&self) -> &SyncCommitteeSignature {
-        &self.sync_signature
+    /// Returns the wrapped `SyncCommitteeMessage`.
+    pub fn sync_message(&self) -> &SyncCommitteeMessage {
+        &self.sync_message
     }
 }
 
@@ -574,15 +568,15 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
     chain: &BeaconChain<T>,
     sync_contribution: &U,
 ) -> Result<(), Error> {
-    let signature_slot = sync_contribution.get_slot();
+    let message_slot = sync_contribution.get_slot();
 
     let latest_permissible_slot = chain
         .slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if signature_slot > latest_permissible_slot {
+    if message_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
-            signature_slot,
+            message_slot,
             latest_permissible_slot,
         });
     }
@@ -592,9 +586,9 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
 
-    if signature_slot < earliest_permissible_slot {
+    if message_slot < earliest_permissible_slot {
         return Err(Error::PastSlot {
-            signature_slot,
+            message_slot,
             earliest_permissible_slot,
         });
     }
@@ -676,14 +670,14 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     Ok(verify_signature_sets(signature_sets.iter()))
 }
 
-/// Verifies that the signature of the `sync_signature` is valid.
-pub fn verify_sync_signature<T: BeaconChainTypes>(
+/// Verifies that the signature of the `sync_message` is valid.
+pub fn verify_sync_committee_message<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    sync_signature: &SyncCommitteeSignature,
+    sync_message: &SyncCommitteeMessage,
     pubkey_bytes: &PublicKeyBytes,
 ) -> Result<(), Error> {
     let signature_setup_timer =
-        metrics::start_timer(&metrics::SYNC_SIGNATURE_PROCESSING_SIGNATURE_SETUP_TIMES);
+        metrics::start_timer(&metrics::SYNC_MESSAGE_PROCESSING_SIGNATURE_SETUP_TIMES);
 
     let pubkey_cache = chain
         .validator_pubkey_cache
@@ -701,12 +695,12 @@ pub fn verify_sync_signature<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
         .map(|head| head.beacon_state.fork())?;
 
-    let agg_sig = AggregateSignature::from(&sync_signature.signature);
-    let signature_set = sync_committee_signature_set_from_pubkeys::<T::EthSpec>(
+    let agg_sig = AggregateSignature::from(&sync_message.signature);
+    let signature_set = sync_committee_message_set_from_pubkeys::<T::EthSpec>(
         pubkey,
         &agg_sig,
-        sync_signature.slot.epoch(T::EthSpec::slots_per_epoch()),
-        sync_signature.beacon_block_root,
+        sync_message.slot.epoch(T::EthSpec::slots_per_epoch()),
+        sync_message.beacon_block_root,
         &fork,
         chain.genesis_validators_root,
         &chain.spec,
@@ -716,7 +710,7 @@ pub fn verify_sync_signature<T: BeaconChainTypes>(
     metrics::stop_timer(signature_setup_timer);
 
     let _signature_verification_timer =
-        metrics::start_timer(&metrics::SYNC_SIGNATURE_PROCESSING_SIGNATURE_TIMES);
+        metrics::start_timer(&metrics::SYNC_MESSAGE_PROCESSING_SIGNATURE_TIMES);
 
     if signature_set.verify() {
         Ok(())

@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 /// The data upon which a `SyncCommitteeContribution` is based.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
-pub struct SyncCommitteeSignature {
+pub struct SyncCommitteeMessage {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -19,8 +19,8 @@ pub struct SyncCommitteeSignature {
     pub signature: Signature,
 }
 
-impl SyncCommitteeSignature {
-    /// Equivalent to `get_sync_committee_signature` from the spec.
+impl SyncCommitteeMessage {
+    /// Equivalent to `get_sync_committee_message` from the spec.
     pub fn new<E: EthSpec>(
         slot: Slot,
         beacon_block_root: Hash256,
@@ -43,7 +43,7 @@ impl SyncCommitteeSignature {
     }
 }
 
-impl SlotData for SyncCommitteeSignature {
+impl SlotData for SyncCommitteeMessage {
     fn get_slot(&self) -> Slot {
         self.slot
     }
@@ -53,5 +53,5 @@ impl SlotData for SyncCommitteeSignature {
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(SyncCommitteeSignature);
+    ssz_and_tree_hash_tests!(SyncCommitteeMessage);
 }
