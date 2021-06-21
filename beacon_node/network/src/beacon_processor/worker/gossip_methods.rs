@@ -1097,14 +1097,254 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub fn handle_sync_committee_message_failure(
         &self,
         peer_id: PeerId,
-        _message_id: MessageId,
+        message_id: MessageId,
         message_type: &str,
         error: SyncCommitteeError,
     ) {
         metrics::register_sync_committee_error(&error);
-        /*
-        TODO: propagate errors for scoring
-        */
+
+        match &error {
+            SyncCommitteeError::FutureSlot { .. } | SyncCommitteeError::PastSlot { .. } => {
+                /*
+                 * These errors can be triggered by a mismatch between our slot and the peer.
+                 *
+                 *
+                 * The peer has published an invalid consensus message, _only_ if we trust our own clock.
+                 */
+                trace!(
+                    self.log,
+                    "Sync committee message is not within the last MAXIMUM_GOSSIP_CLOCK_DISPARITY slots";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
+
+                // Peers that are slow or not to spec can spam us with these messages draining our
+                // bandwidth. We therefore penalize these peers when they do this.
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+
+                // Do not propagate these messages.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            SyncCommitteeError::EmptyAggregationBitfield => {
+                /*
+                 * The aggregate had no signatures and is therefore worthless.
+                 *
+                 * Whilst we don't gossip this message, this act is **not** a clear
+                 * violation of the spec nor indication of fault.
+                 *
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::InvalidSelectionProof { .. }
+            | SyncCommitteeError::InvalidSignature => {
+                /*
+                 * These errors are caused by invalid signatures.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::AggregatorNotInCommittee { .. }
+            | SyncCommitteeError::AggregatorPubkeyUnknown(_) => {
+                /*
+                 * The aggregator index was higher than any known validator index. This is
+                 * possible in two cases:
+                 *
+                 * 1. The message is malformed
+                 * 2. The sync committee message attests to a beacon_block_root that we do not know.
+                 *
+                 * It should be impossible to reach (2) without triggering
+                 * `SyncCommitteeError::UnknownHeadBlock`, so we can safely assume the peer is
+                 * faulty.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::SyncContributionAlreadyKnown(_)
+            | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
+                /*
+                 * The sync committee message already been observed on the network or in
+                 * a block.
+                 *
+                 * The peer is not necessarily faulty.
+                 */
+                trace!(
+                    self.log,
+                    "Sync committee message is already known";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return;
+            }
+            SyncCommitteeError::ValidatorIndexTooHigh(_)
+            | SyncCommitteeError::UnknownValidatorIndex(_)
+            // TODO(pawan): verify this should be dealt with similar severity
+            | SyncCommitteeError::UnknownValidatorPubkey(_) => {
+                /*
+                 * The aggregator index (or similar field) was higher than the maximum
+                 * possible number of validators.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                debug!(
+                    self.log,
+                    "Validation Index too high";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::UnknownHeadBlock{beacon_block_root} => {
+                // TODO(pawan): verify that this is similar to the attestation case.
+                trace!(
+                    self.log,
+                    "Sync committee message for unknown block";
+                    "peer_id" => %peer_id,
+                    "block" => %beacon_block_root
+                );
+                // we don't know the block, get the sync manager to handle the block lookup
+                self.sync_tx
+                    .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                    .unwrap_or_else(|_| {
+                        warn!(
+                            self.log,
+                            "Failed to send to sync service";
+                            "msg" => "UnknownBlockHash"
+                        )
+                    });
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return;
+            }
+            SyncCommitteeError::InvalidSubnetId { received, expected } => {
+                /*
+                 * The sync committee message was received on an incorrect subnet id.
+                 */
+                debug!(
+                    self.log,
+                    "Received sync committee message on incorrect subnet";
+                    "expected" => ?expected,
+                    "received" => ?received,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::Invalid(_) => {
+                /*
+                 * The sync committee message failed the state_processing verification.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::PriorSyncCommitteeMessageKnown {..} => {
+                /*
+                 * We have already seen an attestation from this validator for this epoch.
+                 *
+                 * The peer is not necessarily faulty.
+                 */
+                 debug!(
+                    self.log,
+                    "Prior sync committee message known";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
+                // We still penalize the peer slightly. We don't want this to be a recurring
+                // behaviour.
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
+                return;
+            }
+            SyncCommitteeError::BeaconChainError(e)  => {
+                /*
+                 * Lighthouse hit an unexpected error whilst processing the sync committee message. It
+                 * should be impossible to trigger a `BeaconChainError` from the network,
+                 * so we have a bug.
+                 *
+                 * It's not clear if the message is invalid/malicious.
+                 */
+                error!(
+                    self.log,
+                    "Unable to validate sync committee message";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // Penalize the peer slightly
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+            }
+            SyncCommitteeError::BeaconStateError(e)  => {
+                /*
+                 * Lighthouse hit an unexpected error whilst processing the sync committee message. It
+                 * should be impossible to trigger a `BeaconChainError` from the network,
+                 * so we have a bug.
+                 *
+                 * It's not clear if the message is invalid/malicious.
+                 */
+                error!(
+                    self.log,
+                    "Unable to validate sync committee message";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // Penalize the peer slightly
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+            }
+            SyncCommitteeError::ContributionError(e) => {
+                error!(
+                    self.log,
+                    "Error while processing sync contribution";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // Penalize the peer slightly
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+            }
+            SyncCommitteeError::SyncCommitteeError(e) => {
+                error!(
+                    self.log,
+                    "Error while processing sync committee message";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // Penalize the peer slightly
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+            }
+            SyncCommitteeError::ArithError(e) => {
+                /*
+                TODO(pawan): this would most likely imply wrongly set config params on our side.
+                Check severity.
+                */
+                error!(
+                    self.log,
+                    "Error while processing sync committee message";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+            }
+            SyncCommitteeError::InvalidSubcommittee {..} => {
+                /*
+                TODO(pawan): check severity
+                */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // Penalize the peer slightly
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+            }
+            
+        }
         debug!(
             self.log,
             "Invalid sync committee message from network";
