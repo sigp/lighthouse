@@ -14,7 +14,6 @@ use types::{
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
 };
 
-// FIXME(altair): randomise joining
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
 pub struct SyncCommitteeService<T: SlotClock + 'static, E: EthSpec> {
@@ -120,18 +119,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     }
 
                     // Do subscriptions for future slots/epochs.
-                    if let Err(e) = self.spawn_subscription_tasks().await {
-                        crit!(
-                            log,
-                            "Failed to spawn subscription tasks";
-                            "error" => e,
-                        );
-                    } else {
-                        trace!(
-                            log,
-                            "Spawn sync subscription tasks";
-                        );
-                    }
+                    self.spawn_subscription_tasks();
                 } else {
                     error!(log, "Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
@@ -254,7 +242,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .map_err(|e| {
                 error!(
                     log,
-                    "Unable to publish sync committee signatures";
+                    "Unable to publish sync committee messages";
                     "slot" => slot,
                     "error" => %e,
                 );
@@ -262,7 +250,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         info!(
             log,
-            "Successfully published sync committee signatures";
+            "Successfully published sync committee messages";
             "count" => committee_signatures.len(),
             "head_block" => ?beacon_block_root,
             "slot" => slot,
@@ -391,8 +379,24 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         Ok(())
     }
 
-    // FIXME(sproul): do this async
-    async fn spawn_subscription_tasks(&self) -> Result<(), String> {
+    fn spawn_subscription_tasks(&self) {
+        let service = self.clone();
+        let log = self.context.log().clone();
+        self.inner.context.executor.spawn(
+            async move {
+                service.publish_subscriptions().await.unwrap_or_else(|e| {
+                    error!(
+                        log,
+                        "Error publishing subscriptions";
+                        "error" => ?e,
+                    )
+                });
+            },
+            "sync_committee_subscription_publish",
+        );
+    }
+
+    async fn publish_subscriptions(self) -> Result<(), String> {
         let log = self.context.log().clone();
         let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
@@ -462,10 +466,12 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let subscriptions_slice = &subscriptions;
 
         for subscription in subscriptions_slice {
-            info!(
+            debug!(
                 log,
                 "Subscription";
-                "sub" => ?subscription,
+                "validator_index" => subscription.validator_index,
+                "validator_sync_committee_indices" => ?subscription.sync_committee_indices,
+                "until_epoch" => subscription.until_epoch,
             );
         }
 

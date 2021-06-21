@@ -228,7 +228,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
                     )),
                 )?;
 
-                // FIXME(sproul): notify validator monitor
+                // FIXME(altair): notify validator monitor
                 verified_contributions.push((index, verified_contribution));
             }
             // If we already know the contribution, don't broadcast it or attempt to

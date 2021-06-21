@@ -392,8 +392,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let validators = self.validators.read();
         let voting_keypair = validators.voting_keypair(validator_pubkey)?;
 
-        // FIXME(sproul): metrics
-        // metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
+            &[metrics::SUCCESS],
+        );
 
         Some(SyncSelectionProof::new::<E>(
             slot,
@@ -414,6 +416,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ) -> Option<SyncCommitteeMessage> {
         let validators = self.validators.read();
         let voting_keypair = validators.voting_keypair(validator_pubkey)?;
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
+            &[metrics::SUCCESS],
+        );
 
         Some(SyncCommitteeMessage::new::<E>(
             slot,
@@ -436,6 +443,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let validators = self.validators.read();
         let voting_keypair = validators.voting_keypair(aggregator_pubkey)?;
         let fork = self.fork(contribution.slot.epoch(E::slots_per_epoch()));
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
+            &[metrics::SUCCESS],
+        );
 
         Some(SignedContributionAndProof::from_aggregate(
             aggregator_index,

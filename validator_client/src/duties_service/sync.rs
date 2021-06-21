@@ -274,9 +274,16 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
                 .ok_or(Error::SyncDutiesNotFound(duty.validator_index))?;
 
             let updated = validator_duties.as_ref().map_or(true, |existing_duties| {
-                // FIXME(sproul): warn on reorg
-                existing_duties.duty.validator_sync_committee_indices
-                    != duty.validator_sync_committee_indices
+                let updated_due_to_reorg = existing_duties.duty.validator_sync_committee_indices
+                    != duty.validator_sync_committee_indices;
+                if updated_due_to_reorg {
+                    warn!(
+                        log,
+                        "Sync committee duties changed";
+                        "message" => "this could be due to a really long re-org, or a bug"
+                    );
+                }
+                updated_due_to_reorg
             });
 
             if updated {
@@ -400,8 +407,7 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
             if let Some(Some(duty)) = validators_reader.get(&validator_index) {
                 duty.aggregation_proofs.write().extend(proofs);
             } else {
-                // FIXME(sproul): downgrade to debug
-                warn!(
+                debug!(
                     log,
                     "Missing sync duty to update";
                     "validator_index" => validator_index,
