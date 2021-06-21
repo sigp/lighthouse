@@ -356,19 +356,19 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
         return true;
     }
 
-    // The format exported by the `eth2.definitions-deposit-cli` library.
+    // The format exported by the `eth2.0-deposit-cli` library.
     //
     // Reference to function that generates keystores:
     //
-    // https://github.com/ethereum/eth2.definitions-deposit-cli/blob/7cebff15eac299b3b1.definitions.definitionsc896dd34.definitionsc84634.definitions/eth2deposit/credentials.py#L58-L62
+    // https://github.com/ethereum/eth2.0-deposit-cli/blob/7cebff15eac299b3b1b090c896dd3410c8463450/eth2deposit/credentials.py#L58-L62
     //
-    // Since we include the key derivation path of `m/12381/3.definitions0/x.definitions.definitions` this should only ever match
+    // Since we include the key derivation path of `m/12381/3600/x/0/0` this should only ever match
     // with a voting keystore and never a withdrawal keystore.
     //
     // Key derivation path reference:
     //
     // https://eips.ethereum.org/EIPS/eip-2334
-    if Regex::new("keystore-m_12381_3.definitions0_.definitions-9]+.definitions.definitions-.definitions-9]+.json")
+    if Regex::new("keystore-m_12381_3600_[0-9]+_0_0-[0-9]+.json")
         .expect("regex is valid")
         .is_match(file_name)
     {
@@ -377,7 +377,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 
     // The format exported by Prysm. I don't have a reference for this, but it was shared via
     // Discord to Paul H.
-    if Regex::new("keystore-.definitions-9]+.json")
+    if Regex::new("keystore-[0-9]+.json")
         .expect("regex is valid")
         .is_match(file_name)
     {
@@ -403,29 +403,27 @@ mod tests {
         assert!(!is_voting_keystore(&format!("a{}", VOTING_KEYSTORE_FILE)));
         assert!(!is_voting_keystore(&format!("{}b", VOTING_KEYSTORE_FILE)));
         assert!(is_voting_keystore(
-            "keystore-m_12381_3.definitions0.definitions.definitions.definitions-15934762.definitions.json"
+            "keystore-m_12381_3600_0_0_0-1593476250.json"
         ));
         assert!(is_voting_keystore(
-            "keystore-m_12381_3.definitions0_1.definitions.definitions-15934762.definitions.json"
+            "keystore-m_12381_3600_1_0_0-1593476250.json"
         ));
-        assert!(is_voting_keystore(
-            "keystore-m_12381_3.definitions0_1.definitions.definitions-1593.json"
+        assert!(is_voting_keystore("keystore-m_12381_3600_1_0_0-1593.json"));
+        assert!(!is_voting_keystore(
+            "keystore-m_12381_3600_0_0-1593476250.json"
         ));
         assert!(!is_voting_keystore(
-            "keystore-m_12381_3.definitions0.definitions.definitions-15934762.definitions.json"
-        ));
-        assert!(!is_voting_keystore(
-            "keystore-m_12381_3.definitions0_1.definitions-15934762.definitions.json"
+            "keystore-m_12381_3600_1_0-1593476250.json"
         ));
     }
 
     #[test]
     fn voting_keystore_filename_prysm() {
-        assert!(is_voting_keystore("keystore.definitions.json"));
+        assert!(is_voting_keystore("keystore-0.json"));
         assert!(is_voting_keystore("keystore-1.json"));
-        assert!(is_voting_keystore("keystore-.definitions1238259.json"));
+        assert!(is_voting_keystore("keystore-101238259.json"));
         assert!(!is_voting_keystore("keystore-.json"));
-        assert!(!is_voting_keystore("keystore.definitionsa.json"));
+        assert!(!is_voting_keystore("keystore-0a.json"));
         assert!(!is_voting_keystore("keystore-cats.json"));
     }
 
@@ -436,7 +434,7 @@ mod tests {
         enabled: true
         type: local_keystore
         voting_keystore_path: ""
-        voting_public_key: .definitionsxaf3c7ddab7e2938347.definitionsfca2d39.definitions68f884455ede2.definitions.definitions.definitions293dc818e4f2.definitionsf97535.definitions67e8437955cb29aec674e5c9e7"
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
         let def: ValidatorDefinition = serde_yaml::from_str(&no_graffiti).unwrap();
         assert!(def.graffiti.is_none());
@@ -447,7 +445,7 @@ mod tests {
         type: local_keystore
         graffiti: "mrfwasheremrfwasheremrfwasheremrf"
         voting_keystore_path: ""
-        voting_public_key: .definitionsxaf3c7ddab7e2938347.definitionsfca2d39.definitions68f884455ede2.definitions.definitions.definitions293dc818e4f2.definitionsf97535.definitions67e8437955cb29aec674e5c9e7"
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
         let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(&invalid_graffiti);
@@ -459,7 +457,7 @@ mod tests {
         type: local_keystore
         graffiti: "mrfwashere"
         voting_keystore_path: ""
-        voting_public_key: .definitionsxaf3c7ddab7e2938347.definitionsfca2d39.definitions68f884455ede2.definitions.definitions.definitions293dc818e4f2.definitionsf97535.definitions67e8437955cb29aec674e5c9e7"
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
         let def: ValidatorDefinition = serde_yaml::from_str(&valid_graffiti).unwrap();
