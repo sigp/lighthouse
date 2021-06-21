@@ -11,7 +11,7 @@ use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use types::{graffiti::GraffitiString, PublicKey};
@@ -134,6 +134,13 @@ pub struct ValidatorDefinitions {
 }
 
 impl ValidatorDefinitions {
+    pub fn create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
+        Ok(Self {
+            definitions: vec![],
+            _lockfile: Lockfile::new(validators_dir.as_ref().to_path_buf())?,
+        })
+    }
+
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         ensure_dir_exists(validators_dir.as_ref()).map_err(|_| {
@@ -141,7 +148,8 @@ impl ValidatorDefinitions {
         })?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
-            File::create(&validators_dir).map_err(|_e| Error::UnableToCreateValidatorFile)?;
+            let this: Self = Self::create(&validators_dir)?;
+            this.save(&validators_dir)?;
         }
         Self::open(validators_dir)
     }
