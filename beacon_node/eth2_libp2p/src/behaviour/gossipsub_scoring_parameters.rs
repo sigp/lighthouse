@@ -17,6 +17,9 @@ const VOLUNTARY_EXIT_WEIGHT: f64 = 0.05;
 const PROPOSER_SLASHING_WEIGHT: f64 = 0.05;
 const ATTESTER_SLASHING_WEIGHT: f64 = 0.05;
 
+/// The time window (seconds) that we expect messages to be forwarded to us in the mesh.
+const MESH_MESSAGE_DELIVERIES_WINDOW: u64 = 2;
+
 // Const as this is used in the peer manager to prevent gossip from disconnecting peers.
 pub const GREYLIST_THRESHOLD: f64 = -16000.0;
 
@@ -327,7 +330,8 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                     cap_factor * t_params.mesh_message_deliveries_threshold
                 };
             t_params.mesh_message_deliveries_activation = activation_window;
-            t_params.mesh_message_deliveries_window = Duration::from_secs(2);
+            t_params.mesh_message_deliveries_window =
+                Duration::from_secs(MESH_MESSAGE_DELIVERIES_WINDOW);
             t_params.mesh_failure_penalty_decay = t_params.mesh_message_deliveries_decay;
             t_params.mesh_message_deliveries_weight = -self.max_positive_score
                 / (t_params.topic_weight * t_params.mesh_message_deliveries_threshold.powi(2));
