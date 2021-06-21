@@ -82,30 +82,20 @@ impl fmt::Display for Error {
 /// proper fallback behaviour.
 #[derive(Clone)]
 pub struct Timeouts {
-    attestation: Duration,
-    attester_duties: Duration,
-    proposal: Duration,
-    proposer_duties: Duration,
+    pub attestation: Duration,
+    pub attester_duties: Duration,
+    pub proposal: Duration,
+    pub proposer_duties: Duration,
 }
 
 impl Timeouts {
-    pub fn new(
-        attestation: Duration,
-        attester_duties: Duration,
-        proposal: Duration,
-        proposer_duties: Duration,
-    ) -> Self {
+    pub fn set_all(timeout: Duration) -> Self {
         Timeouts {
-            attestation,
-            attester_duties,
-            proposal,
-            proposer_duties,
+            attestation: timeout,
+            attester_duties: timeout,
+            proposal: timeout,
+            proposer_duties: timeout,
         }
-    }
-
-    pub fn default(seconds_per_slot: u64) -> Self {
-        let timeout = Duration::from_secs(seconds_per_slot);
-        Timeouts::new(timeout, timeout, timeout, timeout)
     }
 }
 
