@@ -18,7 +18,7 @@ pub struct MultiTestCase {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TestCase {
     pub should_succeed: bool,
-    pub allow_partial_import: bool,
+    pub contains_slashable_data: bool,
     pub interchange: Interchange,
     pub blocks: Vec<TestBlock>,
     pub attestations: Vec<TestAttestation>,
@@ -72,7 +72,7 @@ impl MultiTestCase {
             // If the test case is marked as containing slashable data, then it is permissible
             // that we fail to import the file, in which case execution of the whole test should
             // be aborted.
-            let allow_import_failure = test_case.allow_partial_import;
+            let allow_import_failure = test_case.contains_slashable_data;
 
             let interchange = if minify {
                 let minified = test_case.interchange.minify().unwrap();
@@ -160,7 +160,7 @@ impl TestCase {
     pub fn new(interchange: Interchange) -> Self {
         TestCase {
             should_succeed: true,
-            allow_partial_import: false,
+            contains_slashable_data: false,
             interchange,
             blocks: vec![],
             attestations: vec![],
@@ -172,8 +172,8 @@ impl TestCase {
         self
     }
 
-    pub fn allow_partial_import(mut self) -> Self {
-        self.allow_partial_import = true;
+    pub fn contains_slashable_data(mut self) -> Self {
+        self.contains_slashable_data = true;
         self
     }
 
