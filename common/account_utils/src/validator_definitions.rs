@@ -15,9 +15,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 use types::{graffiti::GraffitiString, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
+use lockfile::{Lockfile, LockfileError};
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
+
+/// The file extension for the lockfile associated with the YAML configuration
+/// file (see `CONFIG_FILENAME`).
+pub const LOCK_FILE: &str = ".lock";
 
 /// The temporary file name for the serialized `ValidatorDefinitions` struct.
 ///
@@ -43,6 +48,14 @@ pub enum Error {
     UnableToOpenKeystore(eth2_keystore::Error),
     /// The validator directory could not be created.
     UnableToCreateValidatorDir(PathBuf),
+    /// The validator definitions lockfile could not be created.
+    UnableToAcquireLock(LockfileError),
+}
+
+impl From<LockfileError> for Error {
+    fn from(value: LockfileError) -> Self {
+        Self::UnableToAcquireLock(value)
+    }
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
@@ -139,6 +152,7 @@ impl ValidatorDefinitions {
             .create_new(false)
             .open(&config_path)
             .map_err(Error::UnableToOpenFile)?;
+        Lockfile::new(config_path.join(LOCK_FILE))?;
         serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
     }
 
