@@ -693,16 +693,14 @@ fn spawn_service<T: BeaconChainTypes>(
     }, "network");
 }
 
-/// Returns a `Sleep` that triggers shortly after the next change in the beacon chain fork version.
+/// Returns a `Sleep` that triggers after the next change in the beacon chain fork version.
 /// If there is no scheduled fork, `None` is returned.
 fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    beacon_chain.duration_to_next_fork().map(|(_, until_fork)| {
-        // Add a short time-out to start within the new fork period.
-        let delay = Duration::from_millis(200);
-        tokio::time::sleep(until_fork + delay)
-    })
+    beacon_chain
+        .duration_to_next_fork()
+        .map(|(_, until_fork)| tokio::time::sleep(until_fork))
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {

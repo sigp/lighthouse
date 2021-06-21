@@ -1343,7 +1343,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Penalize the peer slightly
                 self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
             }
-            
         }
         debug!(
             self.log,
