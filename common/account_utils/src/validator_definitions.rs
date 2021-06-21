@@ -6,16 +6,16 @@
 use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
+use lockfile::{Lockfile, LockfileError};
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use types::{graffiti::GraffitiString, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
-use lockfile::{Lockfile, LockfileError};
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
@@ -48,6 +48,8 @@ pub enum Error {
     UnableToOpenKeystore(eth2_keystore::Error),
     /// The validator directory could not be created.
     UnableToCreateValidatorDir(PathBuf),
+    /// The (empty) validator file could not be created
+    UnableToCreateValidatorFile,
     /// The validator definitions lockfile could not be created.
     UnableToAcquireLock(LockfileError),
 }
@@ -126,8 +128,10 @@ impl ValidatorDefinition {
 
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
 /// list of validators to be initialized by this validator client.
-#[derive(Default, Serialize, Deserialize)]
-pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
+pub struct ValidatorDefinitions {
+    definitions: Vec<ValidatorDefinition>,
+    _lockfile: Lockfile,
+}
 
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
@@ -137,8 +141,7 @@ impl ValidatorDefinitions {
         })?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
-            let this = Self::default();
-            this.save(&validators_dir)?;
+            File::create(&validators_dir).map_err(|_e| Error::UnableToCreateValidatorFile)?;
         }
         Self::open(validators_dir)
     }
@@ -152,8 +155,17 @@ impl ValidatorDefinitions {
             .create_new(false)
             .open(&config_path)
             .map_err(Error::UnableToOpenFile)?;
-        Lockfile::new(config_path.join(LOCK_FILE))?;
-        serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
+        let definitions: Vec<ValidatorDefinition> =
+            match serde_yaml::from_reader(file).map_err(Error::UnableToParseFile) {
+                Ok(t) => t,
+                Err(e) => return Err(e),
+            };
+        let _lockfile: Lockfile = Lockfile::new(config_path.join(LOCK_FILE))?;
+
+        Ok(Self {
+            definitions,
+            _lockfile,
+        })
     }
 
     /// Perform a recursive, exhaustive search through `validators_dir` and add any keystores
@@ -179,7 +191,7 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToSearchForKeystores)?;
 
         let known_paths: HashSet<&PathBuf> = self
-            .0
+            .definitions
             .iter()
             .map(|def| match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
@@ -190,7 +202,7 @@ impl ValidatorDefinitions {
             .collect();
 
         let known_pubkeys: HashSet<PublicKey> = self
-            .0
+            .definitions
             .iter()
             .map(|def| def.voting_public_key.clone())
             .collect();
@@ -264,7 +276,7 @@ impl ValidatorDefinitions {
 
         let new_defs_count = new_defs.len();
 
-        self.0.append(&mut new_defs);
+        self.definitions.append(&mut new_defs);
 
         Ok(new_defs_count)
     }
@@ -276,7 +288,7 @@ impl ValidatorDefinitions {
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
-        let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
+        let bytes = serde_yaml::to_vec(&self.definitions).map_err(Error::UnableToEncodeFile)?;
 
         write_file_via_temporary(&config_path, &temp_path, &bytes)
             .map_err(Error::UnableToWriteFile)?;
@@ -286,17 +298,17 @@ impl ValidatorDefinitions {
 
     /// Adds a new `ValidatorDefinition` to `self`.
     pub fn push(&mut self, def: ValidatorDefinition) {
-        self.0.push(def)
+        self.definitions.push(def)
     }
 
     /// Returns a slice of all `ValidatorDefinition` in `self`.
     pub fn as_slice(&self) -> &[ValidatorDefinition] {
-        self.0.as_slice()
+        self.definitions.as_slice()
     }
 
     /// Returns a mutable slice of all `ValidatorDefinition` in `self`.
     pub fn as_mut_slice(&mut self) -> &mut [ValidatorDefinition] {
-        self.0.as_mut_slice()
+        self.definitions.as_mut_slice()
     }
 }
 
@@ -339,19 +351,19 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
         return true;
     }
 
-    // The format exported by the `eth2.0-deposit-cli` library.
+    // The format exported by the `eth2.definitions-deposit-cli` library.
     //
     // Reference to function that generates keystores:
     //
-    // https://github.com/ethereum/eth2.0-deposit-cli/blob/7cebff15eac299b3b1b090c896dd3410c8463450/eth2deposit/credentials.py#L58-L62
+    // https://github.com/ethereum/eth2.definitions-deposit-cli/blob/7cebff15eac299b3b1.definitions.definitionsc896dd34.definitionsc84634.definitions/eth2deposit/credentials.py#L58-L62
     //
-    // Since we include the key derivation path of `m/12381/3600/x/0/0` this should only ever match
+    // Since we include the key derivation path of `m/12381/3.definitions0/x.definitions.definitions` this should only ever match
     // with a voting keystore and never a withdrawal keystore.
     //
     // Key derivation path reference:
     //
     // https://eips.ethereum.org/EIPS/eip-2334
-    if Regex::new("keystore-m_12381_3600_[0-9]+_0_0-[0-9]+.json")
+    if Regex::new("keystore-m_12381_3.definitions0_.definitions-9]+.definitions.definitions-.definitions-9]+.json")
         .expect("regex is valid")
         .is_match(file_name)
     {
@@ -360,7 +372,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 
     // The format exported by Prysm. I don't have a reference for this, but it was shared via
     // Discord to Paul H.
-    if Regex::new("keystore-[0-9]+.json")
+    if Regex::new("keystore-.definitions-9]+.json")
         .expect("regex is valid")
         .is_match(file_name)
     {
@@ -386,27 +398,29 @@ mod tests {
         assert!(!is_voting_keystore(&format!("a{}", VOTING_KEYSTORE_FILE)));
         assert!(!is_voting_keystore(&format!("{}b", VOTING_KEYSTORE_FILE)));
         assert!(is_voting_keystore(
-            "keystore-m_12381_3600_0_0_0-1593476250.json"
+            "keystore-m_12381_3.definitions0.definitions.definitions.definitions-15934762.definitions.json"
         ));
         assert!(is_voting_keystore(
-            "keystore-m_12381_3600_1_0_0-1593476250.json"
+            "keystore-m_12381_3.definitions0_1.definitions.definitions-15934762.definitions.json"
         ));
-        assert!(is_voting_keystore("keystore-m_12381_3600_1_0_0-1593.json"));
-        assert!(!is_voting_keystore(
-            "keystore-m_12381_3600_0_0-1593476250.json"
+        assert!(is_voting_keystore(
+            "keystore-m_12381_3.definitions0_1.definitions.definitions-1593.json"
         ));
         assert!(!is_voting_keystore(
-            "keystore-m_12381_3600_1_0-1593476250.json"
+            "keystore-m_12381_3.definitions0.definitions.definitions-15934762.definitions.json"
+        ));
+        assert!(!is_voting_keystore(
+            "keystore-m_12381_3.definitions0_1.definitions-15934762.definitions.json"
         ));
     }
 
     #[test]
     fn voting_keystore_filename_prysm() {
-        assert!(is_voting_keystore("keystore-0.json"));
+        assert!(is_voting_keystore("keystore.definitions.json"));
         assert!(is_voting_keystore("keystore-1.json"));
-        assert!(is_voting_keystore("keystore-101238259.json"));
+        assert!(is_voting_keystore("keystore-.definitions1238259.json"));
         assert!(!is_voting_keystore("keystore-.json"));
-        assert!(!is_voting_keystore("keystore-0a.json"));
+        assert!(!is_voting_keystore("keystore.definitionsa.json"));
         assert!(!is_voting_keystore("keystore-cats.json"));
     }
 
@@ -417,7 +431,7 @@ mod tests {
         enabled: true
         type: local_keystore
         voting_keystore_path: ""
-        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        voting_public_key: .definitionsxaf3c7ddab7e2938347.definitionsfca2d39.definitions68f884455ede2.definitions.definitions.definitions293dc818e4f2.definitionsf97535.definitions67e8437955cb29aec674e5c9e7"
         "#;
         let def: ValidatorDefinition = serde_yaml::from_str(&no_graffiti).unwrap();
         assert!(def.graffiti.is_none());
@@ -428,7 +442,7 @@ mod tests {
         type: local_keystore
         graffiti: "mrfwasheremrfwasheremrfwasheremrf"
         voting_keystore_path: ""
-        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        voting_public_key: .definitionsxaf3c7ddab7e2938347.definitionsfca2d39.definitions68f884455ede2.definitions.definitions.definitions293dc818e4f2.definitionsf97535.definitions67e8437955cb29aec674e5c9e7"
         "#;
 
         let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(&invalid_graffiti);
@@ -440,7 +454,7 @@ mod tests {
         type: local_keystore
         graffiti: "mrfwashere"
         voting_keystore_path: ""
-        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        voting_public_key: .definitionsxaf3c7ddab7e2938347.definitionsfca2d39.definitions68f884455ede2.definitions.definitions.definitions293dc818e4f2.definitionsf97535.definitions67e8437955cb29aec674e5c9e7"
         "#;
 
         let def: ValidatorDefinition = serde_yaml::from_str(&valid_graffiti).unwrap();
