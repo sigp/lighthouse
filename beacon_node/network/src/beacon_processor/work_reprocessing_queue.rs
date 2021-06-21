@@ -11,6 +11,7 @@
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
+use crate::metrics;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use eth2_libp2p::{MessageId, PeerId};
 use fnv::FnvHashMap;
@@ -474,5 +475,16 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
         }
+
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &["blocks"],
+            self.block_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &["attestations"],
+            self.attestations_delay_queue.len() as i64,
+        );
     }
 }

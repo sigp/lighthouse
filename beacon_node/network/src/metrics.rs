@@ -378,6 +378,16 @@ lazy_static! {
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
     );
+
+    /*
+     * Attestation reprocessing queue metrics.
+     */
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+        "beacon_processor_reprocessing_queue_total",
+        "Count of items in a reprocessing queue.",
+        &["type"]
+    );
 }
 
 pub fn register_attestation_error(error: &AttnError) {
