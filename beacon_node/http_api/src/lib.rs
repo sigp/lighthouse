@@ -1877,10 +1877,26 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     for subscription in &subscriptions {
-                        chain
-                            .validator_monitor
-                            .write()
-                            .auto_register_local_validator(subscription.validator_index);
+                        // Assign the result from the read to a separate variable, to avoid a Rust
+                        // quirk where a read-lock obtained inside an `if` statement is for the
+                        // execution inside it.
+                        //
+                        // Checking the read-lock first helps avoid lengthy waits for the
+                        // write-lock. Although another thread may add the validator between
+                        // dropping the read-lock and obtaining the write-lock, there's no harm in
+                        // registering the same validator twice.
+                        let should_register = {
+                            let validator_monitor = chain.validator_monitor.read();
+                            validator_monitor.auto_register_enabled()
+                                && validator_monitor
+                                    .contains_validator(subscription.validator_index)
+                        };
+                        if should_register {
+                            chain
+                                .validator_monitor
+                                .write()
+                                .auto_register_local_validator(subscription.validator_index);
+                        }
 
                         let subscription = api_types::ValidatorSubscription {
                             validator_index: subscription.validator_index,

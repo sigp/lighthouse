@@ -440,6 +440,16 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .and_then(|pubkey| self.validators.get(pubkey))
     }
 
+    /// Return `true` if the `validator_index` has been registered with `self`.
+    pub fn contains_validator(&self, validator_index: u64) -> bool {
+        self.indices.contains_key(&validator_index)
+    }
+
+    /// Return `true` if the automatic validator registration is enabled.
+    pub fn auto_register_enabled(&self) -> bool {
+        self.auto_register
+    }
+
     /// Returns the number of validators monitored by `self`.
     pub fn num_validators(&self) -> usize {
         self.validators.len()
