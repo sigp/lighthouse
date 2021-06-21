@@ -30,6 +30,8 @@ use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
+const BLOCKS: &str = "blocks";
+const ATTESTATIONS: &str = "attestations";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -368,6 +370,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
                     for id in queued_ids {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
+                        );
+
                         if let Some((work, delay_key)) = match id {
                             QueuedAttestationId::Aggregate(id) => self
                                 .queued_aggregates
@@ -439,6 +445,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 )
             }
             InboundEvent::ReadyAttestation(queued_id) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
+                );
+
                 if let Some((root, work)) = match queued_id {
                     QueuedAttestationId::Aggregate(id) => {
                         self.queued_aggregates
@@ -478,12 +488,12 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &["blocks"],
+            &[BLOCKS],
             self.block_delay_queue.len() as i64,
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &["attestations"],
+            &[ATTESTATIONS],
             self.attestations_delay_queue.len() as i64,
         );
     }

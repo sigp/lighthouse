@@ -388,6 +388,14 @@ lazy_static! {
         "Count of items in a reprocessing queue.",
         &["type"]
     );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_expired_attestations",
+        "Number of queued attestations which have expired before a matching block has been found"
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_matched_attestations",
+        "Number of queued attestations where as matching block has been imported"
+    );
 }
 
 pub fn register_attestation_error(error: &AttnError) {
