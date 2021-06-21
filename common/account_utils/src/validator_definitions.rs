@@ -164,10 +164,7 @@ impl ValidatorDefinitions {
             .open(&config_path)
             .map_err(Error::UnableToOpenFile)?;
         let definitions: Vec<ValidatorDefinition> =
-            match serde_yaml::from_reader(file).map_err(Error::UnableToParseFile) {
-                Ok(t) => t,
-                Err(e) => return Err(e),
-            };
+            serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)?;
         let _lockfile: Lockfile = Lockfile::new(config_path.join(LOCK_FILE))?;
 
         Ok(Self {
