@@ -1098,7 +1098,8 @@ impl BeaconNodeHttpClient {
                 &format!("{:?}", attestation_data_root),
             );
 
-        self.get_opt_with_timeout(path, self.timeouts.attestation).await
+        self.get_opt_with_timeout(path, self.timeouts.attestation)
+            .await
     }
 
     /// `POST validator/duties/attester/{epoch}`
