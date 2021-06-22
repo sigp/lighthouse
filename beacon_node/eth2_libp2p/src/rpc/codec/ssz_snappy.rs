@@ -108,35 +108,9 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
             ));
         }
 
-        // Add the context bytes if required
-        if self.protocol.has_context_bytes() {
-            if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(ref res)) = item {
-                if let SignedBeaconBlock::Altair { .. } = **res {
-                    // Altair context being `None` implies that "altair never happened".
-                    // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                    if let Some(ref altair_context) =
-                        self.fork_context.to_context_bytes(ForkName::Altair)
-                    {
-                        dst.extend_from_slice(altair_context);
-                    }
-                } else if let SignedBeaconBlock::Base { .. } = **res {
-                    dst.extend_from_slice(&self.fork_context.genesis_context_bytes());
-                }
-            }
-
-            if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = item {
-                if let SignedBeaconBlock::Altair { .. } = *res {
-                    // Altair context being `None` implies that "altair never happened".
-                    // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                    if let Some(ref altair_context) =
-                        self.fork_context.to_context_bytes(ForkName::Altair)
-                    {
-                        dst.extend_from_slice(altair_context);
-                    }
-                } else if let SignedBeaconBlock::Base { .. } = *res {
-                    dst.extend_from_slice(&self.fork_context.genesis_context_bytes());
-                }
-            }
+        // Add context bytes if required
+        if let Some(ref context_bytes) = context_bytes(&self.protocol, &self.fork_context, &item) {
+            dst.extend_from_slice(context_bytes);
         }
 
         // Inserts the length prefix of the uncompressed bytes into dst
@@ -161,18 +135,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let length = if let Some(length) = self.len {
-            length
-        } else {
-            // Decode the length of the uncompressed bytes from an unsigned varint
-            // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
-            match self.inner.decode(src).map_err(RPCError::from)? {
-                Some(length) => {
-                    self.len = Some(length);
-                    length
-                }
-                None => return Ok(None), // need more bytes to decode length
-            }
+        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
+            Some(len) => len,
+            None => return Ok(None),
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -199,60 +164,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 // We need not check that decoded_buffer.len() is within bounds here
                 // since we have already checked `length` above.
                 match self.protocol.version {
-                    Version::V1 => match self.protocol.message_name {
-                        Protocol::Status => Ok(Some(InboundRequest::Status(
-                            StatusMessage::from_ssz_bytes(&decoded_buffer)?,
-                        ))),
-                        Protocol::Goodbye => Ok(Some(InboundRequest::Goodbye(
-                            GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
-                        ))),
-                        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-                            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
-                        ))),
-                        Protocol::BlocksByRoot => {
-                            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-                                block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                            })))
-                        }
-                        Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
-                            data: u64::from_ssz_bytes(&decoded_buffer)?,
-                        }))),
-
-                        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
-                        // Handle this case just for completeness.
-                        Protocol::MetaData => {
-                            if !decoded_buffer.is_empty() {
-                                Err(RPCError::InvalidData)
-                            } else {
-                                Ok(Some(InboundRequest::MetaData(PhantomData)))
-                            }
-                        }
-                    },
-                    // Receiving a Rpc request for protocol version 2 for range and root requests
-                    Version::V2 => match self.protocol.message_name {
-                        // Request type doesn't change, only response type
-                        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-                            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
-                        ))),
-                        Protocol::BlocksByRoot => {
-                            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-                                block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
-                            })))
-                        }
-                        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
-                        // Handle this case just for completeness.
-                        Protocol::MetaData => {
-                            if !decoded_buffer.is_empty() {
-                                Err(RPCError::InvalidData)
-                            } else {
-                                Ok(Some(InboundRequest::MetaData(PhantomData)))
-                            }
-                        }
-                        _ => Err(RPCError::ErrorResponse(
-                            RPCResponseErrorCode::InvalidRequest,
-                            format!("{} does not support version 2", self.protocol.message_name),
-                        )),
-                    },
+                    Version::V1 => handle_v1_request(self.protocol.message_name, &decoded_buffer),
+                    Version::V2 => handle_v2_request(self.protocol.message_name, &decoded_buffer),
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -359,18 +272,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 return Ok(None);
             }
         }
-        let length = if let Some(length) = self.len {
-            length
-        } else {
-            // Decode the length of the uncompressed bytes from an unsigned varint
-            // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
-            match self.inner.decode(src).map_err(RPCError::from)? {
-                Some(length) => {
-                    self.len = Some(length as usize);
-                    length
-                }
-                None => return Ok(None), // need more bytes to decode length
-            }
+        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
+            Some(len) => len,
+            None => return Ok(None),
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -397,82 +301,12 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 // We need not check that decoded_buffer.len() is within bounds here
                 // since we have already checked `length` above.
                 match self.protocol.version {
-                    Version::V1 => match self.protocol.message_name {
-                        Protocol::Status => Ok(Some(RPCResponse::Status(
-                            StatusMessage::from_ssz_bytes(&decoded_buffer)?,
-                        ))),
-                        // This case should be unreachable as `Goodbye` has no response.
-                        Protocol::Goodbye => Err(RPCError::InvalidData),
-                        Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                &decoded_buffer,
-                            )?),
-                        )))),
-                        Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                &decoded_buffer,
-                            )?),
-                        )))),
-                        Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
-                            data: u64::from_ssz_bytes(&decoded_buffer)?,
-                        }))),
-                        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V1(
-                            MetaDataV1::from_ssz_bytes(&decoded_buffer)?,
-                        )))),
-                    },
-                    Version::V2 => match self.protocol.message_name {
-                        Protocol::BlocksByRange => {
-                            match self.fork_name.take().ok_or_else(|| {
-                                RPCError::ErrorResponse(
-                                    RPCResponseErrorCode::InvalidRequest,
-                                    format!(
-                                        "No context bytes provided for {} response",
-                                        self.protocol.message_name
-                                    ),
-                                )
-                            })? {
-                                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                    SignedBeaconBlock::Altair(
-                                        SignedBeaconBlockAltair::from_ssz_bytes(&decoded_buffer)?,
-                                    ),
-                                )))),
-
-                                ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                        &decoded_buffer,
-                                    )?),
-                                )))),
-                            }
-                        }
-                        Protocol::BlocksByRoot => match self.fork_name.take().ok_or_else(|| {
-                            RPCError::ErrorResponse(
-                                RPCResponseErrorCode::InvalidRequest,
-                                format!(
-                                    "No context bytes provided for {} response",
-                                    self.protocol.message_name
-                                ),
-                            )
-                        })? {
-                            ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
-                                    &decoded_buffer,
-                                )?),
-                            )))),
-                            ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                                    &decoded_buffer,
-                                )?),
-                            )))),
-                        },
-                        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V2(
-                            MetaDataV2::from_ssz_bytes(&decoded_buffer)?,
-                        )))),
-
-                        _ => Err(RPCError::ErrorResponse(
-                            RPCResponseErrorCode::InvalidRequest,
-                            "Invalid v2 request".to_string(),
-                        )),
-                    },
+                    Version::V1 => handle_v1_response(self.protocol.message_name, &decoded_buffer),
+                    Version::V2 => handle_v2_response(
+                        self.protocol.message_name,
+                        &decoded_buffer,
+                        &mut self.fork_name,
+                    ),
                 }
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -487,17 +321,9 @@ impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutbound
         &mut self,
         src: &mut BytesMut,
     ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        let length = if let Some(length) = self.len {
-            length
-        } else {
-            // Decode the length of the uncompressed bytes from an unsigned varint
-            match self.inner.decode(src).map_err(RPCError::from)? {
-                Some(length) => {
-                    self.len = Some(length as usize);
-                    length
-                }
-                None => return Ok(None), // need more bytes to decode length
-            }
+        let length = match handle_length(&mut self.inner, &mut self.len, src)? {
+            Some(len) => len,
+            None => return Ok(None),
         };
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
@@ -547,6 +373,214 @@ fn handle_error<T>(
             }
         }
         _ => Err(err).map_err(RPCError::from),
+    }
+}
+
+/// Returns `Some(context_bytes)` for encoding RPC responses that require context bytes.
+/// Returns `None` when context bytes are not required.  
+fn context_bytes<T: EthSpec>(
+    protocol: &ProtocolId,
+    fork_context: &ForkContext,
+    resp: &RPCCodedResponse<T>,
+) -> Option<[u8; 4]> {
+    // Add the context bytes if required
+    if protocol.has_context_bytes() {
+        if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(res)) = resp {
+            if let SignedBeaconBlock::Altair { .. } = **res {
+                // Altair context being `None` implies that "altair never happened".
+                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                return fork_context.to_context_bytes(ForkName::Altair);
+            } else if let SignedBeaconBlock::Base { .. } = **res {
+                return Some(fork_context.genesis_context_bytes());
+            }
+        }
+
+        if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = resp {
+            if let SignedBeaconBlock::Altair { .. } = **res {
+                // Altair context being `None` implies that "altair never happened".
+                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                return fork_context.to_context_bytes(ForkName::Altair);
+            } else if let SignedBeaconBlock::Base { .. } = **res {
+                return Some(fork_context.genesis_context_bytes());
+            }
+        }
+    }
+    None
+}
+
+/// Decodes the length-prefix from the bytes as an unsigned protobuf varint.
+///
+/// Returns `Ok(Some(length))` by decoding the bytes if required.
+/// Returns `Ok(None)` if more bytes are needed to decode the length-prefix.
+/// Returns an `RPCError` for a decoding error.
+fn handle_length(
+    uvi_codec: &mut Uvi<usize>,
+    len: &mut Option<usize>,
+    bytes: &mut BytesMut,
+) -> Result<Option<usize>, RPCError> {
+    if let Some(length) = len {
+        return Ok(Some(*length));
+    } else {
+        // Decode the length of the uncompressed bytes from an unsigned varint
+        // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
+        match uvi_codec.decode(bytes).map_err(RPCError::from)? {
+            Some(length) => {
+                *len = Some(length as usize);
+                return Ok(Some(length));
+            }
+            None => return Ok(None), // need more bytes to decode length
+        }
+    }
+}
+
+/// Decodes a `Version::V1` `InboundRequest` from the byte stream.
+/// `decoded_buffer` should be an ssz-encoded bytestream with
+// length = length-prefix received in the beginning of the stream.
+fn handle_v1_request<T: EthSpec>(
+    protocol: Protocol,
+    decoded_buffer: &[u8],
+) -> Result<Option<InboundRequest<T>>, RPCError> {
+    match protocol {
+        Protocol::Status => Ok(Some(InboundRequest::Status(StatusMessage::from_ssz_bytes(
+            &decoded_buffer,
+        )?))),
+        Protocol::Goodbye => Ok(Some(InboundRequest::Goodbye(
+            GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
+        ))),
+        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
+            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+        ))),
+        Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
+            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+        }))),
+        Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
+            data: u64::from_ssz_bytes(&decoded_buffer)?,
+        }))),
+
+        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
+        // Handle this case just for completeness.
+        Protocol::MetaData => {
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InvalidData)
+            } else {
+                Ok(Some(InboundRequest::MetaData(PhantomData)))
+            }
+        }
+    }
+}
+
+/// Decodes a `Version::V2` `InboundRequest` from the byte stream.
+/// `decoded_buffer` should be an ssz-encoded bytestream with
+// length = length-prefix received in the beginning of the stream.
+fn handle_v2_request<T: EthSpec>(
+    protocol: Protocol,
+    decoded_buffer: &[u8],
+) -> Result<Option<InboundRequest<T>>, RPCError> {
+    match protocol {
+        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
+            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+        ))),
+        Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
+            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+        }))),
+        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
+        // Handle this case just for completeness.
+        Protocol::MetaData => {
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InvalidData)
+            } else {
+                Ok(Some(InboundRequest::MetaData(PhantomData)))
+            }
+        }
+        _ => Err(RPCError::ErrorResponse(
+            RPCResponseErrorCode::InvalidRequest,
+            format!("{} does not support version 2", protocol),
+        )),
+    }
+}
+
+/// Decodes a `Version::V1` `RPCResponse` from the byte stream.
+/// `decoded_buffer` should be an ssz-encoded bytestream with
+// length = length-prefix received in the beginning of the stream.
+fn handle_v1_response<T: EthSpec>(
+    protocol: Protocol,
+    decoded_buffer: &[u8],
+) -> Result<Option<RPCResponse<T>>, RPCError> {
+    match protocol {
+        Protocol::Status => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
+            &decoded_buffer,
+        )?))),
+        // This case should be unreachable as `Goodbye` has no response.
+        Protocol::Goodbye => Err(RPCError::InvalidData),
+        Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?),
+        )))),
+        Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?),
+        )))),
+        Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
+            data: u64::from_ssz_bytes(&decoded_buffer)?,
+        }))),
+        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V1(
+            MetaDataV1::from_ssz_bytes(&decoded_buffer)?,
+        )))),
+    }
+}
+
+/// Decodes a `Version::V2` `RPCResponse` from the byte stream.
+/// `decoded_buffer` should be an ssz-encoded bytestream with
+// length = length-prefix received in the beginning of the stream.
+///
+/// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
+/// according to the received fork_name.
+fn handle_v2_response<T: EthSpec>(
+    protocol: Protocol,
+    decoded_buffer: &[u8],
+    fork_name: &mut Option<ForkName>,
+) -> Result<Option<RPCResponse<T>>, RPCError> {
+    // MetaData does not contain context_bytes
+    if let Protocol::MetaData = protocol {
+        Ok(Some(RPCResponse::MetaData(MetaData::V2(
+            MetaDataV2::from_ssz_bytes(&decoded_buffer)?,
+        ))))
+    } else {
+        let fork_name = fork_name.take().ok_or_else(|| {
+            RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!("No context bytes provided for {} response", protocol),
+            )
+        })?;
+        match protocol {
+            Protocol::BlocksByRange => match fork_name {
+                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
+                        &decoded_buffer,
+                    )?),
+                )))),
+
+                ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                        &decoded_buffer,
+                    )?),
+                )))),
+            },
+            Protocol::BlocksByRoot => match fork_name {
+                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
+                        &decoded_buffer,
+                    )?),
+                )))),
+                ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                        &decoded_buffer,
+                    )?),
+                )))),
+            },
+            _ => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid v2 request".to_string(),
+            )),
+        }
     }
 }
 
