@@ -35,7 +35,7 @@ rather it is the CPU load of processing the blocks themselves. Most of the
 time, the network is idle, waiting for blocks to be processed. Having a very
 large peer count will not speed up sync.
 
-For these reasons, we recommend users do not modify the `--target-peer` count
+For these reasons, we recommend users do not modify the `--target-peers` count
 drastically and use the (recommended) default.
 
 
@@ -74,4 +74,4 @@ on reboot it will re-load the settings it had discovered previously.
 Modifying the ENR settings can degrade the discovery of your node making it
 harder for peers to find you or potentially making it harder for other peers to
 find each other. We recommend not touching these settings unless for a more
-advanced use case. 
+advanced use case.
