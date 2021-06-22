@@ -1075,8 +1075,7 @@ impl BeaconNodeHttpClient {
             .append_pair("slot", &slot.to_string())
             .append_pair("committee_index", &committee_index.to_string());
 
-        let timeout = self.timeouts.attestation;
-        self.get_with_timeout(path, timeout).await
+        self.get_with_timeout(path, self.timeouts.attestation).await
     }
 
     /// `GET validator/aggregate_attestation?slot,attestation_data_root`
@@ -1099,8 +1098,7 @@ impl BeaconNodeHttpClient {
                 &format!("{:?}", attestation_data_root),
             );
 
-        let timeout = self.timeouts.attestation;
-        self.get_opt_with_timeout(path, timeout).await
+        self.get_opt_with_timeout(path, self.timeouts.attestation).await
     }
 
     /// `POST validator/duties/attester/{epoch}`
