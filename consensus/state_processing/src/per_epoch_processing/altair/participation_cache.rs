@@ -1,10 +1,14 @@
 use safe_arith::ArithError;
-use std::collections::HashMap;
+use std::collections::{hash_map::Iter as HashMapIter, HashMap};
 use types::{
-    consts::altair::NUM_FLAG_INDICES, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    ParticipationFlags,
+    consts::altair::{
+        NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+        TIMELY_TARGET_FLAG_INDEX,
+    },
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
 };
 
+#[derive(PartialEq, Debug)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
     current_epoch_map: HashMap<usize, ParticipationFlags>,
@@ -48,6 +52,52 @@ impl ParticipationCache {
 
         Ok(UnslashedParticipatingIndices { map, flag_index })
     }
+
+    pub fn is_active_in_previous_epoch(&self, val_index: usize) -> bool {
+        self.previous_epoch_map.contains_key(&val_index)
+    }
+
+    pub fn is_active_in_current_epoch(&self, val_index: usize) -> bool {
+        self.current_epoch_map.contains_key(&val_index)
+    }
+
+    fn has_previous_epoch_flag(&self, val_index: usize, flag_index: usize) -> bool {
+        self.previous_epoch_map
+            .get(&val_index)
+            .and_then(|participation_flags| participation_flags.has_flag(flag_index).ok())
+            .unwrap_or(false)
+    }
+
+    pub fn is_previous_epoch_timely_source_attester(&self, val_index: usize) -> bool {
+        self.has_previous_epoch_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
+    }
+
+    pub fn is_previous_epoch_timely_target_attester(&self, val_index: usize) -> bool {
+        self.has_previous_epoch_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn is_previous_epoch_timely_head_attester(&self, val_index: usize) -> bool {
+        self.has_previous_epoch_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
+    }
+
+    fn has_current_epoch_flag(&self, val_index: usize, flag_index: usize) -> bool {
+        self.current_epoch_map
+            .get(&val_index)
+            .and_then(|participation_flags| participation_flags.has_flag(flag_index).ok())
+            .unwrap_or(false)
+    }
+
+    pub fn is_current_epoch_timely_source_attester(&self, val_index: usize) -> bool {
+        self.has_current_epoch_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
+    }
+
+    pub fn is_current_epoch_timely_target_attester(&self, val_index: usize) -> bool {
+        self.has_current_epoch_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn is_current_epoch_timely_head_attester(&self, val_index: usize) -> bool {
+        self.has_current_epoch_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
+    }
 }
 
 pub struct UnslashedParticipatingIndices<'a> {
@@ -65,7 +115,7 @@ impl<'a> UnslashedParticipatingIndices<'a> {
 }
 
 pub struct UnslashedParticipatingIndicesIter<'a> {
-    iter: std::collections::hash_map::Iter<'a, usize, ParticipationFlags>,
+    iter: HashMapIter<'a, usize, ParticipationFlags>,
     flag_index: usize,
 }
 

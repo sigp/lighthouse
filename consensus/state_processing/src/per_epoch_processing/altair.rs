@@ -4,7 +4,6 @@ use crate::per_epoch_processing::{
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
     validator_statuses::ValidatorStatuses,
-    ValidatorParticipation,
 };
 pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
@@ -80,8 +79,8 @@ pub fn process_epoch<T: EthSpec>(
     // be accelerated by some similar cache.
     let validator_statuses = ValidatorStatuses::new(state, spec)?;
 
-    Ok(EpochProcessingSummary {
+    Ok(EpochProcessingSummary::Altair {
         total_balances: validator_statuses.total_balances,
-        statuses: ValidatorParticipation::altair(state)?,
+        participation_cache,
     })
 }

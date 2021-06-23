@@ -6,7 +6,6 @@ use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
-    ValidatorParticipation,
 };
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use participation_record_updates::process_participation_record_updates;
@@ -70,8 +69,8 @@ pub fn process_epoch<T: EthSpec>(
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches()?;
 
-    Ok(EpochProcessingSummary {
+    Ok(EpochProcessingSummary::Base {
         total_balances: validator_statuses.total_balances,
-        statuses: ValidatorParticipation::base(&validator_statuses.statuses),
+        statuses: validator_statuses.statuses,
     })
 }

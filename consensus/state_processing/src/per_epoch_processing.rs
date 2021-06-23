@@ -1,15 +1,14 @@
 #![deny(clippy::wildcard_imports)]
 
 // FIXME(altair): refactor to remove phase0/base structs, including `EpochProcessingSummary`
+use altair::ParticipationCache;
 pub use base::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 use errors::EpochProcessingError as Error;
 pub use registry_updates::process_registry_updates;
 use safe_arith::SafeArith;
 pub use slashings::process_slashings;
-use types::{
-    consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
-    BeaconState, BeaconStateError, ChainSpec, EthSpec,
-};
+use types::{BeaconState, ChainSpec, EthSpec};
+use validator_statuses::InclusionInfo;
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
 
 pub mod altair;
@@ -26,91 +25,102 @@ pub mod weigh_justification_and_finalization;
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
-pub struct EpochProcessingSummary {
-    pub total_balances: TotalBalances,
-    pub statuses: Vec<ValidatorParticipation>,
+pub enum EpochProcessingSummary {
+    Base {
+        total_balances: TotalBalances,
+        statuses: Vec<ValidatorStatus>,
+    },
+    Altair {
+        total_balances: TotalBalances,
+        participation_cache: ParticipationCache,
+    },
 }
 
-#[derive(PartialEq, Debug)]
-pub struct ValidatorParticipation {
-    /*
-     * Current Epoch
-     */
-    pub is_current_epoch_timely_head_attester: bool,
-    pub is_current_epoch_timely_source_attester: bool,
-    pub is_current_epoch_timely_target_attester: bool,
-    /*
-     * Previous Epoch
-     */
-    pub is_previous_epoch_timely_head_attester: bool,
-    pub is_previous_epoch_timely_source_attester: bool,
-    pub is_previous_epoch_timely_target_attester: bool,
-    pub previous_epoch_inclusion_delay: Option<u64>,
-}
-
-impl ValidatorParticipation {
-    pub fn altair<T: EthSpec>(state: &BeaconState<T>) -> Result<Vec<Self>, BeaconStateError> {
-        let state = state.as_altair()?;
-
-        let mut participations = Vec::with_capacity(state.validators.len());
-        for i in 0..state.validators.len() {
-            let current = state
-                .current_epoch_participation
-                .get(i)
-                .ok_or(BeaconStateError::UnknownValidator(i))?;
-            let previous = state
-                .previous_epoch_participation
-                .get(i)
-                .ok_or(BeaconStateError::UnknownValidator(i))?;
-
-            participations.push(ValidatorParticipation {
-                /*
-                 * Current Epoch
-                 */
-                is_current_epoch_timely_head_attester: current.has_flag(TIMELY_HEAD_FLAG_INDEX)?,
-                is_current_epoch_timely_source_attester: current
-                    .has_flag(TIMELY_SOURCE_FLAG_INDEX)?,
-                is_current_epoch_timely_target_attester: current
-                    .has_flag(TIMELY_TARGET_FLAG_INDEX)?,
-                /*
-                 * Previous Epoch
-                 */
-                is_previous_epoch_timely_head_attester: previous
-                    .has_flag(TIMELY_HEAD_FLAG_INDEX)?,
-                is_previous_epoch_timely_source_attester: previous
-                    .has_flag(TIMELY_SOURCE_FLAG_INDEX)?,
-                is_previous_epoch_timely_target_attester: previous
-                    .has_flag(TIMELY_TARGET_FLAG_INDEX)?,
-                // Field is not relevant for Altair states.
-                previous_epoch_inclusion_delay: None,
-            })
+impl EpochProcessingSummary {
+    fn total_balances(&self) -> &TotalBalances {
+        match self {
+            EpochProcessingSummary::Base { total_balances, .. } => &total_balances,
+            EpochProcessingSummary::Altair { total_balances, .. } => &total_balances,
         }
-
-        Ok(participations)
     }
 
-    pub fn base(validator_statuses: &[ValidatorStatus]) -> Vec<Self> {
-        validator_statuses
-            .iter()
-            .map(|v| {
-                Self {
-                    /*
-                     * Current Epoch
-                     */
-                    // FIXME(paul): avoid making this always `false`.
-                    is_current_epoch_timely_head_attester: false,
-                    is_current_epoch_timely_source_attester: v.is_current_epoch_attester,
-                    is_current_epoch_timely_target_attester: v.is_current_epoch_target_attester,
-                    /*
-                     * Previous Epoch
-                     */
-                    is_previous_epoch_timely_head_attester: v.is_previous_epoch_head_attester,
-                    is_previous_epoch_timely_source_attester: v.is_previous_epoch_attester,
-                    is_previous_epoch_timely_target_attester: v.is_previous_epoch_target_attester,
-                    previous_epoch_inclusion_delay: v.inclusion_info.map(|i| i.delay),
-                }
-            })
-            .collect()
+    pub fn previous_epoch_total_balance(&self) -> u64 {
+        self.total_balances().previous_epoch()
+    }
+
+    pub fn previous_epoch_attesting_balance(&self) -> u64 {
+        self.total_balances().previous_epoch_attesters()
+    }
+
+    pub fn previous_epoch_target_attesting_balance(&self) -> u64 {
+        self.total_balances().previous_epoch_target_attesters()
+    }
+
+    pub fn previous_epoch_head_attesting_balance(&self) -> u64 {
+        self.total_balances().previous_epoch_head_attesters()
+    }
+
+    /// Always returns `false` for an unknown `val_index`.
+    pub fn is_previous_epoch_attester(&self, val_index: usize) -> bool {
+        match self {
+            EpochProcessingSummary::Base { statuses, .. } => statuses
+                .get(val_index)
+                .map_or(false, |s| s.is_previous_epoch_attester),
+            EpochProcessingSummary::Altair {
+                participation_cache,
+                ..
+                    // Note about this being loose.
+            } => participation_cache.is_previous_epoch_timely_source_attester(val_index),
+        }
+    }
+
+    /// Always returns `false` for an unknown `val_index`.
+    pub fn is_active_in_previous_epoch(&self, val_index: usize) -> bool {
+        match self {
+            EpochProcessingSummary::Base { statuses, .. } => statuses
+                .get(val_index)
+                .map_or(false, |s| s.is_previous_epoch_target_attester),
+            EpochProcessingSummary::Altair {
+                participation_cache,
+                ..
+            } => participation_cache.is_active_in_previous_epoch(val_index),
+        }
+    }
+
+    /// Always returns `false` for an unknown `val_index`.
+    pub fn is_previous_epoch_target_attester(&self, val_index: usize) -> bool {
+        match self {
+            EpochProcessingSummary::Base { statuses, .. } => statuses
+                .get(val_index)
+                .map_or(false, |s| s.is_previous_epoch_target_attester),
+            EpochProcessingSummary::Altair {
+                participation_cache,
+                ..
+            } => participation_cache.is_previous_epoch_timely_target_attester(val_index),
+        }
+    }
+
+    /// Always returns `false` for an unknown `val_index`.
+    pub fn is_previous_epoch_head_attester(&self, val_index: usize) -> bool {
+        match self {
+            EpochProcessingSummary::Base { statuses, .. } => statuses
+                .get(val_index)
+                .map_or(false, |s| s.is_previous_epoch_head_attester),
+            EpochProcessingSummary::Altair {
+                participation_cache,
+                ..
+            } => participation_cache.is_previous_epoch_timely_head_attester(val_index),
+        }
+    }
+
+    pub fn inclusion_info(&self, val_index: usize) -> Option<InclusionInfo> {
+        match self {
+            EpochProcessingSummary::Base { statuses, .. } => statuses
+                .get(val_index)
+                .and_then(|s| s.inclusion_info)
+                .clone(),
+            EpochProcessingSummary::Altair { .. } => None,
+        }
     }
 }
 
