@@ -1,5 +1,6 @@
+use super::ParticipationCache;
 use crate::per_epoch_processing::weigh_justification_and_finalization;
-use crate::per_epoch_processing::{altair::ParticipationCache, Error};
+use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
 use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::{BeaconState, ChainSpec, EthSpec};
