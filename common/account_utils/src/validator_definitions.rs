@@ -137,7 +137,11 @@ impl ValidatorDefinitions {
     pub fn create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         Ok(Self {
             definitions: vec![],
-            _lockfile: Lockfile::new(validators_dir.as_ref().to_path_buf().join(LOCK_FILE))?,
+            _lockfile: Lockfile::new({
+                let mut path: PathBuf = validators_dir.as_ref().to_path_buf();
+                path.set_extension(LOCK_FILE);
+                path
+            })?,
         })
     }
 
@@ -165,7 +169,7 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToOpenFile)?;
         let definitions: Vec<ValidatorDefinition> =
             serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)?;
-        let _lockfile: Lockfile = Lockfile::new(config_path.join(LOCK_FILE))?;
+        let _lockfile: Lockfile = Lockfile::new(config_path.with_extension(LOCK_FILE))?;
 
         Ok(Self {
             definitions,
@@ -391,6 +395,30 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    #[test]
+    fn validator_definitions_file_locks() {
+        let validators_dir: PathBuf = ".".into();
+
+        /* create validator definitions file */
+        let blank_validators: ValidatorDefinitions = ValidatorDefinitions::create(&validators_dir)
+            .expect("Failed to create empty validator definitions type");
+        blank_validators
+            .save(&validators_dir)
+            .expect("Failed to save validator definitions file");
+
+        let _some_validators: ValidatorDefinitions = ValidatorDefinitions::open(&validators_dir)
+            .expect("Failed to open validator definitions file");
+
+        let second_open_result: Result<ValidatorDefinitions, Error> =
+            ValidatorDefinitions::open(&validators_dir);
+
+        assert!(second_open_result.is_err());
+        assert!(matches!(
+            second_open_result,
+            Err(Error::UnableToAcquireLock(_))
+        ));
+    }
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
