@@ -219,7 +219,7 @@ impl ChainSpec {
     pub fn fork_epoch(&self, fork_name: ForkName) -> Option<Epoch> {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
-            ForkName::Altair => self.altair_fork_epoch.clone(),
+            ForkName::Altair => self.altair_fork_epoch,
         }
     }
 
@@ -227,7 +227,9 @@ impl ChainSpec {
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
         let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
-        let epoch = self.fork_epoch(current_fork_name).unwrap_or(Epoch::new(0));
+        let epoch = self
+            .fork_epoch(current_fork_name)
+            .unwrap_or_else(|| Epoch::new(0));
 
         Fork {
             previous_version: self.fork_version_for_name(previous_fork_name),
@@ -756,7 +758,7 @@ mod tests {
 
         let mut last_fork_slot = Slot::new(0);
 
-        for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
+        for (_, fork) in ForkName::list_all().into_iter().tuple_windows() {
             if let Some(fork_epoch) = spec.fork_epoch(fork) {
                 last_fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
 
