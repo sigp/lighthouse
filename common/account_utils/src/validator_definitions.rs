@@ -22,7 +22,7 @@ pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
 
 /// The file extension for the lockfile associated with the YAML configuration
 /// file (see `CONFIG_FILENAME`).
-pub const LOCK_FILE: &str = ".lock";
+pub const LOCK_FILE: &str = ".validator_definitions.yml.tmp";
 
 /// The temporary file name for the serialized `ValidatorDefinitions` struct.
 ///
@@ -169,7 +169,7 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToOpenFile)?;
         let definitions: Vec<ValidatorDefinition> =
             serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)?;
-        let _lockfile: Lockfile = Lockfile::new(config_path.with_extension(LOCK_FILE))?;
+        let _lockfile: Lockfile = Lockfile::new(validators_dir.as_ref().join(LOCK_FILE))?;
 
         Ok(Self {
             definitions,
