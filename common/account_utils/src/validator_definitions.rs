@@ -137,11 +137,7 @@ impl ValidatorDefinitions {
     pub fn create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         Ok(Self {
             definitions: vec![],
-            _lockfile: Lockfile::new({
-                let mut path: PathBuf = validators_dir.as_ref().to_path_buf();
-                path.set_extension(LOCK_FILE);
-                path
-            })?,
+            _lockfile: Lockfile::new(validators_dir.as_ref().join(LOCK_FILE))?,
         })
     }
 
