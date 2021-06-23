@@ -129,13 +129,13 @@ mod tests {
             .write_all(format!("default: {}\n", DEFAULT_GRAFFITI).as_bytes())
             .unwrap();
         graffiti_file
-            .write_all(format!("{}: {}\n", pk1.to_hex_string(), CUSTOM_GRAFFITI1).as_bytes())
+            .write_all(format!("{}: {}\n", pk1.as_hex_string(), CUSTOM_GRAFFITI1).as_bytes())
             .unwrap();
         graffiti_file
-            .write_all(format!("{}: {}\n", pk2.to_hex_string(), CUSTOM_GRAFFITI2).as_bytes())
+            .write_all(format!("{}: {}\n", pk2.as_hex_string(), CUSTOM_GRAFFITI2).as_bytes())
             .unwrap();
         graffiti_file
-            .write_all(format!("{}:{}\n", pk3.to_hex_string(), EMPTY_GRAFFITI).as_bytes())
+            .write_all(format!("{}:{}\n", pk3.as_hex_string(), EMPTY_GRAFFITI).as_bytes())
             .unwrap();
         graffiti_file.flush().unwrap();
         file_name
