@@ -59,6 +59,7 @@ impl ParticipationCache {
             .total_flag_balances
             .get(flag_index)
             .copied()
+            // FIXME(paul): inconsistent use of ParticipationOutOfBounds?
             .ok_or(BeaconStateError::ParticipationOutOfBounds(flag_index))
     }
 
@@ -86,11 +87,6 @@ impl ParticipationCache {
         } else {
             return Err(BeaconStateError::EpochOutOfBounds);
         };
-
-        // Note: protects the iterator.
-        if flag_index >= NUM_FLAG_INDICES {
-            return Err(ArithError::Overflow.into());
-        }
 
         Ok(UnslashedParticipatingIndices {
             participation,
@@ -180,26 +176,23 @@ fn get_epoch_participation<T: EthSpec>(
     epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<EpochParticipation, BeaconStateError> {
-    let compute_eligible_indices;
-
     let epoch_participation = if epoch == state.current_epoch() {
-        compute_eligible_indices = true;
         state.current_epoch_participation()?
     } else if epoch == state.previous_epoch() {
-        compute_eligible_indices = false;
         state.previous_epoch_participation()?
     } else {
         return Err(BeaconStateError::EpochOutOfBounds);
     };
 
-    // Might be too large due to slashed boiz.
+    // It's possible this Vec is larger than necessary due to slashed validators.
     let active_validator_indices = state.get_active_validator_indices(epoch, spec)?;
     let mut unslashed_participating_indices =
         HashMap::with_capacity(active_validator_indices.len());
     let mut total_flag_balances = [0; NUM_FLAG_INDICES];
     let mut total_active_balance = 0;
-    let mut eligible_indices_opt = if compute_eligible_indices {
-        // This Vec be wrong size since it'll actually be filled with the *previous* epoch values.
+    let mut eligible_indices_opt = if epoch == state.current_epoch() {
+        // This Vec might be the wrong size since it'll be filled with the *previous* epoch values,
+        // no current epoch values.
         //
         // The difference should be fairly small and there's little impact otherwise.
         Some(Vec::with_capacity(active_validator_indices.len()))
@@ -208,7 +201,6 @@ fn get_epoch_participation<T: EthSpec>(
     };
 
     for val_index in active_validator_indices {
-        // FIXME(paul): double check that total active balance is always unslashed.
         let val_balance = state.get_effective_balance(val_index)?;
         total_active_balance.safe_add_assign(val_balance)?;
 
@@ -219,6 +211,7 @@ fn get_epoch_participation<T: EthSpec>(
         }
 
         if !state.get_validator(val_index)?.slashed {
+            // Iterate through all the flags and increment total balances.
             total_flag_balances
                 .iter_mut()
                 .enumerate()
@@ -234,6 +227,7 @@ fn get_epoch_participation<T: EthSpec>(
                     Ok::<_, BeaconStateError>(())
                 })?;
 
+            // The validator is active an unslashed, add their `ParticipationFlags` to the map.
             unslashed_participating_indices.insert(
                 val_index,
                 *epoch_participation
@@ -241,6 +235,11 @@ fn get_epoch_participation<T: EthSpec>(
                     .ok_or(BeaconStateError::ParticipationOutOfBounds(val_index))?,
             );
         }
+    }
+
+    total_active_balance = std::cmp::max(total_active_balance, spec.effective_balance_increment);
+    for balance in &mut total_flag_balances {
+        *balance = std::cmp::max(*balance, spec.effective_balance_increment)
     }
 
     Ok(EpochParticipation {
