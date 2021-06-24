@@ -241,7 +241,7 @@ fn advance_head<T: BeaconChainTypes>(
             beacon_chain
                 .validator_monitor
                 .read()
-                .process_validator_statuses(state.current_epoch(), &summary);
+                .process_validator_statuses(state.current_epoch(), &summary, &beacon_chain.spec);
         }
     }
 

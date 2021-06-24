@@ -990,7 +990,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // performing `per_slot_processing`.
                 for (i, summary) in summaries.iter().enumerate() {
                     let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
-                    validator_monitor.process_validator_statuses(epoch, &summary);
+                    validator_monitor.process_validator_statuses(epoch, &summary, &chain.spec);
                 }
             }
         }
@@ -1439,18 +1439,10 @@ fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
 
     for summary in summaries {
         metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_ATTESTER,
-            participation_ratio(
-                summary.previous_epoch_attesting_balance(),
-                summary.previous_epoch_total_balance(),
-            ),
-        );
-
-        metrics::maybe_set_float_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
             participation_ratio(
                 summary.previous_epoch_target_attesting_balance(),
-                summary.previous_epoch_total_balance(),
+                summary.previous_epoch_total_active_balance(),
             ),
         );
 
@@ -1458,7 +1450,7 @@ fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
             &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
             participation_ratio(
                 summary.previous_epoch_head_attesting_balance(),
-                summary.previous_epoch_total_balance(),
+                summary.previous_epoch_total_active_balance(),
             ),
         );
     }

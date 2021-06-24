@@ -326,7 +326,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    pub fn process_validator_statuses(&self, epoch: Epoch, summary: &EpochProcessingSummary) {
+    pub fn process_validator_statuses(
+        &self,
+        epoch: Epoch,
+        summary: &EpochProcessingSummary,
+        spec: &ChainSpec,
+    ) {
         for monitored_validator in self.validators.values() {
             // We subtract two from the state of the epoch that generated these summaries.
             //
@@ -338,25 +343,34 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
-                if summary.is_previous_epoch_attester(i) {
-                    let lag = summary
-                        .inclusion_info(i)
-                        .map(|i| format!("{} slot(s)", i.delay.saturating_sub(1).to_string()))
-                        .unwrap_or_else(|| "??".to_string());
+                /*
+                 * These metrics are reflected differently between Base and Altair.
+                 *
+                 * For Base, any attestation that is included on-chain will match the source.
+                 *
+                 * However, in Altair, only attestations that are "timely" are registered as
+                 * matching the source.
+                 */
 
+                let previous_epoch_active = summary.is_active_in_previous_epoch(i);
+                let previous_epoch_matched_source = summary.is_previous_epoch_source_attester(i);
+                let previous_epoch_matched_target = summary.is_previous_epoch_target_attester(i);
+                let previous_epoch_matched_head = summary.is_previous_epoch_head_attester(i);
+                let previous_epoch_matched_any = previous_epoch_matched_source
+                    || previous_epoch_matched_target
+                    || previous_epoch_matched_head;
+
+                if previous_epoch_matched_any {
                     info!(
                         self.log,
                         "Previous epoch attestation success";
-                        "inclusion_lag" => lag,
-                        "matched_target" => summary.is_previous_epoch_target_attester(i),
-                        "matched_head" => summary.is_previous_epoch_head_attester(i),
+                        "matched_target" => previous_epoch_matched_target,
+                        "matched_head" => previous_epoch_matched_head,
                         "epoch" => prev_epoch,
                         "validator" => id,
 
                     )
-                } else if summary.is_active_in_previous_epoch(i)
-                    && !summary.is_previous_epoch_attester(i)
-                {
+                } else if previous_epoch_active && !previous_epoch_matched_any {
                     error!(
                         self.log,
                         "Previous epoch attestation missing";
@@ -365,7 +379,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     )
                 }
 
-                if summary.is_previous_epoch_attester(i) {
+                // Indicates if anyattestation made it on-chain.
+                //
+                // For Base states, this will be *any* attestation whatsoever. For Altair states,
+                // this will be any attestation that matched a "timely" flag.
+                if previous_epoch_matched_any {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
                         &[id],
@@ -376,7 +394,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &[id],
                     );
                 }
-                if summary.is_previous_epoch_head_attester(i) {
+
+                // Indicates if any on-chain attestation hit the head.
+                if previous_epoch_matched_head {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT,
                         &[id],
@@ -393,7 +413,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         "validator" => id,
                     );
                 }
-                if summary.is_previous_epoch_target_attester(i) {
+
+                // Indicates if any on-chain attestation hit the target.
+                if previous_epoch_matched_target {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT,
                         &[id],
@@ -410,7 +432,21 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         "validator" => id,
                     );
                 }
-                if let Some(inclusion_info) = summary.inclusion_info(i) {
+
+                // For pre-Altair, state the inclusion distance. This information is not retained in
+                // the Altair state.
+                if let Some(inclusion_info) = summary.previous_epoch_inclusion_info(i) {
+                    if inclusion_info.delay > spec.min_attestation_inclusion_delay {
+                        warn!(
+                            self.log,
+                            "Sub-optimal inclusion delay";
+                            "optimal" => spec.min_attestation_inclusion_delay,
+                            "delay" => inclusion_info.delay,
+                            "epoch" => prev_epoch,
+                            "validator" => id,
+                        );
+                    }
+
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
                         &[id],
