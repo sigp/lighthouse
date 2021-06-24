@@ -1,4 +1,4 @@
-use super::ParticipationCache;
+use super::EpochCache;
 use safe_arith::SafeArith;
 use types::consts::altair::{
     PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
@@ -14,7 +14,7 @@ use crate::per_epoch_processing::{Delta, Error};
 /// Spec v1.1.0
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
-    participation_cache: &ParticipationCache,
+    cache: &EpochCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if state.current_epoch() == T::genesis_epoch() {
@@ -31,12 +31,12 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
             state,
             flag_index,
             total_active_balance,
-            participation_cache,
+            cache,
             spec,
         )?;
     }
 
-    get_inactivity_penalty_deltas(&mut deltas, state, participation_cache, spec)?;
+    get_inactivity_penalty_deltas(&mut deltas, state, cache, spec)?;
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
@@ -56,12 +56,13 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     state: &BeaconState<T>,
     flag_index: usize,
     total_active_balance: u64,
-    participation_cache: &ParticipationCache,
+    cache: &EpochCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let previous_epoch = state.previous_epoch();
-    let unslashed_participating_indices =
-        participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch)?;
+    let unslashed_participating_indices = cache
+        .participation
+        .get_unslashed_participating_indices(flag_index, previous_epoch)?;
     let weight = get_flag_weight(flag_index)?;
     let unslashed_participating_balance =
         state.get_total_balance(&unslashed_participating_indices, spec)?;
@@ -104,11 +105,12 @@ pub fn get_flag_weight(flag_index: usize) -> Result<u64, Error> {
 pub fn get_inactivity_penalty_deltas<T: EthSpec>(
     deltas: &mut Vec<Delta>,
     state: &BeaconState<T>,
-    participation_cache: &ParticipationCache,
+    cache: &EpochCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let previous_epoch = state.previous_epoch();
-    let matching_target_indices = participation_cache
+    let matching_target_indices = cache
+        .participation
         .get_unslashed_participating_indices(TIMELY_TARGET_FLAG_INDEX, previous_epoch)?;
     for index in state.get_eligible_validator_indices()? {
         let mut delta = Delta::default();

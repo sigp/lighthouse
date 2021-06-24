@@ -5,17 +5,17 @@ use crate::per_epoch_processing::{
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
     validator_statuses::ValidatorStatuses,
 };
+pub use epoch_cache::EpochCache;
 pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
-pub use participation_cache::ParticipationCache;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 pub use sync_committee_updates::process_sync_committee_updates;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
+pub mod epoch_cache;
 pub mod inactivity_updates;
 pub mod justification_and_finalization;
-pub mod participation_cache;
 pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
 pub mod sync_committee_updates;
@@ -29,15 +29,15 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-    let participation_cache = ParticipationCache::altair(state, spec)?;
+    let cache = EpochCache::new(state, spec)?;
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &participation_cache, spec)?;
+    process_justification_and_finalization(state, &cache, spec)?;
 
-    process_inactivity_updates(state, &participation_cache, spec)?;
+    process_inactivity_updates(state, &cache, spec)?;
 
     // Rewards and Penalties.
-    process_rewards_and_penalties(state, &participation_cache, spec)?;
+    process_rewards_and_penalties(state, &cache, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
@@ -81,6 +81,6 @@ pub fn process_epoch<T: EthSpec>(
 
     Ok(EpochProcessingSummary::Altair {
         total_balances: validator_statuses.total_balances,
-        participation_cache,
+        participation_cache: cache.participation,
     })
 }

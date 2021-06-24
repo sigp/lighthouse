@@ -1,5 +1,5 @@
 use super::{
-    altair::ParticipationCache,
+    altair::epoch_cache::ParticipationCache,
     base::{TotalBalances, ValidatorStatus},
     validator_statuses::InclusionInfo,
 };

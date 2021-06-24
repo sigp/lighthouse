@@ -17,7 +17,7 @@ pub struct ParticipationCache {
 }
 
 impl ParticipationCache {
-    pub fn altair<T: EthSpec>(
+    pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
