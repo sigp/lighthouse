@@ -13,6 +13,7 @@ use eth2_libp2p::PubsubMessage;
 use network::NetworkMessage;
 use slog::{error, warn, Logger};
 use slot_clock::SlotClock;
+use std::cmp::max;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
@@ -29,6 +30,13 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<SyncDuties, warp::reject::Rejection> {
+    let altair_fork_epoch = if let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch {
+        altair_fork_epoch
+    } else {
+        // Empty response for networks with Altair disabled.
+        return Ok(convert_to_response(vec![]));
+    };
+
     // Try using the head's sync committees to satisfy the request. This should be sufficient for
     // the vast majority of requests. Rather than checking if we think the request will succeed in a
     // way prone to data races, we attempt the request immediately and check the error code.
@@ -36,12 +44,22 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
         Ok(duties) => return Ok(convert_to_response(duties)),
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
-        })) => (),
+        }))
+        | Err(BeaconChainError::SyncDutiesError(BeaconStateError::IncorrectStateVariant)) => (),
         Err(e) => return Err(warp_utils::reject::beacon_chain_error(e)),
     }
 
-    let duties = duties_from_state_load(request_epoch, request_indices, chain)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+    let duties = duties_from_state_load(request_epoch, request_indices, altair_fork_epoch, chain)
+        .map_err(|e| match e {
+        BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
+            current_epoch,
+            ..
+        }) => warp_utils::reject::custom_bad_request(format!(
+            "invalid epoch: {}, current epoch: {}",
+            request_epoch, current_epoch
+        )),
+        e => warp_utils::reject::beacon_chain_error(e),
+    })?;
     Ok(convert_to_response(duties))
 }
 
@@ -49,6 +67,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
 fn duties_from_state_load<T: BeaconChainTypes>(
     request_epoch: Epoch,
     request_indices: &[u64],
+    altair_fork_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<Vec<Option<SyncDuty>>, BeaconChainError> {
     // Determine what the current epoch would be if we fast-forward our system clock by
@@ -68,14 +87,19 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let max_sync_committee_period = tolerant_current_epoch.sync_committee_period(&chain.spec)? + 1;
     let sync_committee_period = request_epoch.sync_committee_period(&chain.spec)?;
 
-    if sync_committee_period <= max_sync_committee_period {
+    if tolerant_current_epoch < altair_fork_epoch {
+        // Empty response if the epoch is pre-Altair.
+        Ok(vec![])
+    } else if sync_committee_period <= max_sync_committee_period {
         // Load the state at the start of the *previous* sync committee period.
         // This is sufficient for historical duties, and efficient in the case where the head
         // is lagging the current epoch and we need duties for the next period (because we only
         // have to transition the head to start of the current period).
-        let load_slot = Epoch::new(
-            sync_committee_period.saturating_sub(1)
-                * chain.spec.epochs_per_sync_committee_period.as_u64(),
+        //
+        // We also need to ensure that the load slot is after the Altair fork.
+        let load_slot = max(
+            chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
+            altair_fork_epoch,
         )
         .start_slot(T::EthSpec::slots_per_epoch());
 

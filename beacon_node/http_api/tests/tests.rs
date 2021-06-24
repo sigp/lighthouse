@@ -1,6 +1,4 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
-#![recursion_limit = "256"]
-
+use crate::common::{create_api_server, ApiServer};
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -73,9 +71,13 @@ struct ApiTester {
 
 impl ApiTester {
     pub fn new() -> Self {
-        let mut harness = BeaconChainHarness::new(
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = E::default_spec();
+        spec.shard_committee_period = 2;
+
+        let harness = BeaconChainHarness::new(
             MainnetEthSpec,
-            None,
+            Some(spec),
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 
@@ -133,13 +135,7 @@ impl ApiTester {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
 
-        // Changing this *after* the chain has been initialized is a bit cheeky, but it shouldn't
-        // cause issue.
-        //
-        // This allows for testing voluntary exits without building out a massive chain.
-        harness.chain.spec.shard_committee_period = 2;
-
-        let chain = Arc::new(harness.chain);
+        let chain = harness.chain.clone();
 
         assert_eq!(
             chain.head_info().unwrap().finalized_checkpoint.epoch,
@@ -156,56 +152,18 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
-
         let log = null_logger().unwrap();
 
-        // Default metadata
-        let meta_data = MetaData::V2(MetaDataV2 {
-            seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
-        });
-        let enr_key = CombinedKey::generate_secp256k1();
-        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-        let enr_clone = enr.clone();
-        let network_globals = NetworkGlobals::new(enr, TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+        let ApiServer {
+            server,
+            listening_socket,
+            shutdown_tx,
+            network_rx,
+            local_enr,
+            external_peer_id,
+        } = create_api_server(chain.clone(), log);
 
-        let peer_id = PeerId::random();
-        network_globals.peers.write().connect_ingoing(
-            &peer_id,
-            EXTERNAL_ADDR.parse().unwrap(),
-            None,
-        );
-
-        *network_globals.sync_state.write() = SyncState::Synced;
-
-        let eth1_service =
-            eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
-
-        let context = Arc::new(Context {
-            config: Config {
-                enabled: true,
-                listen_addr: Ipv4Addr::new(127, 0, 0, 1),
-                listen_port: 0,
-                allow_origin: None,
-                serve_legacy_spec: true,
-            },
-            chain: Some(chain.clone()),
-            network_tx: Some(network_tx),
-            network_globals: Some(Arc::new(network_globals)),
-            eth1_service: Some(eth1_service),
-            log,
-        });
-        let ctx = context.clone();
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server_shutdown = async {
-            // It's not really interesting why this triggered, just that it happened.
-            let _ = shutdown_rx.await;
-        };
-        let (listening_socket, server) = http_api::serve(ctx, server_shutdown).unwrap();
-
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -228,8 +186,8 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_keypairs: harness.validator_keypairs,
             network_rx,
-            local_enr: enr_clone,
-            external_peer_id: peer_id,
+            local_enr,
+            external_peer_id,
         }
     }
 
@@ -269,58 +227,20 @@ impl ApiTester {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
 
-        let chain = Arc::new(harness.chain);
-
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let chain = harness.chain.clone();
 
         let log = null_logger().unwrap();
 
-        // Default metadata
-        let meta_data = MetaData::V2(MetaDataV2 {
-            seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
-        });
-        let enr_key = CombinedKey::generate_secp256k1();
-        let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-        let enr_clone = enr.clone();
-        let network_globals = NetworkGlobals::new(enr, TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+        let ApiServer {
+            server,
+            listening_socket,
+            shutdown_tx,
+            network_rx,
+            local_enr,
+            external_peer_id,
+        } = create_api_server(chain.clone(), log);
 
-        let peer_id = PeerId::random();
-        network_globals.peers.write().connect_ingoing(
-            &peer_id,
-            EXTERNAL_ADDR.parse().unwrap(),
-            None,
-        );
-
-        *network_globals.sync_state.write() = SyncState::Synced;
-
-        let eth1_service =
-            eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
-
-        let context = Arc::new(Context {
-            config: Config {
-                enabled: true,
-                listen_addr: Ipv4Addr::new(127, 0, 0, 1),
-                listen_port: 0,
-                allow_origin: None,
-                serve_legacy_spec: true,
-            },
-            chain: Some(chain.clone()),
-            network_tx: Some(network_tx),
-            network_globals: Some(Arc::new(network_globals)),
-            eth1_service: Some(eth1_service),
-            log,
-        });
-        let ctx = context.clone();
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server_shutdown = async {
-            // It's not really interesting why this triggered, just that it happened.
-            let _ = shutdown_rx.await;
-        };
-        let (listening_socket, server) = http_api::serve(ctx, server_shutdown).unwrap();
-
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -343,8 +263,8 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_keypairs: harness.validator_keypairs,
             network_rx,
-            local_enr: enr_clone,
-            external_peer_id: peer_id,
+            local_enr,
+            external_peer_id,
         }
     }
 
