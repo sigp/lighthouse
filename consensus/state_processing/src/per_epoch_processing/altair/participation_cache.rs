@@ -10,10 +10,10 @@ use types::{
 
 #[derive(PartialEq, Debug)]
 struct EpochParticipation {
-    eligible_indices: Vec<usize>,
     unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
     total_flag_balances: [u64; NUM_FLAG_INDICES],
     total_active_balance: u64,
+    eligible_indices_opt: Option<Vec<usize>>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -38,6 +38,13 @@ impl ParticipationCache {
             previous_epoch,
             previous_epoch_participation: get_epoch_participation(state, previous_epoch, spec)?,
         })
+    }
+
+    pub fn eligible_validator_indices(&self) -> Result<&[usize], BeaconStateError> {
+        self.current_epoch_participation
+            .eligible_indices_opt
+            .as_deref()
+            .ok_or(BeaconStateError::EpochOutOfBounds)
     }
 
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
@@ -173,9 +180,13 @@ fn get_epoch_participation<T: EthSpec>(
     epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<EpochParticipation, BeaconStateError> {
+    let compute_eligible_indices;
+
     let epoch_participation = if epoch == state.current_epoch() {
+        compute_eligible_indices = true;
         state.current_epoch_participation()?
     } else if epoch == state.previous_epoch() {
+        compute_eligible_indices = false;
         state.previous_epoch_participation()?
     } else {
         return Err(BeaconStateError::EpochOutOfBounds);
@@ -187,11 +198,25 @@ fn get_epoch_participation<T: EthSpec>(
         HashMap::with_capacity(active_validator_indices.len());
     let mut total_flag_balances = [0; NUM_FLAG_INDICES];
     let mut total_active_balance = 0;
+    let mut eligible_indices_opt = if compute_eligible_indices {
+        // This Vec be wrong size since it'll actually be filled with the *previous* epoch values.
+        //
+        // The difference should be fairly small and there's little impact otherwise.
+        Some(Vec::with_capacity(active_validator_indices.len()))
+    } else {
+        None
+    };
 
     for val_index in active_validator_indices {
         // FIXME(paul): double check that total active balance is always unslashed.
         let val_balance = state.get_effective_balance(val_index)?;
         total_active_balance.safe_add_assign(val_balance)?;
+
+        if let Some(eligible_indices) = &mut eligible_indices_opt {
+            if state.is_eligible_validator(val_index)? {
+                eligible_indices.push(val_index)
+            }
+        }
 
         if !state.get_validator(val_index)?.slashed {
             total_flag_balances
@@ -222,5 +247,6 @@ fn get_epoch_participation<T: EthSpec>(
         unslashed_participating_indices,
         total_flag_balances,
         total_active_balance,
+        eligible_indices_opt,
     })
 }
