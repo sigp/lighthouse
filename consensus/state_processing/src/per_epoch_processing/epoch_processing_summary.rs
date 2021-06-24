@@ -1,8 +1,9 @@
 use super::{
-    altair::epoch_cache::ParticipationCache,
+    altair::ParticipationCache,
     base::{TotalBalances, ValidatorStatus},
     validator_statuses::InclusionInfo,
 };
+use types::BeaconStateError;
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
@@ -12,28 +13,32 @@ pub enum EpochProcessingSummary {
         statuses: Vec<ValidatorStatus>,
     },
     Altair {
-        total_balances: TotalBalances,
         participation_cache: ParticipationCache,
     },
 }
 
 impl EpochProcessingSummary {
-    fn total_balances(&self) -> &TotalBalances {
-        match self {
-            EpochProcessingSummary::Base { total_balances, .. } => &total_balances,
-            EpochProcessingSummary::Altair { total_balances, .. } => &total_balances,
-        }
-    }
-
     /// Returns the sum of the effective balance of all validators in the previous epoch.
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
-        self.total_balances().previous_epoch()
+        match self {
+            EpochProcessingSummary::Base { total_balances, .. } => total_balances.previous_epoch(),
+            EpochProcessingSummary::Altair {
+                participation_cache,
+            } => participation_cache.previous_epoch_total_active_balance(),
+        }
     }
 
     /// Returns the sum of the effective balance of all validators in the previous epoch who
     /// included an attestation that matched the target.
-    pub fn previous_epoch_target_attesting_balance(&self) -> u64 {
-        self.total_balances().previous_epoch_target_attesters()
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        match self {
+            EpochProcessingSummary::Base { total_balances, .. } => {
+                Ok(total_balances.previous_epoch_target_attesters())
+            }
+            EpochProcessingSummary::Altair {
+                participation_cache,
+            } => participation_cache.previous_epoch_target_attesting_balance(),
+        }
     }
 
     /// Returns the sum of the effective balance of all validators in the previous epoch who
@@ -43,8 +48,15 @@ impl EpochProcessingSummary {
     ///
     /// - Base: any attestation can match the head.
     /// - Altair: only "timely" attestations can match the head.
-    pub fn previous_epoch_head_attesting_balance(&self) -> u64 {
-        self.total_balances().previous_epoch_head_attesters()
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        match self {
+            EpochProcessingSummary::Base { total_balances, .. } => {
+                Ok(total_balances.previous_epoch_head_attesters())
+            }
+            EpochProcessingSummary::Altair {
+                participation_cache,
+            } => participation_cache.previous_epoch_head_attesting_balance(),
+        }
     }
 
     /// Returns `true` if `val_index` was included in the active validator indices in the previous

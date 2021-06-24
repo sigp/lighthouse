@@ -3,19 +3,18 @@ use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
-    validator_statuses::ValidatorStatuses,
 };
-pub use epoch_cache::EpochCache;
 pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
+pub use participation_cache::ParticipationCache;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 pub use sync_committee_updates::process_sync_committee_updates;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
-pub mod epoch_cache;
 pub mod inactivity_updates;
 pub mod justification_and_finalization;
+pub mod participation_cache;
 pub mod participation_flag_updates;
 pub mod rewards_and_penalties;
 pub mod sync_committee_updates;
@@ -29,15 +28,16 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-    let cache = EpochCache::new(state, spec)?;
+    // Pre-compute participating indices and total balances.
+    let participation_cache = ParticipationCache::new(state, spec)?;
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &cache, spec)?;
+    process_justification_and_finalization(state, &participation_cache)?;
 
-    process_inactivity_updates(state, &cache, spec)?;
+    process_inactivity_updates(state, &participation_cache, spec)?;
 
     // Rewards and Penalties.
-    process_rewards_and_penalties(state, &cache, spec)?;
+    process_rewards_and_penalties(state, &participation_cache, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
@@ -45,7 +45,8 @@ pub fn process_epoch<T: EthSpec>(
     // Slashings.
     process_slashings(
         state,
-        cache.total_active_balance,
+        // FIXME(paul): could this be invalidated by rewards/penalties?
+        participation_cache.current_epoch_total_active_balance(),
         spec.proportional_slashing_multiplier_altair,
         spec,
     )?;
@@ -73,14 +74,7 @@ pub fn process_epoch<T: EthSpec>(
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches()?;
 
-    // FIXME(altair): this is an incorrect dummy value, we should think harder
-    // about how we want to unify validator statuses between phase0 & altair.
-    // We should benchmark the new state transition and work out whether Altair could
-    // be accelerated by some similar cache.
-    let validator_statuses = ValidatorStatuses::new(state, spec)?;
-
     Ok(EpochProcessingSummary::Altair {
-        total_balances: validator_statuses.total_balances,
-        participation_cache: cache.participation,
+        participation_cache,
     })
 }

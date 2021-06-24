@@ -1,4 +1,4 @@
-use super::EpochCache;
+use super::ParticipationCache;
 use crate::EpochProcessingError;
 use core::result::Result;
 use core::result::Result::Ok;
@@ -11,7 +11,7 @@ use types::eth_spec::EthSpec;
 
 pub fn process_inactivity_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
-    cache: &EpochCache,
+    participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     // Score updates based on previous epoch participation, skip genesis epoch
@@ -19,8 +19,7 @@ pub fn process_inactivity_updates<T: EthSpec>(
         return Ok(());
     }
 
-    let unslashed_indices = cache
-        .participation
+    let unslashed_indices = participation_cache
         .get_unslashed_participating_indices(TIMELY_TARGET_FLAG_INDEX, state.previous_epoch())?;
 
     for index in state.get_eligible_validator_indices()? {
