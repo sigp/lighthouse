@@ -41,7 +41,7 @@ impl ParticipationCache {
     }
 
     pub fn eligible_validator_indices(&self) -> Result<&[usize], BeaconStateError> {
-        self.current_epoch_participation
+        self.previous_epoch_participation
             .eligible_indices_opt
             .as_deref()
             .ok_or(BeaconStateError::EpochOutOfBounds)
@@ -190,7 +190,7 @@ fn get_epoch_participation<T: EthSpec>(
         HashMap::with_capacity(active_validator_indices.len());
     let mut total_flag_balances = [0; NUM_FLAG_INDICES];
     let mut total_active_balance = 0;
-    let mut eligible_indices_opt = if epoch == state.current_epoch() {
+    let mut eligible_indices_opt = if epoch == state.previous_epoch() {
         // This Vec might be the wrong size since it'll be filled with the *previous* epoch values,
         // no current epoch values.
         //
