@@ -1,5 +1,5 @@
-use safe_arith::ArithError;
-use std::collections::{hash_map::Iter as HashMapIter, HashMap};
+use safe_arith::{ArithError, SafeArith};
+use std::collections::HashMap;
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
@@ -9,11 +9,18 @@ use types::{
 };
 
 #[derive(PartialEq, Debug)]
+struct EpochParticipation {
+    unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
+    total_flag_balances: [u64; NUM_FLAG_INDICES],
+    total_active_balance: u64,
+}
+
+#[derive(PartialEq, Debug)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
-    current_epoch_map: HashMap<usize, ParticipationFlags>,
+    current_epoch_participation: EpochParticipation,
     previous_epoch: Epoch,
-    previous_epoch_map: HashMap<usize, ParticipationFlags>,
+    previous_epoch_participation: EpochParticipation,
 }
 
 impl ParticipationCache {
@@ -26,10 +33,20 @@ impl ParticipationCache {
 
         Ok(Self {
             current_epoch,
-            current_epoch_map: get_epoch_participation(state, current_epoch, spec)?,
+            current_epoch_participation: get_epoch_participation(state, current_epoch, spec)?,
             previous_epoch,
-            previous_epoch_map: get_epoch_participation(state, previous_epoch, spec)?,
+            previous_epoch_participation: get_epoch_participation(state, previous_epoch, spec)?,
         })
+    }
+
+    pub fn total_active_balance(&self, epoch: Epoch) -> Result<u64, BeaconStateError> {
+        if epoch == self.current_epoch {
+            Ok(self.current_epoch_participation.total_active_balance)
+        } else if epoch == self.previous_epoch {
+            Ok(self.previous_epoch_participation.total_active_balance)
+        } else {
+            Err(BeaconStateError::EpochOutOfBounds)
+        }
     }
 
     pub fn get_unslashed_participating_indices(
@@ -37,10 +54,10 @@ impl ParticipationCache {
         flag_index: usize,
         epoch: Epoch,
     ) -> Result<UnslashedParticipatingIndices, BeaconStateError> {
-        let map = if epoch == self.current_epoch {
-            &self.current_epoch_map
+        let participation = if epoch == self.current_epoch {
+            &self.current_epoch_participation
         } else if epoch == self.previous_epoch {
-            &self.previous_epoch_map
+            &self.previous_epoch_participation
         } else {
             return Err(BeaconStateError::EpochOutOfBounds);
         };
@@ -50,19 +67,27 @@ impl ParticipationCache {
             return Err(ArithError::Overflow.into());
         }
 
-        Ok(UnslashedParticipatingIndices { map, flag_index })
+        Ok(UnslashedParticipatingIndices {
+            participation,
+            flag_index,
+        })
     }
 
     pub fn is_active_in_previous_epoch(&self, val_index: usize) -> bool {
-        self.previous_epoch_map.contains_key(&val_index)
+        self.previous_epoch_participation
+            .unslashed_participating_indices
+            .contains_key(&val_index)
     }
 
     pub fn is_active_in_current_epoch(&self, val_index: usize) -> bool {
-        self.current_epoch_map.contains_key(&val_index)
+        self.current_epoch_participation
+            .unslashed_participating_indices
+            .contains_key(&val_index)
     }
 
     fn has_previous_epoch_flag(&self, val_index: usize, flag_index: usize) -> bool {
-        self.previous_epoch_map
+        self.previous_epoch_participation
+            .unslashed_participating_indices
             .get(&val_index)
             .and_then(|participation_flags| participation_flags.has_flag(flag_index).ok())
             .unwrap_or(false)
@@ -81,7 +106,8 @@ impl ParticipationCache {
     }
 
     fn has_current_epoch_flag(&self, val_index: usize, flag_index: usize) -> bool {
-        self.current_epoch_map
+        self.current_epoch_participation
+            .unslashed_participating_indices
             .get(&val_index)
             .and_then(|participation_flags| participation_flags.has_flag(flag_index).ok())
             .unwrap_or(false)
@@ -101,51 +127,25 @@ impl ParticipationCache {
 }
 
 pub struct UnslashedParticipatingIndices<'a> {
-    map: &'a HashMap<usize, ParticipationFlags>,
+    participation: &'a EpochParticipation,
     flag_index: usize,
 }
 
 impl<'a> UnslashedParticipatingIndices<'a> {
     pub fn contains(&self, val_index: usize) -> Result<bool, ArithError> {
-        self.map
+        self.participation
+            .unslashed_participating_indices
             .get(&val_index)
             .map(|participation_flags| participation_flags.has_flag(self.flag_index))
             .unwrap_or(Ok(false))
     }
-}
 
-pub struct UnslashedParticipatingIndicesIter<'a> {
-    iter: HashMapIter<'a, usize, ParticipationFlags>,
-    flag_index: usize,
-}
-
-impl<'a> Iterator for UnslashedParticipatingIndicesIter<'a> {
-    type Item = &'a usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some((val_index, participation_flags)) = self.iter.next() {
-            if participation_flags
-                .has_flag(self.flag_index)
-                .unwrap_or(false)
-            {
-                return Some(val_index);
-            }
-        }
-
-        None
-    }
-}
-
-impl<'a> IntoIterator for &'a UnslashedParticipatingIndices<'a> {
-    type Item = &'a usize;
-    type IntoIter = UnslashedParticipatingIndicesIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        // todo: check flag is legit.
-        UnslashedParticipatingIndicesIter {
-            iter: self.map.iter(),
-            flag_index: self.flag_index,
-        }
+    pub fn total_balance(&self) -> Result<u64, BeaconStateError> {
+        self.participation
+            .total_flag_balances
+            .get(self.flag_index)
+            .map(|bal| *bal)
+            .ok_or(BeaconStateError::ParticipationOutOfBounds(self.flag_index))
     }
 }
 
@@ -153,7 +153,7 @@ fn get_epoch_participation<T: EthSpec>(
     state: &BeaconState<T>,
     epoch: Epoch,
     spec: &ChainSpec,
-) -> Result<HashMap<usize, ParticipationFlags>, BeaconStateError> {
+) -> Result<EpochParticipation, BeaconStateError> {
     let epoch_participation = if epoch == state.current_epoch() {
         state.current_epoch_participation()?
     } else if epoch == state.previous_epoch() {
@@ -164,11 +164,31 @@ fn get_epoch_participation<T: EthSpec>(
 
     // Might be too large due to slashed boiz.
     let active_validator_indices = state.get_active_validator_indices(epoch, spec)?;
-    let mut map = HashMap::with_capacity(active_validator_indices.len());
+    let mut unslashed_participating_indices =
+        HashMap::with_capacity(active_validator_indices.len());
+    let mut total_flag_balances = [0; NUM_FLAG_INDICES];
+    let mut total_active_balance = 0;
 
     for val_index in active_validator_indices {
         if !state.get_validator(val_index)?.slashed {
-            map.insert(
+            let val_balance = state.get_effective_balance(val_index)?;
+            total_active_balance.safe_add_assign(val_balance)?;
+            total_flag_balances
+                .iter_mut()
+                .enumerate()
+                .try_for_each(|(flag, balance)| {
+                    if epoch_participation
+                        .get(val_index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(val_index))?
+                        .has_flag(flag)?
+                    {
+                        balance.safe_add_assign(val_balance)?;
+                    }
+
+                    Ok::<_, BeaconStateError>(())
+                })?;
+
+            unslashed_participating_indices.insert(
                 val_index,
                 *epoch_participation
                     .get(val_index)
@@ -177,5 +197,9 @@ fn get_epoch_participation<T: EthSpec>(
         }
     }
 
-    Ok(map)
+    Ok(EpochParticipation {
+        unslashed_participating_indices,
+        total_flag_balances,
+        total_active_balance,
+    })
 }

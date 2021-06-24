@@ -64,8 +64,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
         .participation
         .get_unslashed_participating_indices(flag_index, previous_epoch)?;
     let weight = get_flag_weight(flag_index)?;
-    let unslashed_participating_balance =
-        state.get_total_balance(&unslashed_participating_indices, spec)?;
+    let unslashed_participating_balance = unslashed_participating_indices.total_balance()?;
     let unslashed_participating_increments =
         unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
