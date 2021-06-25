@@ -5,7 +5,7 @@ use types::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 
 #[derive(PartialEq, Debug)]
@@ -176,16 +176,22 @@ fn get_epoch_participation<T: EthSpec>(
     epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<EpochParticipation, BeaconStateError> {
-    let epoch_participation = if epoch == state.current_epoch() {
-        state.current_epoch_participation()?
+    let epoch_participation;
+    let active_validator_indices;
+
+    if epoch == state.current_epoch() {
+        active_validator_indices =
+            state.get_cached_active_validator_indices(RelativeEpoch::Current)?;
+        epoch_participation = state.current_epoch_participation()?
     } else if epoch == state.previous_epoch() {
-        state.previous_epoch_participation()?
+        active_validator_indices =
+            state.get_cached_active_validator_indices(RelativeEpoch::Previous)?;
+        epoch_participation = state.previous_epoch_participation()?
     } else {
         return Err(BeaconStateError::EpochOutOfBounds);
     };
 
     // It's possible this Vec is larger than necessary due to slashed validators.
-    let active_validator_indices = state.get_active_validator_indices(epoch, spec)?;
     let mut unslashed_participating_indices =
         HashMap::with_capacity(active_validator_indices.len());
     let mut total_flag_balances = [0; NUM_FLAG_INDICES];
@@ -200,7 +206,7 @@ fn get_epoch_participation<T: EthSpec>(
         None
     };
 
-    for val_index in active_validator_indices {
+    for &val_index in active_validator_indices {
         let val_balance = state.get_effective_balance(val_index)?;
         total_active_balance.safe_add_assign(val_balance)?;
 
