@@ -226,6 +226,22 @@ impl ParticipationCache {
         &self.eligible_indices
     }
 
+    pub fn current_epoch_total_active_balance(&self) -> u64 {
+        self.current_epoch_participation.total_active_balance.get()
+    }
+
+    fn current_epoch_flag_attesting_balance(&self, flag_index: usize) -> Result<u64, ArithError> {
+        self.current_epoch_participation
+            .total_flag_balances
+            .get(flag_index)
+            .map(Balance::get)
+            .ok_or(ArithError::Overflow)
+    }
+
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
+        self.current_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
         self.previous_epoch_participation.total_active_balance.get()
     }
@@ -244,10 +260,6 @@ impl ParticipationCache {
 
     pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ArithError> {
         self.previous_epoch_flag_attesting_balance(TIMELY_HEAD_FLAG_INDEX)
-    }
-
-    pub fn current_epoch_total_active_balance(&self) -> u64 {
-        self.current_epoch_participation.total_active_balance.get()
     }
 
     /// Equivalent to the `get_unslashed_participating_indices` function in the specification.

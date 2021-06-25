@@ -32,13 +32,9 @@ pub struct GlobalValidatorInclusionData {
     pub current_epoch_active_gwei: u64,
     /// The total effective balance of all active validators during the _previous_ epoch.
     pub previous_epoch_active_gwei: u64,
-    /// The total effective balance of all validators who attested during the _current_ epoch.
-    pub current_epoch_attesting_gwei: u64,
     /// The total effective balance of all validators who attested during the _current_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _current_ epoch.
     pub current_epoch_target_attesting_gwei: u64,
-    /// The total effective balance of all validators who attested during the _previous_ epoch.
-    pub previous_epoch_attesting_gwei: u64,
     /// The total effective balance of all validators who attested during the _previous_ epoch and
     /// agreed with the state about the beacon block at the first slot of the _previous_ epoch.
     pub previous_epoch_target_attesting_gwei: u64,
@@ -59,13 +55,9 @@ pub struct ValidatorInclusionData {
     pub is_active_in_previous_epoch: bool,
     /// The validator's effective balance in the _current_ epoch.
     pub current_epoch_effective_balance_gwei: u64,
-    /// True if the validator had an attestation included in the _current_ epoch.
-    pub is_current_epoch_attester: bool,
     /// True if the validator's beacon block root attestation for the first slot of the _current_
     /// epoch matches the block root known to the state.
     pub is_current_epoch_target_attester: bool,
-    /// True if the validator had an attestation included in the _previous_ epoch.
-    pub is_previous_epoch_attester: bool,
     /// True if the validator's beacon block root attestation for the first slot of the _previous_
     /// epoch matches the block root known to the state.
     pub is_previous_epoch_target_attester: bool,
