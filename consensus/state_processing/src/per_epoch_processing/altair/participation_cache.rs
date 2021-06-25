@@ -230,23 +230,19 @@ impl ParticipationCache {
         self.previous_epoch_participation.total_active_balance.get()
     }
 
-    fn previous_epoch_flag_attesting_balance(
-        &self,
-        flag_index: usize,
-    ) -> Result<u64, BeaconStateError> {
+    fn previous_epoch_flag_attesting_balance(&self, flag_index: usize) -> Result<u64, ArithError> {
         self.previous_epoch_participation
             .total_flag_balances
             .get(flag_index)
             .map(Balance::get)
-            // FIXME(paul): inconsistent use of ParticipationOutOfBounds?
-            .ok_or(BeaconStateError::ParticipationOutOfBounds(flag_index))
+            .ok_or(ArithError::Overflow)
     }
 
-    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
         self.previous_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
-    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ArithError> {
         self.previous_epoch_flag_attesting_balance(TIMELY_HEAD_FLAG_INDEX)
     }
 
@@ -354,12 +350,11 @@ impl<'a> UnslashedParticipatingIndices<'a> {
     /// ## Notes
     ///
     /// Respects the `EFFECTIVE_BALANCE_INCREMENT` minimum.
-    pub fn total_balance(&self) -> Result<u64, BeaconStateError> {
+    pub fn total_balance(&self) -> Result<u64, ArithError> {
         self.participation
             .total_flag_balances
             .get(self.flag_index)
             .map(Balance::get)
-            // FIXME(paul): inconsistent use of ParticipationOutOfBounds?
-            .ok_or(BeaconStateError::ParticipationOutOfBounds(self.flag_index))
+            .ok_or(ArithError::Overflow)
     }
 }

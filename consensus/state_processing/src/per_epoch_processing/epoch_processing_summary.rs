@@ -3,7 +3,7 @@ use super::{
     base::{TotalBalances, ValidatorStatus},
     validator_statuses::InclusionInfo,
 };
-use types::BeaconStateError;
+use safe_arith::ArithError;
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
@@ -30,7 +30,7 @@ impl EpochProcessingSummary {
 
     /// Returns the sum of the effective balance of all validators in the previous epoch who
     /// included an attestation that matched the target.
-    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_target_attesters())
@@ -48,7 +48,7 @@ impl EpochProcessingSummary {
     ///
     /// - Base: any attestation can match the head.
     /// - Altair: only "timely" attestations can match the head.
-    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ArithError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_head_attesters())
