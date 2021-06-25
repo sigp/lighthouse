@@ -68,7 +68,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
         unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
 
-    for &index in participation_cache.eligible_validator_indices()? {
+    for &index in participation_cache.eligible_validator_indices() {
         let base_reward = get_base_reward(state, index, total_active_balance, spec)?;
         let mut delta = Delta::default();
 
@@ -109,7 +109,7 @@ pub fn get_inactivity_penalty_deltas<T: EthSpec>(
     let previous_epoch = state.previous_epoch();
     let matching_target_indices = participation_cache
         .get_unslashed_participating_indices(TIMELY_TARGET_FLAG_INDEX, previous_epoch)?;
-    for &index in participation_cache.eligible_validator_indices()? {
+    for &index in participation_cache.eligible_validator_indices() {
         let mut delta = Delta::default();
 
         if !matching_target_indices.contains(index)? {

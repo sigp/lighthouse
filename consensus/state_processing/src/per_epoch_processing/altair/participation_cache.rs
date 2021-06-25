@@ -13,7 +13,6 @@ struct EpochParticipation {
     unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
     total_flag_balances: [u64; NUM_FLAG_INDICES],
     total_active_balance: u64,
-    eligible_indices_opt: Option<Vec<usize>>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -22,6 +21,7 @@ pub struct ParticipationCache {
     current_epoch_participation: EpochParticipation,
     previous_epoch: Epoch,
     previous_epoch_participation: EpochParticipation,
+    eligible_indices: Vec<usize>,
 }
 
 impl ParticipationCache {
@@ -37,14 +37,12 @@ impl ParticipationCache {
             current_epoch_participation: get_epoch_participation(state, current_epoch, spec)?,
             previous_epoch,
             previous_epoch_participation: get_epoch_participation(state, previous_epoch, spec)?,
+            eligible_indices: state.get_eligible_validator_indices()?,
         })
     }
 
-    pub fn eligible_validator_indices(&self) -> Result<&[usize], BeaconStateError> {
-        self.previous_epoch_participation
-            .eligible_indices_opt
-            .as_deref()
-            .ok_or(BeaconStateError::EpochOutOfBounds)
+    pub fn eligible_validator_indices(&self) -> &[usize] {
+        &self.eligible_indices
     }
 
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
@@ -182,11 +180,11 @@ fn get_epoch_participation<T: EthSpec>(
     if epoch == state.current_epoch() {
         active_validator_indices =
             state.get_cached_active_validator_indices(RelativeEpoch::Current)?;
-        epoch_participation = state.current_epoch_participation()?
+        epoch_participation = state.current_epoch_participation()?;
     } else if epoch == state.previous_epoch() {
         active_validator_indices =
             state.get_cached_active_validator_indices(RelativeEpoch::Previous)?;
-        epoch_participation = state.previous_epoch_participation()?
+        epoch_participation = state.previous_epoch_participation()?;
     } else {
         return Err(BeaconStateError::EpochOutOfBounds);
     };
@@ -196,25 +194,10 @@ fn get_epoch_participation<T: EthSpec>(
         HashMap::with_capacity(active_validator_indices.len());
     let mut total_flag_balances = [0; NUM_FLAG_INDICES];
     let mut total_active_balance = 0;
-    let mut eligible_indices_opt = if epoch == state.previous_epoch() {
-        // This Vec might be the wrong size since it'll be filled with the *previous* epoch values,
-        // no current epoch values.
-        //
-        // The difference should be fairly small and there's little impact otherwise.
-        Some(Vec::with_capacity(active_validator_indices.len()))
-    } else {
-        None
-    };
 
     for &val_index in active_validator_indices {
         let val_balance = state.get_effective_balance(val_index)?;
         total_active_balance.safe_add_assign(val_balance)?;
-
-        if let Some(eligible_indices) = &mut eligible_indices_opt {
-            if state.is_eligible_validator(val_index)? {
-                eligible_indices.push(val_index)
-            }
-        }
 
         if !state.get_validator(val_index)?.slashed {
             // Iterate through all the flags and increment total balances.
@@ -248,10 +231,11 @@ fn get_epoch_participation<T: EthSpec>(
         *balance = std::cmp::max(*balance, spec.effective_balance_increment)
     }
 
+    unslashed_participating_indices.shrink_to_fit();
+
     Ok(EpochParticipation {
         unslashed_participating_indices,
         total_flag_balances,
         total_active_balance,
-        eligible_indices_opt,
     })
 }
