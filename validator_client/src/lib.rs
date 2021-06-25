@@ -275,7 +275,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map(CandidateBeaconNode::new)
             .collect();
 
-        // Set the count for beacon node fallbacks excluding the primary beacon node
+        // Set the count for beacon node fallbacks excluding the primary beacon node.
         set_gauge(
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
