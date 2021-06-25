@@ -148,7 +148,7 @@ pub struct ParticipationCache {
 }
 
 impl ParticipationCache {
-    /// Instantiate `Self`, returning a cache that is fully initialized and ready-to-go.
+    /// Instantiate `Self`, returning a fully initialized cache.
     ///
     /// ## Errors
     ///
@@ -167,11 +167,20 @@ impl ParticipationCache {
             .get_cached_active_validator_indices(RelativeEpoch::Current)?
             .len();
 
+        // Both the current/previous epoch participations are set to a capacity that is slightly
+        // larger than required. The difference will be due slashed-but-active validators.
         let mut current_epoch_participation =
             SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
         let mut previous_epoch_participation =
             SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
-        let mut eligible_indices = Vec::with_capacity(num_previous_epoch_active_vals);
+        // Contains the set of validators which are:
+        //
+        // - Active in the previous epoch.
+        // - Slashed, but not yet withdrawable.
+        //
+        // Using the full length of `state.validators` is almost always overkill, but it ensures no
+        // reallocations.
+        let mut eligible_indices = Vec::with_capacity(state.validators().len());
 
         for (val_index, val) in state.validators().iter().enumerate() {
             if val.is_active_at(current_epoch) {
@@ -194,6 +203,14 @@ impl ParticipationCache {
                 eligible_indices.push(val_index)
             }
         }
+
+        eligible_indices.shrink_to_fit();
+        current_epoch_participation
+            .unslashed_participating_indices
+            .shrink_to_fit();
+        previous_epoch_participation
+            .unslashed_participating_indices
+            .shrink_to_fit();
 
         Ok(Self {
             current_epoch,
