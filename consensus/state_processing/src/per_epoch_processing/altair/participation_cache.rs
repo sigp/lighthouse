@@ -1,3 +1,16 @@
+//! Provides the `ParticipationCache`, a custom Lighthouse cache which attempts to reduce CPU and
+//! memory usage by:
+//!
+//! - Caching a map of `validator_index -> participation_flags` for all active validators in the
+//!   previous and current epochs.
+//! - Caching the total balances of:
+//!   - All active validators.
+//!   - All active validators matching each of the three "timely" flags.
+//! - Caching the "eligible" validators.
+//!
+//! Additionally, this cache is returned from the `altair::process_epoch` function and can be used
+//! to get useful summaries about the validator participation in an epoch.
+
 use safe_arith::{ArithError, SafeArith};
 use std::collections::HashMap;
 use types::{
@@ -8,6 +21,9 @@ use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 
+/// A balance which will never be below the specified `minimum`.
+///
+/// This is an attempt to ensure the `EFFECTIVE_BALANCE_INCREMENT` minimum is always respected.
 #[derive(PartialEq, Debug, Clone, Copy)]
 struct Balance {
     raw: u64,
@@ -15,27 +31,46 @@ struct Balance {
 }
 
 impl Balance {
+    /// Initialize the balance to `0`, or the given `minimum`.
     pub fn zero(minimum: u64) -> Self {
         Self { raw: 0, minimum }
     }
 
+    /// Returns the balance with respect to the initialization `minimum`.
     pub fn get(&self) -> u64 {
         std::cmp::max(self.raw, self.minimum)
     }
 
+    /// Add-assign to the balance.
     pub fn safe_add_assign(&mut self, other: u64) -> Result<(), ArithError> {
         self.raw.safe_add_assign(other)
     }
 }
 
+/// Caches the participation values for one epoch (either the previous or current).
 #[derive(PartialEq, Debug)]
-struct EpochParticipation {
+struct SingleEpochParticipationCache {
+    /// Maps an active validator index to their participation flags.
+    ///
+    /// To reiterate, only active validator indices are stored in this map.
+    ///
+    /// ## Note
+    ///
+    /// It would be ideal to maintain a reference to the `BeaconState` here rather than copying the
+    /// `ParticipationFlags`, however that would cause us to run into mutable reference limitations
+    /// upstream.
     unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
+    /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
+    /// for all flags in `NUM_FLAG_INDICES`.
+    ///
+    /// A flag balance is only incremented if a validator is that flag set.
     total_flag_balances: [Balance; NUM_FLAG_INDICES],
+    /// Stores the sum of all balances of all validators in `self.unslashed_participating_indices`
+    /// (regardless of which flags are set).
     total_active_balance: Balance,
 }
 
-impl EpochParticipation {
+impl SingleEpochParticipationCache {
     pub fn new(hashmap_len: usize, spec: &ChainSpec) -> Self {
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
@@ -46,6 +81,15 @@ impl EpochParticipation {
         }
     }
 
+    /// Process an **active** validator.
+    ///
+    /// ## Errors
+    ///
+    /// - The provided `state` **must** be Altair, otherwise an error will be returned.
+    ///
+    /// ## Warning
+    ///
+    /// - It is a logic error to provide an inactive validator to this function.
     pub fn process_active_validator<T: EthSpec>(
         &mut self,
         val_index: usize,
@@ -53,13 +97,16 @@ impl EpochParticipation {
         epoch_participation: &[ParticipationFlags],
     ) -> Result<(), BeaconStateError> {
         let val_balance = state.get_effective_balance(val_index)?;
+
+        // All active validator increase the total active balance.
         self.total_active_balance.safe_add_assign(val_balance)?;
 
         if state.get_validator(val_index)?.slashed {
             return Ok(());
         }
 
-        // Iterate through all the flags and increment total balances.
+        // Iterate through all the flags and increment the total flag balances for whichever flags
+        // are set for `val_index`.
         self.total_flag_balances
             .iter_mut()
             .enumerate()
@@ -87,16 +134,25 @@ impl EpochParticipation {
     }
 }
 
+/// Maintains a cache to be used during `altair::process_epoch`.
 #[derive(PartialEq, Debug)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
-    current_epoch_participation: EpochParticipation,
+    /// Caches information about active validators pertaining to `self.current_epoch`.
+    current_epoch_participation: SingleEpochParticipationCache,
     previous_epoch: Epoch,
-    previous_epoch_participation: EpochParticipation,
+    /// Caches information about active validators pertaining to `self.previous_epoch`.
+    previous_epoch_participation: SingleEpochParticipationCache,
+    /// Caches the result of the `get_eligible_validator_indices` function.
     eligible_indices: Vec<usize>,
 }
 
 impl ParticipationCache {
+    /// Instantiate `Self`, returning a cache that is fully initialized and ready-to-go.
+    ///
+    /// ## Errors
+    ///
+    /// - The provided `state` **must** be an Altair state, otherwise an error will be returned.
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -112,10 +168,10 @@ impl ParticipationCache {
             .len();
 
         let mut current_epoch_participation =
-            EpochParticipation::new(num_current_epoch_active_vals, spec);
+            SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
         let mut previous_epoch_participation =
-            EpochParticipation::new(num_previous_epoch_active_vals, spec);
-        let mut eligible_indices = Vec::with_capacity(state.validators().len());
+            SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
+        let mut eligible_indices = Vec::with_capacity(num_previous_epoch_active_vals);
 
         for (val_index, val) in state.validators().iter().enumerate() {
             if val.is_active_at(current_epoch) {
@@ -139,8 +195,6 @@ impl ParticipationCache {
             }
         }
 
-        eligible_indices.shrink_to_fit();
-
         Ok(Self {
             current_epoch,
             current_epoch_participation,
@@ -150,6 +204,7 @@ impl ParticipationCache {
         })
     }
 
+    /// Equivalent to the specification `get_eligible_validator_indices` function.
     pub fn eligible_validator_indices(&self) -> &[usize] {
         &self.eligible_indices
     }
@@ -182,6 +237,7 @@ impl ParticipationCache {
         self.current_epoch_participation.total_active_balance.get()
     }
 
+    /// Equivalent to the `get_unslashed_participating_indices` function in the specification.
     pub fn get_unslashed_participating_indices(
         &self,
         flag_index: usize,
@@ -254,12 +310,20 @@ impl ParticipationCache {
     }
 }
 
+/// Imitates the return value of the `get_unslashed_participating_indices` in the
+/// specification.
+///
+/// This struct exists to help make the Lighthouse code read more like the specification.
 pub struct UnslashedParticipatingIndices<'a> {
-    participation: &'a EpochParticipation,
+    participation: &'a SingleEpochParticipationCache,
     flag_index: usize,
 }
 
 impl<'a> UnslashedParticipatingIndices<'a> {
+    /// Returns `Ok(true)` if the given `val_index` is:
+    ///
+    /// - An active validator.
+    /// - Has `self.flag_index` set.
     pub fn contains(&self, val_index: usize) -> Result<bool, ArithError> {
         self.participation
             .unslashed_participating_indices
@@ -268,6 +332,11 @@ impl<'a> UnslashedParticipatingIndices<'a> {
             .unwrap_or(Ok(false))
     }
 
+    /// Returns the sum of all balances of validators which have `self.flag_index` set.
+    ///
+    /// ## Notes
+    ///
+    /// Respects the `EFFECTIVE_BALANCE_INCREMENT` minimum.
     pub fn total_balance(&self) -> Result<u64, BeaconStateError> {
         self.participation
             .total_flag_balances
