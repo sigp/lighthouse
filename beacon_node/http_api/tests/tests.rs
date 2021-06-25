@@ -3,25 +3,18 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
-use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient};
-use eth2_libp2p::{
-    rpc::methods::{MetaData, MetaDataV2},
-    types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    Enr, EnrExt, NetworkGlobals, PeerId,
-};
+use eth2_libp2p::{Enr, EnrExt, PeerId};
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
-use http_api::{Config, Context};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
@@ -38,9 +31,6 @@ const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
 const JUSTIFIED_EPOCH: u64 = 4;
 const FINALIZED_EPOCH: u64 = 3;
-const TCP_PORT: u16 = 42;
-const UDP_PORT: u16 = 42;
-const SEQ_NUMBER: u64 = 0;
 const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// Skipping the slots around the epoch boundary allows us to check that we're obtaining states
