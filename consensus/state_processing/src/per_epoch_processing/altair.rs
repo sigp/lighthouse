@@ -45,7 +45,6 @@ pub fn process_epoch<T: EthSpec>(
     // Slashings.
     process_slashings(
         state,
-        // FIXME(paul): could this be invalidated by rewards/penalties?
         participation_cache.current_epoch_total_active_balance(),
         spec.proportional_slashing_multiplier_altair,
         spec,

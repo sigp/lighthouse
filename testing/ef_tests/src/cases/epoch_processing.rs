@@ -142,7 +142,9 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
             BeaconState::Altair(_) => {
                 process_slashings(
                     state,
-                    state.get_total_active_balance(spec)?,
+                    altair::ParticipationCache::new(state, spec)
+                        .unwrap()
+                        .current_epoch_total_active_balance(),
                     spec.proportional_slashing_multiplier_altair,
                     spec,
                 )?;
