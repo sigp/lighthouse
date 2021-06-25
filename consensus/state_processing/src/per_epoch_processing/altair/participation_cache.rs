@@ -6,13 +6,76 @@ use types::{
         TIMELY_TARGET_FLAG_INDEX,
     },
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
+    Validator,
 };
+
+#[derive(PartialEq, Debug, Clone, Copy)]
+struct Balance {
+    balance: u64,
+    minimum: u64,
+}
+
+impl Balance {
+    pub fn balance(&self) -> u64 {
+        std::cmp::max(self.balance, self.minimum)
+    }
+}
 
 #[derive(PartialEq, Debug)]
 struct EpochParticipation {
     unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
     total_flag_balances: [u64; NUM_FLAG_INDICES],
     total_active_balance: u64,
+}
+
+impl EpochParticipation {
+    pub fn new(hashmap_len: usize) -> Self {
+        Self {
+            unslashed_participating_indices: HashMap::with_capacity(hashmap_len),
+            total_flag_balances: <_>::default(),
+            total_active_balance: <_>::default(),
+        }
+    }
+
+    pub fn process_active_validator<T: EthSpec>(
+        &mut self,
+        val_index: usize,
+        state: &BeaconState<T>,
+        epoch_participation: &[ParticipationFlags],
+    ) -> Result<(), BeaconStateError> {
+        let val_balance = state.get_effective_balance(val_index)?;
+        self.total_active_balance.safe_add_assign(val_balance)?;
+
+        if state.get_validator(val_index)?.slashed {
+            return Ok(());
+        }
+
+        // Iterate through all the flags and increment total balances.
+        self.total_flag_balances
+            .iter_mut()
+            .enumerate()
+            .try_for_each(|(flag, balance)| {
+                if epoch_participation
+                    .get(val_index)
+                    .ok_or(BeaconStateError::ParticipationOutOfBounds(val_index))?
+                    .has_flag(flag)?
+                {
+                    balance.safe_add_assign(val_balance)?;
+                }
+
+                Ok::<_, BeaconStateError>(())
+            })?;
+
+        // The validator is active an unslashed, add their `ParticipationFlags` to the map.
+        self.unslashed_participating_indices.insert(
+            val_index,
+            *epoch_participation
+                .get(val_index)
+                .ok_or(BeaconStateError::ParticipationOutOfBounds(val_index))?,
+        );
+
+        Ok(())
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -25,6 +88,7 @@ pub struct ParticipationCache {
 }
 
 impl ParticipationCache {
+    /*
     pub fn new<T: EthSpec>(
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -38,6 +102,58 @@ impl ParticipationCache {
             previous_epoch,
             previous_epoch_participation: get_epoch_participation(state, previous_epoch, spec)?,
             eligible_indices: state.get_eligible_validator_indices()?,
+        })
+    }
+    */
+
+    pub fn new<T: EthSpec>(
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<Self, BeaconStateError> {
+        let current_epoch = state.current_epoch();
+        let previous_epoch = state.previous_epoch();
+
+        let num_previous_epoch_active_vals = state
+            .get_cached_active_validator_indices(RelativeEpoch::Previous)?
+            .len();
+        let num_current_epoch_active_vals = state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)?
+            .len();
+
+        let mut current_epoch_participation =
+            EpochParticipation::new(num_current_epoch_active_vals);
+        let mut previous_epoch_participation =
+            EpochParticipation::new(num_previous_epoch_active_vals);
+        let mut eligible_indices = Vec::with_capacity(state.validators().len());
+
+        for (val_index, val) in state.validators().iter().enumerate() {
+            if val.is_active_at(current_epoch) {
+                current_epoch_participation.process_active_validator(
+                    val_index,
+                    state,
+                    state.current_epoch_participation()?,
+                )?;
+            }
+
+            if val.is_active_at(previous_epoch) {
+                previous_epoch_participation.process_active_validator(
+                    val_index,
+                    state,
+                    state.previous_epoch_participation()?,
+                )?;
+            }
+
+            if state.is_eligible_validator(val_index)? {
+                eligible_indices.push(val_index)
+            }
+        }
+
+        Ok(Self {
+            current_epoch,
+            current_epoch_participation,
+            previous_epoch,
+            previous_epoch_participation,
+            eligible_indices,
         })
     }
 
@@ -169,6 +285,7 @@ impl<'a> UnslashedParticipatingIndices<'a> {
     }
 }
 
+/*
 fn get_epoch_participation<T: EthSpec>(
     state: &BeaconState<T>,
     epoch: Epoch,
@@ -239,3 +356,4 @@ fn get_epoch_participation<T: EthSpec>(
         total_active_balance,
     })
 }
+*/
