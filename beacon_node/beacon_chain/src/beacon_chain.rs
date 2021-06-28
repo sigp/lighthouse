@@ -559,6 +559,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|result| result.map_err(Into::into))
     }
 
+    pub fn forwards_iter_state_roots(
+        &self,
+        start_slot: Slot,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+        let local_head = self.head()?;
+
+        let iter = HotColdDB::forwards_state_roots_iterator(
+            self.store.clone(),
+            start_slot,
+            local_head.beacon_state,
+            local_head.beacon_block_root,
+            &self.spec,
+        )?;
+
+        Ok(iter.map(|result| result.map_err(Into::into)))
+    }
+
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
     ///
     /// Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
@@ -580,16 +597,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
+    /// Returns the state root at the given slot, if any. Only returns state roots in the canonical chain.
     ///
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn state_root_at_slot(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_state_roots()?, |mut iter| {
-            iter.find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root)
-        })
+    pub fn state_root_at_slot(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        if request_slot > self.slot()? {
+            return Ok(None);
+        } else if request_slot == self.spec.genesis_slot {
+            return Ok(Some(self.genesis_state_root));
+        }
+
+        // Try an optimized path of reading the root directly from the head state.
+        let fast_lookup: Option<Hash256> = self.with_head(|head| {
+            if head.beacon_block.slot() <= request_slot {
+                // Return the head state root if all slots between the request and the head are skipped.
+                Ok(Some(head.beacon_state_root()))
+            } else if let Ok(root) = head.beacon_state.get_state_root(request_slot) {
+                // Return the root if it's easily accessible from the head state.
+                Ok(Some(*root))
+            } else {
+                // Fast lookup is not possible.
+                Ok::<_, Error>(None)
+            }
+        })?;
+
+        if let Some(root) = fast_lookup {
+            return Ok(Some(root));
+        }
+
+        process_results(self.forwards_iter_state_roots(request_slot)?, |mut iter| {
+            if let Some((root, slot)) = iter.next() {
+                if slot == request_slot {
+                    Ok(Some(root))
+                } else {
+                    // Sanity check.
+                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                }
+            } else {
+                Ok(None)
+            }
+        })?
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
