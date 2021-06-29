@@ -49,6 +49,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -819,15 +820,78 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the current sync committee at the slot after the head of the canonical chain. This
-    /// is useful because sync committees assigned to `slot` sign for `slot - 1`.
+    /// Return the sync committee at `slot + 1` from the canonical chain.
     ///
-    /// See `Self::head` for more information.
-    pub fn head_sync_committee_next_slot(&self) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
-        self.with_head(|s| {
-            Ok(s.beacon_state
-                .get_sync_committee_for_next_slot(&self.spec)?)
-        })
+    /// This is useful when dealing with sync committee messages, because messages are signed
+    /// and broadcast one slot prior to the slot of the sync committee (which is relevant at
+    /// sync committee period boundaries).
+    pub fn sync_committee_at_next_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        let epoch = slot.safe_add(1)?.epoch(T::EthSpec::slots_per_epoch());
+        self.sync_committee_at_epoch(epoch)
+    }
+
+    /// Return the sync committee at `epoch` from the canonical chain.
+    pub fn sync_committee_at_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        // Try to read a committee from the head. This will work most of the time, but will fail
+        // for faraway committees, or if there are skipped slots at the transition to Altair.
+        let spec = &self.spec;
+        let committee_from_head =
+            self.with_head(
+                |head| match head.beacon_state.get_built_sync_committee(epoch, spec) {
+                    Ok(committee) => Ok(Some(committee.clone())),
+                    Err(BeaconStateError::SyncCommitteeNotKnown { .. })
+                    | Err(BeaconStateError::IncorrectStateVariant) => Ok(None),
+                    Err(e) => Err(Error::from(e)),
+                },
+            )?;
+
+        if let Some(committee) = committee_from_head {
+            Ok(committee)
+        } else {
+            // Slow path: load a state (or advance the head).
+            let sync_committee_period = epoch.sync_committee_period(spec)?;
+            let committee = self
+                .state_for_sync_committee_period(sync_committee_period)?
+                .get_built_sync_committee(epoch, spec)?
+                .clone();
+            Ok(committee)
+        }
+    }
+
+    /// Load a state suitable for determining the sync committee for the given period.
+    ///
+    /// Specifically, the state at the start of the *previous* sync committee period.
+    ///
+    /// This is sufficient for historical duties, and efficient in the case where the head
+    /// is lagging the current period and we need duties for the next period (because we only
+    /// have to transition the head to start of the current period).
+    ///
+    /// We also need to ensure that the load slot is after the Altair fork.
+    ///
+    /// **WARNING**: the state returned will have dummy state roots. It should only be used
+    /// for its sync committees (determining duties, etc).
+    pub fn state_for_sync_committee_period(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<BeaconState<T::EthSpec>, Error> {
+        let altair_fork_epoch = self
+            .spec
+            .altair_fork_epoch
+            .ok_or(Error::AltairForkDisabled)?;
+
+        let load_slot = std::cmp::max(
+            self.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
+            altair_fork_epoch,
+        )
+        .start_slot(T::EthSpec::slots_per_epoch());
+
+        self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
     }
 
     /// Returns info representing the head block and state.
