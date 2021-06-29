@@ -207,3 +207,16 @@ jobs:
     env:
       # Allow warnings on Nightly
       RUSTFLAGS: ""
+  subcrate-version-checks:
+      name: subcrate-version-checks
+      runs-on: ubuntu-latest
+      needs: cargo-fmt
+      if: github.event_name == 'pull_request'
+      steps:
+          - uses: actions/checkout@v2
+          - name: Get latest version of stable Rust
+            run: rustup update stable
+          - name: Check for changes in crates that should be published to crates.io
+            run: |
+                cd scripts/ci
+                ./check_versions.sh
