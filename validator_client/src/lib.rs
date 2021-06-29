@@ -354,9 +354,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
-        let doppelganger_service = if config.disable_doppelganger_detection {
-            None
-        } else {
+        let doppelganger_service = if config.enable_doppelganger_protection {
             let service = DoppelgangerService::new(
                 context
                     .service_context(DOPPELGANGER_SERVICE_NAME.into())
@@ -367,6 +365,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_store.attach_doppelganger_service(service.clone())?;
 
             Some(service)
+        } else {
+            None
         };
 
         Ok(Self {
