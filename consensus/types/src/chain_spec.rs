@@ -227,7 +227,9 @@ impl ChainSpec {
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
         let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
-        let epoch = self.fork_epoch(current_fork_name).unwrap_or(Epoch::new(0));
+        let epoch = self
+            .fork_epoch(current_fork_name)
+            .unwrap_or_else(|| Epoch::new(0));
 
         Fork {
             previous_version: self.fork_version_for_name(previous_fork_name),
