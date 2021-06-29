@@ -128,6 +128,17 @@ impl DoppelgangerState {
     fn requires_further_checks(&self) -> bool {
         self.remaining_epochs > 0
     }
+
+    /// Updates the `DoppelgangerState` to consider the given `Epoch`'s doppelganger checks
+    /// completed.
+    fn complete_detection_in_epoch(&mut self, epoch: Epoch) {
+        // The validator has successfully completed doppelganger checks for a new epoch.
+        self.remaining_epochs = self.remaining_epochs.saturating_sub(1);
+
+        // Since we just satisfied the `previous_epoch`, the next epoch to satisfy should be
+        // the one following that.
+        self.next_check_epoch = epoch.saturating_add(1_u64);
+    }
 }
 
 /// Perform two requests to the BN to obtain the liveness data for `validator_indices`. One
@@ -140,10 +151,11 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     log: Logger,
     current_epoch: Epoch,
-    previous_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
     let validator_indices = validator_indices.as_slice();
+
+    let previous_epoch = current_epoch.saturating_sub(1_u64);
 
     let previous_epoch_responses = if previous_epoch == current_epoch {
         // If the previous epoch and the current epoch are the same, don't bother requesting the
@@ -248,12 +260,11 @@ impl DoppelgangerService {
 
         // Define the `get_liveness` function as one that queries the beacon node API.
         let log = self.log.clone();
-        let get_liveness = move |current_epoch, previous_epoch, validator_indices| {
+        let get_liveness = move |current_epoch, validator_indices| {
             beacon_node_liveness(
                 beacon_nodes.clone(),
                 log.clone(),
                 current_epoch,
-                previous_epoch,
                 validator_indices,
             )
         };
@@ -401,13 +412,10 @@ impl DoppelgangerService {
     where
         E: EthSpec,
         I: Fn(PublicKeyBytes) -> Option<u64>,
-        L: Fn(Epoch, Epoch, Vec<u64>) -> F,
+        L: Fn(Epoch, Vec<u64>) -> F,
         F: Future<Output = LivenessResponses>,
         S: FnMut(),
     {
-        let request_epoch = request_slot.epoch(E::slots_per_epoch());
-        let previous_epoch = request_epoch.saturating_sub(1_u64);
-
         // Get all validators with active doppelganger protection.
         let indices_map = self.compute_detection_indices_map(get_index);
 
@@ -420,7 +428,8 @@ impl DoppelgangerService {
         let indices_only = indices_map.iter().map(|(index, _)| *index).collect();
 
         // Pull the liveness responses from the BN.
-        let liveness_responses = get_liveness(request_epoch, previous_epoch, indices_only).await;
+        let request_epoch = request_slot.epoch(E::slots_per_epoch());
+        let liveness_responses = get_liveness(request_epoch, indices_only).await;
 
         // Process the responses, attempting to detect doppelgangers.
         self.process_liveness_responses::<E, _>(
@@ -604,7 +613,7 @@ impl DoppelgangerService {
             // A weird side-effect is that the BN will keep getting liveness queries that will be
             // ignored by the VC. Since the VC *should* shutdown anyway, this seems fine.
             if violators_exist {
-                doppelganger_state.remaining_epochs = u64::max_value();
+                doppelganger_state.remaining_epochs = u64::MAX;
                 continue;
             }
 
@@ -612,13 +621,9 @@ impl DoppelgangerService {
                 && previous_epoch >= doppelganger_state.next_check_epoch;
 
             if !response.is_live && is_newly_satisfied_epoch {
-                // The validator has successfully completed doppelganger checks for a new epoch.
-                doppelganger_state.remaining_epochs =
-                    doppelganger_state.remaining_epochs.saturating_sub(1);
 
-                // Since we just satisfied the `previous_epoch`, the next epoch to satisfy should be
-                // the one following that.
-                doppelganger_state.next_check_epoch = previous_epoch.saturating_add(1_u64);
+                // Update the `doppelganger_state` to consider the previous epoch's checks complete.
+                doppelganger_state.complete_detection_in_epoch(previous_epoch);
 
                 info!(
                     self.log,
@@ -935,11 +940,7 @@ mod test {
         No,
     }
 
-    fn get_false_responses(
-        current_epoch: Epoch,
-        previous_epoch: Epoch,
-        detection_indices: &[u64],
-    ) -> LivenessResponses {
+    fn get_false_responses(current_epoch: Epoch, detection_indices: &[u64]) -> LivenessResponses {
         LivenessResponses {
             current_epoch_responses: detection_indices
                 .iter()
@@ -953,7 +954,7 @@ mod test {
                 .iter()
                 .map(|i| LivenessResponseData {
                     index: *i as u64,
-                    epoch: previous_epoch,
+                    epoch: current_epoch - 1,
                     is_live: false,
                 })
                 .collect(),
@@ -968,7 +969,7 @@ mod test {
             get_liveness: L,
         ) -> Self
         where
-            L: Fn(Epoch, Epoch, Vec<u64>) -> F,
+            L: Fn(Epoch, Vec<u64>) -> F,
             F: Future<Output = LivenessResponses>,
         {
             // Create a simulated shutdown sender.
@@ -1011,12 +1012,12 @@ mod test {
             .simulate_detect_doppelgangers(
                 slot,
                 ShouldShutdown::No,
-                |_, _, _| {
+                |_, _| {
                     panic!("the beacon node should not get a request if there are no doppelganger validators");
 
                     // The compiler needs this, otherwise it complains that this isn't a future.
                     #[allow(unreachable_code)]
-                    future::ready(get_false_responses(Epoch::new(0), Epoch::new(0), &[]))
+                    future::ready(get_false_responses(Epoch::new(0), &[]))
                 },
             )
             // All validators should be enabled.
@@ -1039,13 +1040,11 @@ mod test {
             .simulate_detect_doppelgangers(
                 slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, epoch);
-                    assert_eq!(previous_epoch, genesis_epoch());
                     check_detection_indices(&detection_indices);
 
-                    let liveness_responses =
-                        get_false_responses(current_epoch, previous_epoch, &detection_indices);
+                    let liveness_responses = get_false_responses(current_epoch, &detection_indices);
 
                     future::ready(liveness_responses)
                 },
@@ -1058,13 +1057,12 @@ mod test {
                 // Perform this check in the next slot.
                 slot + 1,
                 ShouldShutdown::Yes,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, epoch);
-                    assert_eq!(previous_epoch, genesis_epoch());
                     check_detection_indices(&detection_indices);
 
                     let mut liveness_responses =
-                        get_false_responses(current_epoch, previous_epoch, &detection_indices);
+                        get_false_responses(current_epoch, &detection_indices);
 
                     mutate_responses(&mut liveness_responses);
 
@@ -1113,13 +1111,11 @@ mod test {
             scenario = scenario.simulate_detect_doppelgangers(
                 slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, epoch);
-                    assert_eq!(previous_epoch, epoch - 1);
                     check_detection_indices(&detection_indices);
 
-                    let liveness_responses =
-                        get_false_responses(current_epoch, previous_epoch, &detection_indices);
+                    let liveness_responses = get_false_responses(current_epoch, &detection_indices);
 
                     future::ready(liveness_responses)
                 },
@@ -1182,16 +1178,11 @@ mod test {
             .simulate_detect_doppelgangers(
                 initial_slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, initial_epoch);
-                    assert_eq!(previous_epoch, initial_epoch - 1);
                     check_detection_indices(&detection_indices);
 
-                    future::ready(get_false_responses(
-                        current_epoch,
-                        previous_epoch,
-                        &detection_indices,
-                    ))
+                    future::ready(get_false_responses(current_epoch, &detection_indices))
                 },
             )
             .assert_all_disabled()
@@ -1203,16 +1194,11 @@ mod test {
             .simulate_detect_doppelgangers(
                 skipped_forward_slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, skipped_forward_epoch);
-                    assert_eq!(previous_epoch, skipped_forward_epoch - 1);
                     check_detection_indices(&detection_indices);
 
-                    future::ready(get_false_responses(
-                        current_epoch,
-                        previous_epoch,
-                        &detection_indices,
-                    ))
+                    future::ready(get_false_responses(current_epoch, &detection_indices))
                 },
             )
             .assert_all_disabled()
@@ -1238,16 +1224,11 @@ mod test {
             .simulate_detect_doppelgangers(
                 initial_slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, initial_epoch);
-                    assert_eq!(previous_epoch, initial_epoch - 1);
                     check_detection_indices(&detection_indices);
 
-                    future::ready(get_false_responses(
-                        current_epoch,
-                        previous_epoch,
-                        &detection_indices,
-                    ))
+                    future::ready(get_false_responses(current_epoch, &detection_indices))
                 },
             )
             .assert_all_disabled()
@@ -1259,16 +1240,11 @@ mod test {
             .simulate_detect_doppelgangers(
                 skipped_backward_slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
+                |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, skipped_backward_epoch);
-                    assert_eq!(previous_epoch, skipped_backward_epoch - 1);
                     check_detection_indices(&detection_indices);
 
-                    future::ready(get_false_responses(
-                        current_epoch,
-                        previous_epoch,
-                        &detection_indices,
-                    ))
+                    future::ready(get_false_responses(current_epoch, &detection_indices))
                 },
             )
             .assert_all_disabled()
@@ -1307,12 +1283,8 @@ mod test {
             scenario = scenario.simulate_detect_doppelgangers(
                 slot,
                 ShouldShutdown::No,
-                |current_epoch, previous_epoch, detection_indices: Vec<_>| {
-                    future::ready(get_false_responses(
-                        current_epoch,
-                        previous_epoch,
-                        &detection_indices,
-                    ))
+                |current_epoch, detection_indices: Vec<_>| {
+                    future::ready(get_false_responses(current_epoch, &detection_indices))
                 },
             );
 
