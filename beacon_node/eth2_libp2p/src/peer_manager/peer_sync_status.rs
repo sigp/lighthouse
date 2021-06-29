@@ -62,14 +62,14 @@ impl PeerSyncStatus {
         matches!(self, PeerSyncStatus::Behind { .. })
     }
 
+    /// Updates the peer's sync status, returning whether the status transitioned.
+    ///
+    /// E.g. returns `true` if the state changed from `Synced` to `Advanced`, but not if
+    /// the status remained `Synced` with different `SyncInfo` within.
     pub fn update(&mut self, new_state: PeerSyncStatus) -> bool {
-        if *self == new_state {
-            *self = new_state;
-            false // state was not updated
-        } else {
-            *self = new_state;
-            true
-        }
+        let changed_status = *self != new_state;
+        *self = new_state;
+        changed_status
     }
 
     pub fn as_str(&self) -> &'static str {

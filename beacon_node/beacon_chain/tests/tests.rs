@@ -9,7 +9,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    WhenSlotSkipped,
+    StateSkipConfig, WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -136,6 +136,71 @@ fn iterators() {
         *state_roots.first().expect("should have some state roots"),
         (head.beacon_state_root(), head.beacon_state.slot),
         "first state root and slot should be for the head state"
+    );
+}
+
+#[test]
+fn find_reorgs() {
+    let num_blocks_produced = MinimalEthSpec::slots_per_historical_root() + 1;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        // No need to produce attestations for this test.
+        AttestationStrategy::SomeValidators(vec![]),
+    );
+
+    let head_state = harness.chain.head_beacon_state().unwrap();
+    let head_slot = head_state.slot;
+    let genesis_state = harness
+        .chain
+        .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
+        .unwrap();
+
+    // because genesis is more than `SLOTS_PER_HISTORICAL_ROOT` away, this should return with the
+    // finalized slot.
+    assert_eq!(
+        harness
+            .chain
+            .find_reorg_slot(&genesis_state, harness.chain.genesis_block_root)
+            .unwrap(),
+        head_state
+            .finalized_checkpoint
+            .epoch
+            .start_slot(MinimalEthSpec::slots_per_epoch())
+    );
+
+    // test head
+    assert_eq!(
+        harness
+            .chain
+            .find_reorg_slot(
+                &head_state,
+                harness.chain.head_beacon_block().unwrap().canonical_root()
+            )
+            .unwrap(),
+        head_slot
+    );
+
+    // Re-org back to the slot prior to the head.
+    let prev_slot = head_slot - Slot::new(1);
+    let prev_state = harness
+        .chain
+        .state_at_slot(prev_slot, StateSkipConfig::WithStateRoots)
+        .unwrap();
+    let prev_block_root = harness
+        .chain
+        .block_root_at_slot(prev_slot, WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        harness
+            .chain
+            .find_reorg_slot(&prev_state, prev_block_root)
+            .unwrap(),
+        prev_slot
     );
 }
 

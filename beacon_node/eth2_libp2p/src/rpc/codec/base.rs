@@ -1,7 +1,7 @@
 //! This handles the various supported encoding mechanism for the Eth 2.0 RPC.
 
 use crate::rpc::methods::ErrorType;
-use crate::rpc::{RPCCodedResponse, RPCRequest, RPCResponse};
+use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use std::marker::PhantomData;
@@ -47,7 +47,7 @@ where
 // This deals with Decoding RPC Responses from other peers and encoding our requests
 pub struct BaseOutboundCodec<TOutboundCodec, TSpec>
 where
-    TOutboundCodec: OutboundCodec<RPCRequest<TSpec>>,
+    TOutboundCodec: OutboundCodec<OutboundRequest<TSpec>>,
     TSpec: EthSpec,
 {
     /// Inner codec for handling various encodings.
@@ -60,7 +60,7 @@ where
 impl<TOutboundCodec, TSpec> BaseOutboundCodec<TOutboundCodec, TSpec>
 where
     TSpec: EthSpec,
-    TOutboundCodec: OutboundCodec<RPCRequest<TSpec>>,
+    TOutboundCodec: OutboundCodec<OutboundRequest<TSpec>>,
 {
     pub fn new(codec: TOutboundCodec) -> Self {
         BaseOutboundCodec {
@@ -102,9 +102,9 @@ where
 impl<TCodec, TSpec> Decoder for BaseInboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: Encoder<RPCCodedResponse<TSpec>> + Decoder<Item = RPCRequest<TSpec>>,
+    TCodec: Encoder<RPCCodedResponse<TSpec>> + Decoder<Item = InboundRequest<TSpec>>,
 {
-    type Item = RPCRequest<TSpec>;
+    type Item = InboundRequest<TSpec>;
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -115,14 +115,18 @@ where
 /* Base Outbound Codec */
 
 // This Encodes RPC Requests sent to external peers
-impl<TCodec, TSpec> Encoder<RPCRequest<TSpec>> for BaseOutboundCodec<TCodec, TSpec>
+impl<TCodec, TSpec> Encoder<OutboundRequest<TSpec>> for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: OutboundCodec<RPCRequest<TSpec>> + Encoder<RPCRequest<TSpec>>,
+    TCodec: OutboundCodec<OutboundRequest<TSpec>> + Encoder<OutboundRequest<TSpec>>,
 {
-    type Error = <TCodec as Encoder<RPCRequest<TSpec>>>::Error;
+    type Error = <TCodec as Encoder<OutboundRequest<TSpec>>>::Error;
 
-    fn encode(&mut self, item: RPCRequest<TSpec>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(
+        &mut self,
+        item: OutboundRequest<TSpec>,
+        dst: &mut BytesMut,
+    ) -> Result<(), Self::Error> {
         self.inner.encode(item, dst)
     }
 }
@@ -131,7 +135,7 @@ where
 impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
 where
     TSpec: EthSpec,
-    TCodec: OutboundCodec<RPCRequest<TSpec>, CodecErrorType = ErrorType>
+    TCodec: OutboundCodec<OutboundRequest<TSpec>, CodecErrorType = ErrorType>
         + Decoder<Item = RPCResponse<TSpec>>,
 {
     type Item = RPCCodedResponse<TSpec>;

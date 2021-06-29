@@ -32,7 +32,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
+use eth2::types::{EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -453,6 +453,77 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(std::iter::once(Ok((block_root, block.slot())))
             .chain(iter)
             .map(|result| result.map_err(|e| e.into())))
+    }
+
+    /// Iterate through the current chain to find the slot intersecting with the given beacon state.
+    /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
+    /// and no intersection is found, the finalized slot will be returned.
+    pub fn find_reorg_slot(
+        &self,
+        new_state: &BeaconState<T::EthSpec>,
+        new_block_root: Hash256,
+    ) -> Result<Slot, Error> {
+        self.with_head(|snapshot| {
+            let old_state = &snapshot.beacon_state;
+            let old_block_root = snapshot.beacon_block_root;
+
+            // The earliest slot for which the two chains may have a common history.
+            let lowest_slot = std::cmp::min(new_state.slot, old_state.slot);
+
+            // Create an iterator across `$state`, assuming that the block at `$state.slot` has the
+            // block root of `$block_root`.
+            //
+            // The iterator will be skipped until the next value returns `lowest_slot`.
+            //
+            // This is a macro instead of a function or closure due to the complex types invloved
+            // in all the iterator wrapping.
+            macro_rules! aligned_roots_iter {
+                ($state: ident, $block_root: ident) => {
+                    std::iter::once(Ok(($state.slot, $block_root)))
+                        .chain($state.rev_iter_block_roots(&self.spec))
+                        .skip_while(|result| {
+                            result
+                                .as_ref()
+                                .map_or(false, |(slot, _)| *slot > lowest_slot)
+                        })
+                };
+            }
+
+            // Create iterators across old/new roots where iterators both start at the same slot.
+            let mut new_roots = aligned_roots_iter!(new_state, new_block_root);
+            let mut old_roots = aligned_roots_iter!(old_state, old_block_root);
+
+            // Whilst *both* of the iterators are still returning values, try and find a common
+            // ancestor between them.
+            while let (Some(old), Some(new)) = (old_roots.next(), new_roots.next()) {
+                let (old_slot, old_root) = old?;
+                let (new_slot, new_root) = new?;
+
+                // Sanity check to detect programming errors.
+                if old_slot != new_slot {
+                    return Err(Error::InvalidReorgSlotIter { new_slot, old_slot });
+                }
+
+                if old_root == new_root {
+                    // A common ancestor has been found.
+                    return Ok(old_slot);
+                }
+            }
+
+            // If no common ancestor is found, declare that the re-org happened at the previous
+            // finalized slot.
+            //
+            // Sometimes this will result in the return slot being *lower* than the actual reorg
+            // slot. However, assuming we don't re-org through a finalized slot, it will never be
+            // *higher*.
+            //
+            // We provide this potentially-inaccurate-but-safe information to avoid onerous
+            // database reads during times of deep reorgs.
+            Ok(old_state
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()))
+        })
     }
 
     /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
@@ -2270,14 +2341,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
         // between calls to fork choice without swapping between chains. This seems like an
         // extreme-enough scenario that a warning is fine.
-        let is_reorg = current_head.block_root
-            != new_head
-                .beacon_state
-                .get_block_root(current_head.slot)
-                .map(|root| *root)
-                .unwrap_or_else(|_| Hash256::random());
+        let is_reorg = new_head
+            .beacon_state
+            .get_block_root(current_head.slot)
+            .map_or(true, |root| *root != current_head.block_root);
+
+        let mut reorg_distance = Slot::new(0);
 
         if is_reorg {
+            match self.find_reorg_slot(&new_head.beacon_state, new_head.beacon_block_root) {
+                Ok(slot) => reorg_distance = current_head.slot.saturating_sub(slot),
+                Err(e) => {
+                    warn!(
+                        self.log,
+                        "Could not find re-org depth";
+                        "error" => format!("{:?}", e),
+                    );
+                }
+            }
+
             metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
             warn!(
                 self.log,
@@ -2287,6 +2369,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "new_head_parent" => %new_head.beacon_block.parent_root(),
                 "new_head" => %beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
+                "reorg_distance" => reorg_distance,
             );
         } else {
             debug!(
@@ -2451,6 +2534,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Unable to find current target root, cannot register head event"
                     );
                 }
+            }
+
+            if is_reorg && event_handler.has_reorg_subscribers() {
+                event_handler.register(EventKind::ChainReorg(SseChainReorg {
+                    slot: head_slot,
+                    depth: reorg_distance.as_u64(),
+                    old_head_block: current_head.block_root,
+                    old_head_state: current_head.state_root,
+                    new_head_block: beacon_block_root,
+                    new_head_state: state_root,
+                    epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                }));
             }
         }
 

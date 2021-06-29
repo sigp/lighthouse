@@ -762,8 +762,8 @@ mod test {
 
             let eth1_chain = get_eth1_chain();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 
@@ -795,8 +795,8 @@ mod test {
             let eth1_chain = get_eth1_chain();
             let max_deposits = <E as EthSpec>::MaxDeposits::to_u64();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 
@@ -877,8 +877,8 @@ mod test {
 
             let eth1_chain = get_eth1_chain();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 
@@ -901,8 +901,8 @@ mod test {
 
             let eth1_chain = get_eth1_chain();
 
-            assert_eq!(
-                eth1_chain.use_dummy_backend, false,
+            assert!(
+                !eth1_chain.use_dummy_backend,
                 "test should not use dummy backend"
             );
 

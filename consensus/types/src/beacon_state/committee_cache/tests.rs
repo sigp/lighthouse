@@ -6,7 +6,7 @@ use crate::{test_utils::*, *};
 fn default_values() {
     let cache = CommitteeCache::default();
 
-    assert_eq!(cache.is_initialized_at(Epoch::new(0)), false);
+    assert!(!cache.is_initialized_at(Epoch::new(0)));
     assert!(&cache.active_validator_indices().is_empty());
     assert_eq!(cache.get_beacon_committee(Slot::new(0), 0), None);
     assert_eq!(cache.get_attestation_duties(0), None);
