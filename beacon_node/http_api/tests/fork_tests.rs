@@ -1,5 +1,6 @@
 //! Tests for API behaviour across fork boundaries.
 use crate::common::*;
+use beacon_chain::{test_utils::RelativeSyncCommittee, StateSkipConfig};
 use types::{ChainSpec, Epoch, EthSpec, MinimalEthSpec};
 
 type E = MinimalEthSpec;
@@ -12,7 +13,7 @@ fn altair_spec(altair_fork_epoch: Epoch) -> ChainSpec {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sync_committee_duties_across_fork() {
-    let validator_count = 32;
+    let validator_count = E::sync_committee_size();
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
     let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
@@ -93,4 +94,101 @@ async fn sync_committee_duties_across_fork() {
             .unwrap(),
         400
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn attestations_across_fork_with_skip_slots() {
+    let validator_count = E::sync_committee_size();
+    let fork_epoch = Epoch::new(8);
+    let spec = altair_spec(fork_epoch);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    let all_validators = harness.get_all_validators();
+
+    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_state = harness
+        .chain
+        .state_at_slot(fork_slot, StateSkipConfig::WithStateRoots)
+        .unwrap();
+
+    harness.set_current_slot(fork_slot);
+
+    let attestations = harness.make_attestations(
+        &all_validators,
+        &fork_state,
+        fork_state.canonical_root(),
+        (*fork_state.get_block_root(fork_slot - 1).unwrap()).into(),
+        fork_slot,
+    );
+
+    let unaggregated_attestations = attestations
+        .iter()
+        .flat_map(|(atts, _)| atts.iter().map(|(att, _)| att.clone()))
+        .collect::<Vec<_>>();
+
+    assert!(!unaggregated_attestations.is_empty());
+    client
+        .post_beacon_pool_attestations(&unaggregated_attestations)
+        .await
+        .unwrap();
+
+    let signed_aggregates = attestations
+        .into_iter()
+        .filter_map(|(_, op_aggregate)| op_aggregate)
+        .collect::<Vec<_>>();
+    assert!(!signed_aggregates.is_empty());
+
+    client
+        .post_validator_aggregate_and_proof(&signed_aggregates)
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sync_contributions_across_fork_with_skip_slots() {
+    let validator_count = E::sync_committee_size();
+    let fork_epoch = Epoch::new(8);
+    let spec = altair_spec(fork_epoch);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let fork_state = harness
+        .chain
+        .state_at_slot(fork_slot, StateSkipConfig::WithStateRoots)
+        .unwrap();
+
+    harness.set_current_slot(fork_slot);
+
+    let sync_messages = harness.make_sync_contributions(
+        &fork_state,
+        *fork_state.get_block_root(fork_slot - 1).unwrap(),
+        fork_slot,
+        RelativeSyncCommittee::Current,
+    );
+
+    let sync_committee_messages = sync_messages
+        .iter()
+        .flat_map(|(messages, _)| messages.iter().map(|(message, _subnet)| message.clone()))
+        .collect::<Vec<_>>();
+    assert!(!sync_committee_messages.is_empty());
+
+    client
+        .post_beacon_pool_sync_committee_signatures(&sync_committee_messages)
+        .await
+        .unwrap();
+
+    let signed_contributions = sync_messages
+        .into_iter()
+        .filter_map(|(_, op_aggregate)| op_aggregate)
+        .collect::<Vec<_>>();
+    assert!(!signed_contributions.is_empty());
+
+    client
+        .post_validator_contribution_and_proofs(&signed_contributions)
+        .await
+        .unwrap();
 }

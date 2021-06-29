@@ -17,8 +17,8 @@ use std::cmp::max;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
-    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
-    SyncSubnetId,
+    slot_data::SlotData, BeaconStateError, Epoch, EthSpec, SignedContributionAndProof,
+    SyncCommitteeMessage, SyncDuty, SyncSubnetId,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -223,7 +223,7 @@ pub fn get_subnet_positions_for_sync_committee_message<T: BeaconChainTypes>(
         .ok_or(SyncVerificationError::UnknownValidatorIndex(
             sync_message.validator_index as usize,
         ))?;
-    let sync_committee = chain.head_sync_committee_next_slot()?;
+    let sync_committee = chain.sync_committee_at_next_slot(sync_message.get_slot())?;
     Ok(sync_committee.subcommittee_positions_for_public_key(&pubkey)?)
 }
 

@@ -12,7 +12,7 @@ pub mod lighthouse;
 pub mod lighthouse_vc;
 pub mod types;
 
-use self::types::*;
+use self::types::{Error as ResponseError, *};
 use eth2_libp2p::PeerId;
 use futures::Stream;
 use futures_util::StreamExt;
@@ -564,14 +564,7 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        let response = self
-            .client
-            .post(path)
-            .json(attestations)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_indexed_error(response).await?;
+        self.post(path, &attestations).await?;
 
         Ok(())
     }
@@ -1092,14 +1085,7 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        let response = self
-            .client
-            .post(path)
-            .json(aggregates)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_indexed_error(response).await?;
+        self.post(path, &aggregates).await?;
 
         Ok(())
     }
@@ -1195,21 +1181,10 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
     if status == StatusCode::OK {
         Ok(response)
     } else if let Ok(message) = response.json().await {
-        Err(Error::ServerMessage(message))
-    } else {
-        Err(Error::StatusCode(status))
-    }
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
-/// appropriate indexed error message.
-async fn ok_or_indexed_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status == StatusCode::OK {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        Err(Error::ServerIndexedMessage(message))
+        match message {
+            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
+            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
+        }
     } else {
         Err(Error::StatusCode(status))
     }
