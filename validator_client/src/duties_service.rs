@@ -139,7 +139,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // Only collect validators that are not presently disabled for doppelganger protection.
+        // Only collect validators that are considered safe in terms of doppelganger protection.
         let signing_pubkeys: HashSet<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::only_safe);
@@ -164,7 +164,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn attesters(&self, slot: Slot) -> Vec<DutyAndProof> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // Only collect validators that are not presently disabled for doppelganger protection.
+        // Only collect validators that are considered safe in terms of doppelganger protection.
         let signing_pubkeys: HashSet<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::only_safe);
@@ -293,7 +293,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 
     // Collect *all* pubkeys for resolving indices, even those undergoing doppelganger protection.
     //
-    // Singe doppelganger protection queries rely on validator indices it is important to ensure we
+    // Since doppelganger protection queries rely on validator indices it is important to ensure we
     // collect those indices.
     let all_pubkeys: Vec<_> = duties_service
         .validator_store

@@ -103,7 +103,7 @@ struct LivenessResponses {
 
 /// The number of epochs that must be checked before we assume that there are no other duplicate
 /// validators on the network.
-pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 2;
+pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
 
 /// Store the per-validator status of doppelganger checking.
 #[derive(Debug, PartialEq)]
