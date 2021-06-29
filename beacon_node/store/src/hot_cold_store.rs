@@ -396,8 +396,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn forwards_state_roots_iterator(
         store: Arc<Self>,
         start_slot: Slot,
-        end_state: BeaconState<E>,
         end_state_root: Hash256,
+        end_state: BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         HybridForwardsStateRootsIterator::new(store, start_slot, end_state, end_state_root, spec)

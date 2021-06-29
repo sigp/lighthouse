@@ -568,8 +568,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let iter = HotColdDB::forwards_state_roots_iterator(
             self.store.clone(),
             start_slot,
+            local_head.beacon_state_root(),
             local_head.beacon_state,
-            local_head.beacon_block_root,
             &self.spec,
         )?;
 
