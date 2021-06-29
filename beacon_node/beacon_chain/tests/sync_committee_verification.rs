@@ -498,16 +498,13 @@ fn aggregated_gossip_verification() {
         .expect("should add block");
 
     // **Incorrectly** create a sync contribution using the current sync committee
-    let (next_valid_contribution, next_aggregator_index, _) =
+    let (next_valid_contribution, _, _) =
         get_valid_sync_contribution(&harness, RelativeSyncCommittee::Current);
 
     assert_invalid!(
-        "sync message on incorrect subnet",
+        "sync contribution created with incorrect sync committee",
         next_valid_contribution.clone(),
-        SyncCommitteeError::AggregatorNotInCommittee{
-            aggregator_index: index
-        }
-        if index == next_aggregator_index as u64
+        SyncCommitteeError::InvalidSignature
     );
 }
 

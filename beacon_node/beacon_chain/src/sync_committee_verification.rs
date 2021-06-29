@@ -28,9 +28,7 @@
 
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
-    beacon_chain::{
-        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
+    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
     metrics,
     observed_aggregates::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
@@ -349,7 +347,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .validator_pubkey_bytes(aggregator_index as usize)?
             .ok_or(Error::UnknownValidatorIndex(aggregator_index as usize))?;
         let sync_subcommittee_pubkeys = chain
-            .head_sync_committee_next_slot()?
+            .sync_committee_at_next_slot(contribution.get_slot())?
             .get_subcommittee_pubkeys(subcommittee_index)?;
 
         if !sync_subcommittee_pubkeys.contains(&pubkey_bytes) {
@@ -462,7 +460,7 @@ impl VerifiedSyncCommitteeMessage {
                 sync_message.validator_index as usize,
             ))?;
 
-        let sync_committee = chain.head_sync_committee_next_slot()?;
+        let sync_committee = chain.sync_committee_at_next_slot(sync_message.get_slot())?;
         let subnet_positions = sync_committee.subcommittee_positions_for_public_key(&pubkey)?;
 
         if !subnet_positions.contains_key(&subnet_id) {
@@ -623,11 +621,9 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         return Err(Error::AggregatorPubkeyUnknown(aggregator_index));
     }
 
-    let fork = chain
-        .canonical_head
-        .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork())?;
+    let next_slot_epoch =
+        (signed_aggregate.message.contribution.slot + 1).epoch(T::EthSpec::slots_per_epoch());
+    let fork = chain.spec.fork_at_epoch(next_slot_epoch);
 
     let signature_sets = vec![
         signed_sync_aggregate_selection_proof_signature_set(
@@ -689,11 +685,8 @@ pub fn verify_sync_committee_message<T: BeaconChainTypes>(
         .map(Cow::Borrowed)
         .ok_or_else(|| Error::UnknownValidatorPubkey(*pubkey_bytes))?;
 
-    let fork = chain
-        .canonical_head
-        .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork())?;
+    let next_slot_epoch = (sync_message.get_slot() + 1).epoch(T::EthSpec::slots_per_epoch());
+    let fork = chain.spec.fork_at_epoch(next_slot_epoch);
 
     let agg_sig = AggregateSignature::from(&sync_message.signature);
     let signature_set = sync_committee_message_set_from_pubkeys::<T::EthSpec>(

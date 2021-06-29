@@ -793,13 +793,19 @@ where
             .map(|(subnet_id, committee_messages)| {
                 // If there are any sync messages in this committee, create an aggregate.
                 if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
-                    let sync_committee: Arc<SyncCommittee<E>> = state.current_sync_committee()
-                        .expect("should be called on altair beacon state").clone();
+                    let sync_committee: Arc<SyncCommittee<E>> = state
+                        .current_sync_committee()
+                        .expect("should be called on altair beacon state")
+                        .clone();
 
-                    let aggregator_index = sync_committee.pubkeys
+                    let aggregator_index = sync_committee
+                        .get_subcommittee_pubkeys(subnet_id)
+                        .unwrap()
                         .iter()
                         .find_map(|pubkey| {
-                            let validator_index = self.chain.validator_index(pubkey)
+                            let validator_index = self
+                                .chain
+                                .validator_index(pubkey)
                                 .expect("should find validator index")
                                 .expect("pubkey should exist in the beacon chain");
 
@@ -812,26 +818,32 @@ where
                                 &self.spec,
                             );
 
-                           selection_proof.is_aggregator::<E>().map(|bool| bool.then(||validator_index))
-                               .expect("should determine aggregator")
-                        })
-                        .unwrap_or_else(|| panic!(
-                            "Committee {} at slot {} with {} signing validators does not have any aggregators",
-                            subnet_id, slot, committee_messages.len()
-                        ));
+                            selection_proof
+                                .is_aggregator::<E>()
+                                .expect("should determine aggregator")
+                                .then(|| validator_index)
+                        })?;
 
-                    let default = SyncCommitteeContribution::from_message(&sync_message, subnet_id as u64, *subcommittee_position)
-                        .expect("should derive sync contribution");
+                    let default = SyncCommitteeContribution::from_message(
+                        &sync_message,
+                        subnet_id as u64,
+                        *subcommittee_position,
+                    )
+                    .expect("should derive sync contribution");
 
-                    let aggregate =
-                            committee_messages.iter().skip(1)
-                                .fold(default, |mut agg, (sig, position)| {
-                                    let contribution =
-                                        SyncCommitteeContribution::from_message(sig, subnet_id as u64, *position)
-                                        .expect("should derive sync contribution");
-                                    agg.aggregate(&contribution);
-                                    agg
-                            });
+                    let aggregate = committee_messages.iter().skip(1).fold(
+                        default,
+                        |mut agg, (sig, position)| {
+                            let contribution = SyncCommitteeContribution::from_message(
+                                sig,
+                                subnet_id as u64,
+                                *position,
+                            )
+                            .expect("should derive sync contribution");
+                            agg.aggregate(&contribution);
+                            agg
+                        },
+                    );
 
                     let signed_aggregate = SignedContributionAndProof::from_aggregate(
                         aggregator_index as u64,
@@ -844,11 +856,11 @@ where
                     );
 
                     Some(signed_aggregate)
-                }
-                else {
+                } else {
                     None
                 }
-            }).collect();
+            })
+            .collect();
 
         sync_messages.into_iter().zip(sync_contributions).collect()
     }

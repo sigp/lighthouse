@@ -123,6 +123,7 @@ pub enum BeaconChainError {
         old_slot: Slot,
         new_slot: Slot,
     },
+    AltairForkDisabled,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
