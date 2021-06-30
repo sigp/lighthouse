@@ -31,12 +31,10 @@ use crate::{
     beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
     metrics,
     observed_aggregates::ObserveOutcome,
-    observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::{verify_signature_sets, PublicKeyBytes};
 use derivative::Derivative;
-use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::errors::SyncCommitteeMessageValidationError;
@@ -133,12 +131,6 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    ValidatorIndexTooHigh(usize),
-    /// The aggregator index is higher than the maximum possible validator count.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer has sent an invalid message.
     UnknownValidatorIndex(usize),
     /// The public key of the validator has not been seen locally.
     ///
@@ -147,13 +139,6 @@ pub enum Error {
     /// It's unclear if this sync committee message is valid, however we have already observed an aggregate
     /// sync committee message from this validator for this epoch and should not observe another.
     UnknownValidatorPubkey(PublicKeyBytes),
-    /// The `beacon_block_root` block is unknown.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The sync committee message points to a block we have not yet imported. It's unclear if the sync contribution
-    /// is valid or not.
-    UnknownHeadBlock { beacon_block_root: Hash256 },
     /// A signature on the sync committee message is invalid.
     ///
     /// ## Peer scoring
@@ -297,6 +282,23 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             });
         }
 
+        // Ensure that the sync committee message has participants.
+        if contribution.aggregation_bits.is_zero() {
+            return Err(Error::EmptyAggregationBitfield);
+        }
+
+        // Ensure the aggregator's pubkey is in the declared subcommittee of the current sync committee
+        let pubkey_bytes = chain
+            .validator_pubkey_bytes(aggregator_index as usize)?
+            .ok_or(Error::UnknownValidatorIndex(aggregator_index as usize))?;
+        let sync_subcommittee_pubkeys = chain
+            .sync_committee_at_next_slot(contribution.get_slot())?
+            .get_subcommittee_pubkeys(subcommittee_index)?;
+
+        if !sync_subcommittee_pubkeys.contains(&pubkey_bytes) {
+            return Err(Error::AggregatorNotInCommittee { aggregator_index });
+        };
+
         // Ensure the valid sync contribution has not already been seen locally.
         let contribution_root = contribution.tree_hash_root();
         if chain
@@ -320,39 +322,8 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         {
             Ok(true) => Err(Error::AggregatorAlreadyKnown(aggregator_index)),
             Ok(false) => Ok(()),
-            Err(ObservedAttestersError::ValidatorIndexTooHigh(i)) => {
-                Err(Error::ValidatorIndexTooHigh(i))
-            }
             Err(e) => Err(BeaconChainError::from(e).into()),
         }?;
-
-        // Ensure the block being voted for (contribution.beacon_block_root) passes validation.
-        //
-        // This indirectly checks to see if the `contribution.beacon_block_root` is in our fork
-        // choice. Any known, non-finalized, processed block should be in fork choice, so this
-        // check immediately filters out sync committee contributions that attest to a block that
-        // has not been processed.
-        //
-        // Sync committee contributions must be for a known block. If the block is unknown, we
-        // simply drop the sync committee contribution and do not delay consideration for later.
-        verify_head_block_is_known(chain, contribution.beacon_block_root)?;
-
-        // Ensure that the sync committee message has participants.
-        if contribution.aggregation_bits.is_zero() {
-            return Err(Error::EmptyAggregationBitfield);
-        }
-
-        // Ensure the aggregator's pubkey is in the declared subcommittee of the current sync committee
-        let pubkey_bytes = chain
-            .validator_pubkey_bytes(aggregator_index as usize)?
-            .ok_or(Error::UnknownValidatorIndex(aggregator_index as usize))?;
-        let sync_subcommittee_pubkeys = chain
-            .sync_committee_at_next_slot(contribution.get_slot())?
-            .get_subcommittee_pubkeys(subcommittee_index)?;
-
-        if !sync_subcommittee_pubkeys.contains(&pubkey_bytes) {
-            return Err(Error::AggregatorNotInCommittee { aggregator_index });
-        };
 
         // Note: this clones the signature which is known to be a relatively slow operation.
         //
@@ -450,10 +421,7 @@ impl VerifiedSyncCommitteeMessage {
         // We do not queue future sync committee messages for later processing.
         verify_propagation_slot_range(chain, &sync_message)?;
 
-        // Sync messages must be for a known block. If the block is unknown, we simply drop the
-        // sync committee message and do not delay consideration for later.
-        verify_head_block_is_known(chain, sync_message.beacon_block_root)?;
-
+        // Ensure the `subnet_id` is valid for the given validator.
         let pubkey = chain
             .validator_pubkey_bytes(sync_message.validator_index as usize)?
             .ok_or(Error::UnknownValidatorIndex(
@@ -470,10 +438,8 @@ impl VerifiedSyncCommitteeMessage {
             });
         }
 
-        /*
-         * The sync committee message is the first valid message received for the participating validator
-         * for the slot, sync_message.slot.
-         */
+        // The sync committee message is the first valid message received for the participating validator
+        // for the slot, sync_message.slot.
         let validator_index = sync_message.validator_index;
         if chain
             .observed_sync_contributors
@@ -534,27 +500,6 @@ impl VerifiedSyncCommitteeMessage {
     /// Returns the wrapped `SyncCommitteeMessage`.
     pub fn sync_message(&self) -> &SyncCommitteeMessage {
         &self.sync_message
-    }
-}
-
-/// Returns `Ok(())` if the `beacon_block_root` is known to this chain.
-///
-/// The block root may not be known for two reasons:
-///
-/// 1. The block has never been verified by our application.
-/// 2. The block is prior to the latest finalized block.
-///
-/// Case (1) is the exact thing we're trying to detect. However case (2) is a little different, but
-/// it's still fine to reject here because there's no need for us to handle sync committee messages that are
-/// already finalized.
-fn verify_head_block_is_known<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    beacon_block_root: Hash256,
-) -> Result<ProtoBlock, Error> {
-    if let Some(block) = chain.fork_choice.read().get_block(&beacon_block_root) {
-        Ok(block)
-    } else {
-        Err(Error::UnknownHeadBlock { beacon_block_root })
     }
 }
 

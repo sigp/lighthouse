@@ -245,26 +245,6 @@ fn aggregated_gossip_verification() {
     /*
      * The following test ensures:
      *
-     * The block being signed over (contribution.beacon_block_root) has been seen (via both gossip and non-gossip sources).
-     */
-
-    let unknown_root = Hash256::from_low_u64_le(424242);
-    assert_invalid!(
-        "aggregate with unknown head block",
-        {
-            let mut a = valid_aggregate.clone();
-            a.message.contribution.beacon_block_root = unknown_root;
-            a
-        },
-        SyncCommitteeError::UnknownHeadBlock {
-            beacon_block_root
-        }
-        if beacon_block_root == unknown_root
-    );
-
-    /*
-     * The following test ensures:
-     *
      * The subcommittee index is in the allowed range,
      * i.e. `contribution.subcommittee_index < SYNC_COMMITTEE_SUBNET_COUNT`.
      */
@@ -386,7 +366,7 @@ fn aggregated_gossip_verification() {
             a.message.aggregator_index = too_high_index;
             a
         },
-        SyncCommitteeError::ValidatorIndexTooHigh(index)
+        SyncCommitteeError::UnknownValidatorIndex(index)
         if index == too_high_index as usize
     );
 
@@ -610,28 +590,6 @@ fn unaggregated_gossip_verification() {
             earliest_permissible_slot,
         }
         if message_slot == early_slot && earliest_permissible_slot == current_slot - 1
-    );
-
-    /*
-     * The following test ensures that:
-     *
-     * The block being signed over (sync_committee_message.beacon_block_root) has been seen
-     * (via both gossip and non-gossip sources).
-     */
-
-    let unknown_root = Hash256::from_low_u64_le(424242); // No one wants one of these
-    assert_invalid!(
-        "sync message with unknown head block",
-        {
-            let mut signature = valid_sync_committee_message.clone();
-            signature.beacon_block_root = unknown_root;
-            signature
-        },
-        subnet_id,
-        SyncCommitteeError::UnknownHeadBlock {
-            beacon_block_root,
-        }
-        if beacon_block_root == unknown_root
     );
 
     /*
