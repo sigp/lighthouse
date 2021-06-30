@@ -6,8 +6,7 @@ ENV PORTABLE $PORTABLE
 RUN cd lighthouse && make
 
 FROM debian:buster-slim
-RUN apt-get update && apt-get -y upgrade
-  && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
   libssl-dev \
   ca-certificates \
   && apt-get clean \
