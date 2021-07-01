@@ -309,7 +309,7 @@ fn epoch_boundary_state_attestation_processing() {
         let finalized_epoch = harness
             .chain
             .head_info()
-            .expect("head ok")
+            .expect("should get head")
             .finalized_checkpoint
             .epoch;
 
