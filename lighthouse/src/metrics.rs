@@ -14,7 +14,7 @@ lazy_static! {
 lazy_static! {
     pub static ref LIGHTHOUSE_VERSION: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "lighthouse_info",
-        "The build of Lighthouse running on the server.",
+        "The build of Lighthouse running on the server",
         &["version"],
     );
 }
