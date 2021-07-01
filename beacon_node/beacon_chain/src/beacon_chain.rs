@@ -945,7 +945,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(state)
             }
             Ordering::Less => {
-                let state_root = process_results(self.rev_iter_state_roots()?, |iter| {
+                let state_root = process_results(self.forwards_iter_state_roots(slot)?, |iter| {
                     iter.take_while(|(_, current_slot)| *current_slot >= slot)
                         .find(|(_, current_slot)| *current_slot == slot)
                         .map(|(root, _slot)| root)
