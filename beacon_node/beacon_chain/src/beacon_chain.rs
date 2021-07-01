@@ -390,29 +390,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
-    /// Iterates across all `(block_root, slot)` pairs from the head of the chain (inclusive) to
-    /// the earliest reachable ancestor (may or may not be genesis).
+    /// Iterates across all `(block_root, slot)` pairs from `start_slot`
+    /// to the head of the chain (inclusive).
     ///
     /// ## Notes
     ///
-    /// `slot` always decreases by `1`.
+    /// - `slot` always increases by `1`.
     /// - Skipped slots contain the root of the closest prior
-    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
+    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`).
     /// - Iterator returns `(Hash256, Slot)`.
-    /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
-    ///     returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_block_roots(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        let head = self.head()?;
-        let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
-        Ok(
-            std::iter::once(Ok((head.beacon_block_root, head.beacon_block.slot())))
-                .chain(iter)
-                .map(|result| result.map_err(|e| e.into())),
-        )
-    }
-
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
@@ -434,7 +420,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// `slot` always decreases by `1`.
+    /// - `slot` always decreases by `1`.
     /// - Skipped slots contain the root of the closest prior
     ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
     /// - Iterator returns `(Hash256, Slot)`.
@@ -526,29 +512,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
-    /// the earliest reachable ancestor (may or may not be genesis).
+    /// Iterates backwards across all `(state_root, slot)` pairs starting from
+    /// an arbitrary `BeaconState` to the earliest reachable ancestor (may or may not be genesis).
     ///
     /// ## Notes
     ///
-    /// `slot` always decreases by `1`.
+    /// - `slot` always decreases by `1`.
     /// - Iterator returns `(Hash256, Slot)`.
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_state_roots(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        let head = self.head()?;
-        let head_slot = head.beacon_state.slot;
-        let head_state_root = head.beacon_state_root();
-        let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
-        let iter = std::iter::once(Ok((head_state_root, head_slot)))
-            .chain(iter)
-            .map(|result| result.map_err(Into::into));
-        Ok(iter)
-    }
-
-    /// As for `rev_iter_state_roots` but starting from an arbitrary `BeaconState`.
     pub fn rev_iter_state_roots_from<'a>(
         &self,
         state_root: Hash256,
@@ -559,6 +531,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|result| result.map_err(Into::into))
     }
 
+    /// Iterates across all `(state_root, slot)` pairs from `start_slot`
+    /// to the head of the chain (inclusive).
+    ///
+    /// ## Notes
+    ///
+    /// - `slot` always increases by `1`.
+    /// - Iterator returns `(Hash256, Slot)`.
     pub fn forwards_iter_state_roots(
         &self,
         start_slot: Slot,
