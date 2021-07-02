@@ -5,7 +5,10 @@ mod tests;
 use crate::ValidatorStore;
 use account_utils::mnemonic_from_phrase;
 use create_validator::create_validators;
-use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
+use eth2::lighthouse_vc::types::{
+    self as api_types, DoppelgangerData, PublicKey,
+    PublicKeyBytes,
+};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
@@ -254,6 +257,28 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
+    // GET lighthouse/validators/doppelganger_status
+    let get_lighthouse_validators_doppelganger = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path("doppelganger_status"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(|validator_store: ValidatorStore<T, E>, signer| {
+            blocking_signed_json_task(signer, move || {
+                let statuses = if !validator_store.doppelganger_protection_enabled() {
+                    vec![]
+                } else {
+                    validator_store
+                        .doppelganger_statuses()
+                        .into_iter()
+                        .map(|status| status.into())
+                        .collect::<Vec<DoppelgangerData>>()
+                };
+                Ok(api_types::GenericResponse::from(statuses))
+            })
+        });
+
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
         .and(warp::path("validators"))
@@ -474,7 +499,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     .or(get_lighthouse_health)
                     .or(get_lighthouse_spec)
                     .or(get_lighthouse_validators)
-                    .or(get_lighthouse_validators_pubkey),
+                    .or(get_lighthouse_validators_pubkey)
+                    .or(get_lighthouse_validators_doppelganger),
             ),
         )
         .or(warp::post().and(

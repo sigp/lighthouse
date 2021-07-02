@@ -1,6 +1,7 @@
 #![cfg(test)]
 #![cfg(not(debug_assertions))]
 
+use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
     Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
@@ -79,7 +80,7 @@ impl ApiTester {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
+        let mut validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -87,6 +88,9 @@ impl ApiTester {
             fork_service.clone(),
             log.clone(),
         );
+
+        validator_store.attach_doppelganger_service(DoppelgangerService::new(log.clone()))
+            .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
 
@@ -182,6 +186,35 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_lighthouse_doppelganger(self) -> Self {
+        let result = self
+            .client
+            .get_lighthouse_validators_doppelganger()
+            .await
+            .unwrap()
+            .data;
+
+        let pubkeys = self
+            .initialized_validators
+            .read()
+            .iter_voting_pubkeys()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let enabled_keys = pubkeys
+            .into_iter()
+            .map(|pubkey| DoppelgangerData {
+                pubkey,
+                status: DoppelgangerStatus::Enabled,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, enabled_keys);
+
+        self
+    }
+
     pub fn vals_total(&self) -> usize {
         self.initialized_validators.read().num_total()
     }
@@ -460,6 +493,8 @@ fn simple_getters() {
             .test_get_lighthouse_health()
             .await
             .test_get_lighthouse_spec()
+            .await
+            .test_get_lighthouse_doppelganger()
             .await;
     });
 }

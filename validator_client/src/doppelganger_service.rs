@@ -32,6 +32,7 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
+use eth2::lighthouse_vc::types::{DoppelgangerData, DoppelgangerStatus as ApiDoppelgangerStatus};
 use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
 use slog::{crit, error, info, Logger};
@@ -92,6 +93,25 @@ impl DoppelgangerStatus {
             DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
             DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),
             DoppelgangerStatus::UnknownToDoppelganger(_) => None,
+        }
+    }
+}
+
+impl Into<DoppelgangerData> for DoppelgangerStatus {
+    fn into(self) -> DoppelgangerData {
+        match self {
+            DoppelgangerStatus::SigningEnabled(pubkey) => DoppelgangerData {
+                pubkey,
+                status: ApiDoppelgangerStatus::Enabled,
+            },
+            DoppelgangerStatus::SigningDisabled(pubkey) => DoppelgangerData {
+                pubkey,
+                status: ApiDoppelgangerStatus::Disabled,
+            },
+            DoppelgangerStatus::UnknownToDoppelganger(pubkey) => DoppelgangerData {
+                pubkey,
+                status: ApiDoppelgangerStatus::Unknown,
+            },
         }
     }
 }
@@ -621,7 +641,6 @@ impl DoppelgangerService {
                 && previous_epoch >= doppelganger_state.next_check_epoch;
 
             if !response.is_live && is_newly_satisfied_epoch {
-
                 // Update the `doppelganger_state` to consider the previous epoch's checks complete.
                 doppelganger_state.complete_detection_in_epoch(previous_epoch);
 
