@@ -1,8 +1,11 @@
-//! Provides a simple hash function utilizing `sha2::Sha256`.
+//! Optimized SHA256 for use in Ethereum 2.0.
 //!
-//! The purpose of this crate is to provide an abstraction to whatever hash function Ethereum
-//! 2.0 is using. The hash function has been subject to change during the specification process, so
-//! defining it once in this crate makes it easy to replace.
+//! The initial purpose of this crate was to provide an abstraction over the hash function used in
+//! Ethereum 2.0. The hash function changed during the specification process, so defining it once in
+//! this crate made it easy to replace.
+//!
+//! Now this crate serves primarily as a wrapper over two SHA256 crates: `sha2` and `ring` –
+//! which it switches between at runtime based on the availability of SHA intrinsics.
 
 pub use self::DynamicContext as Context;
 use sha2::Digest;
@@ -13,12 +16,14 @@ use lazy_static::lazy_static;
 /// Length of a SHA256 hash in bytes.
 pub const HASH_LEN: usize = 32;
 
-/// Returns the digest of `input`.
+/// Returns the digest of `input` using the best available implementation.
 pub fn hash(input: &[u8]) -> Vec<u8> {
     DynamicImpl::best().hash(input)
 }
 
 /// Hash function returning a fixed-size array (to save on allocations).
+///
+/// Uses the best available implementation based on CPU features.
 pub fn hash_fixed(input: &[u8]) -> [u8; HASH_LEN] {
     DynamicImpl::best().hash_fixed(input)
 }
@@ -36,6 +41,7 @@ pub fn hash32_concat(h1: &[u8], h2: &[u8]) -> [u8; 32] {
     hash_fixed(&preimage)
 }
 
+/// Context trait for abstracting over implementation contexts.
 pub trait Sha256Context {
     fn new() -> Self;
 
@@ -44,6 +50,7 @@ pub trait Sha256Context {
     fn finalize(self) -> [u8; HASH_LEN];
 }
 
+/// Top-level trait implemented by both `sha2` and `ring` implementations.
 pub trait Sha256 {
     type Context: Sha256Context;
 
@@ -116,18 +123,32 @@ impl Sha256 for RingImpl {
     }
 }
 
-// Inspired by the runtime-detection within the `sha2` crate itself.
-cpufeatures::new!(x86_sha_extensions, "sha", "sse2", "ssse3", "sse4.1");
-
+/// Default dynamic implementation that switches between available implementations.
 pub enum DynamicImpl {
     Sha2,
     Ring,
 }
 
+// Runtime latch for detecting the availability of SHA extensions on x86_64.
+//
+// Inspired by the runtime switch within the `sha2` crate itself.
+#[cfg(target_arch = "x86_64")]
+cpufeatures::new!(x86_sha_extensions, "sha", "sse2", "ssse3", "sse4.1");
+
+#[inline(always)]
+pub fn have_sha_extensions() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    return x86_sha_extensions::get();
+
+    #[cfg(not(target_arch = "x86_64"))]
+    return false;
+}
+
 impl DynamicImpl {
+    /// Choose the best available implementation based on the currently executing CPU.
     #[inline(always)]
     pub fn best() -> Self {
-        if x86_sha_extensions::get() {
+        if have_sha_extensions() {
             Self::Sha2
         } else {
             Self::Ring
@@ -155,6 +176,9 @@ impl Sha256 for DynamicImpl {
     }
 }
 
+/// Context encapsulating all implemenation contexts.
+///
+/// This enum ends up being 8 bytes larger than the largest inner context.
 pub enum DynamicContext {
     Sha2(sha2::Sha256),
     Ring(ring::digest::Context),
