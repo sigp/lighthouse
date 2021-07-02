@@ -119,6 +119,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(())
     }
 
+    /// Returns `true` if doppelganger protection is enabled, or else `false`.
+    pub fn doppelganger_protection_enabled(&self) -> bool {
+        self.doppelganger_service.is_some()
+    }
+
     pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
         self.validators.clone()
     }
@@ -211,6 +216,30 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
             })
             .filter_map(filter_func)
+            .collect()
+    }
+
+    /// Returns doppelganger statuses for all enabled validators.
+    #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
+    pub fn doppelganger_statuses(&self) -> Vec<DoppelgangerStatus> {
+        // Collect all the pubkeys first to avoid interleaving locks on `self.validators` and
+        // `self.doppelganger_service`.
+        let pubkeys = self
+            .validators
+            .read()
+            .iter_voting_pubkeys()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        pubkeys
+            .into_iter()
+            .map(|pubkey| {
+                self.doppelganger_service
+                    .as_ref()
+                    .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
+                    // Allow signing on all pubkeys if doppelganger protection is disabled.
+                    .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
+            })
             .collect()
     }
 
