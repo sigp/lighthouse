@@ -1,5 +1,5 @@
 use crate::{get_zero_hash, Hash256, HASHSIZE};
-use eth2_hashing::{Context, Sha256Context};
+use eth2_hashing::{Context, Sha256Context, HASH_LEN};
 use smallvec::{smallvec, SmallVec};
 use std::mem;
 
@@ -15,7 +15,7 @@ pub enum Error {
 ///
 /// Should be used as a left or right value for some node.
 enum Preimage<'a> {
-    Digest([u8; 32]),
+    Digest([u8; HASH_LEN]),
     Slice(&'a [u8]),
 }
 
@@ -49,9 +49,9 @@ impl HalfNode {
 
     /// Complete the half-node by providing a `right` value. Returns a digest of the left and right
     /// nodes.
-    fn finish(mut self, right: Preimage) -> [u8; 32] {
+    fn finish(mut self, right: Preimage) -> [u8; HASH_LEN] {
         self.context.update(right.as_bytes());
-        self.context.finalize().into()
+        self.context.finalize()
     }
 }
 
