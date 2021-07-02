@@ -1980,7 +1980,9 @@ dependencies = [
 name = "eth2_hashing"
 version = "0.1.1"
 dependencies = [
+ "cpufeatures",
  "lazy_static",
+ "ring",
  "rustc-hex",
  "sha2 0.9.5",
  "wasm-bindgen-test",

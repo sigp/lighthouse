@@ -1,5 +1,5 @@
 use crate::Hash256;
-use eth2_hashing::{Digest, Sha256};
+use eth2_hashing::{Context, Sha256Context};
 use std::cmp::max;
 
 /// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.
@@ -54,7 +54,7 @@ fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize
 }
 
 fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Hash256 {
-    let mut context = Sha256::new();
+    let mut context = Context::new();
 
     context.update(seed);
     context.update(&[round]);
@@ -69,7 +69,7 @@ fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Hash
 }
 
 fn hash_with_round(seed: &[u8], round: u8) -> Hash256 {
-    let mut context = Sha256::new();
+    let mut context = Context::new();
 
     context.update(seed);
     context.update(&[round]);
