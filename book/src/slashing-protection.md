@@ -91,6 +91,32 @@ up to date.
 
 [EIP-3076]: https://eips.ethereum.org/EIPS/eip-3076
 
+### Minification
+
+Since version 1.5.0 Lighthouse automatically _minifies_ slashing protection data upon import.
+Minification safely shrinks the input file, making it faster to import.
+
+If an import file contains slashable data, then its minification is still safe to import _even
+though_ the non-minified file would fail to be imported. This means that leaving minification
+enabled is recommended if the input could contain slashable data. Conversely, if you would like to
+double-check that the input file is not slashable with respect to itself, then you should disable
+minification.
+
+Minification can be disabled for imports by adding `--minify=false` to the command:
+
+```
+lighthouse account validator slashing-protection import --minify=false <my_interchange.json>
+```
+
+It can also be enabled for exports (disabled by default):
+
+```
+lighthouse account validator slashing-protection export --minify=true <lighthouse_interchange.json>
+```
+
+Minifying the export file should make it faster to import, and may allow it to be imported into an
+implementation that is rejecting the non-minified equivalent due to slashable data.
+
 ## Troubleshooting
 
 ### Misplaced Slashing Database
@@ -137,11 +163,11 @@ and _could_ indicate a serious error or misconfiguration (see [Avoiding Slashing
 
 ### Slashable Data in Import
 
-If you receive a warning when trying to import an [interchange file](#import-and-export) about
+During import of an [interchange file](#import-and-export) if you receive an error about
 the file containing slashable data, then you must carefully consider whether you want to continue.
 
-There are several potential causes for this warning, each of which require a different reaction. If
-you have seen the warning for multiple validator keys, the cause could be different for each of them.
+There are several potential causes for this error, each of which require a different reaction. If
+the error output lists multiple validator keys, the cause could be different for each of them.
 
 1. Your validator has actually signed slashable data. If this is the case, you should assess
    whether your validator has been slashed (or is likely to be slashed). It's up to you
@@ -155,6 +181,9 @@ you have seen the warning for multiple validator keys, the cause could be differ
 3. You have imported the same interchange file (which lacks signing roots) twice, e.g. from Teku.
    It might be safe to continue as-is, or you could consider a [Drop and
    Re-import](#drop-and-re-import).
+
+If you are running the import command with `--minify=false`, you should consider enabling
+[minification](#minification).
 
 #### Drop and Re-import
 
