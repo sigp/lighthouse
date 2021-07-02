@@ -9,6 +9,7 @@ HTTP Path | Description |
 [`GET /lighthouse/spec`](#get-lighthousespec) | Get the Eth2 specification used by the validator
 [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
 [`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
+[`GET /lighthouse/validators/doppelganger_status`](#get-lighthousevalidatorsdoppelganger_status) | Check the doppelganger protection check status of all validators.
 [`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
 [`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
 [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
@@ -220,6 +221,49 @@ localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc8
 }
 ```
 
+## `GET /lighthouse/validators/doppelganger_status`
+
+Get the doppelganger protection check status of all validators managed by this validator client.
+
+If doppelganger protection is disabled, this endpoint will return an empty array.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/doppelganger_status`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200, 400
+
+### Example Path
+
+```
+localhost:5062/lighthouse/validators/doppelganger_status
+```
+
+### Example Response Body
+
+```json
+{
+    "data":
+    [
+      {
+        "pubkey": "0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde",
+        "status": "signing_enabled"
+      },
+      {
+        "pubkey": "0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde",
+        "status": "signing_disabled"
+      },
+      {
+        "pubkey": "0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde",
+        "status": "unknown"
+      }
+    ]
+}
+```
+
 ## `PATCH /lighthouse/validators/:voting_pubkey`
 
 Update some values for the validator with `voting_pubkey`.
@@ -351,7 +395,7 @@ Typical Responses | 200
       "checksum": {
         "function": "sha256",
         "params": {
-          
+
         },
         "message": "abadc1285fd38b24a98ac586bda5b17a8f93fc1ff0778803dc32049578981236"
       },

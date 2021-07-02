@@ -102,11 +102,11 @@ impl Into<DoppelgangerData> for DoppelgangerStatus {
         match self {
             DoppelgangerStatus::SigningEnabled(pubkey) => DoppelgangerData {
                 pubkey,
-                status: ApiDoppelgangerStatus::Enabled,
+                status: ApiDoppelgangerStatus::SigningEnabled,
             },
             DoppelgangerStatus::SigningDisabled(pubkey) => DoppelgangerData {
                 pubkey,
-                status: ApiDoppelgangerStatus::Disabled,
+                status: ApiDoppelgangerStatus::SigningDisabled,
             },
             DoppelgangerStatus::UnknownToDoppelganger(pubkey) => DoppelgangerData {
                 pubkey,
@@ -820,7 +820,7 @@ mod test {
                 assert_eq!(
                     self.doppelganger.validator_status(*validator),
                     DoppelgangerStatus::SigningDisabled(*validator),
-                    "all validators should be enabled"
+                    "all validators should be disabled"
                 );
             }
 
@@ -1093,7 +1093,7 @@ mod test {
             // The states of all validators should be jammed with `u64::max_value()`.
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: epoch + 1,
-                remaining_epochs: u64::max_value(),
+                remaining_epochs: u64::MAX,
             });
     }
 
@@ -1115,7 +1115,8 @@ mod test {
     fn no_doppelgangers_for_adequate_time() {
         let initial_epoch = genesis_epoch() + 42;
         let initial_slot = initial_epoch.start_slot(E::slots_per_epoch());
-        let activation_slot = (initial_epoch + 3).end_slot(E::slots_per_epoch());
+        let activation_slot =
+            (initial_epoch + DEFAULT_REMAINING_DETECTION_EPOCHS + 1).end_slot(E::slots_per_epoch());
 
         let mut scenario = TestBuilder::default()
             .build()
@@ -1220,10 +1221,9 @@ mod test {
                     future::ready(get_false_responses(current_epoch, &detection_indices))
                 },
             )
-            .assert_all_disabled()
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: skipped_forward_epoch,
-                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS - 1,
+                remaining_epochs: 0,
             });
     }
 
@@ -1278,11 +1278,13 @@ mod test {
     fn staggered_entry() {
         let early_epoch = genesis_epoch() + 42;
         let early_slot = early_epoch.start_slot(E::slots_per_epoch());
-        let early_activation_slot = (early_epoch + 3).end_slot(E::slots_per_epoch());
+        let early_activation_slot =
+            (early_epoch + DEFAULT_REMAINING_DETECTION_EPOCHS + 1).end_slot(E::slots_per_epoch());
 
         let late_epoch = early_epoch + 1;
         let late_slot = late_epoch.start_slot(E::slots_per_epoch());
-        let late_activation_slot = (late_epoch + 3).end_slot(E::slots_per_epoch());
+        let late_activation_slot =
+            (late_epoch + DEFAULT_REMAINING_DETECTION_EPOCHS + 1).end_slot(E::slots_per_epoch());
 
         let early_validators: Vec<u64> = (0..DEFAULT_VALIDATORS as u64 / 2).collect();
         let late_validators: Vec<u64> =

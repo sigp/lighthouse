@@ -89,7 +89,8 @@ impl ApiTester {
             log.clone(),
         );
 
-        validator_store.attach_doppelganger_service(DoppelgangerService::new(log.clone()))
+        validator_store
+            .attach_doppelganger_service(DoppelgangerService::new(log.clone()))
             .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
@@ -206,7 +207,7 @@ impl ApiTester {
             .into_iter()
             .map(|pubkey| DoppelgangerData {
                 pubkey,
-                status: DoppelgangerStatus::Enabled,
+                status: DoppelgangerStatus::SigningEnabled,
             })
             .collect::<Vec<_>>();
 

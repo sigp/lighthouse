@@ -72,8 +72,9 @@ pub struct DoppelgangerData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DoppelgangerStatus {
-    Enabled,
-    Disabled,
+    SigningEnabled,
+    SigningDisabled,
     Unknown,
 }

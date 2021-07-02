@@ -420,7 +420,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 )
                 .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
         } else {
-            info!(log, "Doppelganger detection disabled.")
+            info!(log, "Doppelganger protection disabled.")
         }
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;

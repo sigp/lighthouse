@@ -5,10 +5,7 @@ mod tests;
 use crate::ValidatorStore;
 use account_utils::mnemonic_from_phrase;
 use create_validator::create_validators;
-use eth2::lighthouse_vc::types::{
-    self as api_types, DoppelgangerData, PublicKey,
-    PublicKeyBytes,
-};
+use eth2::lighthouse_vc::types::{self as api_types, DoppelgangerData, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
