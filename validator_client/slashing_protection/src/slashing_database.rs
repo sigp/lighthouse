@@ -562,8 +562,8 @@ impl SlashingDatabase {
 
     /// Import slashing protection from another client in the interchange format.
     ///
-    /// Return a vector of public keys and errors for any validators whose data could not be
-    /// imported.
+    /// This function will atomically import the entire interchange, failing if *any*
+    /// record cannot be imported.
     pub fn import_interchange_info(
         &self,
         interchange: Interchange,
@@ -581,25 +581,33 @@ impl SlashingDatabase {
             });
         }
 
+        // Create a single transaction for the entire batch, which will only be committed if
+        // all records are imported successfully.
         let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
 
         let mut import_outcomes = vec![];
+        let mut commit = true;
 
         for record in interchange.data {
             let pubkey = record.pubkey;
-            let txn = conn.transaction()?;
             match self.import_interchange_record(record, &txn) {
                 Ok(summary) => {
                     import_outcomes.push(InterchangeImportOutcome::Success { pubkey, summary });
-                    txn.commit()?;
                 }
                 Err(error) => {
                     import_outcomes.push(InterchangeImportOutcome::Failure { pubkey, error });
+                    commit = false;
                 }
             }
         }
 
-        Ok(import_outcomes)
+        if commit {
+            txn.commit()?;
+            Ok(import_outcomes)
+        } else {
+            Err(InterchangeError::AtomicBatchAborted(import_outcomes))
+        }
     }
 
     pub fn import_interchange_record(
@@ -914,12 +922,14 @@ pub enum InterchangeError {
         interchange_file: Hash256,
         client: Hash256,
     },
-    MinimalAttestationSourceAndTargetInconsistent,
+    MinAndMaxInconsistent,
     SQLError(String),
     SQLPoolError(r2d2::Error),
     SerdeJsonError(serde_json::Error),
     InvalidPubkey(String),
     NotSafe(NotSafe),
+    /// One or more records were found to be slashable, so the whole batch was aborted.
+    AtomicBatchAborted(Vec<InterchangeImportOutcome>),
 }
 
 impl From<NotSafe> for InterchangeError {
