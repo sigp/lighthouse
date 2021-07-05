@@ -90,6 +90,42 @@ lazy_static! {
         "store_beacon_state_write_bytes_total",
         "Total number of beacon state bytes written to the DB"
     );
+    pub static ref REPLAY_BLOCKS_TIME_HOT: Result<Histogram> = try_create_histogram(
+        "store_replay_blocks_total_time_hot",
+        "Total time to complete a replay_blocks call",
+    );
+    pub static ref REPLAY_BLOCKS_TIME_COLD: Result<Histogram> = try_create_histogram(
+        "store_replay_blocks_total_time_cold",
+        "Total time to complete a replay_blocks call",
+    );
+    pub static ref REPLAY_BLOCK_TIME: Result<Histogram> = try_create_histogram(
+        "store_replay_blocks_single",
+        "Time spent replaying a single block",
+    );
+    pub static ref REPLAY_BLOCK_TIME_SLOT: Result<Histogram> = try_create_histogram(
+        "store_replay_blocks_single_slot",
+        "Time spent replaying a single block",
+    );
+    pub static ref REPLAY_BLOCK_TIME_BLOCK: Result<Histogram> = try_create_histogram(
+        "store_replay_blocks_single_block",
+        "Time spent replaying a single block",
+    );
+    pub static ref LOAD_COLD_INTERMEDIATE_STATE_TIME: Result<Histogram> = try_create_histogram(
+        "store_load_cold_intermediate_state_time",
+        "Time spent loading a cold intermediate state",
+    );
+    pub static ref LOAD_LOW_RESTORE_POINT_TIME: Result<Histogram> = try_create_histogram(
+        "store_load_low_restore_point_time",
+        "Time required to load the low restore point for a frozen state",
+    );
+    pub static ref LOAD_HIGH_RESTORE_POINT_TIME: Result<Histogram> = try_create_histogram(
+        "store_load_high_restore_point_time",
+        "Time required to load the high restore point for a frozen state",
+    );
+    pub static ref LOAD_REPLAY_BLOCKS_TIME: Result<Histogram> = try_create_histogram(
+        "store_load_replay_blocks_time",
+        "Time spent loading blocks to replay for a frozen state",
+    );
     /*
      * Beacon Block
      */

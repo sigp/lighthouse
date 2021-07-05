@@ -28,7 +28,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    SlotProcessingError,
+    SlotProcessingError, VerifyParentBlockRoot,
 };
 use std::convert::TryInto;
 use std::marker::PhantomData;
@@ -52,7 +52,7 @@ pub enum BlockReplay {
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
 /// intermittent "restore point" states pre-finalization.
 #[derive(Debug)]
-pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub struct HotColdDBInner<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The slot and state root at the point where the database is split between hot and cold.
     ///
     /// States with slots less than `split.slot` are in the cold DB, while states with slots
@@ -73,6 +73,38 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub(crate) log: Logger,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
+}
+
+#[derive(Debug)]
+pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    inner: Arc<HotColdDBInner<E, Hot, Cold>>,
+}
+
+impl<E, Hot, Cold> std::ops::Deref for HotColdDB<E, Hot, Cold>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
+    type Target = HotColdDBInner<E, Hot, Cold>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+// FIXME(sproul): use derivative
+impl<E, Hot, Cold> Clone for HotColdDB<E, Hot, Cold>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -124,15 +156,17 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
-        let db = HotColdDB {
-            split: RwLock::new(Split::default()),
-            cold_db: MemoryStore::open(),
-            hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
+        let db = Self {
+            inner: Arc::new(HotColdDBInner {
+                split: RwLock::new(Split::default()),
+                cold_db: MemoryStore::open(),
+                hot_db: MemoryStore::open(),
+                block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+                config,
+                spec,
+                log,
+                _phantom: PhantomData,
+            }),
         };
 
         Ok(db)
@@ -149,23 +183,25 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     pub fn open(
         hot_path: &Path,
         cold_path: &Path,
-        migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
+        migrate_schema: impl FnOnce(Self, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
         spec: ChainSpec,
         log: Logger,
-    ) -> Result<Arc<Self>, Error> {
+    ) -> Result<Self, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
-        let db = Arc::new(HotColdDB {
-            split: RwLock::new(Split::default()),
-            cold_db: LevelDB::open(cold_path)?,
-            hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
-        });
+        let db = HotColdDB {
+            inner: Arc::new(HotColdDBInner {
+                split: RwLock::new(Split::default()),
+                cold_db: LevelDB::open(cold_path)?,
+                hot_db: LevelDB::open(hot_path)?,
+                block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+                config,
+                spec,
+                log,
+                _phantom: PhantomData,
+            }),
+        };
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
@@ -402,23 +438,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn forwards_block_roots_iterator(
-        store: Arc<Self>,
+        self,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
+        HybridForwardsBlockRootsIterator::new(self, start_slot, end_state, end_block_root, spec)
     }
 
     pub fn forwards_state_roots_iterator(
-        store: Arc<Self>,
+        self,
         start_slot: Slot,
         end_state_root: Hash256,
         end_state: BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        HybridForwardsStateRootsIterator::new(store, start_slot, end_state, end_state_root, spec)
+        HybridForwardsStateRootsIterator::new(self, start_slot, end_state, end_state_root, spec)
     }
 
     /// Load an epoch boundary state by using the hot state summary look-up.
@@ -610,7 +646,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             } else {
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
-                self.replay_blocks(boundary_state, blocks, slot, block_replay)?
+                let _replay_blocks_timer = metrics::start_timer(&metrics::REPLAY_BLOCKS_TIME_HOT);
+                self.replay_blocks(boundary_state, blocks, slot, None, block_replay)?
             };
 
             Ok(Some(state))
@@ -716,6 +753,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load a frozen state that lies between restore points.
     fn load_cold_intermediate_state(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
+        let _t = metrics::start_timer(&metrics::LOAD_COLD_INTERMEDIATE_STATE_TIME);
         // 1. Load the restore points either side of the intermediate state.
         let low_restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
         let high_restore_point_idx = low_restore_point_idx + 1;
@@ -723,9 +761,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Acquire the read lock, so that the split can't change while this is happening.
         let split = self.split.read();
 
+        let low_restore_timer = metrics::start_timer(&metrics::LOAD_LOW_RESTORE_POINT_TIME);
         let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
+        drop(low_restore_timer);
+
         // If the slot of the high point lies outside the freezer, use the split state
         // as the upper restore point.
+        let high_restore_timer = metrics::start_timer(&metrics::LOAD_HIGH_RESTORE_POINT_TIME);
         let high_restore_point = if high_restore_point_idx * self.config.slots_per_restore_point
             >= split.slot.as_u64()
         {
@@ -735,16 +777,36 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             self.load_restore_point_by_index(high_restore_point_idx)?
         };
+        drop(high_restore_timer);
 
         // 2. Load the blocks from the high restore point back to the low restore point.
+        let load_blocks_timer = metrics::start_timer(&metrics::LOAD_REPLAY_BLOCKS_TIME);
         let blocks = self.load_blocks_to_replay(
             low_restore_point.slot(),
             slot,
             self.get_high_restore_point_block_root(&high_restore_point, slot)?,
         )?;
+        drop(load_blocks_timer);
+
+        let state_root_iter = HybridForwardsStateRootsIterator::new(
+            self.clone(),
+            low_restore_point.slot(),
+            high_restore_point,
+            // Lie about the state root of the end state. We should never need to
+            // use the state root at the high restore point itself.
+            Hash256::zero(),
+            &self.spec,
+        )?;
 
         // 3. Replay the blocks on top of the low restore point.
-        self.replay_blocks(low_restore_point, blocks, slot, BlockReplay::Accurate)
+        let _replay_blocks_timer = metrics::start_timer(&metrics::REPLAY_BLOCKS_TIME_COLD);
+        self.replay_blocks(
+            low_restore_point,
+            blocks,
+            slot,
+            Some(state_root_iter),
+            BlockReplay::Accurate,
+        )
     }
 
     /// Get a suitable block root for backtracking from `high_restore_point` to the state at `slot`.
@@ -801,37 +863,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn replay_blocks(
         &self,
         mut state: BeaconState<E>,
-        mut blocks: Vec<SignedBeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
+        mut state_root_iter: Option<HybridForwardsStateRootsIterator<E, Hot, Cold>>,
         block_replay: BlockReplay,
     ) -> Result<BeaconState<E>, Error> {
-        if block_replay == BlockReplay::InconsistentStateRoots {
-            for i in 0..blocks.len() {
-                let prev_block_root = if i > 0 {
-                    blocks[i - 1].canonical_root()
-                } else {
-                    // Not read.
-                    Hash256::zero()
-                };
+        // If a state root iterator is provided, use it to fill in the state root when
+        // processing the block.
+        let mut state_root_from_iter = |slot| -> Option<Hash256> {
+            state_root_iter
+                .as_mut()?
+                // FIXME(frozen): better error handling
+                .filter_map(|res| res.ok())
+                .find(|(_, s)| *s == slot)
+                .map(|(state_root, _)| state_root)
+        };
 
-                let (state_root, parent_root) = match &mut blocks[i] {
-                    SignedBeaconBlock::Base(block) => (
-                        &mut block.message.state_root,
-                        &mut block.message.parent_root,
-                    ),
-                    SignedBeaconBlock::Altair(block) => (
-                        &mut block.message.state_root,
-                        &mut block.message.parent_root,
-                    ),
-                };
-
-                *state_root = Hash256::zero();
-                if i > 0 {
-                    *parent_root = prev_block_root;
-                }
-            }
-        }
-
+        // Otherwise, read the state root from the previous block. This only works for states at
+        // non-skipped slots.
         let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
             if i > 0 {
                 let prev_block = blocks[i - 1].message();
@@ -850,20 +899,36 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 continue;
             }
 
+            let _total_timer = metrics::start_timer(&metrics::REPLAY_BLOCK_TIME);
+            let slot_timer = metrics::start_timer(&metrics::REPLAY_BLOCK_TIME_SLOT);
             while state.slot() < block.slot() {
                 let state_root = match block_replay {
-                    BlockReplay::Accurate => state_root_from_prev_block(i, &state),
+                    BlockReplay::Accurate => state_root_from_iter(state.slot())
+                        .or_else(|| state_root_from_prev_block(i, &state)),
                     BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
                 };
+                if state_root.is_none() {
+                    // FIXME(frozen): This shouldn't be an actual warning but it's interesting while
+                    // debugging. I think the case where we can't avoid recalculating the state root
+                    // is at skip slots, when loading a hot state with `BlockReplay::Accurate`.
+                    warn!(
+                        self.log,
+                        "Missing state root during block replay";
+                        "slot" => state.slot(),
+                    );
+                }
                 per_slot_processing(&mut state, state_root, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
             }
+            drop(slot_timer);
 
+            let _block_timer = metrics::start_timer(&metrics::REPLAY_BLOCK_TIME_BLOCK);
             per_block_processing(
                 &mut state,
                 &block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyParentBlockRoot::False,
                 &self.spec,
             )
             .map_err(HotColdDBError::BlockReplayBlockError)?;
@@ -871,7 +936,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         while state.slot() < target_slot {
             let state_root = match block_replay {
-                BlockReplay::Accurate => state_root_from_prev_block(blocks.len(), &state),
+                BlockReplay::Accurate => state_root_from_iter(state.slot()),
                 BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
             };
             per_slot_processing(&mut state, state_root, &self.spec)
@@ -1043,7 +1108,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
 pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-    store: Arc<HotColdDB<E, Hot, Cold>>,
+    store: HotColdDB<E, Hot, Cold>,
     frozen_head_root: Hash256,
     frozen_head: &BeaconState<E>,
 ) -> Result<(), Error> {

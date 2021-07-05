@@ -28,7 +28,7 @@ const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    db: Arc<HotColdDB<E, Hot, Cold>>,
+    db: HotColdDB<E, Hot, Cold>,
     #[allow(clippy::type_complexity)]
     tx_thread: Option<Mutex<(mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>)>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
@@ -83,7 +83,7 @@ pub struct MigrationNotification {
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
     pub fn new(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
+        db: HotColdDB<E, Hot, Cold>,
         config: MigratorConfig,
         genesis_block_root: Hash256,
         log: Logger,
@@ -153,7 +153,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     /// Perform the actual work of `process_finalization`.
-    fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: MigrationNotification, log: &Logger) {
+    fn run_migration(db: HotColdDB<E, Hot, Cold>, notif: MigrationNotification, log: &Logger) {
         let finalized_state_root = notif.finalized_state_root;
 
         let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
@@ -229,7 +229,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     ///
     /// Return a channel handle for sending new finalized states to the thread.
     fn spawn_thread(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
+        db: HotColdDB<E, Hot, Cold>,
         log: Logger,
     ) -> (mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
@@ -258,7 +258,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// space.
     #[allow(clippy::too_many_arguments)]
     fn prune_abandoned_forks(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         head_tracker: Arc<HeadTracker>,
         new_finalized_state_hash: BeaconStateHash,
         new_finalized_state: &BeaconState<E>,
@@ -499,7 +499,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// Compact the database if it has been more than `COMPACTION_PERIOD_SECONDS` since it
     /// was last compacted.
     pub fn run_compaction(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
+        db: HotColdDB<E, Hot, Cold>,
         old_finalized_epoch: Epoch,
         new_finalized_epoch: Epoch,
         log: &Logger,

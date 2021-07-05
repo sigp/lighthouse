@@ -3,7 +3,6 @@ use crate::beacon_chain::BeaconChainTypes;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::Error as StoreError;
@@ -12,7 +11,7 @@ const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
 pub fn migrate_schema<T: BeaconChainTypes>(
-    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    db: HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
     datadir: &Path,
     from: SchemaVersion,
     to: SchemaVersion,

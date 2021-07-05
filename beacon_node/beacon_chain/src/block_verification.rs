@@ -62,7 +62,7 @@ use state_processing::{
     per_epoch_processing::EpochProcessingSummary,
     per_slot_processing,
     state_advance::partial_state_advance,
-    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
+    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyParentBlockRoot,
 };
 use std::borrow::Cow;
 use std::convert::TryFrom;
@@ -1028,6 +1028,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             Some(block_root),
             // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
+            VerifyParentBlockRoot::True,
             &chain.spec,
         ) {
             match err {

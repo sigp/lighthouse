@@ -1,5 +1,4 @@
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
-use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use tree_hash::TreeHash;
@@ -65,6 +64,18 @@ impl VerifySignatures {
     }
 }
 
+#[derive(PartialEq, Clone, Copy)]
+pub enum VerifyParentBlockRoot {
+    True,
+    False,
+}
+
+impl VerifyParentBlockRoot {
+    fn is_true(self) -> bool {
+        self == VerifyParentBlockRoot::True
+    }
+}
+
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
 /// checking the block proposer signature.
 ///
@@ -81,6 +92,7 @@ pub fn per_block_processing<T: EthSpec>(
     signed_block: &SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
+    verify_parent_block_root: VerifyParentBlockRoot,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -115,7 +127,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
     };
 
-    let proposer_index = process_block_header(state, block, spec)?;
+    let proposer_index = process_block_header(state, block, verify_parent_block_root, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -127,7 +139,7 @@ pub fn per_block_processing<T: EthSpec>(
 
     process_randao(state, block, verify_signatures, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), verify_signatures, spec)?;
+    process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
     if let BeaconBlockRef::Altair(inner) = block {
         process_sync_aggregate(state, &inner.body.sync_aggregate, proposer_index, spec)?;
@@ -140,6 +152,7 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
+    verify_parent_block_root: VerifyParentBlockRoot,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -168,14 +181,16 @@ pub fn process_block_header<T: EthSpec>(
         }
     );
 
-    let expected_previous_block_root = state.latest_block_header().tree_hash_root();
-    verify!(
-        block.parent_root() == expected_previous_block_root,
-        HeaderInvalid::ParentBlockRootMismatch {
-            state: expected_previous_block_root,
-            block: block.parent_root(),
-        }
-    );
+    if verify_parent_block_root.is_true() {
+        let expected_previous_block_root = state.latest_block_header().tree_hash_root();
+        verify!(
+            block.parent_root() == expected_previous_block_root,
+            HeaderInvalid::ParentBlockRootMismatch {
+                state: expected_previous_block_root,
+                block: block.parent_root(),
+            }
+        );
+    }
 
     *state.latest_block_header_mut() = block.temporary_block_header();
 

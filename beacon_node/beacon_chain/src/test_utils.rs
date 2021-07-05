@@ -25,7 +25,6 @@ use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::ShutdownReason;
@@ -229,7 +228,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         let chain = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec.clone())
-            .store(Arc::new(store))
+            .store(store)
             .store_migrator_config(MigratorConfig::default().blocking())
             .genesis_state(
                 interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
@@ -266,7 +265,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     pub fn new_with_disk_store(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
-        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+        store: HotColdDB<E, LevelDB<E>, LevelDB<E>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
@@ -311,7 +310,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
-        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+        store: HotColdDB<E, LevelDB<E>, LevelDB<E>>,
         validator_keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {

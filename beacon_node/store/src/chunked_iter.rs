@@ -1,7 +1,6 @@
 use crate::chunked_vector::{chunk_key, Chunk, Field};
 use crate::{HotColdDB, ItemStore};
 use slog::error;
-use std::sync::Arc;
 use types::{ChainSpec, EthSpec, Slot};
 
 /// Iterator over the values of a `BeaconState` vector field (like `block_roots`).
@@ -14,7 +13,7 @@ where
     Hot: ItemStore<E>,
     Cold: ItemStore<E>,
 {
-    pub(crate) store: Arc<HotColdDB<E, Hot, Cold>>,
+    pub(crate) store: HotColdDB<E, Hot, Cold>,
     current_vindex: usize,
     pub(crate) end_vindex: usize,
     next_cindex: usize,
@@ -35,7 +34,7 @@ where
     /// `HotColdDB::get_latest_restore_point_slot`. We pass it as a parameter so that the caller can
     /// maintain a stable view of the database (see `HybridForwardsBlockRootsIterator`).
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_vindex: usize,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,

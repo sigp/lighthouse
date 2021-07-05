@@ -4,7 +4,6 @@ use crate::errors::{Error, Result};
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
 use crate::{HotColdDB, ItemStore};
 use itertools::process_results;
-use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 /// Forwards block roots iterator that makes use of the `block_roots` table in the freezer DB.
@@ -34,7 +33,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     FrozenForwardsBlockRootsIterator<E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
@@ -64,7 +63,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
 
 impl SimpleForwardsBlockRootsIterator {
     pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
@@ -95,7 +94,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     HybridForwardsBlockRootsIterator<E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
@@ -200,7 +199,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     FrozenForwardsStateRootsIterator<E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
@@ -230,7 +229,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
 
 impl SimpleForwardsStateRootsIterator {
     pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_state_root: Hash256,
@@ -261,7 +260,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     HybridForwardsStateRootsIterator<E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_state_root: Hash256,

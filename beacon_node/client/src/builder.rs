@@ -8,7 +8,7 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, BeaconStore, Eth1ChainBackend, ServerSentEventHandler,
 };
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
@@ -45,8 +45,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 /// `self.memory_store(..)` has been called.
 pub struct ClientBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
-    #[allow(clippy::type_complexity)]
-    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
+    store: Option<BeaconStore<T>>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
     chain_spec: Option<ChainSpec>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
