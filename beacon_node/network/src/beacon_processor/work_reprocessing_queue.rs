@@ -308,7 +308,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
                         log,
-                        "Attestation delay queue is full";
+                        "Aggregate attestation delay queue is full";
                         "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
                         "msg" => "check system clock"
                     );
