@@ -1,4 +1,4 @@
-FROM rust:1.50.0 AS builder
+FROM rust:1.53.0 AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake
 COPY . lighthouse
 ARG PORTABLE
