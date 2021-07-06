@@ -1092,7 +1092,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
     }
 
-    /// Handle an error whilst verifying a `SyncCommitteeMessage` or `SyncCommitteeContribution` from the
+    /// Handle an error whilst verifying a `SyncCommitteeMessage` or `SignedContributionAndProof` from the
     /// network.
     pub fn handle_sync_committee_message_failure(
         &self,
@@ -1149,18 +1149,11 @@ impl<T: BeaconChainTypes> Worker<T> {
             SyncCommitteeError::AggregatorNotInCommittee { .. }
             | SyncCommitteeError::AggregatorPubkeyUnknown(_) => {
                 /*
-                 * The aggregator index was higher than any known validator index. This is
-                 * possible in two cases:
-                 *
-                 * 1. The message is malformed
-                 * 2. The sync committee message attests to a beacon_block_root that we do not know.
-                 *
-                 * It should be impossible to reach (2) without triggering
-                 * `SyncCommitteeError::UnknownHeadBlock`, so we can safely assume the peer is
-                 * faulty.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
+                * The aggregator is not in the committee for the given `ContributionAndSync` OR
+                  The aggregator index was higher than any known validator index
+                *
+                * The peer has published an invalid consensus message.
+                */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
@@ -1181,10 +1174,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
-            SyncCommitteeError::ValidatorIndexTooHigh(_)
-            | SyncCommitteeError::UnknownValidatorIndex(_)
-            // TODO(pawan): verify this should be dealt with similar severity
-            | SyncCommitteeError::UnknownValidatorPubkey(_) => {
+            SyncCommitteeError::UnknownValidatorIndex(_) => {
                 /*
                  * The aggregator index (or similar field) was higher than the maximum
                  * possible number of validators.
@@ -1200,26 +1190,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            SyncCommitteeError::UnknownHeadBlock{beacon_block_root} => {
-                // TODO(pawan): verify that this is similar to the attestation case.
-                trace!(
-                    self.log,
-                    "Sync committee message for unknown block";
-                    "peer_id" => %peer_id,
-                    "block" => %beacon_block_root
-                );
-                // we don't know the block, get the sync manager to handle the block lookup
-                self.sync_tx
-                    .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
-                    .unwrap_or_else(|_| {
-                        warn!(
-                            self.log,
-                            "Failed to send to sync service";
-                            "msg" => "UnknownBlockHash"
-                        )
-                    });
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return;
+            // TODO(pawan): verify this should be dealt with similar severity
+            SyncCommitteeError::UnknownValidatorPubkey(_) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
             SyncCommitteeError::InvalidSubnetId { received, expected } => {
                 /*
@@ -1243,13 +1217,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            SyncCommitteeError::PriorSyncCommitteeMessageKnown {..} => {
+            SyncCommitteeError::PriorSyncCommitteeMessageKnown { .. } => {
                 /*
-                 * We have already seen an attestation from this validator for this epoch.
+                 * We have already seen a sync committee message from this validator for this epoch.
                  *
                  * The peer is not necessarily faulty.
                  */
-                 debug!(
+                debug!(
                     self.log,
                     "Prior sync committee message known";
                     "peer_id" => %peer_id,
@@ -1263,7 +1237,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 return;
             }
-            SyncCommitteeError::BeaconChainError(e)  => {
+            SyncCommitteeError::BeaconChainError(e) => {
                 /*
                  * Lighthouse hit an unexpected error whilst processing the sync committee message. It
                  * should be impossible to trigger a `BeaconChainError` from the network,
@@ -1281,10 +1255,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Penalize the peer slightly
                 self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
             }
-            SyncCommitteeError::BeaconStateError(e)  => {
+            SyncCommitteeError::BeaconStateError(e) => {
                 /*
                  * Lighthouse hit an unexpected error whilst processing the sync committee message. It
-                 * should be impossible to trigger a `BeaconChainError` from the network,
+                 * should be impossible to trigger a `BeaconStateError` from the network,
                  * so we have a bug.
                  *
                  * It's not clear if the message is invalid/malicious.
@@ -1323,25 +1297,24 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             SyncCommitteeError::ArithError(e) => {
                 /*
-                TODO(pawan): this would most likely imply wrongly set config params on our side.
-                Check severity.
+                This would most likely imply incompatible configs or an invalid message.
                 */
                 error!(
                     self.log,
-                    "Error while processing sync committee message";
+                    "Arithematic error while processing sync committee message";
                     "peer_id" => %peer_id,
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            SyncCommitteeError::InvalidSubcommittee {..} => {
+            SyncCommitteeError::InvalidSubcommittee { .. } => {
                 /*
-                TODO(pawan): check severity
+                The subcommittee index is higher than `SYNC_COMMITTEE_SUBNET_COUNT`. This would imply
+                an invalid message.
                 */
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
         }
         debug!(
