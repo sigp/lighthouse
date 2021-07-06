@@ -27,9 +27,7 @@
 //! ```
 
 use crate::{
-    beacon_chain::{
-        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
+    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
     metrics,
     observed_aggregates::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
@@ -892,10 +890,8 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
     let fork = chain
-        .canonical_head
-        .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork())?;
+        .spec
+        .fork_at_epoch(indexed_attestation.data.target.epoch);
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
@@ -998,10 +994,8 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     }
 
     let fork = chain
-        .canonical_head
-        .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork())?;
+        .spec
+        .fork_at_epoch(indexed_attestation.data.target.epoch);
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
