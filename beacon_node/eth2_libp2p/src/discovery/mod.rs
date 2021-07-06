@@ -737,7 +737,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
         // predicate for finding nodes with a matching fork and valid tcp port
         let eth2_fork_predicate = move |enr: &Enr| {
-            enr.eth2() == Ok(enr_fork_id.clone()) && (enr.tcp().is_some() || enr.tcp6().is_some())
+            // `next_fork_epoch` and `next_fork_version` can be different so that
+            // we can connect to peers who aren't compatible with an upcoming fork.
+            // `fork_digest` **must** be same.
+            enr.eth2().map(|e| e.fork_digest) == Ok(enr_fork_id.fork_digest)
+                && (enr.tcp().is_some() || enr.tcp6().is_some())
         };
 
         // General predicate
