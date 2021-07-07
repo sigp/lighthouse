@@ -27,8 +27,8 @@ use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    SlotProcessingError, VerifyParentBlockRoot,
+    per_block_processing, per_slot_processing, BlockProcessingError, SlotProcessingError,
+    VerificationStrategy,
 };
 use std::convert::TryInto;
 use std::marker::PhantomData;
@@ -917,7 +917,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         "slot" => state.slot(),
                     );
                 }
-                per_slot_processing(&mut state, state_root, &self.spec)
+                // Latest block root is the root of the parent block.
+                let latest_block_root = Some(block.parent_root());
+                per_slot_processing(&mut state, state_root, latest_block_root, &self.spec)
                     .map_err(HotColdDBError::BlockReplaySlotError)?;
             }
             drop(slot_timer);
@@ -927,8 +929,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 &mut state,
                 &block,
                 None,
-                BlockSignatureStrategy::NoVerification,
-                VerifyParentBlockRoot::False,
+                VerificationStrategy::no_verification(),
                 &self.spec,
             )
             .map_err(HotColdDBError::BlockReplayBlockError)?;
@@ -939,7 +940,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 BlockReplay::Accurate => state_root_from_iter(state.slot()),
                 BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
             };
-            per_slot_processing(&mut state, state_root, &self.spec)
+            // FIXME(frozen): could pass the latest block root here
+            per_slot_processing(&mut state, state_root, None, &self.spec)
                 .map_err(HotColdDBError::BlockReplaySlotError)?;
         }
 

@@ -25,6 +25,7 @@ impl From<ArithError> for Error {
 pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
+    latest_block_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<Option<EpochProcessingSummary>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
@@ -32,7 +33,7 @@ pub fn per_slot_processing<T: EthSpec>(
         .fork_name(spec)
         .map_err(Error::InconsistentStateFork)?;
 
-    cache_state(state, state_root)?;
+    cache_state(state, state_root, latest_block_root)?;
 
     let summary = if state.slot() > spec.genesis_slot
         && state.slot().safe_add(1)?.safe_rem(T::slots_per_epoch())? == 0
@@ -57,6 +58,7 @@ pub fn per_slot_processing<T: EthSpec>(
 fn cache_state<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
+    latest_block_root: Option<Hash256>,
 ) -> Result<(), Error> {
     let previous_state_root = if let Some(root) = state_root {
         root
@@ -80,7 +82,8 @@ fn cache_state<T: EthSpec>(
     }
 
     // Cache block root
-    let latest_block_root = state.latest_block_header().canonical_root();
+    let latest_block_root =
+        latest_block_root.unwrap_or_else(|| state.latest_block_header().canonical_root());
     state.set_block_root(previous_slot, latest_block_root)?;
 
     // Set the state slot back to what it should be.

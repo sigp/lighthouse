@@ -230,7 +230,7 @@ fn advance_head<T: BeaconChainTypes>(
     };
 
     // Advance the state a single slot.
-    if let Some(summary) = per_slot_processing(&mut state, state_root, &beacon_chain.spec)
+    if let Some(summary) = per_slot_processing(&mut state, state_root, None, &beacon_chain.spec)
         .map_err(BeaconChainError::from)?
     {
         // Only notify the validator monitor for recent blocks.

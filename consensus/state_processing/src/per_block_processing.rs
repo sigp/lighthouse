@@ -48,6 +48,73 @@ pub enum BlockSignatureStrategy {
     VerifyBulk,
 }
 
+pub struct VerificationStrategy {
+    /// Verification to apply to signatures.
+    signatures: BlockSignatureStrategy,
+    /// Whether to verify the proposer index, or trust the index in the block.
+    proposer_index: bool,
+    /// Whether to verify the parent block root against the state's latest block header.
+    parent_block_root: bool,
+    /// Whether to verify the merkle proofs for deposits, or assume their validity.
+    deposit_merkle_proofs: bool,
+}
+
+impl Default for VerificationStrategy {
+    fn default() -> Self {
+        VerificationStrategy {
+            signatures: BlockSignatureStrategy::VerifyIndividual,
+            proposer_index: true,
+            parent_block_root: true,
+            deposit_merkle_proofs: true,
+        }
+    }
+}
+
+impl VerificationStrategy {
+    pub fn bulk_signatures() -> Self {
+        Self {
+            signatures: BlockSignatureStrategy::VerifyBulk,
+            ..Self::default()
+        }
+    }
+
+    pub fn individual_signatures() -> Self {
+        Self {
+            signatures: BlockSignatureStrategy::VerifyIndividual,
+            ..Self::default()
+        }
+    }
+
+    pub fn no_signatures() -> Self {
+        Self {
+            signatures: BlockSignatureStrategy::NoVerification,
+            ..Self::default()
+        }
+    }
+
+    /// XXX: dangerous function to disable the maximum number of block verifications.
+    ///
+    /// This should *only* be used for blocks that have already been fully verified, e.g.
+    /// ones read from the database.
+    pub fn no_verification() -> Self {
+        Self {
+            signatures: BlockSignatureStrategy::NoVerification,
+            proposer_index: false,
+            parent_block_root: false,
+            deposit_merkle_proofs: false,
+        }
+    }
+
+    pub fn verify_sigs(&self) -> VerifySignatures {
+        match self.signatures {
+            BlockSignatureStrategy::VerifyBulk | BlockSignatureStrategy::NoVerification => {
+                VerifySignatures::False
+            }
+            BlockSignatureStrategy::VerifyIndividual => VerifySignatures::True,
+        }
+    }
+}
+
 /// The strategy to be used when validating the block's signatures.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 #[derive(PartialEq, Clone, Copy)]
@@ -61,18 +128,6 @@ pub enum VerifySignatures {
 impl VerifySignatures {
     pub fn is_true(self) -> bool {
         self == VerifySignatures::True
-    }
-}
-
-#[derive(PartialEq, Clone, Copy)]
-pub enum VerifyParentBlockRoot {
-    True,
-    False,
-}
-
-impl VerifyParentBlockRoot {
-    fn is_true(self) -> bool {
-        self == VerifyParentBlockRoot::True
     }
 }
 
@@ -91,8 +146,7 @@ pub fn per_block_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     signed_block: &SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
-    block_signature_strategy: BlockSignatureStrategy,
-    verify_parent_block_root: VerifyParentBlockRoot,
+    verification: VerificationStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -107,27 +161,23 @@ pub fn per_block_processing<T: EthSpec>(
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
-    let verify_signatures = match block_signature_strategy {
-        BlockSignatureStrategy::VerifyBulk => {
-            // Verify all signatures in the block at once.
-            block_verify!(
-                BlockSignatureVerifier::verify_entire_block(
-                    state,
-                    |i| get_pubkey_from_state(state, i),
-                    signed_block,
-                    block_root,
-                    spec
-                )
-                .is_ok(),
-                BlockProcessingError::BulkSignatureVerificationFailed
-            );
-            VerifySignatures::False
-        }
-        BlockSignatureStrategy::VerifyIndividual => VerifySignatures::True,
-        BlockSignatureStrategy::NoVerification => VerifySignatures::False,
-    };
+    if let BlockSignatureStrategy::VerifyBulk = verification.signatures {
+        // Verify all signatures in the block at once.
+        block_verify!(
+            BlockSignatureVerifier::verify_entire_block(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                signed_block,
+                block_root,
+                spec
+            )
+            .is_ok(),
+            BlockProcessingError::BulkSignatureVerificationFailed
+        );
+    }
+    let verify_signatures = verification.verify_sigs();
 
-    let proposer_index = process_block_header(state, block, verify_parent_block_root, spec)?;
+    let proposer_index = process_block_header(state, block, &verification, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -139,7 +189,7 @@ pub fn per_block_processing<T: EthSpec>(
 
     process_randao(state, block, verify_signatures, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
+    process_operations(state, block.body(), proposer_index, &verification, spec)?;
 
     if let BeaconBlockRef::Altair(inner) = block {
         process_sync_aggregate(state, &inner.body.sync_aggregate, proposer_index, spec)?;
@@ -152,7 +202,7 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
-    verify_parent_block_root: VerifyParentBlockRoot,
+    verification: &VerificationStrategy,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -172,16 +222,18 @@ pub fn process_block_header<T: EthSpec>(
 
     // Verify that proposer index is the correct index
     let proposer_index = block.proposer_index() as usize;
-    let state_proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
-    verify!(
-        proposer_index == state_proposer_index,
-        HeaderInvalid::ProposerIndexMismatch {
-            block_proposer_index: proposer_index,
-            state_proposer_index,
-        }
-    );
+    if verification.proposer_index {
+        let state_proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
+        verify!(
+            proposer_index == state_proposer_index,
+            HeaderInvalid::ProposerIndexMismatch {
+                block_proposer_index: proposer_index,
+                state_proposer_index,
+            }
+        );
+    }
 
-    if verify_parent_block_root.is_true() {
+    if verification.parent_block_root {
         let expected_previous_block_root = state.latest_block_header().tree_hash_root();
         verify!(
             block.parent_root() == expected_previous_block_root,

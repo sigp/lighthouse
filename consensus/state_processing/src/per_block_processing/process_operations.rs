@@ -13,9 +13,10 @@ pub fn process_operations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T>,
     proposer_index: u64,
-    verify_signatures: VerifySignatures,
+    verification: &VerificationStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let verify_signatures = verification.verify_sigs();
     process_proposer_slashings(
         state,
         block_body.proposer_slashings(),
@@ -29,7 +30,7 @@ pub fn process_operations<'a, T: EthSpec>(
         spec,
     )?;
     process_attestations(state, block_body, proposer_index, verify_signatures, spec)?;
-    process_deposits(state, block_body.deposits(), spec)?;
+    process_deposits(state, block_body.deposits(), verification, spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
     Ok(())
 }
@@ -274,6 +275,7 @@ pub fn process_exits<T: EthSpec>(
 pub fn process_deposits<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposits: &[Deposit],
+    verification: &VerificationStrategy,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let expected_deposit_len = std::cmp::min(
@@ -289,19 +291,20 @@ pub fn process_deposits<T: EthSpec>(
     );
 
     // Verify merkle proofs in parallel.
-    // FIXME(freezer): could elide this check when replaying blocks
-    deposits
-        .par_iter()
-        .enumerate()
-        .try_for_each(|(i, deposit)| {
-            verify_deposit_merkle_proof(
-                state,
-                deposit,
-                state.eth1_deposit_index().safe_add(i as u64)?,
-                spec,
-            )
-            .map_err(|e| e.into_with_index(i))
-        })?;
+    if verification.deposit_merkle_proofs {
+        deposits
+            .par_iter()
+            .enumerate()
+            .try_for_each(|(i, deposit)| {
+                verify_deposit_merkle_proof(
+                    state,
+                    deposit,
+                    state.eth1_deposit_index().safe_add(i as u64)?,
+                    spec,
+                )
+                .map_err(|e| e.into_with_index(i))
+            })?;
+    }
 
     // Update the state in series.
     for deposit in deposits {

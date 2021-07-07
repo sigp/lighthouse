@@ -48,7 +48,7 @@ use state_processing::{
     per_block_processing::errors::AttestationValidationError,
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp, VerifyParentBlockRoot,
+    SigVerifiedOp, VerificationStrategy,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -905,7 +905,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
-                    match per_slot_processing(&mut state, skip_state_root, &self.spec) {
+                    match per_slot_processing(&mut state, skip_state_root, None, &self.spec) {
                         Ok(_) => (),
                         Err(e) => {
                             warn!(
@@ -2301,8 +2301,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             None,
-            BlockSignatureStrategy::NoVerification,
-            VerifyParentBlockRoot::True,
+            VerificationStrategy::no_signatures(),
             &self.spec,
         )?;
         drop(process_timer);
