@@ -174,6 +174,10 @@ impl Default for Config {
             .disable_report_discovered_peers()
             .ip_limit() // limits /24 IP's in buckets.
             .incoming_bucket_limit(8) // half the bucket size
+            .filter_rate_limiter(filter_rate_limiter)
+            .filter_max_bans_per_ip(Some(5))
+            .filter_max_nodes_per_ip(Some(10))
+            .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
 
