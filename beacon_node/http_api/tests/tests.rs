@@ -861,13 +861,10 @@ impl ApiTester {
     pub async fn test_beacon_headers_all_parents(self) -> Self {
         let mut roots = self
             .chain
-            .rev_iter_block_roots()
+            .forwards_iter_block_roots(Slot::new(0))
             .unwrap()
             .map(Result::unwrap)
             .map(|(root, _slot)| root)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
             .collect::<Vec<_>>();
 
         // The iterator natively returns duplicate roots for skipped slots.
