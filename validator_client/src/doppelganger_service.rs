@@ -255,15 +255,22 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 #[derive(Clone)]
 pub struct DoppelgangerService {
     doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>>,
+    doppelganger_protection_enabled: bool,
     log: Logger,
 }
 
 impl DoppelgangerService {
-    pub fn new(log: Logger) -> Self {
+    pub fn new(log: Logger, doppelganger_protection_enabled: bool) -> Self {
         Self {
             doppelganger_states: <_>::default(),
+            doppelganger_protection_enabled,
             log,
         }
+    }
+
+    /// Returns `true` if doppelganger protection was enabled on validator startup.
+    pub fn doppelganger_protection_enabled(&self) -> bool {
+        self.doppelganger_protection_enabled
     }
 
     /// Starts a reoccurring future which will try to keep the doppelganger service updated each
@@ -271,7 +278,7 @@ impl DoppelgangerService {
     pub fn start_update_service<E: EthSpec, T: 'static + SlotClock>(
         self,
         context: RuntimeContext<E>,
-        validator_store: ValidatorStore<T, E>,
+        validator_store: Arc<ValidatorStore<T, E>>,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
         slot_clock: T,
     ) -> Result<(), String> {
@@ -725,7 +732,7 @@ mod test {
                 validators: (0..self.validator_count)
                     .map(|_| PublicKeyBytes::random_for_test(&mut rng))
                     .collect(),
-                doppelganger: DoppelgangerService::new(log),
+                doppelganger: DoppelgangerService::new(log, true),
                 slot_clock,
             }
         }
@@ -751,7 +758,7 @@ mod test {
             self
         }
 
-        pub fn register_all_validators(self) -> Self {
+        pub fn register_all_in_doppelganger_protection(self) -> Self {
             let mut this = self;
             for i in 0..this.validators.len() {
                 this = this.register_validator(i as u64);
@@ -906,7 +913,7 @@ mod test {
             TestBuilder::default()
                 .build()
                 .set_slot(slot)
-                .register_all_validators()
+                .register_all_in_doppelganger_protection()
                 .assert_all_enabled()
                 .assert_all_states(&DoppelgangerState {
                     next_check_epoch: genesis_epoch() + 1,
@@ -923,7 +930,7 @@ mod test {
             TestBuilder::default()
                 .build()
                 .set_slot(slot)
-                .register_all_validators()
+                .register_all_in_doppelganger_protection()
                 .assert_all_disabled()
                 .assert_all_states(&DoppelgangerState {
                     next_check_epoch: epoch + 1,
@@ -1025,7 +1032,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(slot)
-            .register_all_validators()
+            .register_all_in_doppelganger_protection()
             // All validators should have signing enabled since it's the genesis epoch.
             .assert_all_enabled()
             .simulate_detect_doppelgangers(
@@ -1053,7 +1060,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(slot)
-            .register_all_validators()
+            .register_all_in_doppelganger_protection()
             .assert_all_disabled()
             // First, simulate a check where there are no doppelgangers.
             .simulate_detect_doppelgangers(
@@ -1121,7 +1128,7 @@ mod test {
         let mut scenario = TestBuilder::default()
             .build()
             .set_slot(initial_slot)
-            .register_all_validators()
+            .register_all_in_doppelganger_protection()
             .assert_all_disabled();
 
         for slot in initial_slot.as_u64()..=activation_slot.as_u64() {
@@ -1192,7 +1199,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(initial_slot)
-            .register_all_validators()
+            .register_all_in_doppelganger_protection()
             .assert_all_disabled()
             // First, simulate a check in the initialization epoch.
             .simulate_detect_doppelgangers(
@@ -1237,7 +1244,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(initial_slot)
-            .register_all_validators()
+            .register_all_in_doppelganger_protection()
             .assert_all_disabled()
             // First, simulate a check in the initialization epoch.
             .simulate_detect_doppelgangers(

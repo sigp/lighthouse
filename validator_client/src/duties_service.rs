@@ -95,7 +95,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Provides the canonical list of locally-managed validators.
-    pub validator_store: ValidatorStore<T, E>,
+    pub validator_store: Arc<ValidatorStore<T, E>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.

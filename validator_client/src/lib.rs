@@ -72,7 +72,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     doppelganger_service: Option<DoppelgangerService>,
-    validator_store: ValidatorStore<SystemTimeSlotClock, T>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
@@ -287,14 +287,24 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .log(log.clone())
             .build()?;
 
-        let mut validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
-            validators,
-            slashing_protection,
-            genesis_validators_root,
-            context.eth2_config.spec.clone(),
-            fork_service.clone(),
-            log.clone(),
+        let doppelganger_service = DoppelgangerService::new(
+            context
+                .service_context(DOPPELGANGER_SERVICE_NAME.into())
+                .log()
+                .clone(),
+            config.enable_doppelganger_protection,
         );
+
+        let validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>> =
+            Arc::new(ValidatorStore::new(
+                validators,
+                slashing_protection,
+                genesis_validators_root,
+                context.eth2_config.spec.clone(),
+                fork_service.clone(),
+                doppelganger_service,
+                log.clone(),
+            ));
 
         info!(
             log,
@@ -354,17 +364,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
-        let doppelganger_service = if config.enable_doppelganger_protection {
-            let service = DoppelgangerService::new(
-                context
-                    .service_context(DOPPELGANGER_SERVICE_NAME.into())
-                    .log()
-                    .clone(),
-            );
+        let doppelganger_service = if validator_store.doppelganger_protection_enabled() {
+            validator_store.register_all_in_doppelganger_protection()?;
 
-            validator_store.attach_doppelganger_service(service.clone())?;
-
-            Some(service)
+            Some(validator_store.doppelganger_service().clone())
         } else {
             None
         };
@@ -408,8 +411,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
-        if let Some(doppelganger_service) = self.doppelganger_service.as_ref() {
-            doppelganger_service
+        if self.validator_store.doppelganger_protection_enabled() {
+            self.validator_store
+                .doppelganger_service()
                 .clone()
                 .start_update_service(
                     self.context
