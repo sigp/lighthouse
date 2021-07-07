@@ -89,6 +89,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
                         // Ignore these events here
                     }
                     Discv5Event::EnrAdded { .. } => {}     // Ignore
+                    Discv5Event::TalkRequest(_)  => {}     // Ignore
                     Discv5Event::NodeInserted { .. } => {} // Ignore
                     Discv5Event::SocketUpdated(socket_addr) => {
                         info!(log, "External socket address updated"; "socket_addr" => format!("{:?}", socket_addr));

@@ -10,7 +10,7 @@ edition = "2018"
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 futures = "0.3.7"
 task_executor = { path = "../task_executor" }
-tokio = "1.1.0"
+tokio = "1.7.1"
 eth2 = {path = "../eth2"}
 serde_json = "1.0.58"
 serde = "1.0.116"

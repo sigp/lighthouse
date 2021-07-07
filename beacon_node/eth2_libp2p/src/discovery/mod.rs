@@ -497,13 +497,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             // If we could convert this peer id, remove it from the DHT and ban it from discovery.
-            self.discv5.ban_node(&node_id);
+            self.discv5.ban_node(&node_id, None);
             // Remove the node from the routing table.
             self.discv5.remove_node(&node_id);
         }
 
         for ip_address in ip_addresses {
-            self.discv5.ban_ip(ip_address);
+            self.discv5.ban_ip(ip_address, None);
         }
     }
 
@@ -512,11 +512,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             // If we could convert this peer id, remove it from the DHT and ban it from discovery.
-            self.discv5.permit_node(&node_id);
+            self.discv5.ban_node_remove(&node_id);
         }
 
         for ip_address in ip_addresses {
-            self.discv5.permit_ip(ip_address);
+            self.discv5.ban_ip_remove(&ip_address);
         }
     }
 
@@ -944,7 +944,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             *self.network_globals.local_enr.write() = enr;
                             return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
                         }
-                        _ => {} // Ignore all other discv5 server events
+                        Discv5Event::EnrAdded { .. }
+                        | Discv5Event::TalkRequest(_)
+                        | Discv5Event::NodeInserted { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
