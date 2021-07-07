@@ -108,10 +108,12 @@ const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
+/// TODO(pawan): check ideal queue length.
 const MAX_SYNC_MESSAGE_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedContributionAndProof` objects that will be stored before we
 /// start dropping them.
+/// TODO(pawan): check ideal queue length.
 const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
@@ -720,7 +722,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
 
-        // TODO: check
         let mut sync_message_queue = LifoQueue::new(MAX_SYNC_MESSAGE_QUEUE_LEN);
         let mut sync_contribution_queue = LifoQueue::new(MAX_SYNC_CONTRIBUTION_QUEUE_LEN);
 
@@ -852,6 +853,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        // TODO(pawan): verify preference
+                        // Check sync committee messages before attestations as they are good for only
+                        // a single slot.
+                        } else if let Some(item) = sync_contribution_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = sync_message_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
