@@ -931,7 +931,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn maintain_sync_committee_peers(&mut self) {
         // Remove expired entries
         self.sync_committee_subnets
-            .retain(|_, v| Instant::now() > *v);
+            .retain(|_, v| *v > Instant::now());
 
         let subnets_to_discover: Vec<SubnetDiscovery> = self
             .sync_committee_subnets
@@ -957,6 +957,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // request the subnet query from discovery
         if !subnets_to_discover.is_empty() {
+            debug!(
+                self.log,
+                "Making subnet queries for maintaining sync committee peers";
+                "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
+            );
             self.discovery.discover_subnet_peers(subnets_to_discover);
         }
     }

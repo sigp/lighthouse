@@ -142,7 +142,7 @@ impl GossipTopic {
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
                 topic => match committee_topic_index(topic) {
-                    Some(subnet_id) => match subnet_id {
+                    Some(subnet) => match subnet {
                         Subnet::Attestation(s) => GossipKind::Attestation(s),
                         Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
                     },

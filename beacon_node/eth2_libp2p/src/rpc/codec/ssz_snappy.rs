@@ -161,8 +161,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
 
-                // We need not check that decoded_buffer.len() is within bounds here
-                // since we have already checked `length` above.
                 match self.protocol.version {
                     Version::V1 => handle_v1_request(self.protocol.message_name, &decoded_buffer),
                     Version::V2 => handle_v2_request(self.protocol.message_name, &decoded_buffer),
@@ -298,8 +296,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
 
-                // We need not check that decoded_buffer.len() is within bounds here
-                // since we have already checked `length` above.
                 match self.protocol.version {
                     Version::V1 => handle_v1_response(self.protocol.message_name, &decoded_buffer),
                     Version::V2 => handle_v2_response(
@@ -532,7 +528,7 @@ fn handle_v1_response<T: EthSpec>(
 // length = length-prefix received in the beginning of the stream.
 ///
 /// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
-/// according to the received fork_name.
+/// according to the received `ForkName`.
 fn handle_v2_response<T: EthSpec>(
     protocol: Protocol,
     decoded_buffer: &[u8],
@@ -886,6 +882,7 @@ mod tests {
         );
     }
 
+    // Test RPCResponse encoding/decoding for V2 messages
     #[test]
     fn test_context_bytes_v2() {
         let fork_context = fork_context();
@@ -1001,8 +998,10 @@ mod tests {
         )
     }
 
+    /// Test a malicious snappy encoding for a V1 `Status` message where the attacker
+    /// sends a valid message filled with a stream of useless padding before the actual message.
     #[test]
-    fn test_decode_malicious_status_message() {
+    fn test_decode_malicious_v1_message() {
         // 10 byte snappy stream identifier
         let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
 
@@ -1055,6 +1054,8 @@ mod tests {
         );
     }
 
+    /// Test a malicious snappy encoding for a V2 `BlocksByRange` message where the attacker
+    /// sends a valid message filled with a stream of useless padding before the actual message.
     #[test]
     fn test_decode_malicious_v2_message() {
         let fork_context = Arc::new(fork_context());

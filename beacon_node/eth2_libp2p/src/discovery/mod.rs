@@ -18,8 +18,9 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
 use lru::LruCache;
-use slog::{crit, debug, error, info, warn};
+use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::fmt::Display;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -69,6 +70,19 @@ struct SubnetQuery {
     subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
+}
+
+impl Display for SubnetQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let min_ttl_secs = self
+            .min_ttl
+            .map(|ttl| ttl.saturating_duration_since(Instant::now()).as_secs());
+        write!(
+            f,
+            "Subnet: {:?}, ttl_seconds: {:?}, attempt: {}",
+            self.subnet, min_ttl_secs, self.retries
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -317,7 +331,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if !self.started {
             return;
         }
-        debug!(
+        trace!(
             self.log,
             "Making discovery query for subnets";
             "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
@@ -601,7 +615,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 retries,
             });
             // update the metrics and insert into the queue.
-            debug!(self.log, "Queuing subnet query"; "subnet" => ?subnet, "retries" => retries);
+            trace!(self.log, "Queuing subnet query"; "subnet" => ?subnet, "retries" => retries);
             self.queued_queries.push_back(query);
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
@@ -655,11 +669,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         // This query is for searching for peers of a particular subnet
                         // Drain subnet_queries so we can re-use it as we continue to process the queue
                         let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
-                        debug!(
-                            self.log,
-                            "Starting grouped subnet query";
-                            "subnets" => ?grouped_queries.iter().map(|q| q.subnet).collect::<Vec<_>>(),
-                        );
                         self.start_subnet_query(grouped_queries);
                         processed = true;
                     }
@@ -704,13 +713,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 }
 
                 let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
-                debug!(self.log, "Discovery query started for subnet";
-                    "subnet_id" => ?subnet_query.subnet,
+                trace!(self.log, "Discovery query started for subnet";
+                    "subnet_query" => %subnet_query,
                     "connected_peers_on_subnet" => peers_on_subnet,
-                    "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     "peers_to_find" => target_peers,
-                    "attempt" => subnet_query.retries,
-                    "min_ttl" => ?subnet_query.min_ttl,
                 );
 
                 filtered_subnets.push(subnet_query.subnet);
@@ -723,6 +729,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
             let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnets, &self.log);
 
+            debug!(
+                self.log,
+                "Starting grouped subnet query";
+                "subnets" => ?filtered_subnet_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>(),
+            );
             self.start_query(
                 GroupedQueryType::Subnet(filtered_subnet_queries),
                 TARGET_PEERS_FOR_GROUPED_QUERY,
