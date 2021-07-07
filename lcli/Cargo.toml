@@ -27,7 +27,7 @@ dirs = "3.0.1"
 genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../common/deposit_contract" }
 tree_hash = "0.1.1"
-tokio = { version = "1.1.0", features = ["full"] }
+tokio = { version = "1.7.1", features = ["full"] }
 clap_utils = { path = "../common/clap_utils" }
 eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
 validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
