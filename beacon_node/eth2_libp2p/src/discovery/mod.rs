@@ -944,7 +944,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             *self.network_globals.local_enr.write() = enr;
                             return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
                         }
-                        Discv5Event::EnrAdded { .. } | Discv5Event::TalkRequest(_) | Discv5Event::NodeInserted { .. } => {} // Ignore all other discv5 server events
+                        Discv5Event::EnrAdded { .. }
+                        | Discv5Event::TalkRequest(_)
+                        | Discv5Event::NodeInserted { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
