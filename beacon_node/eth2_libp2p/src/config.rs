@@ -151,6 +151,16 @@ impl Default for Config {
             .build()
             .expect("valid gossipsub configuration");
 
+        // Discv5 Unsolicited Packet Rate Limiter
+        let filter_rate_limiter = Some(
+            discv5::RateLimiterBuilder::new()
+                .total_n_every(10, Duration::from_secs(1)) // Allow bursts, average 10 per second
+                .ip_n_every(9, Duration::from_secs(1)) // Allow bursts, average 9 per second
+                .node_n_every(8, Duration::from_secs(1)) // Allow bursts, average 8 per second
+                .build()
+                .expect("The total rate limit has been specified"),
+        );
+
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
             .enable_packet_filter()
@@ -164,6 +174,10 @@ impl Default for Config {
             .disable_report_discovered_peers()
             .ip_limit() // limits /24 IP's in buckets.
             .incoming_bucket_limit(8) // half the bucket size
+            .filter_rate_limiter(filter_rate_limiter)
+            .filter_max_bans_per_ip(Some(5))
+            .filter_max_nodes_per_ip(Some(10))
+            .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
 

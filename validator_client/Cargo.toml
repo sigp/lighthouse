@@ -9,7 +9,7 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "1.1.0", features = ["time", "rt-multi-thread", "macros"] }
+tokio = { version = "1.7.1", features = ["time", "rt-multi-thread", "macros"] }
 deposit_contract = { path = "../common/deposit_contract" }
 
 [dependencies]
@@ -30,7 +30,7 @@ serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.6.0"
-tokio = { version = "1.1.0", features = ["time"] }
+tokio = { version = "1.7.1", features = ["time"] }
 futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }

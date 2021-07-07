@@ -8,7 +8,7 @@ edition = "2018"
 beacon_chain =  { path = "../beacon_chain" }
 types = { path = "../../consensus/types" }
 slot_clock = { path = "../../common/slot_clock" }
-tokio = { version = "1.1.0", features = ["full"] }
+tokio = { version = "1.7.1", features = ["full"] }
 slog = "2.5.2"
 parking_lot = "0.11.0"
 futures = "0.3.7"

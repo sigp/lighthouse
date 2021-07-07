@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "1.1.0", features = ["time"] }
+tokio = { version = "1.7.1", features = ["time"] }
 tokio-compat-02 = "0.2.0"
 web3 = { version = "0.16.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 futures = "0.3.7"
