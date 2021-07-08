@@ -9,7 +9,7 @@ use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
-use libp2p::core::{ConnectedPoint, multiaddr::Protocol as MProtocol};
+use libp2p::core::{multiaddr::Protocol as MProtocol, ConnectedPoint};
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
@@ -93,6 +93,8 @@ pub enum PeerManagerEvent {
     PeerConnectedIncoming(PeerId),
     /// A peer has been dialed.
     PeerConnectedOutgoing(PeerId),
+    /// A peer has disconnected.
+    PeerDisconnected(PeerId),
     /// Dial a PeerId.
     Dial(PeerId),
     /// Inform libp2p that our external socket addr has been updated.
@@ -312,12 +314,24 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inject_peer_connection(peer_id, ConnectingType::Dialing);
     }
 
-    pub fn inject_connection_established(&mut self, peer_id: PeerId, endpoint: ConnectedPoint, num_established: std::num::NonZeroU32) {
-
+    pub fn inject_connection_established(
+        &mut self,
+        peer_id: PeerId,
+        endpoint: ConnectedPoint,
+        num_established: std::num::NonZeroU32,
+    ) {
         // Should not be able to connect to a banned peer. Double check here
         if self.is_banned(&peer_id) {
             warn!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
-            self.events.push(PeerManagerEvent::DisconnectPeer(peer_id, GoodbyeReason::TooManyPeers));
+            self.events.push(PeerManagerEvent::DisconnectPeer(
+                peer_id,
+                GoodbyeReason::TooManyPeers,
+            ));
+            self.network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .map(|info| info.disconnecting(true));
             return;
         }
 
@@ -329,16 +343,24 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .read()
                 .peer_info(&peer_id)
                 .map_or(true, |peer| !peer.has_future_duty())
-                {
-                    self.events.push(PeerManagerEvent::DisconnectPeer(peer_id, GoodbyeReason::TooManyPeers));
-                    return;
-                }
-             // increment prometheus metrics
-            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-            metrics::set_gauge(
-                &metrics::PEERS_CONNECTED,
-                self.network_globals.connected_peers() as i64,
-            );
+        {
+            self.events.push(PeerManagerEvent::DisconnectPeer(
+                peer_id,
+                GoodbyeReason::TooManyPeers,
+            ));
+            self.network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .map(|info| info.disconnecting(false));
+            return;
+        }
+        // increment prometheus metrics
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
 
         // Register the newly connected peer (regardless if we are about to disconnect them).
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
@@ -347,22 +369,28 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.inject_connect_ingoing(&peer_id, send_back_addr.clone());
                 if num_established == std::num::NonZeroU32::new(1).expect("valid") {
-                    self.events.push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
+                    self.events
+                        .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
                 }
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming", "connections" => %num_established);
             }
             ConnectedPoint::Dialer { address } => {
                 self.inject_connect_outgoing(&peer_id, address.clone());
                 if num_established == std::num::NonZeroU32::new(1).expect("valid") {
-                    self.events.push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
+                    self.events
+                        .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
                 }
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Dialed", "connections" => %num_established);
             }
-            }
+        }
     }
 
-    pub fn inject_connection_closed(&mut self, peer_id: PeerId, endpoint: ConnectedPoint, num_established: u32) {
-
+    pub fn inject_connection_closed(
+        &mut self,
+        peer_id: PeerId,
+        _endpoint: ConnectedPoint,
+        num_established: u32,
+    ) {
         if num_established == 0 {
             // There are no more connections
 
@@ -370,48 +398,47 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.remove_all_subscriptions(&peer_id);
 
             if self
-            .network_globals
-            .peers
-            .read()
-            .is_connected_or_disconnecting(&peer_id)
-        {
-            // We are disconnecting the peer or the peer has already been connected.
-            // Both these cases, the peer has been previously registered by the peer manager and
-            // potentially the application layer.
-            // Inform the application.
-            self.events.push(PeerManagerEvent::PeerDisconnected(*peer_id));
-            debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
-
-            // Decrement the PEERS_PER_CLIENT metric
-            if let Some(kind) = self
                 .network_globals
                 .peers
                 .read()
-                .peer_info(&peer_id)
-                .map(|info| info.client.kind.clone())
+                .is_connected_or_disconnecting(&peer_id)
             {
-                if let Some(v) =
-                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                // We are disconnecting the peer or the peer has already been connected.
+                // Both these cases, the peer has been previously registered by the peer manager and
+                // potentially the application layer.
+                // Inform the application.
+                self.events
+                    .push(PeerManagerEvent::PeerDisconnected(peer_id));
+                debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
+
+                // Decrement the PEERS_PER_CLIENT metric
+                if let Some(kind) = self
+                    .network_globals
+                    .peers
+                    .read()
+                    .peer_info(&peer_id)
+                    .map(|info| info.client.kind.clone())
                 {
-                    v.dec()
-                };
+                    if let Some(v) =
+                        metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                    {
+                        v.dec()
+                    };
+                }
             }
+
+            // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
+            // here and the peer manager has no knowledge of its connection. We insert it here for
+            // reference so that peer manager can track this peer.
+            self.inject_disconnect(&peer_id);
+
+            // Update the prometheus metrics
+            metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+            metrics::set_gauge(
+                &metrics::PEERS_CONNECTED,
+                self.network_globals.connected_peers() as i64,
+            );
         }
-
-
-
-        // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
-        // here and the peer manager has no knowledge of its connection. We insert it here for
-        // reference so that peer manager can track this peer.
-        self.inject_disconnect(&peer_id);
-
-        // Update the prometheus metrics
-        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,);
-        }
-
     }
 
     /// A dial attempt has failed.
@@ -818,7 +845,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.outbound_ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
     }
-
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.

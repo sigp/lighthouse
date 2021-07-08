@@ -13,12 +13,7 @@ use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use libp2p::{
-    NetworkBehaviour,
-    core::{
-        connection::{ConnectionId},
-        identity::Keypair,
-    },
-
+    core::{connection::ConnectionId, identity::Keypair},
     gossipsub::{
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
         Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
@@ -26,10 +21,10 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
-        AddressScore, NetworkBehaviourAction as NBAction,
-        PollParameters, NetworkBehaviourEventProcess,
+        AddressScore, NetworkBehaviourAction as NBAction, NetworkBehaviourEventProcess,
+        PollParameters,
     },
-    PeerId,
+    NetworkBehaviour, PeerId,
 };
 use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
@@ -60,9 +55,9 @@ pub type Gossipsub = BaseGossipsub<SnappyTransform, SubscriptionFilter>;
 #[derive(Debug)]
 pub enum BehaviourEvent<TSpec: EthSpec> {
     /// We have successfully dialed and connected to a peer.
-    PeerDialed(PeerId),
+    PeerConnectedOutgoing(PeerId),
     /// A peer has successfully dialed and connected to us.
-    PeerConnected(PeerId),
+    PeerConnectedIncoming(PeerId),
     /// A peer has disconnected.
     PeerDisconnected(PeerId),
     /// The peer needs to be banned.
@@ -110,11 +105,9 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event="BehaviourEvent<TSpec>", poll_method = "poll")]
+#[behaviour(out_event = "BehaviourEvent<TSpec>", poll_method = "poll")]
 pub struct Behaviour<TSpec: EthSpec> {
-
     /* Sub-Behaviours */
-
     /// The routing pub-sub mechanism for eth2.
     gossipsub: Gossipsub,
     /// The Eth2 RPC specified in the wire-0 protocol.
@@ -125,7 +118,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     identify: Identify,
 
     /* Auxiliary Fields */
-
     /// The peer manager that keeps track of peer's reputation and status.
     #[behaviour(ignore)]
     peer_manager: PeerManager<TSpec>,
@@ -169,7 +161,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
 
-
         // Set up the Identify Behaviour
         let identify_config = if net_conf.private {
             IdentifyConfig::new(
@@ -204,7 +195,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         )
         .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
 
-        // Construct a set of gossipsub peer scoring parameters 
+        // Construct a set of gossipsub peer scoring parameters
         // We don't know the number of active validators and the current slot yet
         let active_validators = TSpec::minimum_validator_count();
         let current_slot = Slot::new(0);
@@ -645,7 +636,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         &mut self.peer_manager
     }
 
-
     // RPC Propagation methods
     /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
     fn propagate_response(&mut self, id: RequestId, peer_id: PeerId, response: Response<TSpec>) {
@@ -703,18 +693,16 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 }
 
+/* Behaviour Event Process Implementations
+ *
+ * These implementations dictate how to process each event that is emitted from each
+ * sub-behaviour.
+ */
 
-    /* Behaviour Event Process Implementations 
-     *
-     * These implementations dictate how to process each event that is emitted from each
-     * sub-behaviour.
-     */
+// Gossipsub
 
-    // Gossipsub
-
-    impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSpec> {
-        fn inject_event(&mut self, event: GossipsubEvent) {
-
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<TSpec> {
+    fn inject_event(&mut self, event: GossipsubEvent) {
         match event {
             GossipsubEvent::Message {
                 propagation_source,
@@ -757,12 +745,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 }
             }
         }
-        }
     }
+}
 
-    // RPC
-    impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSpec> {
-        fn inject_event(&mut self, event: RPCMessage<TSpec>) {
+// RPC
+impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behaviour<TSpec> {
+    fn inject_event(&mut self, event: RPCMessage<TSpec>) {
         let peer_id = event.peer_id;
 
         if !self.peer_manager.is_connected(&peer_id) {
@@ -838,7 +826,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         // NOTE: We currently do not inform the application that we are
                         // disconnecting here. The RPC handler will automatically
                         // disconnect for us.
-                        // The actual disconnection event will be relayed to the application. 
+                        // The actual disconnection event will be relayed to the application.
                     }
                     /* Protocols propagated to the Network */
                     InboundRequest::Status(msg) => {
@@ -887,53 +875,65 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 self.propagate_response(id, peer_id, response);
             }
         }
-        }
     }
-
+}
 
 // Identify
 impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<TSpec> {
     fn inject_event(&mut self, event: IdentifyEvent) {
-    match event {
-        IdentifyEvent::Received { peer_id, mut info } => {
-            if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
-                debug!(
-                    self.log,
-                    "More than 10 addresses have been identified, truncating"
-                );
-                info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
-            }
-            // send peer info to the peer manager.
-            self.peer_manager.identify(&peer_id, &info);
+        match event {
+            IdentifyEvent::Received { peer_id, mut info } => {
+                if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
+                    debug!(
+                        self.log,
+                        "More than 10 addresses have been identified, truncating"
+                    );
+                    info.listen_addrs.truncate(MAX_IDENTIFY_ADDRESSES);
+                }
+                // send peer info to the peer manager.
+                self.peer_manager.identify(&peer_id, &info);
 
-            debug!(self.log, "Identified Peer"; "peer" => %peer_id,
-                "protocol_version" => info.protocol_version,
-                "agent_version" => info.agent_version,
-                "listening_ addresses" => ?info.listen_addrs,
-                "observed_address" => ?info.observed_addr,
-                "protocols" => ?info.protocols
-            );
+                debug!(self.log, "Identified Peer"; "peer" => %peer_id,
+                    "protocol_version" => info.protocol_version,
+                    "agent_version" => info.agent_version,
+                    "listening_ addresses" => ?info.listen_addrs,
+                    "observed_address" => ?info.observed_addr,
+                    "protocols" => ?info.protocols
+                );
+            }
+            IdentifyEvent::Sent { .. } => {}
+            IdentifyEvent::Error { .. } => {}
+            IdentifyEvent::Pushed { .. } => {}
         }
-        IdentifyEvent::Sent { .. } => {}
-        IdentifyEvent::Error { .. } => {}
-        IdentifyEvent::Pushed { .. } => {}
     }
 }
-}
-
 
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Consumes the events list and drives the Lighthouse global NetworkBehaviour.
     fn poll<THandlerIn>(
         &mut self,
         cx: &mut Context,
-        _: &mut impl PollParameters, 
+        _: &mut impl PollParameters,
     ) -> Poll<NBAction<THandlerIn, BehaviourEvent<TSpec>>> {
-
         // check the peer manager for events
         loop {
             match self.peer_manager.poll_next_unpin(cx) {
                 Poll::Ready(Some(event)) => match event {
+                    PeerManagerEvent::PeerConnectedIncoming(peer_id) => {
+                        return Poll::Ready(NBAction::GenerateEvent(
+                            BehaviourEvent::PeerConnectedIncoming(peer_id),
+                        ));
+                    }
+                    PeerManagerEvent::PeerConnectedOutgoing(peer_id) => {
+                        return Poll::Ready(NBAction::GenerateEvent(
+                            BehaviourEvent::PeerConnectedOutgoing(peer_id),
+                        ));
+                    }
+                    PeerManagerEvent::PeerDisconnected(peer_id) => {
+                        return Poll::Ready(NBAction::GenerateEvent(
+                            BehaviourEvent::PeerDisconnected(peer_id),
+                        ));
+                    }
                     PeerManagerEvent::Dial(peer_id) => {
                         return Poll::Ready(NBAction::DialPeer {
                             peer_id,
@@ -993,7 +993,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         Poll::Pending
     }
-
 }
 
 /* Public API types */

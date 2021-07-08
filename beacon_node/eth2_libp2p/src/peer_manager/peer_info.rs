@@ -227,11 +227,8 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Notify the we are currently disconnecting this peer, after which the peer will be
-    /// considered banned.
-    // This intermediate state is required to inform the network behaviours that the sub-protocols
-    // are aware this peer exists and it is in the process of being banned. Compared to nodes that
-    // try to connect to us and are already banned (sub protocols do not know of these peers).
+    /// Notify the we are currently disconnecting this peer. Optionally ban the peer after the
+    /// disconnect.
     pub fn disconnecting(&mut self, to_ban: bool) {
         self.connection_status = Disconnecting { to_ban }
     }

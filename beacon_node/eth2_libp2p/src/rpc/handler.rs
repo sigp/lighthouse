@@ -1,8 +1,10 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination, GoodbyeReason};
-use super::protocol::{Protocol, RPCError, RPCProtocol, InboundRequest};
+use super::methods::{
+    GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
+};
+use super::protocol::{InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
@@ -237,9 +239,10 @@ where
                 }));
             }
 
-            // Queue our goodbye message. 
+            // Queue our goodbye message.
             if let Some(reason) = goodbye_reason {
-                self.dial_queue.push((RequestId::Router, OutboundRequest::Goodbye(reason)));
+                self.dial_queue
+                    .push((RequestId::Router, OutboundRequest::Goodbye(reason)));
             }
 
             self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
@@ -418,7 +421,7 @@ where
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
-            RPCSend::Shutdown(reason) => self.shutdown(Some(reason))
+            RPCSend::Shutdown(reason) => self.shutdown(Some(reason)),
         }
     }
 
@@ -519,7 +522,9 @@ where
             if delay.is_elapsed() {
                 self.state = HandlerState::Deactivated;
                 debug!(self.log, "Handler deactivated");
-                return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::InternalError("Shutdown timeout")));
+                return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::InternalError(
+                    "Shutdown timeout",
+                )));
             }
         }
 
@@ -875,13 +880,14 @@ where
 
         // Check if we have completed sending a goodbye, disconnect.
         if let HandlerState::ShuttingDown(_) = self.state {
-                if  self.dial_queue.is_empty()
-                    && self.outbound_substreams.is_empty()
-                    && self.inbound_substreams.is_empty()
-                    && self.events_out.is_empty()
-                    && self.dial_negotiated == 0 {
-                    return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::Disconnected));
-                }
+            if self.dial_queue.is_empty()
+                && self.outbound_substreams.is_empty()
+                && self.inbound_substreams.is_empty()
+                && self.events_out.is_empty()
+                && self.dial_negotiated == 0
+            {
+                return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::Disconnected));
+            }
         }
 
         Poll::Pending

@@ -299,9 +299,16 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     }
                     return Libp2pEvent::Behaviour(behaviour);
                 }
-                SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established } => {
+                SwarmEvent::ConnectionEstablished {
+                    peer_id,
+                    endpoint,
+                    num_established,
+                } => {
                     // Inform the peer manager.
-                    self.swarm.behaviour_mut().peer_manager_mut().inject_connection_established(peer_id, endpoint, num_established);
+                    self.swarm
+                        .behaviour_mut()
+                        .peer_manager_mut()
+                        .inject_connection_established(peer_id, endpoint, num_established);
                 }
                 SwarmEvent::ConnectionClosed {
                     peer_id,
@@ -310,7 +317,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     num_established,
                 } => {
                     // Inform the peer manager.
-                    self.swarm.behaviour_mut().peer_manager_mut().inject_connection_closed(peer_id, endpoint, num_established);
+                    self.swarm
+                        .behaviour_mut()
+                        .peer_manager_mut()
+                        .inject_connection_closed(peer_id, endpoint, num_established);
                 }
                 SwarmEvent::NewListenAddr(multiaddr) => {
                     return Libp2pEvent::NewListenAddr(multiaddr)
@@ -360,7 +370,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
                 SwarmEvent::Dialing(peer_id) => {
                     debug!(self.log, "Dialing peer"; "peer_id" => %peer_id);
-                    self.swarm.behaviour_mut().peer_manager_mut().inject_dialing(&peer_id);
+                    self.swarm
+                        .behaviour_mut()
+                        .peer_manager_mut()
+                        .inject_dialing(&peer_id);
                 }
             }
         }

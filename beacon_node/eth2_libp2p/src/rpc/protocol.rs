@@ -453,7 +453,7 @@ pub enum RPCError {
     /// Handler rejected this request.
     HandlerRejected,
     /// We have intentionally disconnected.
-    Disconnected
+    Disconnected,
 }
 
 impl From<ssz::DecodeError> for RPCError {
