@@ -9,7 +9,7 @@ use crate::{EnrExt, NetworkConfig, NetworkGlobals, PeerId, SubnetDiscovery};
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
-use libp2p::core::multiaddr::Protocol as MProtocol;
+use libp2p::core::{ConnectedPoint, multiaddr::Protocol as MProtocol};
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, trace, warn};
 use smallvec::SmallVec;
@@ -89,6 +89,10 @@ pub struct PeerManager<TSpec: EthSpec> {
 
 /// The events that the `PeerManager` outputs (requests).
 pub enum PeerManagerEvent {
+    /// A peer has dialed us.
+    PeerConnectedIncoming(PeerId),
+    /// A peer has been dialed.
+    PeerConnectedOutgoing(PeerId),
     /// Dial a PeerId.
     Dial(PeerId),
     /// Inform libp2p that our external socket addr has been updated.
@@ -101,6 +105,10 @@ pub enum PeerManagerEvent {
     MetaData(PeerId),
     /// The peer should be disconnected.
     DisconnectPeer(PeerId, GoodbyeReason),
+    /// The peer should be banned.
+    Banned(PeerId),
+    /// The peer should be unbanned.
+    UnBanned(PeerId),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -134,14 +142,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /* Public accessible functions */
-
-    /// Attempts to connect to a peer.
-    ///
-    /// Returns true if the peer was accepted into the database.
-    pub fn dial_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.events.push(PeerManagerEvent::Dial(*peer_id));
-        self.connect_peer(peer_id, ConnectingType::Dialing)
-    }
 
     /// The application layer wants to disconnect from a peer for a particular reason.
     ///
@@ -307,19 +307,111 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /* Notifications from the Swarm */
 
-    /// Updates the state of the peer as disconnected.
-    ///
-    /// This is also called when dialing a peer fails.
-    pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
-        self.network_globals
-            .peers
-            .write()
-            .notify_disconnect(peer_id);
+    // A peer is being dialed.
+    pub fn inject_dialing(&mut self, peer_id: &PeerId) {
+        self.inject_peer_connection(peer_id, ConnectingType::Dialing);
+    }
 
-        // remove the ping and status timer for the peer
-        self.inbound_ping_peers.remove(peer_id);
-        self.outbound_ping_peers.remove(peer_id);
-        self.status_peers.remove(peer_id);
+    pub fn inject_connection_established(&mut self, peer_id: PeerId, endpoint: ConnectedPoint, num_established: std::num::NonZeroU32) {
+
+        // Should not be able to connect to a banned peer. Double check here
+        if self.is_banned(&peer_id) {
+            warn!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
+            self.events.push(PeerManagerEvent::DisconnectPeer(peer_id, GoodbyeReason::TooManyPeers));
+            return;
+        }
+
+        // Check the connection limits
+        if self.peer_limit_reached()
+            && self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
+                {
+                    self.events.push(PeerManagerEvent::DisconnectPeer(peer_id, GoodbyeReason::TooManyPeers));
+                    return;
+                }
+             // increment prometheus metrics
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+            metrics::set_gauge(
+                &metrics::PEERS_CONNECTED,
+                self.network_globals.connected_peers() as i64,
+            );
+
+        // Register the newly connected peer (regardless if we are about to disconnect them).
+        // NOTE: We don't register peers that we are disconnecting immediately. The network service
+        // does not need to know about these peers.
+        match endpoint {
+            ConnectedPoint::Listener { send_back_addr, .. } => {
+                self.inject_connect_ingoing(&peer_id, send_back_addr.clone());
+                if num_established == std::num::NonZeroU32::new(1).expect("valid") {
+                    self.events.push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
+                }
+                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming", "connections" => %num_established);
+            }
+            ConnectedPoint::Dialer { address } => {
+                self.inject_connect_outgoing(&peer_id, address.clone());
+                if num_established == std::num::NonZeroU32::new(1).expect("valid") {
+                    self.events.push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
+                }
+                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Dialed", "connections" => %num_established);
+            }
+            }
+    }
+
+    pub fn inject_connection_closed(&mut self, peer_id: PeerId, endpoint: ConnectedPoint, num_established: u32) {
+
+        if num_established == 0 {
+            // There are no more connections
+
+            // Remove all subnet subscriptions from the peer_db
+            self.remove_all_subscriptions(&peer_id);
+
+            if self
+            .network_globals
+            .peers
+            .read()
+            .is_connected_or_disconnecting(&peer_id)
+        {
+            // We are disconnecting the peer or the peer has already been connected.
+            // Both these cases, the peer has been previously registered by the peer manager and
+            // potentially the application layer.
+            // Inform the application.
+            self.events.push(PeerManagerEvent::PeerDisconnected(*peer_id));
+            debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
+
+            // Decrement the PEERS_PER_CLIENT metric
+            if let Some(kind) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map(|info| info.client.kind.clone())
+            {
+                if let Some(v) =
+                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                {
+                    v.dec()
+                };
+            }
+        }
+
+
+
+        // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
+        // here and the peer manager has no knowledge of its connection. We insert it here for
+        // reference so that peer manager can track this peer.
+        self.inject_disconnect(&peer_id);
+
+        // Update the prometheus metrics
+        metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,);
+        }
+
     }
 
     /// A dial attempt has failed.
@@ -327,9 +419,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
     /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
     /// the peer is not already connected.
-    pub fn notify_dial_failure(&mut self, peer_id: &PeerId) {
+    pub fn inject_dial_failure(&mut self, peer_id: &PeerId) {
         if !self.network_globals.peers.read().is_connected(peer_id) {
-            self.notify_disconnect(peer_id);
+            self.inject_disconnect(peer_id);
             // set peer as disconnected in discovery DHT
             debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
             self.discovery.disconnect_peer(peer_id);
@@ -338,14 +430,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
-    pub fn connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
-        self.connect_peer(peer_id, ConnectingType::IngoingConnected { multiaddr })
+    pub fn inject_connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
+        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr })
     }
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
-    pub fn connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
-        self.connect_peer(peer_id, ConnectingType::OutgoingConnected { multiaddr })
+    pub fn inject_connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
+        self.inject_peer_connection(peer_id, ConnectingType::OutgoingConnected { multiaddr })
     }
 
     /// Reports if a peer is banned or not.
@@ -674,7 +766,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
             // Remove the ENR from the cache to prevent continual re-dialing on disconnects
             self.discovery.remove_cached_enr(&peer_id);
-            self.dial_peer(peer_id);
+            self.events.push(PeerManagerEvent::Dial(*peer_id));
         }
     }
 
@@ -708,9 +800,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
         for peer_id in to_dial_peers {
             debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
-            self.dial_peer(&peer_id);
+            self.events.push(PeerManagerEvent::Dial(peer_id));
         }
     }
+
+    /// Updates the state of the peer as disconnected.
+    ///
+    /// This is also called when dialing a peer fails.
+    fn inject_disconnect(&mut self, peer_id: &PeerId) {
+        self.network_globals
+            .peers
+            .write()
+            .notify_disconnect(peer_id);
+
+        // remove the ping and status timer for the peer
+        self.inbound_ping_peers.remove(peer_id);
+        self.outbound_ping_peers.remove(peer_id);
+        self.status_peers.remove(peer_id);
+    }
+
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
     /// dialed or connecting to us.
@@ -718,7 +826,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This is called by `connect_ingoing` and `connect_outgoing`.
     ///
     /// Informs if the peer was accepted in to the db or not.
-    fn connect_peer(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
+    fn inject_peer_connection(&mut self, peer_id: &PeerId, connection: ConnectingType) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.is_banned(&peer_id) {
@@ -774,6 +882,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         true
     }
 
+    /// This handles score transitions between states. It transitions peers states from
+    /// disconnected/banned/connected.
     fn handle_score_transitions(
         previous_state: ScoreState,
         peer_id: &PeerId,
@@ -814,6 +924,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+    /// Updates the state of banned peers.
     fn ban_and_unban_peers(&mut self, to_ban_peers: Vec<PeerId>, to_unban_peers: Vec<PeerId>) {
         // process banning peers
         for peer_id in to_ban_peers {
@@ -884,6 +995,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .unwrap_or_default();
 
         self.discovery.ban_peer(&peer_id, banned_ip_addresses);
+
+        // Inform the Swarm to ban the peer
+        self.events.push(PeerManagerEvent::Banned(*peer_id));
     }
 
     /// Unbans a peer.
@@ -900,6 +1014,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .unwrap_or_default();
 
         self.discovery.unban_peer(&peer_id, seen_ip_addresses);
+
+        // Inform the Swarm to unban the peer
+        self.events.push(PeerManagerEvent::UnBanned(*peer_id));
         Ok(())
     }
 
@@ -1125,11 +1242,11 @@ mod tests {
         let outbound_only_peer1 = PeerId::random();
         let outbound_only_peer2 = PeerId::random();
 
-        peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_outgoing(&outbound_only_peer2, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_outgoing(&outbound_only_peer2, "/ip4/0.0.0.0".parse().unwrap());
 
         // Set the outbound-only peers to have the lowest score.
         peer_manager
@@ -1181,13 +1298,13 @@ mod tests {
         // Connect to 20 ingoing-only peers.
         for _i in 0..19 {
             let peer = PeerId::random();
-            peer_manager.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap());
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap());
         }
 
         // Connect an outbound-only peer.
         // Give it the lowest score so that it is evaluated first in the disconnect list iterator.
         let outbound_only_peer = PeerId::random();
-        peer_manager.connect_ingoing(&outbound_only_peer, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&outbound_only_peer, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
             .network_globals
             .peers
@@ -1213,12 +1330,12 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_outgoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_outgoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
 
         // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
             .network_globals
             .peers
@@ -1268,12 +1385,12 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
 
         // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
             .network_globals
             .peers
@@ -1320,12 +1437,12 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
-        peer_manager.connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         // Have one peer be on the verge of disconnection.
-        peer_manager.connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
+        peer_manager.inject_connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap());
         peer_manager
             .network_globals
             .peers

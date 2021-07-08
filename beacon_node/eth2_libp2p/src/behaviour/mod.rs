@@ -12,7 +12,6 @@ use crate::types::{
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
-// use handler::{BehaviourHandler, BehaviourHandlerIn, DelegateIn, DelegateOut};
 use libp2p::{
     NetworkBehaviour,
     core::{
@@ -47,7 +46,6 @@ use std::{
 use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
 
 mod gossipsub_scoring_parameters;
-// mod handler;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 pub const GOSSIPSUB_GREYLIST_THRESHOLD: f64 = -16000.0;
@@ -67,6 +65,10 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
     PeerConnected(PeerId),
     /// A peer has disconnected.
     PeerDisconnected(PeerId),
+    /// The peer needs to be banned.
+    PeerBanned(PeerId),
+    /// The peer has been unbanned.
+    PeerUnbanned(PeerId),
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
@@ -252,6 +254,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /* Public Accessible Functions to interact with the behaviour */
+
+    /// Get a mutable reference to the peer manager.
+    pub fn peer_manager_mut(&mut self) -> &mut PeerManager<TSpec> {
+        &mut self.peer_manager
+    }
 
     /// Returns the local ENR of the node.
     pub fn local_enr(&self) -> Enr {
@@ -495,16 +502,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /* Peer management functions */
-
-    /// Attempts to connect to a libp2p peer.
-    ///
-    /// This MUST be used over Swarm::dial() as this keeps track of the peer in the peer manager.
-    ///
-    /// All external dials, dial a multiaddr. This is currently unused but kept here in case any
-    /// part of lighthouse needs to connect to a peer_id in the future.
-    pub fn dial(&mut self, peer_id: &PeerId) {
-        self.peer_manager.dial_peer(peer_id);
-    }
 
     /// Report a peer's action.
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
@@ -942,6 +939,16 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             peer_id,
                             condition: libp2p::swarm::DialPeerCondition::Disconnected,
                         });
+                    }
+                    PeerManagerEvent::Banned(peer_id) => {
+                        return Poll::Ready(NBAction::GenerateEvent(BehaviourEvent::PeerBanned(
+                            peer_id,
+                        )));
+                    }
+                    PeerManagerEvent::UnBanned(peer_id) => {
+                        return Poll::Ready(NBAction::GenerateEvent(BehaviourEvent::PeerUnbanned(
+                            peer_id,
+                        )));
                     }
                     PeerManagerEvent::SocketUpdated(address) => {
                         return Poll::Ready(NBAction::ReportObservedAddr {

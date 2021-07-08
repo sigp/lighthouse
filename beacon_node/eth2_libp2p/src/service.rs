@@ -286,18 +286,31 @@ impl<TSpec: EthSpec> Service<TSpec> {
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
         loop {
             match self.swarm.select_next_some().await {
-                SwarmEvent::Behaviour(behaviour) => return Libp2pEvent::Behaviour(behaviour),
-                SwarmEvent::ConnectionEstablished { .. } => {
-                    // A connection could be established with a banned peer. This is
-                    // handled inside the behaviour.
+                SwarmEvent::Behaviour(behaviour) => {
+                    // Handle banning here
+                    match &behaviour {
+                        BehaviourEvent::PeerBanned(peer_id) => {
+                            self.swarm.ban_peer_id(*peer_id);
+                        }
+                        BehaviourEvent::PeerUnbanned(peer_id) => {
+                            self.swarm.unban_peer_id(*peer_id);
+                        }
+                        _ => {}
+                    }
+                    return Libp2pEvent::Behaviour(behaviour);
+                }
+                SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established } => {
+                    // Inform the peer manager.
+                    self.swarm.behaviour_mut().peer_manager_mut().inject_connection_established(peer_id, endpoint, num_established);
                 }
                 SwarmEvent::ConnectionClosed {
                     peer_id,
-                    cause,
-                    endpoint: _,
+                    cause: _,
+                    endpoint,
                     num_established,
                 } => {
-                    trace!(self.log, "Connection closed"; "peer_id" => %peer_id, "cause" => ?cause, "connections" => num_established);
+                    // Inform the peer manager.
+                    self.swarm.behaviour_mut().peer_manager_mut().inject_connection_closed(peer_id, endpoint, num_established);
                 }
                 SwarmEvent::NewListenAddr(multiaddr) => {
                     return Libp2pEvent::NewListenAddr(multiaddr)
@@ -313,10 +326,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     send_back_addr,
                     error,
                 } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error)
+                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
                 }
-                SwarmEvent::BannedPeer { .. } => {
-                    // We do not ban peers at the swarm layer, so this should never occur.
+                SwarmEvent::BannedPeer { peer_id, .. } => {
+                    debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
                 }
                 SwarmEvent::UnreachableAddr {
                     peer_id,
@@ -347,6 +360,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
                 SwarmEvent::Dialing(peer_id) => {
                     debug!(self.log, "Dialing peer"; "peer_id" => %peer_id);
+                    self.swarm.behaviour_mut().peer_manager_mut().inject_dialing(&peer_id);
                 }
             }
         }

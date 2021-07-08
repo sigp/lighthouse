@@ -427,7 +427,6 @@ fn spawn_service<T: BeaconChainTypes>(
                     // poll the swarm
                     match libp2p_event {
                         Libp2pEvent::Behaviour(event) => match event {
-
                             BehaviourEvent::PeerDialed(peer_id) => {
                                     let _ = service
                                         .router_send
@@ -435,9 +434,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                         .map_err(|_| {
                                             debug!(service.log, "Failed to send peer dialed to router"); });
                             },
-                            BehaviourEvent::PeerConnected(_peer_id) => {
-                                // A peer has connected to us
-                                // We currently do not perform any action here.
+                            BehaviourEvent::PeerConnected(_) | BehaviourEvent::PeerBanned(_) | BehaviourEvent::PeerUnbanned(_) => {
+                                // No action required for these events.
                             },
                             BehaviourEvent::PeerDisconnected(peer_id) => {
                                 let _ = service
