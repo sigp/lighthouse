@@ -428,18 +428,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-    /// Sets a peer as connected as long as their reputation allows it
-    /// Informs if the peer was accepted
-    pub fn inject_connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
-        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr })
-    }
-
-    /// Sets a peer as connected as long as their reputation allows it
-    /// Informs if the peer was accepted
-    pub fn inject_connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
-        self.inject_peer_connection(peer_id, ConnectingType::OutgoingConnected { multiaddr })
-    }
-
     /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.
@@ -802,6 +790,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
             self.events.push(PeerManagerEvent::Dial(peer_id));
         }
+    }
+
+    /// Sets a peer as connected as long as their reputation allows it
+    /// Informs if the peer was accepted
+    fn inject_connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
+        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr })
+    }
+
+    /// Sets a peer as connected as long as their reputation allows it
+    /// Informs if the peer was accepted
+    fn inject_connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr) -> bool {
+        self.inject_peer_connection(peer_id, ConnectingType::OutgoingConnected { multiaddr })
     }
 
     /// Updates the state of the peer as disconnected.
