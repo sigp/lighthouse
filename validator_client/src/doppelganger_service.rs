@@ -95,6 +95,15 @@ impl DoppelgangerStatus {
             DoppelgangerStatus::UnknownToDoppelganger(_) => None,
         }
     }
+
+    /// Only return a pubkey if it will not be used for signing due to doppelganger detection.
+    pub fn only_unsafe(self) -> Option<PublicKeyBytes> {
+        match self {
+            DoppelgangerStatus::SigningEnabled(_) => None,
+            DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),
+            DoppelgangerStatus::UnknownToDoppelganger(pubkey) => Some(pubkey),
+        }
+    }
 }
 
 impl Into<DoppelgangerData> for DoppelgangerStatus {

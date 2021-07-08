@@ -117,19 +117,42 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
     /// Returns the total number of validators that should propose in the given epoch.
     pub fn proposer_count(&self, epoch: Epoch) -> usize {
+        // Only collect validators that are considered safe in terms of doppelganger protection.
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(DoppelgangerStatus::only_safe);
+
         self.proposers
             .read()
             .get(&epoch)
-            .map_or(0, |(_, proposers)| proposers.len())
+            .map_or(0, |(_, proposers)| {
+                proposers
+                    .iter()
+                    .filter(|proposer_data| signing_pubkeys.contains(&proposer_data.pubkey))
+                    .count()
+            })
     }
 
     /// Returns the total number of validators that should attest in the given epoch.
     pub fn attester_count(&self, epoch: Epoch) -> usize {
+        // Only collect validators that are considered safe in terms of doppelganger protection.
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(DoppelgangerStatus::only_safe);
         self.attesters
             .read()
             .iter()
-            .filter(|(_, map)| map.contains_key(&epoch))
+            .filter_map(|(_, map)| map.get(&epoch))
+            .map(|(_, duty_and_proof)| duty_and_proof)
+            .filter(|duty_and_proof| signing_pubkeys.contains(&duty_and_proof.duty.pubkey))
             .count()
+    }
+
+    /// Returns the total number of validators that are in a doppelganger detection period.
+    pub fn doppelganger_detecting_count(&self) -> usize {
+        self.validator_store
+            .voting_pubkeys::<HashSet<_>, _>(DoppelgangerStatus::only_unsafe)
+            .len()
     }
 
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
