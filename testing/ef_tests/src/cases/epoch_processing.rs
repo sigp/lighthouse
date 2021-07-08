@@ -95,7 +95,10 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
                     spec,
                 )
             }
-            BeaconState::Altair(_) => altair::process_justification_and_finalization(state, spec),
+            BeaconState::Altair(_) => altair::process_justification_and_finalization(
+                state,
+                &altair::ParticipationCache::new(state, spec).unwrap(),
+            ),
         }
     }
 }
@@ -108,7 +111,11 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
                 validator_statuses.process_attestations(state)?;
                 base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
             }
-            BeaconState::Altair(_) => altair::process_rewards_and_penalties(state, spec),
+            BeaconState::Altair(_) => altair::process_rewards_and_penalties(
+                state,
+                &altair::ParticipationCache::new(state, spec).unwrap(),
+                spec,
+            ),
         }
     }
 }
@@ -135,7 +142,9 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
             BeaconState::Altair(_) => {
                 process_slashings(
                     state,
-                    state.get_total_active_balance(spec)?,
+                    altair::ParticipationCache::new(state, spec)
+                        .unwrap()
+                        .current_epoch_total_active_balance(),
                     spec.proportional_slashing_multiplier_altair,
                     spec,
                 )?;
@@ -198,7 +207,11 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) => altair::process_inactivity_updates(state, spec),
+            BeaconState::Altair(_) => altair::process_inactivity_updates(
+                state,
+                &altair::ParticipationCache::new(state, spec).unwrap(),
+                spec,
+            ),
         }
     }
 }

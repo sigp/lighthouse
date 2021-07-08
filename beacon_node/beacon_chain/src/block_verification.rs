@@ -991,7 +991,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // performing `per_slot_processing`.
                 for (i, summary) in summaries.iter().enumerate() {
                     let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
-                    validator_monitor.process_validator_statuses(epoch, &summary.statuses);
+                    validator_monitor.process_validator_statuses(epoch, &summary, &chain.spec);
                 }
             }
         }
@@ -1448,22 +1448,22 @@ fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
     }
 
     for summary in summaries {
-        let b = &summary.total_balances;
+        if let Ok(target_balance) = summary.previous_epoch_target_attesting_balance() {
+            metrics::maybe_set_float_gauge(
+                &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
+                participation_ratio(
+                    target_balance,
+                    summary.previous_epoch_total_active_balance(),
+                ),
+            );
+        }
 
-        metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_ATTESTER,
-            participation_ratio(b.previous_epoch_attesters(), b.previous_epoch()),
-        );
-
-        metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
-            participation_ratio(b.previous_epoch_target_attesters(), b.previous_epoch()),
-        );
-
-        metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
-            participation_ratio(b.previous_epoch_head_attesters(), b.previous_epoch()),
-        );
+        if let Ok(head_balance) = summary.previous_epoch_head_attesting_balance() {
+            metrics::maybe_set_float_gauge(
+                &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
+                participation_ratio(head_balance, summary.previous_epoch_total_active_balance()),
+            );
+        }
     }
 }
 

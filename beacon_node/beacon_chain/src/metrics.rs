@@ -329,10 +329,6 @@ lazy_static! {
     /*
      * Participation Metrics
      */
-    pub static ref PARTICIPATION_PREV_EPOCH_ATTESTER: Result<Gauge> = try_create_float_gauge(
-        "beacon_participation_prev_epoch_attester",
-        "Ratio of attesting balances to total balances"
-    );
     pub static ref PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER: Result<Gauge> = try_create_float_gauge(
         "beacon_participation_prev_epoch_target_attester",
         "Ratio of target-attesting balances to total balances"
