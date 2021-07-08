@@ -389,7 +389,6 @@ fn run<E: EthSpec>(
                             .shutdown_sender()
                             .try_send(ShutdownReason::Failure("Failed to start validator client"));
                     }
-                    Ok::<(), String>(())
                 });
             } else {
                 let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
