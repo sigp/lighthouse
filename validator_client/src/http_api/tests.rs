@@ -80,7 +80,7 @@ impl ApiTester {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let mut validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
+        let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
