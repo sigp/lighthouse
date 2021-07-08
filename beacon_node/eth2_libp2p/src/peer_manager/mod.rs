@@ -483,6 +483,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::LowToleranceError,
+            RPCError::Disconnected => return, // No penalty for a graceful disconnection
         };
 
         self.report_peer(peer_id, peer_action, ReportSource::RPC);

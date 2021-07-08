@@ -285,7 +285,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
         loop {
-            match self.swarm.next_event().await {
+            match self.swarm.select_next_some().await {
                 SwarmEvent::Behaviour(behaviour) => return Libp2pEvent::Behaviour(behaviour),
                 SwarmEvent::ConnectionEstablished { .. } => {
                     // A connection could be established with a banned peer. This is
