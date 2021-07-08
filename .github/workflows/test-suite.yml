@@ -150,10 +150,14 @@ jobs:
             run: |
                 make
                 make install-lcli
-          - name: Run the doppelganger protection test script
+          - name: Run the doppelganger protection success test script
             run: |
                 cd scripts/tests
-                ./doppelganger_protection.sh
+                ./doppelganger_protection.sh success
+          - name: Run the doppelganger protection failure test script
+            run: |
+                cd scripts/tests
+                ./doppelganger_protection.sh failure
   check-benchmarks:
     name: check-benchmarks
     runs-on: ubuntu-latest
