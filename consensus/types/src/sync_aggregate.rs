@@ -75,4 +75,9 @@ impl<T: EthSpec> SyncAggregate<T> {
             sync_committee_signature: AggregateSignature::empty(),
         }
     }
+
+    /// Returns how many bits are `true` in `self.sync_committee_bits`.
+    pub fn num_set_bits(&self) -> usize {
+        self.sync_committee_bits.num_set_bits()
+    }
 }
