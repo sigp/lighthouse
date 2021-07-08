@@ -317,7 +317,6 @@ fn append_to_file(file: &mut File, index: usize, pubkey: &PublicKeyBytes) -> Res
 mod test {
     use super::*;
     use crate::test_utils::{test_logger, BeaconChainHarness, EphemeralHarnessType};
-    use std::sync::Arc;
     use store::{HotColdDB, StoreConfig};
     use tempfile::tempdir;
     use types::{
@@ -341,9 +340,7 @@ mod test {
     }
 
     fn get_store() -> BeaconStore<T> {
-        Arc::new(
-            HotColdDB::open_ephemeral(<_>::default(), E::default_spec(), test_logger()).unwrap(),
-        )
+        HotColdDB::open_ephemeral(<_>::default(), E::default_spec(), test_logger()).unwrap()
     }
 
     #[allow(clippy::needless_range_loop)]

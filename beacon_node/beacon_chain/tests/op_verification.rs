@@ -10,7 +10,6 @@ use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
 use sloggers::{null::NullLoggerBuilder, Build};
-use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
 use types::*;
@@ -27,7 +26,7 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
+fn get_store(db_path: &TempDir) -> HotColdDB {
     let spec = test_spec::<E>();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
@@ -37,7 +36,7 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
         .expect("disk store should initialize")
 }
 
-fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
+fn get_harness(store: HotColdDB, validator_count: usize) -> TestHarness {
     let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
         None,

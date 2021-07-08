@@ -924,7 +924,7 @@ fn attestation_that_skips_epochs() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(&mut state, None, None, &harness.spec).expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
