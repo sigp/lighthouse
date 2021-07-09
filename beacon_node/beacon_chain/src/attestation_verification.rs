@@ -895,7 +895,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
         .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork)?;
+        .map(|head| head.beacon_state.fork())?;
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
@@ -1001,7 +1001,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .canonical_head
         .try_read_for(HEAD_LOCK_TIMEOUT)
         .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork)?;
+        .map(|head| head.beacon_state.fork())?;
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(

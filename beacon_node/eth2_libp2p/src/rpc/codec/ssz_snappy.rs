@@ -13,7 +13,7 @@ use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{EthSpec, SignedBeaconBlock};
+use types::{EthSpec, SignedBeaconBlock, SignedBeaconBlockBase};
 use unsigned_varint::codec::Uvi;
 
 /* Inbound Codec */
@@ -298,12 +298,18 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                     Protocol::Goodbye => Err(RPCError::InvalidData),
                     Protocol::BlocksByRange => match self.protocol.version {
                         Version::V1 => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                            // FIXME(altair): support Altair blocks
+                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                &decoded_buffer,
+                            )?),
                         )))),
                     },
                     Protocol::BlocksByRoot => match self.protocol.version {
+                        // FIXME(altair): support Altair blocks
                         Version::V1 => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                            SignedBeaconBlock::from_ssz_bytes(&decoded_buffer)?,
+                            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
+                                &decoded_buffer,
+                            )?),
                         )))),
                     },
                     Protocol::Ping => match self.protocol.version {

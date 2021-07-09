@@ -277,7 +277,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                             .map(|current_epoch| {
                                                 head
                                                 .beacon_state
-                                                .validators
+                                                .validators()
                                                 .iter()
                                                 .filter(|validator|
                                                     validator.is_active_at(current_epoch)

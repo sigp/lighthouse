@@ -168,11 +168,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         current_slot: Slot,
     ) -> Option<SignedBeaconBlock<E>> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
-        if block.slot > current_slot {
+        if block.slot() > current_slot {
             warn!(
                 self.log,
                 "Not signing block with slot greater than current slot";
-                "block_slot" => block.slot.as_u64(),
+                "block_slot" => block.slot().as_u64(),
                 "current_slot" => current_slot.as_u64()
             );
             return None;

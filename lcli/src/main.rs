@@ -8,24 +8,21 @@ mod generate_bootnode_enr;
 mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
-mod parse_hex;
+mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
+use clap_utils::parse_path_with_default_in_home_dir;
 use environment::EnvironmentBuilder;
 use log::LevelFilter;
-use parse_hex::run_parse_hex;
-use std::fs::File;
+use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
 use transition_blocks::run_transition_blocks;
-use types::{
-    test_utils::TestingBeaconStateBuilder, EthSpec, EthSpecId, MainnetEthSpec, MinimalEthSpec,
-};
+use types::{EthSpec, EthSpecId};
 
 fn main() {
     simple_logger::SimpleLogger::new()
@@ -54,34 +51,6 @@ fn main() {
                 .takes_value(true)
                 .global(true)
                 .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
-        )
-        .subcommand(
-            SubCommand::with_name("genesis_yaml")
-                .about("Generates a genesis YAML file")
-                .arg(
-                    Arg::with_name("num_validators")
-                        .short("n")
-                        .value_name("INTEGER")
-                        .takes_value(true)
-                        .required(true)
-                        .help("Number of initial validators."),
-                )
-                .arg(
-                    Arg::with_name("genesis_time")
-                        .short("g")
-                        .value_name("INTEGER")
-                        .takes_value(true)
-                        .required(false)
-                        .help("Eth2 genesis time (seconds since UNIX epoch)."),
-                )
-                .arg(
-                    Arg::with_name("output_file")
-                        .short("f")
-                        .value_name("PATH")
-                        .takes_value(true)
-                        .default_value("./genesis_state.yaml")
-                        .help("Output file for generated state."),
-                ),
         )
         .subcommand(
             SubCommand::with_name("skip-slots")
@@ -138,22 +107,21 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("pretty-hex")
-                .about("Parses SSZ encoded as ASCII 0x-prefixed hex")
+            SubCommand::with_name("pretty-ssz")
+                .about("Parses SSZ-encoded data from a file")
                 .arg(
                     Arg::with_name("type")
                         .value_name("TYPE")
                         .takes_value(true)
                         .required(true)
-                        .possible_values(&["block"])
-                        .help("The schema of the supplied SSZ."),
+                        .help("Type to decode"),
                 )
                 .arg(
-                    Arg::with_name("hex_ssz")
-                        .value_name("HEX")
+                    Arg::with_name("ssz-file")
+                        .value_name("FILE")
                         .takes_value(true)
                         .required(true)
-                        .help("SSZ encoded as 0x-prefixed hex"),
+                        .help("Path to SSZ bytes"),
                 ),
         )
         .subcommand(
@@ -408,7 +376,16 @@ fn main() {
                             "The block the deposit contract was deployed. Setting this is a huge
                               optimization for nodes, please do it.",
                         ),
-                ),
+                )
+                .arg(
+                    Arg::with_name("altair-fork-epoch")
+                        .long("altair-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Altair hard fork",
+                        ),
+                )
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")
@@ -516,7 +493,6 @@ fn main() {
         .and_then(|eth_spec_id| match eth_spec_id {
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
-            EthSpecId::V012Legacy => run(EnvironmentBuilder::v012_legacy(), &matches),
         });
 
     match result {
@@ -540,66 +516,37 @@ fn run<T: EthSpec>(
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 
+    let testnet_dir = parse_path_with_default_in_home_dir(
+        matches,
+        "testnet-dir",
+        PathBuf::from(directory::DEFAULT_ROOT_DIR).join("testnet"),
+    )?;
+
     match matches.subcommand() {
-        ("genesis_yaml", Some(matches)) => {
-            let num_validators = matches
-                .value_of("num_validators")
-                .expect("slog requires num_validators")
-                .parse::<usize>()
-                .expect("num_validators must be a valid integer");
-
-            let genesis_time = if let Some(string) = matches.value_of("genesis_time") {
-                string
-                    .parse::<u64>()
-                    .expect("genesis_time must be a valid integer")
-            } else {
-                warn!("No genesis time supplied via CLI, using the current time.");
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("should obtain time since unix epoch")
-                    .as_secs()
-            };
-
-            let file = matches
-                .value_of("output_file")
-                .expect("slog requires output file")
-                .parse::<PathBuf>()
-                .expect("output_file must be a valid path");
-
-            info!(
-                "Creating genesis state with {} validators and genesis time {}.",
-                num_validators, genesis_time
-            );
-
-            match matches.value_of("spec").expect("spec is required by slog") {
-                "minimal" => genesis_yaml::<MinimalEthSpec>(num_validators, genesis_time, file),
-                "mainnet" => genesis_yaml::<MainnetEthSpec>(num_validators, genesis_time, file),
-                _ => unreachable!("guarded by slog possible_values"),
-            };
-            info!("Genesis state YAML file created. Exiting successfully.");
-            Ok(())
-        }
-        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(matches)
+        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to transition blocks: {}", e)),
-        ("skip-slots", Some(matches)) => {
-            skip_slots::run::<T>(matches).map_err(|e| format!("Failed to skip slots: {}", e))
-        }
-        ("pretty-hex", Some(matches)) => {
-            run_parse_hex::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+        ("skip-slots", Some(matches)) => skip_slots::run::<T>(testnet_dir, matches)
+            .map_err(|e| format!("Failed to skip slots: {}", e)),
+        ("pretty-ssz", Some(matches)) => {
+            run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
             deploy_deposit_contract::run::<T>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
-        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, matches)
+        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
-        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(env, matches)
+        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
-        ("change-genesis-time", Some(matches)) => change_genesis_time::run::<T>(matches)
-            .map_err(|e| format!("Failed to run change-genesis-time command: {}", e)),
-        ("replace-state-pubkeys", Some(matches)) => replace_state_pubkeys::run::<T>(matches)
-            .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e)),
-        ("new-testnet", Some(matches)) => new_testnet::run::<T>(matches)
+        ("change-genesis-time", Some(matches)) => {
+            change_genesis_time::run::<T>(testnet_dir, matches)
+                .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
+        }
+        ("replace-state-pubkeys", Some(matches)) => {
+            replace_state_pubkeys::run::<T>(testnet_dir, matches)
+                .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
+        }
+        ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
         ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
@@ -609,23 +556,4 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
-}
-
-/// Creates a genesis state and writes it to a YAML file.
-fn genesis_yaml<T: EthSpec>(validator_count: usize, genesis_time: u64, output: PathBuf) {
-    let spec = &T::default_spec();
-
-    let builder: TestingBeaconStateBuilder<T> =
-        TestingBeaconStateBuilder::from_deterministic_keypairs(validator_count, spec);
-
-    let (mut state, _keypairs) = builder.build();
-    state.genesis_time = genesis_time;
-
-    info!("Generated state root: {:?}", state.canonical_root());
-
-    info!("Writing genesis state to {:?}", output);
-
-    let file = File::create(output.clone())
-        .unwrap_or_else(|e| panic!("unable to create file: {:?}. Error: {:?}", output, e));
-    serde_yaml::to_writer(file, &state).expect("should be able to serialize BeaconState");
 }

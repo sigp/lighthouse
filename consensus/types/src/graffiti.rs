@@ -74,14 +74,17 @@ impl<'de> Deserialize<'de> for GraffitiString {
 impl Into<Graffiti> for GraffitiString {
     fn into(self) -> Graffiti {
         let graffiti_bytes = self.0.as_bytes();
-        let mut graffiti = [0; 32];
+        let mut graffiti = [0; GRAFFITI_BYTES_LEN];
 
-        let graffiti_len = std::cmp::min(graffiti_bytes.len(), 32);
+        let graffiti_len = std::cmp::min(graffiti_bytes.len(), GRAFFITI_BYTES_LEN);
 
         // Copy the provided bytes over.
         //
         // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-        graffiti[..graffiti_len].copy_from_slice(&graffiti_bytes);
+        graffiti
+            .get_mut(..graffiti_len)
+            .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
+            .copy_from_slice(&graffiti_bytes);
         graffiti.into()
     }
 }

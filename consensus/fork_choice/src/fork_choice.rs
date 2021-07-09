@@ -244,8 +244,8 @@ where
         genesis_block: &BeaconBlock<E>,
         genesis_state: &BeaconState<E>,
     ) -> Result<Self, Error<T::Error>> {
-        let finalized_block_slot = genesis_block.slot;
-        let finalized_block_state_root = genesis_block.state_root;
+        let finalized_block_slot = genesis_block.slot();
+        let finalized_block_state_root = genesis_block.state_root();
         let current_epoch_shuffling_id =
             AttestationShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
@@ -370,7 +370,7 @@ where
     ) -> Result<bool, Error<T::Error>> {
         self.update_time(current_slot)?;
 
-        let new_justified_checkpoint = &state.current_justified_checkpoint;
+        let new_justified_checkpoint = &state.current_justified_checkpoint();
 
         if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
             < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
@@ -382,10 +382,10 @@ where
             compute_start_slot_at_epoch::<E>(self.fc_store.justified_checkpoint().epoch);
 
         // This sanity check is not in the spec, but the invariant is implied.
-        if justified_slot >= state.slot {
+        if justified_slot >= state.slot() {
             return Err(Error::AttemptToRevertJustification {
                 store: justified_slot,
-                state: state.slot,
+                state: state.slot(),
             });
         }
 
@@ -434,9 +434,9 @@ where
         let current_slot = self.update_time(current_slot)?;
 
         // Parent block must be known.
-        if !self.proto_array.contains_block(&block.parent_root) {
+        if !self.proto_array.contains_block(&block.parent_root()) {
             return Err(Error::InvalidBlock(InvalidBlock::UnknownParent(
-                block.parent_root,
+                block.parent_root(),
             )));
         }
 
@@ -444,10 +444,10 @@ where
         // the are in the past.
         //
         // Note: presently, we do not delay consideration. We just drop the block.
-        if block.slot > current_slot {
+        if block.slot() > current_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FutureSlot {
                 current_slot,
-                block_slot: block.slot,
+                block_slot: block.slot(),
             }));
         }
 
@@ -455,10 +455,10 @@ where
         // get_ancestor).
         let finalized_slot =
             compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
-        if block.slot <= finalized_slot {
+        if block.slot() <= finalized_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
                 finalized_slot,
-                block_slot: block.slot,
+                block_slot: block.slot(),
             }));
         }
 
@@ -471,7 +471,7 @@ where
         // `self.proto_array` to do this search. See:
         //
         // https://github.com/ethereum/eth2.0-specs/pull/1884
-        let block_ancestor = self.get_ancestor(block.parent_root, finalized_slot)?;
+        let block_ancestor = self.get_ancestor(block.parent_root(), finalized_slot)?;
         let finalized_root = self.fc_store.finalized_checkpoint().root;
         if block_ancestor != Some(finalized_root) {
             return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
@@ -481,24 +481,24 @@ where
         }
 
         // Update justified checkpoint.
-        if state.current_justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
-            if state.current_justified_checkpoint.epoch
+        if state.current_justified_checkpoint().epoch > self.fc_store.justified_checkpoint().epoch {
+            if state.current_justified_checkpoint().epoch
                 > self.fc_store.best_justified_checkpoint().epoch
             {
                 self.fc_store
-                    .set_best_justified_checkpoint(state.current_justified_checkpoint);
+                    .set_best_justified_checkpoint(state.current_justified_checkpoint());
             }
             if self.should_update_justified_checkpoint(current_slot, state)? {
                 self.fc_store
-                    .set_justified_checkpoint(state.current_justified_checkpoint)
+                    .set_justified_checkpoint(state.current_justified_checkpoint())
                     .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }
 
         // Update finalized checkpoint.
-        if state.finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
+        if state.finalized_checkpoint().epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store
-                .set_finalized_checkpoint(state.finalized_checkpoint);
+                .set_finalized_checkpoint(state.finalized_checkpoint());
             let finalized_slot =
                 compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
 
@@ -507,24 +507,24 @@ where
             // information:
             //
             // https://github.com/ethereum/eth2.0-specs/pull/1880
-            if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint
-                && (state.current_justified_checkpoint.epoch
+            if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint()
+                && (state.current_justified_checkpoint().epoch
                     > self.fc_store.justified_checkpoint().epoch
                     || self
                         .get_ancestor(self.fc_store.justified_checkpoint().root, finalized_slot)?
                         != Some(self.fc_store.finalized_checkpoint().root))
             {
                 self.fc_store
-                    .set_justified_checkpoint(state.current_justified_checkpoint)
+                    .set_justified_checkpoint(state.current_justified_checkpoint())
                     .map_err(Error::UnableToSetJustifiedCheckpoint)?;
             }
         }
 
         let target_slot = block
-            .slot
+            .slot()
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch());
-        let target_root = if block.slot == target_slot {
+        let target_root = if block.slot() == target_slot {
             block_root
         } else {
             *state
@@ -539,9 +539,9 @@ where
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.proto_array.process_block(ProtoBlock {
-            slot: block.slot,
+            slot: block.slot(),
             root: block_root,
-            parent_root: Some(block.parent_root),
+            parent_root: Some(block.parent_root()),
             target_root,
             current_epoch_shuffling_id: AttestationShufflingId::new(
                 block_root,
@@ -555,9 +555,9 @@ where
                 RelativeEpoch::Next,
             )
             .map_err(Error::BeaconStateError)?,
-            state_root: block.state_root,
-            justified_epoch: state.current_justified_checkpoint.epoch,
-            finalized_epoch: state.finalized_checkpoint.epoch,
+            state_root: block.state_root(),
+            justified_epoch: state.current_justified_checkpoint().epoch,
+            finalized_epoch: state.finalized_checkpoint().epoch,
         })?;
 
         Ok(())

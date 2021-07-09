@@ -7,10 +7,10 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
-    SignedVoluntaryExit, SigningData,
+    AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
+    DepositData, Domain, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
+    ProposerSlashing, PublicKey, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedRoot, SignedVoluntaryExit, SigningData,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -35,6 +35,8 @@ pub enum Error {
     /// The public key bytes stored in the `BeaconState` were not valid. This is a serious internal
     /// error.
     BadBlsBytes { validator_index: u64 },
+    /// The block structure is not appropriate for the fork at `block.slot()`.
+    InconsistentBlockFork(InconsistentFork),
 }
 
 impl From<BeaconStateError> for Error {
@@ -52,7 +54,7 @@ where
     T: EthSpec,
 {
     state
-        .validators
+        .validators()
         .get(validator_index)
         .and_then(|v| {
             let pk: Option<PublicKey> = v.pubkey.decompress().ok();
@@ -73,21 +75,26 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let block = &signed_block.message;
-    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
+    signed_block
+        .fork_name(spec)
+        .map_err(Error::InconsistentBlockFork)?;
 
-    if proposer_index as u64 != block.proposer_index {
+    let block = signed_block.message();
+    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
+
+    if proposer_index as u64 != block.proposer_index() {
         return Err(Error::IncorrectBlockProposer {
-            block: block.proposer_index,
+            block: block.proposer_index(),
             local_shuffling: proposer_index as u64,
         });
     }
 
     let domain = spec.get_domain(
-        block.slot.epoch(T::slots_per_epoch()),
+        block.slot().epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = if let Some(root) = block_root {
@@ -101,7 +108,7 @@ where
     };
 
     Ok(SignatureSet::single_pubkey(
-        &signed_block.signature,
+        signed_block.signature(),
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
@@ -111,26 +118,29 @@ where
 pub fn randao_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
-    block: &'a BeaconBlock<T>,
+    block: BeaconBlockRef<'a, T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
 
     let domain = spec.get_domain(
-        block.slot.epoch(T::slots_per_epoch()),
+        block.slot().epoch(T::slots_per_epoch()),
         Domain::Randao,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
-    let message = block.slot.epoch(T::slots_per_epoch()).signing_root(domain);
+    let message = block
+        .slot()
+        .epoch(T::slots_per_epoch())
+        .signing_root(domain);
 
     Ok(SignatureSet::single_pubkey(
-        &block.body.randao_reveal,
+        block.body().randao_reveal(),
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
@@ -177,8 +187,8 @@ fn block_header_signature_set<'a, T: EthSpec>(
     let domain = spec.get_domain(
         signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = signed_header.message.signing_root(domain);
@@ -208,8 +218,8 @@ where
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
         Domain::BeaconAttester,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = indexed_attestation.data.signing_root(domain);
@@ -309,8 +319,8 @@ where
     let domain = spec.get_domain(
         exit.epoch,
         Domain::VoluntaryExit,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = exit.signing_root(domain);

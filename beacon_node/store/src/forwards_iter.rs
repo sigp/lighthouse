@@ -71,7 +71,7 @@ impl SimpleForwardsBlockRootsIterator {
     ) -> Result<Self> {
         // Iterate backwards from the end state, stopping at the start slot.
         let values = process_results(
-            std::iter::once(Ok((end_block_root, end_state.slot)))
+            std::iter::once(Ok((end_block_root, end_state.slot())))
                 .chain(BlockRootsIterator::owned(store, end_state)),
             |iter| {
                 iter.take_while(|(_, slot)| *slot >= start_slot)
@@ -237,7 +237,7 @@ impl SimpleForwardsStateRootsIterator {
     ) -> Result<Self> {
         // Iterate backwards from the end state, stopping at the start slot.
         let values = process_results(
-            std::iter::once(Ok((end_state_root, end_state.slot)))
+            std::iter::once(Ok((end_state_root, end_state.slot())))
                 .chain(StateRootsIterator::owned(store, end_state)),
             |iter| {
                 iter.take_while(|(_, slot)| *slot >= start_slot)

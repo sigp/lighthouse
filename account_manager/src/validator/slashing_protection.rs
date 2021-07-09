@@ -77,7 +77,7 @@ pub fn cli_run<T: EthSpec>(
 
     let genesis_validators_root = testnet_config
         .beacon_state::<T>()
-        .map(|state: BeaconState<T>| state.genesis_validators_root)
+        .map(|state: BeaconState<T>| state.genesis_validators_root())
         .map_err(|e| {
             format!(
                 "Unable to get genesis state, has genesis occurred? Detail: {:?}",

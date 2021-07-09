@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
-            get_block_delay_ms(seen_duration, &block.message, &self.chain.slot_clock),
+            get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock),
         );
 
         let verified_block = match self.chain.verify_block_for_gossip(block) {
@@ -305,6 +305,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::InvalidSignature)
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
+            | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
@@ -322,7 +323,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // verified.
         self.chain.validator_monitor.read().register_gossip_block(
             seen_duration,
-            &verified_block.block.message,
+            verified_block.block.message(),
             verified_block.block_root,
             &self.chain.slot_clock,
         );

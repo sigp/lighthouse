@@ -198,6 +198,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5052).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("http-disable-legacy-spec")
+                .long("http-disable-legacy-spec")
+                .help("Disable serving of legacy data on the /config/spec endpoint. May be \
+                       disabled by default in a future release.")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")

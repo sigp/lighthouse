@@ -30,7 +30,7 @@ mod sign_randao {
 
         testcase(
             "\"beacon_proposer\"",
-            "Unable to parse block from JSON: Error(\"invalid type: string \"49463\", expected struct BeaconBlock\", line: 0, column: 0)"
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)",
         );
         testcase(
             "\"beacon_attester\"",

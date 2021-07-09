@@ -19,9 +19,12 @@ fn get_state(validator_count: usize) -> BeaconState<E> {
     let mut state = BeaconState::new(0, eth1_data, spec);
 
     for i in 0..validator_count {
-        state.balances.push(i as u64).expect("should add balance");
         state
-            .validators
+            .balances_mut()
+            .push(i as u64)
+            .expect("should add balance");
+        state
+            .validators_mut()
             .push(Validator {
                 pubkey: generate_deterministic_keypair(i).pk.into(),
                 withdrawal_credentials: Hash256::from_low_u64_le(i as u64),

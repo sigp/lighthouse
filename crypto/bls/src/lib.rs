@@ -79,6 +79,7 @@ impl From<BlstError> for Error {
 
 /// Generic implementations which are only generally useful for docs.
 pub mod generics {
+    pub use crate::generic_aggregate_public_key::GenericAggregatePublicKey;
     pub use crate::generic_aggregate_signature::GenericAggregateSignature;
     pub use crate::generic_keypair::GenericKeypair;
     pub use crate::generic_public_key::GenericPublicKey;
@@ -102,6 +103,8 @@ macro_rules! define_mod {
 
             pub type PublicKey = GenericPublicKey<bls_variant::PublicKey>;
             pub type PublicKeyBytes = GenericPublicKeyBytes<bls_variant::PublicKey>;
+            pub type AggregatePublicKey =
+                GenericAggregatePublicKey<bls_variant::PublicKey, bls_variant::AggregatePublicKey>;
             pub type Signature = GenericSignature<bls_variant::PublicKey, bls_variant::Signature>;
             pub type AggregateSignature = GenericAggregateSignature<
                 bls_variant::PublicKey,

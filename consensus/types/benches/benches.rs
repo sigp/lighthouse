@@ -3,7 +3,8 @@
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use rayon::prelude::*;
-use ssz::{Decode, Encode};
+use ssz::Encode;
+use std::sync::Arc;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec, Hash256,
     MainnetEthSpec, Validator,
@@ -20,10 +21,13 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     let mut state = BeaconState::new(0, eth1_data, spec);
 
     for i in 0..validator_count {
-        state.balances.push(i as u64).expect("should add balance");
+        state
+            .balances_mut()
+            .push(i as u64)
+            .expect("should add balance");
     }
 
-    state.validators = (0..validator_count)
+    *state.validators_mut() = (0..validator_count)
         .collect::<Vec<_>>()
         .par_iter()
         .map(|&i| Validator {
@@ -44,10 +48,10 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
 
 fn all_benches(c: &mut Criterion) {
     let validator_count = 16_384;
-    let spec = &MainnetEthSpec::default_spec();
+    let spec = Arc::new(MainnetEthSpec::default_spec());
 
     let mut state = get_state::<MainnetEthSpec>(validator_count);
-    state.build_all_caches(spec).expect("should build caches");
+    state.build_all_caches(&spec).expect("should build caches");
     let state_bytes = state.as_ssz_bytes();
 
     let inner_state = state.clone();
@@ -67,10 +71,10 @@ fn all_benches(c: &mut Criterion) {
         &format!("{}_validators", validator_count),
         Benchmark::new("decode/beacon_state", move |b| {
             b.iter_batched_ref(
-                || state_bytes.clone(),
-                |bytes| {
+                || (state_bytes.clone(), spec.clone()),
+                |(bytes, spec)| {
                     let state: BeaconState<MainnetEthSpec> =
-                        BeaconState::from_ssz_bytes(&bytes).expect("should decode");
+                        BeaconState::from_ssz_bytes(&bytes, &spec).expect("should decode");
                     black_box(state)
                 },
                 criterion::BatchSize::SmallInput,
@@ -98,7 +102,7 @@ fn all_benches(c: &mut Criterion) {
         Benchmark::new("clone/tree_hash_cache", move |b| {
             b.iter_batched_ref(
                 || inner_state.clone(),
-                |state| black_box(state.tree_hash_cache.clone()),
+                |state| black_box(state.tree_hash_cache().clone()),
                 criterion::BatchSize::SmallInput,
             )
         })
@@ -122,7 +126,7 @@ fn all_benches(c: &mut Criterion) {
     );
 
     let mut inner_state = state.clone();
-    inner_state.drop_all_caches();
+    inner_state.drop_all_caches().unwrap();
     c.bench(
         &format!("{}_validators", validator_count),
         Benchmark::new("non_initialized_cached_tree_hash/beacon_state", move |b| {
@@ -152,11 +156,11 @@ fn all_benches(c: &mut Criterion) {
                         let mut state = inner_state.clone();
                         for _ in 0..16 {
                             state
-                                .validators
+                                .validators_mut()
                                 .push(Validator::default())
                                 .expect("should push validatorj");
                             state
-                                .balances
+                                .balances_mut()
                                 .push(32_000_000_000)
                                 .expect("should push balance");
                         }

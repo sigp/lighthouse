@@ -57,8 +57,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         match process_id {
             // this a request from the range sync
             ProcessId::RangeBatchId(chain_id, epoch) => {
-                let start_slot = downloaded_blocks.first().map(|b| b.message.slot.as_u64());
-                let end_slot = downloaded_blocks.last().map(|b| b.message.slot.as_u64());
+                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
                 let result = match self.process_blocks(downloaded_blocks.iter()) {

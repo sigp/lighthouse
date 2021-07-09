@@ -92,12 +92,12 @@ fn basic() {
             // Note: using ganache these deposits are 1-per-block, therefore we know there should only be
             // the minimum number of validators.
             assert_eq!(
-                state.validators.len(),
+                state.validators().len(),
                 spec.min_genesis_active_validator_count as usize,
                 "should have expected validator count"
             );
 
-            assert!(state.genesis_time > 0, "should have some genesis time");
+            assert!(state.genesis_time() > 0, "should have some genesis time");
 
             assert!(
                 is_valid_genesis_state(&state, &spec),
