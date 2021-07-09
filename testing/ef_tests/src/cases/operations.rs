@@ -12,7 +12,7 @@ use state_processing::per_block_processing::{
         altair, base, process_attester_slashings, process_deposits, process_exits,
         process_proposer_slashings,
     },
-    process_sync_aggregate, VerifySignatures,
+    process_sync_aggregate, VerificationStrategy, VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
@@ -67,13 +67,23 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         match state {
-            BeaconState::Base(_) => {
-                base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
-            }
-            BeaconState::Altair(_) => {
-                altair::process_attestation(state, self, 0, VerifySignatures::True, spec)
-            }
+            BeaconState::Base(_) => base::process_attestations(
+                state,
+                &[self.clone()],
+                proposer_index,
+                VerifySignatures::True,
+                spec,
+            ),
+            BeaconState::Altair(_) => altair::process_attestation(
+                state,
+                self,
+                0,
+                proposer_index,
+                VerifySignatures::True,
+                spec,
+            ),
         }
     }
 }
@@ -106,7 +116,12 @@ impl<E: EthSpec> Operation<E> for Deposit {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        process_deposits(
+            state,
+            &[self.clone()],
+            &VerificationStrategy::default(),
+            spec,
+        )
     }
 }
 
@@ -164,7 +179,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        process_block_header(state, self.to_ref(), spec)?;
+        process_block_header(state, self.to_ref(), &VerificationStrategy::default(), spec)?;
         Ok(())
     }
 }

@@ -43,7 +43,7 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
     // Transition the parent state to the block slot.
     for i in 0..slots {
-        per_slot_processing(&mut state, None, spec)
+        per_slot_processing(&mut state, None, None, spec)
             .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
     }
 

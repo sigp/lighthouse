@@ -6,7 +6,7 @@ use crate::per_block_processing::errors::{
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{per_block_processing::process_operations, BlockSignatureStrategy, VerifySignatures};
+use crate::{per_block_processing::process_operations, VerificationStrategy, VerifySignatures};
 use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
@@ -66,7 +66,7 @@ fn valid_block_ok() {
         &mut state,
         &block,
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        VerificationStrategy::individual_signatures(),
         &spec,
     );
 
@@ -89,7 +89,7 @@ fn invalid_block_header_state_slot() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        VerificationStrategy::individual_signatures(),
         &spec,
     );
 
@@ -117,7 +117,7 @@ fn invalid_parent_block_root() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        VerificationStrategy::individual_signatures(),
         &spec,
     );
 
@@ -146,7 +146,7 @@ fn invalid_block_signature() {
         &mut state,
         &SignedBeaconBlock::from_block(block, Signature::empty()),
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        VerificationStrategy::individual_signatures(),
         &spec,
     );
 
@@ -175,7 +175,7 @@ fn invalid_randao_reveal_signature() {
         &mut state,
         &signed_block,
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        VerificationStrategy::individual_signatures(),
         &spec,
     );
 
@@ -195,8 +195,12 @@ fn valid_4_deposits() {
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result =
-        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        &mut state,
+        head_block.body().deposits(),
+        &VerificationStrategy::default(),
+        &spec,
+    );
 
     // Expecting Ok because these are valid deposits.
     assert_eq!(result, Ok(()));
@@ -216,8 +220,12 @@ fn invalid_deposit_deposit_count_too_big() {
 
     let big_deposit_count = NUM_DEPOSITS + 1;
     state.eth1_data_mut().deposit_count = big_deposit_count;
-    let result =
-        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        &mut state,
+        head_block.body().deposits(),
+        &VerificationStrategy::default(),
+        &spec,
+    );
 
     // Expecting DepositCountInvalid because we incremented the deposit_count
     assert_eq!(
@@ -243,8 +251,12 @@ fn invalid_deposit_count_too_small() {
 
     let small_deposit_count = NUM_DEPOSITS - 1;
     state.eth1_data_mut().deposit_count = small_deposit_count;
-    let result =
-        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        &mut state,
+        head_block.body().deposits(),
+        &VerificationStrategy::default(),
+        &spec,
+    );
 
     // Expecting DepositCountInvalid because we decremented the deposit_count
     assert_eq!(
@@ -272,8 +284,12 @@ fn invalid_deposit_bad_merkle_proof() {
     // Manually offsetting deposit count and index to trigger bad merkle proof
     state.eth1_data_mut().deposit_count += 1;
     *state.eth1_deposit_index_mut() += 1;
-    let result =
-        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        &mut state,
+        head_block.body().deposits(),
+        &VerificationStrategy::default(),
+        &spec,
+    );
 
     // Expecting BadMerkleProof because the proofs were created with different indices
     assert_eq!(
@@ -298,8 +314,12 @@ fn invalid_deposit_wrong_sig() {
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result =
-        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        &mut state,
+        head_block.body().deposits(),
+        &VerificationStrategy::default(),
+        &spec,
+    );
     // Expecting Ok(()) even though the block signature does not correspond to the correct public key
     assert_eq!(result, Ok(()));
 }
@@ -317,8 +337,12 @@ fn invalid_deposit_invalid_pub_key() {
     let mut head_block = harness.chain.head_beacon_block().unwrap().deconstruct().0;
     *head_block.to_mut().body_mut().deposits_mut() = deposits;
 
-    let result =
-        process_operations::process_deposits(&mut state, head_block.body().deposits(), &spec);
+    let result = process_operations::process_deposits(
+        &mut state,
+        head_block.body().deposits(),
+        &VerificationStrategy::default(),
+        &spec,
+    );
 
     // Expecting Ok(()) even though we passed in invalid publickeybytes in the public key field of the deposit data.
     assert_eq!(result, Ok(()));
@@ -337,6 +361,7 @@ fn invalid_attestation_no_committee_for_index() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -368,6 +393,7 @@ fn invalid_attestation_wrong_justified_checkpoint() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -400,6 +426,7 @@ fn invalid_attestation_bad_aggregation_bitfield_len() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -425,6 +452,7 @@ fn invalid_attestation_bad_signature() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -456,6 +484,7 @@ fn invalid_attestation_included_too_early() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -491,6 +520,7 @@ fn invalid_attestation_included_too_late() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -522,6 +552,7 @@ fn invalid_attestation_target_epoch_slot_mismatch() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );

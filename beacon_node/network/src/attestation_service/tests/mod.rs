@@ -45,7 +45,7 @@ impl TestBeaconChain {
             BeaconChainBuilder::new(MinimalEthSpec)
                 .logger(log.clone())
                 .custom_spec(spec.clone())
-                .store(Arc::new(store))
+                .store(store)
                 .genesis_state(
                     interop_genesis_state::<MinimalEthSpec>(&keypairs, 0, &spec)
                         .expect("should generate interop state"),

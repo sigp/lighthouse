@@ -1915,7 +1915,7 @@ impl ApiTester {
 
         let mut head = self.chain.head().unwrap();
         while head.beacon_state.current_epoch() < epoch {
-            per_slot_processing(&mut head.beacon_state, None, &self.chain.spec).unwrap();
+            per_slot_processing(&mut head.beacon_state, None, None, &self.chain.spec).unwrap();
         }
         head.beacon_state
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
