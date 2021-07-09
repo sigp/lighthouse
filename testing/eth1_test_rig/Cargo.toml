@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "1.1.0", features = ["time"] }
-tokio-compat-02 = "0.1"
-web3 = "0.14.0"
+tokio-compat-02 = "0.2.0"
+web3 = { version = "0.16.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 futures = "0.3.7"
 types = { path = "../../consensus/types"}
 serde_json = "1.0.58"
