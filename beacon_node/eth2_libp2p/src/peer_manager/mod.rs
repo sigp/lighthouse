@@ -316,11 +316,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 peer_id,
                 GoodbyeReason::Banned,
             ));
-            self.network_globals
-                .peers
-                .write()
-                .peer_info_mut(&peer_id)
-                .map(|info| info.disconnecting(true));
+            if let Some(info) = self.network_globals.peers.write().peer_info_mut(&peer_id) {
+                info.disconnecting(true)
+            }
             return;
         }
 
@@ -337,11 +335,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 peer_id,
                 GoodbyeReason::TooManyPeers,
             ));
-            self.network_globals
-                .peers
-                .write()
-                .peer_info_mut(&peer_id)
-                .map(|info| info.disconnecting(false));
+            if let Some(info) = self.network_globals.peers.write().peer_info_mut(&peer_id) {
+                info.disconnecting(false)
+            }
             return;
         }
 
@@ -350,14 +346,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // does not need to know about these peers.
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
-                self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), enr);
+                self.inject_connect_ingoing(&peer_id, send_back_addr, enr);
                 if num_established == std::num::NonZeroU32::new(1).expect("valid") {
                     self.events
                         .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
                 }
             }
             ConnectedPoint::Dialer { address } => {
-                self.inject_connect_outgoing(&peer_id, address.clone(), enr);
+                self.inject_connect_outgoing(&peer_id, address, enr);
                 if num_established == std::num::NonZeroU32::new(1).expect("valid") {
                     self.events
                         .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
