@@ -376,7 +376,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     }
                 }
                 SwarmEvent::Dialing(peer_id) => {
-                    debug!(self.log, "Dialing peer"; "peer_id" => %peer_id);
                     // We require the ENR to inject into the peer db, if it exists.
                     let enr = self
                         .swarm
