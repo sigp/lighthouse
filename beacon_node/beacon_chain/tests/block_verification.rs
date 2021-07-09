@@ -9,8 +9,8 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
-    per_block_processing::per_block_processing,
-    per_slot_processing, BlockProcessingError, VerificationStrategy,
+    per_block_processing::per_block_processing, per_slot_processing, BlockProcessingError,
+    VerificationStrategy,
 };
 use std::sync::Arc;
 use store::config::StoreConfig;
