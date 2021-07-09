@@ -7,24 +7,28 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
+use crate::{config, metrics};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
+use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
     Eth2Enr,
 };
-pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::{
-swarm::{
-    protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction as NBAction, NotifyHandler,
-    PollParameters, SubstreamProtocol,
-},
-    core::{PeerId,identity::{Keypair, PublicKey}, Multiaddr, connection::ConnectionId, ConnectedPoint}
-};
-use crate::{config, metrics};
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+pub use libp2p::{
+    core::{
+        connection::ConnectionId,
+        identity::{Keypair, PublicKey},
+        ConnectedPoint, Multiaddr, PeerId,
+    },
+    swarm::{
+        protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NotifyHandler, PollParameters, SubstreamProtocol,
+    },
+};
 use lru::LruCache;
 use slog::{crit, debug, error, info, warn};
 use ssz::{Decode, Encode};
@@ -893,7 +897,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
         None
     }
-
 }
 
 /* NetworkBehaviour Implementation */
@@ -955,12 +958,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<
-        NBAction<
-            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
-            Self::OutEvent,
-        >,
-    > {
+    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -971,7 +969,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         // Drive the queries and return any results from completed queries
         if let Some(results) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::QueryResult(results)));
+            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::QueryResult(
+                results,
+            )));
         }
 
         // Process the server event stream
@@ -1019,7 +1019,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
-                            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::SocketUpdated(socket)));
+                            return Poll::Ready(NBAction::GenerateEvent(
+                                DiscoveryEvent::SocketUpdated(socket),
+                            ));
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)

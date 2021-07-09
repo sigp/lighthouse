@@ -1,20 +1,22 @@
 use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
+use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
     score::{PeerAction, ReportSource},
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
     subnet_id_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform,
     SubnetDiscovery,
 };
-use crate::{Eth2Enr};
+use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::prelude::*;
 use libp2p::{
-    core::{multiaddr::Protocol as MProtocol,connection::ConnectionId, identity::Keypair, Multiaddr},
+    core::{
+        connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
+    },
     gossipsub::{
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
         Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
@@ -103,7 +105,7 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
 }
 
 /// Internal type to pass messages from sub-behaviours to the poll of the global behaviour to be
-/// specified as an NBAction. 
+/// specified as an NBAction.
 enum InternalBehaviourMessage {
     /// Dial a Peer.
     DialPeer(PeerId),
@@ -255,8 +257,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(config, network_globals.clone(), log)
-                .await?,
+            peer_manager: PeerManager::new(config, network_globals.clone(), log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,
@@ -551,8 +552,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
     pub fn update_enr_subnet(&mut self, subnet_id: SubnetId, value: bool) {
-        if let Err(e) = self.discovery.update_enr_bitfield(subnet_id, value)
-        {
+        if let Err(e) = self.discovery.update_enr_bitfield(subnet_id, value) {
             crit!(self.log, "Could not update ENR bitfield"; "error" => e);
         }
         // update the local meta data which informs our peers of the update during PINGS
@@ -642,7 +642,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Updates the current meta data of the node to match the local ENR.
     fn update_metadata(&mut self) {
-        let local_attnets = self.discovery
+        let local_attnets = self
+            .discovery
             .local_enr()
             .bitfield::<TSpec>()
             .expect("Local discovery must have bitfield");
@@ -752,7 +753,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
             // Remove the ENR from the cache to prevent continual re-dialing on disconnects
             self.discovery.remove_cached_enr(&peer_id);
-            self.internal_events.push_back(InternalBehaviourMessage::DialPeer(peer_id));
+            self.internal_events
+                .push_back(InternalBehaviourMessage::DialPeer(peer_id));
         }
     }
 
@@ -979,13 +981,15 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<DiscoveryEvent> for Behaviour<
                 // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
                 // should handle this.
                 multiaddr.push(MProtocol::Tcp(self.network_globals.listen_port_tcp()));
-                self.internal_events.push_back(InternalBehaviourMessage::SocketUpdated(multiaddr));
-            },
+                self.internal_events
+                    .push_back(InternalBehaviourMessage::SocketUpdated(multiaddr));
+            }
             DiscoveryEvent::QueryResult(results) => {
                 let to_dial_peers = self.peer_manager.peers_discovered(results);
                 for peer_id in to_dial_peers {
                     debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
-                    self.internal_events.push_back(InternalBehaviourMessage::DialPeer(peer_id));
+                    self.internal_events
+                        .push_back(InternalBehaviourMessage::DialPeer(peer_id));
                 }
             }
         }
@@ -1029,6 +1033,14 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         cx: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<NBAction<THandlerIn, BehaviourEvent<TSpec>>> {
+        if let Some(waker) = &self.waker {
+            if waker.will_wake(cx.waker()) {
+                self.waker = Some(cx.waker().clone());
+            }
+        } else {
+            self.waker = Some(cx.waker().clone());
+        }
+
         // check the peer manager for events
         loop {
             match self.peer_manager.poll_next_unpin(cx) {

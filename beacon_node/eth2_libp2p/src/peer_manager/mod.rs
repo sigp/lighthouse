@@ -5,10 +5,11 @@ use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCo
 use crate::types::SyncState;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkConfig, NetworkGlobals, PeerId};
+use discv5::Enr;
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
-use libp2p::core::{ConnectedPoint};
+use libp2p::core::ConnectedPoint;
 use libp2p::identify::IdentifyInfo;
 use slog::{crit, debug, error, warn};
 use smallvec::SmallVec;
@@ -18,7 +19,6 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use discv5::Enr;
 use types::{EthSpec, SubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
@@ -120,7 +120,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
-
         // Set up the peer manager heartbeat interval
         let heartbeat = tokio::time::interval(tokio::time::Duration::from_secs(HEARTBEAT_INTERVAL));
 
@@ -284,7 +283,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         peer_id: PeerId,
         endpoint: ConnectedPoint,
         num_established: std::num::NonZeroU32,
-        enr: Option<Enr>
+        enr: Option<Enr>,
     ) {
         // Should not be able to connect to a banned peer. Double check here
         if self.is_banned(&peer_id) {
@@ -702,14 +701,28 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
-    fn inject_connect_ingoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) -> bool {
+    fn inject_connect_ingoing(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+    ) -> bool {
         self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
     }
 
     /// Sets a peer as connected as long as their reputation allows it
     /// Informs if the peer was accepted
-    fn inject_connect_outgoing(&mut self, peer_id: &PeerId, multiaddr: Multiaddr, enr: Option<Enr>) -> bool {
-        self.inject_peer_connection(peer_id, ConnectingType::OutgoingConnected { multiaddr }, enr)
+    fn inject_connect_outgoing(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+        enr: Option<Enr>,
+    ) -> bool {
+        self.inject_peer_connection(
+            peer_id,
+            ConnectingType::OutgoingConnected { multiaddr },
+            enr,
+        )
     }
 
     /// Updates the state of the peer as disconnected.
@@ -733,7 +746,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This is called by `connect_ingoing` and `connect_outgoing`.
     ///
     /// Informs if the peer was accepted in to the db or not.
-    fn inject_peer_connection(&mut self, peer_id: &PeerId, connection: ConnectingType, enr: Option<Enr>) -> bool {
+    fn inject_peer_connection(
+        &mut self,
+        peer_id: &PeerId,
+        connection: ConnectingType,
+        enr: Option<Enr>,
+    ) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.is_banned(&peer_id) {
@@ -900,7 +918,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .unwrap_or_default();
 
         // Inform the Swarm to ban the peer
-        self.events.push(PeerManagerEvent::Banned(*peer_id, banned_ip_addresses));
+        self.events
+            .push(PeerManagerEvent::Banned(*peer_id, banned_ip_addresses));
     }
 
     /// Unbans a peer.
@@ -917,7 +936,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .unwrap_or_default();
 
         // Inform the Swarm to unban the peer
-        self.events.push(PeerManagerEvent::UnBanned(*peer_id, seen_ip_addresses));
+        self.events
+            .push(PeerManagerEvent::UnBanned(*peer_id, seen_ip_addresses));
         Ok(())
     }
 
@@ -933,10 +953,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let min_outbound_only_target =
             (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
-        if self.discovery_enabled && (peer_count < self.target_peers || outbound_only_peer_count < min_outbound_only_target) {
+        if self.discovery_enabled
+            && (peer_count < self.target_peers
+                || outbound_only_peer_count < min_outbound_only_target)
+        {
             // If we need more peers, queue a discovery lookup.
-                debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
-                self.events.push(PeerManagerEvent::DiscoverPeers);
+            debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
+            self.events.push(PeerManagerEvent::DiscoverPeers);
         }
 
         // Updates peer's scores.
@@ -1136,8 +1159,16 @@ mod tests {
         peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_outgoing(&outbound_only_peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_outgoing(
+            &outbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
+        peer_manager.inject_connect_outgoing(
+            &outbound_only_peer2,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
 
         // Set the outbound-only peers to have the lowest score.
         peer_manager
@@ -1195,7 +1226,11 @@ mod tests {
         // Connect an outbound-only peer.
         // Give it the lowest score so that it is evaluated first in the disconnect list iterator.
         let outbound_only_peer = PeerId::random();
-        peer_manager.inject_connect_ingoing(&outbound_only_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(
+            &outbound_only_peer,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
         peer_manager
             .network_globals
             .peers
@@ -1225,8 +1260,16 @@ mod tests {
         peer_manager.inject_connect_outgoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
 
         // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.inject_connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(
+            &inbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
+        peer_manager.inject_connect_outgoing(
+            &outbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
         peer_manager
             .network_globals
             .peers
@@ -1280,8 +1323,16 @@ mod tests {
         peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
 
         // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.inject_connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(
+            &inbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
+        peer_manager.inject_connect_outgoing(
+            &outbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
         peer_manager
             .network_globals
             .peers
@@ -1331,9 +1382,17 @@ mod tests {
         peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_outgoing(&outbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_outgoing(
+            &outbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
         // Have one peer be on the verge of disconnection.
-        peer_manager.inject_connect_ingoing(&inbound_only_peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(
+            &inbound_only_peer1,
+            "/ip4/0.0.0.0".parse().unwrap(),
+            None,
+        );
         peer_manager
             .network_globals
             .peers
