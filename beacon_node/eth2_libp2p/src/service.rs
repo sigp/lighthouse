@@ -266,6 +266,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
     pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
         self.swarm
             .behaviour_mut()
+            .peer_manager_mut()
             .report_peer(peer_id, action, source);
     }
 

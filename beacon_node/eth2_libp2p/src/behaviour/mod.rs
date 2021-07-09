@@ -1,7 +1,7 @@
 use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    score::{PeerAction, ReportSource},
+    score::{ReportSource},
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
@@ -524,11 +524,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /* Peer management functions */
-
-    /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
-        self.peer_manager.report_peer(peer_id, action, source)
-    }
 
     /// Disconnects from a peer providing a reason.
     ///

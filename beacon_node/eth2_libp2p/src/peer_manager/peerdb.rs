@@ -453,8 +453,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.connect(peer_id, multiaddr, enr, ConnectionDirection::Outgoing)
     }
 
-    /// Sets the peer as disconnected. A banned peer remains banned
-    pub fn notify_disconnect(&mut self, peer_id: &PeerId) {
+    /// Sets the peer as disconnected. A banned peer remains banned. If the node has become banned,
+    /// this returns true, otherwise this is false.
+    pub fn notify_disconnect(&mut self, peer_id: &PeerId) -> bool {
         // Note that it could be the case we prevent new nodes from joining. In this instance,
         // we don't bother tracking the new node.
         if let Some(info) = self.peers.get_mut(peer_id) {
@@ -462,12 +463,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 if became_banned {
                     self.banned_peers_count
                         .add_banned_peer(info.seen_addresses());
+                    return true;
                 } else {
                     self.disconnected_peers += 1;
                 }
             }
             self.shrink_to_fit();
         }
+        false
     }
 
     /// Notifies the peer manager that the peer is undergoing a normal disconnect (without banning
