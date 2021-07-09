@@ -316,9 +316,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 peer_id,
                 GoodbyeReason::Banned,
             ));
-            if let Some(info) = self.network_globals.peers.write().peer_info_mut(&peer_id) {
-                info.disconnecting(true)
-            }
+            self.network_globals
+                .peers
+                .write()
+                .notify_disconnecting(&peer_id, true);
             return;
         }
 
@@ -335,9 +336,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 peer_id,
                 GoodbyeReason::TooManyPeers,
             ));
-            if let Some(info) = self.network_globals.peers.write().peer_info_mut(&peer_id) {
-                info.disconnecting(false)
-            }
+            self.network_globals
+                .peers
+                .write()
+                .notify_disconnecting(&peer_id, false);
             return;
         }
 
@@ -752,7 +754,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .network_globals
             .peers
             .write()
-            .notify_disconnect(peer_id)
+            .inject_disconnect(peer_id)
         {
             self.ban_peer(peer_id);
         }
@@ -1021,7 +1023,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let mut peer_db = self.network_globals.peers.write();
         for peer_id in disconnecting_peers {
-            peer_db.notify_disconnecting(&peer_id);
+            peer_db.notify_disconnecting(&peer_id, false);
             self.events.push(PeerManagerEvent::DisconnectPeer(
                 peer_id,
                 GoodbyeReason::TooManyPeers,

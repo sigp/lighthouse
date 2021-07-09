@@ -198,25 +198,16 @@ impl<T: EthSpec> PeerInfo<T> {
     // Setters
 
     /// Modifies the status to Disconnected and sets the last seen instant to now. Returns None if
-    /// no changes were made. Returns Some(bool) where the bool represents if peer became banned or
-    /// simply just disconnected.
+    /// no changes were made. Returns Some(bool) where the bool represents if peer is to now be
+    /// baned
     pub fn notify_disconnect(&mut self) -> Option<bool> {
         match self.connection_status {
             Banned { .. } | Disconnected { .. } => None,
             Disconnecting { to_ban } => {
-                // If we are disconnecting this peer in the process of banning, we now ban the
-                // peer.
-                if to_ban {
-                    self.connection_status = Banned {
-                        since: Instant::now(),
-                    };
-                    Some(true)
-                } else {
-                    self.connection_status = Disconnected {
-                        since: Instant::now(),
-                    };
-                    Some(false)
-                }
+                self.connection_status = Disconnected {
+                    since: Instant::now(),
+                };
+                Some(to_ban)
             }
             Connected { .. } | Dialing { .. } | Unknown => {
                 self.connection_status = Disconnected {
