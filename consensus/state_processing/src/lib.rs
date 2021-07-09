@@ -30,7 +30,7 @@ pub use genesis::{
 };
 pub use per_block_processing::{
     block_signature_verifier, errors::BlockProcessingError, per_block_processing, signature_sets,
-    BlockSignatureStrategy, BlockSignatureVerifier, VerificationStrategy, VerifySignatures,
+    BlockSignatureVerifier, VerificationStrategy, VerifySignatures,
 };
 pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
