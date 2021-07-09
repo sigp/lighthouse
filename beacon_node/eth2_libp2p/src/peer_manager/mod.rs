@@ -299,7 +299,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         num_established: std::num::NonZeroU32,
         enr: Option<Enr>,
     ) {
-
         // Log the connection
         match &endpoint {
             ConnectedPoint::Listener { .. } => {
@@ -372,8 +371,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             &metrics::PEERS_CONNECTED,
             self.network_globals.connected_peers() as i64,
         );
-
-
     }
 
     pub fn inject_connection_closed(
