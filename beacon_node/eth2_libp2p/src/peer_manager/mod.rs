@@ -240,6 +240,22 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 to_dial_peers.push(peer_id);
             }
         }
+
+        // Queue another discovery if we need to
+        let peer_count = self.network_globals.connected_or_dialing_peers();
+        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let min_outbound_only_target =
+            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
+
+        if self.discovery_enabled
+            && (peer_count < self.target_peers.saturating_sub(to_dial_peers.len())
+                || outbound_only_peer_count < min_outbound_only_target)
+        {
+            // We need more peers, re-queue a discovery lookup.
+            debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
+            self.events.push(PeerManagerEvent::DiscoverPeers);
+        }
+
         to_dial_peers
     }
 

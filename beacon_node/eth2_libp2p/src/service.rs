@@ -354,6 +354,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     attempts_remaining,
                 } => {
                     debug!(self.log, "Failed to dial address"; "peer_id" => %peer_id, "address" => %address, "error" => %error, "attempts_remaining" => attempts_remaining);
+                    self.swarm.behaviour_mut().peer_manager_mut().inject_dial_failure(&peer_id);
                 }
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
                     debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
