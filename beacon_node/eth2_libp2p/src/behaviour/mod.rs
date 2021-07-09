@@ -24,8 +24,8 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
-        AddressScore, NetworkBehaviourAction as NBAction, NetworkBehaviourEventProcess,
-        PollParameters,
+        AddressScore, DialPeerCondition, NetworkBehaviourAction as NBAction,
+        NetworkBehaviourEventProcess, PollParameters,
     },
     NetworkBehaviour, PeerId,
 };
@@ -847,9 +847,9 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behavio
 
         if !self.peer_manager.is_connected(&peer_id) {
             // NOTE: Upgraded to log to test occurrences
-            warn!(
+            debug!(
                 self.log,
-                "Ignoring rpc message of disconnected peer";
+                "Ignoring rpc message of disconnecting peer";
                 "peer" => %peer_id
             );
             return;
@@ -1041,6 +1041,24 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             self.waker = Some(cx.waker().clone());
         }
 
+        // Handle internal events first
+        if let Some(event) = self.internal_events.pop_front() {
+            match event {
+                InternalBehaviourMessage::DialPeer(peer_id) => {
+                    return Poll::Ready(NBAction::DialPeer {
+                        peer_id,
+                        condition: DialPeerCondition::Disconnected,
+                    });
+                }
+                InternalBehaviourMessage::SocketUpdated(address) => {
+                    return Poll::Ready(NBAction::ReportObservedAddr {
+                        address,
+                        score: AddressScore::Finite(1),
+                    });
+                }
+            }
+        }
+
         // check the peer manager for events
         loop {
             match self.peer_manager.poll_next_unpin(cx) {
@@ -1072,12 +1090,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                             peer_id,
                         )));
                     }
-                    PeerManagerEvent::SocketUpdated(address) => {
-                        return Poll::Ready(NBAction::ReportObservedAddr {
-                            address,
-                            score: AddressScore::Finite(1),
-                        });
-                    }
                     PeerManagerEvent::Status(peer_id) => {
                         // it's time to status. We don't keep a beacon chain reference here, so we inform
                         // the network to send a status to this peer
@@ -1097,7 +1109,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         self.send_meta_data_request(peer_id);
                     }
                     PeerManagerEvent::DisconnectPeer(peer_id, reason) => {
-                        debug!(self.log, "PeerManager disconnecting peer";
+                        debug!(self.log, "Peer Manager disconnecting peer";
                             "peer_id" => %peer_id, "reason" => %reason);
                         // send one goodbye
                         self.eth2_rpc.shutdown(peer_id, reason);

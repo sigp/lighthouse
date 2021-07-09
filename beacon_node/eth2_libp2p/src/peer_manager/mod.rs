@@ -95,8 +95,6 @@ pub enum PeerManagerEvent {
     PeerConnectedOutgoing(PeerId),
     /// A peer has disconnected.
     PeerDisconnected(PeerId),
-    /// Inform libp2p that our external socket addr has been updated.
-    SocketUpdated(Multiaddr),
     /// Sends a STATUS to a peer.
     Status(PeerId),
     /// Sends a PING to a peer.
@@ -285,12 +283,23 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         num_established: std::num::NonZeroU32,
         enr: Option<Enr>,
     ) {
+
+        // Log the connection
+        match &endpoint {
+            ConnectedPoint::Listener { .. } => {
+                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming", "connections" => %num_established);
+            }
+            ConnectedPoint::Dialer { .. } => {
+                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Outgoing", "connections" => %num_established);
+            }
+        }
+
         // Should not be able to connect to a banned peer. Double check here
         if self.is_banned(&peer_id) {
             warn!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
             self.events.push(PeerManagerEvent::DisconnectPeer(
                 peer_id,
-                GoodbyeReason::TooManyPeers,
+                GoodbyeReason::Banned,
             ));
             self.network_globals
                 .peers
@@ -320,12 +329,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .map(|info| info.disconnecting(false));
             return;
         }
-        // increment prometheus metrics
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
 
         // Register the newly connected peer (regardless if we are about to disconnect them).
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
@@ -337,7 +340,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     self.events
                         .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
                 }
-                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming", "connections" => %num_established);
             }
             ConnectedPoint::Dialer { address } => {
                 self.inject_connect_outgoing(&peer_id, address.clone(), enr);
@@ -345,9 +347,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     self.events
                         .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
                 }
-                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Dialed", "connections" => %num_established);
             }
         }
+
+        // increment prometheus metrics
+        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+        metrics::set_gauge(
+            &metrics::PEERS_CONNECTED,
+            self.network_globals.connected_peers() as i64,
+        );
+
+
     }
 
     pub fn inject_connection_closed(
