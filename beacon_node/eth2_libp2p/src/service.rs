@@ -305,10 +305,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     num_established,
                 } => {
                     // Inform the peer manager.
+                    // We require the ENR to inject into the peer db, if it exists.
+                    let enr = self.swarm.behaviour_mut().discovery_mut().enr_of_peer(&peer_id);
                     self.swarm
                         .behaviour_mut()
                         .peer_manager_mut()
-                        .inject_connection_established(peer_id, endpoint, num_established);
+                        .inject_connection_established(peer_id, endpoint, num_established, enr);
                 }
                 SwarmEvent::ConnectionClosed {
                     peer_id,
@@ -370,10 +372,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
                 SwarmEvent::Dialing(peer_id) => {
                     debug!(self.log, "Dialing peer"; "peer_id" => %peer_id);
+                    // We require the ENR to inject into the peer db, if it exists.
+                    let enr = self.swarm.behaviour_mut().discovery_mut().enr_of_peer(&peer_id);
                     self.swarm
                         .behaviour_mut()
                         .peer_manager_mut()
-                        .inject_dialing(&peer_id);
+                        .inject_dialing(&peer_id, enr);
                 }
             }
         }

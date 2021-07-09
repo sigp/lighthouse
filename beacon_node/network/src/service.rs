@@ -313,7 +313,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.upnp_mappings = (tcp_socket.map(|s| s.port()), udp_socket.map(|s| s.port()));
                             // If there is an external TCP port update, modify our local ENR.
                             if let Some(tcp_socket) = tcp_socket {
-                                if let Err(e) = service.libp2p.swarm.behaviour_mut().peer_manager().discovery_mut().update_enr_tcp_port(tcp_socket.port()) {
+                                if let Err(e) = service.libp2p.swarm.behaviour_mut().discovery_mut().update_enr_tcp_port(tcp_socket.port()) {
                                     warn!(service.log, "Failed to update ENR"; "error" => e);
                                 }
                             }
@@ -321,7 +321,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             // UPnP mappings
                             if !service.discovery_auto_update {
                                 if let Some(udp_socket) = udp_socket {
-                                    if let Err(e) = service.libp2p.swarm.behaviour_mut().peer_manager().discovery_mut().update_enr_udp_socket(udp_socket) {
+                                    if let Err(e) = service.libp2p.swarm.behaviour_mut().discovery_mut().update_enr_udp_socket(udp_socket) {
                                     warn!(service.log, "Failed to update ENR"; "error" => e);
                                 }
                                 }
