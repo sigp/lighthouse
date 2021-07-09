@@ -752,12 +752,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        if self.network_globals
+        if self
+            .network_globals
             .peers
             .write()
-            .notify_disconnect(peer_id) {
-                self.ban_peer(peer_id);
-            }
+            .notify_disconnect(peer_id)
+        {
+            self.ban_peer(peer_id);
+        }
 
         // remove the ping and status timer for the peer
         self.inbound_ping_peers.remove(peer_id);

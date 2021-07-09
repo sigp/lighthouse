@@ -1,8 +1,7 @@
 use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    score::{ReportSource},
-    ConnectionDirection, PeerManager, PeerManagerEvent,
+    score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
