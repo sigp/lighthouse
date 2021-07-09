@@ -37,6 +37,6 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 directory = { path = "../common/directory" }
 account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
-web3 = "0.14.0"
+web3 = { version = "0.16.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }

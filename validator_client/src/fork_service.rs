@@ -2,7 +2,6 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
-use futures::future::FutureExt;
 use parking_lot::RwLock;
 use slog::{debug, trace};
 use slog::{error, Logger};
@@ -142,7 +141,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         // Run an immediate update before starting the updater service.
         context
             .executor
-            .spawn(self.clone().do_update().map(|_| ()), "fork service update");
+            .spawn_ignoring_error(self.clone().do_update(), "fork service update");
 
         let executor = context.executor.clone();
         let log = context.log().clone();
