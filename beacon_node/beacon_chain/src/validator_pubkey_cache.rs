@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         &self,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
-        self.import(state.validators.iter().map(|v| v.pubkey))
+        self.import(state.validators().iter().map(|v| v.pubkey))
     }
 
     /// Adds zero or more validators to `self`.
