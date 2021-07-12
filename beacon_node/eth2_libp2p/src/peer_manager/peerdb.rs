@@ -516,7 +516,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 false
             }
             PeerConnectionStatus::Disconnecting { .. } => {
-                warn!(log_ref, "Banning peer that is currently disconnecting"; "peer_id" => %peer_id);
+                // NOTE: This can occur due a rapid downscore of a peer. It goes through the
+                // disconnection phase and straight into banning in a short time-frame.
+                debug!(log_ref, "Banning peer that is currently disconnecting"; "peer_id" => %peer_id);
                 info.disconnecting(true);
                 false
             }
