@@ -655,11 +655,12 @@ fn genesis_block<T: EthSpec>(
 
 // Helper function to return more useful errors when reading from the database.
 fn descriptive_db_error(item: &str, error: &StoreError) -> String {
-    let additional_info = if let &StoreError::SszDecodeError(_) = &error {
-        "Ensure the datadir is not initialized for a different network."
+    let additional_info = if let StoreError::SszDecodeError(_) = error {
+        "Ensure the data directory is not initialized for a different network. The \
+        --purge-db flag can be used to permanently delete the existing data directory."
     } else {
-        "Database corruption may be present, use the --purge-db to permanently \
-        delete the existing data directory."
+        "Database corruption may be present. If the issue persists, use \
+        --purge-db to permanently delete the existing data directory."
     };
     format!(
         "DB error when reading {}: {:?}. {}",
