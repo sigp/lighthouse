@@ -150,7 +150,8 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self.client.get_lighthouse_spec().await.unwrap().data;
 
-        let expected = YamlConfig::from_spec::<E>(&E::default_spec());
+        let mut expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
+        expected.make_backwards_compat(&E::default_spec());
 
         assert_eq!(result, expected);
 

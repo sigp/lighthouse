@@ -3,20 +3,19 @@
 #[macro_use]
 extern crate lazy_static;
 
-use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconSnapshot, BlockError,
+use beacon_chain::test_utils::{
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
+use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
+use state_processing::{
+    per_block_processing::{per_block_processing, BlockSignatureStrategy},
+    per_slot_processing, BlockProcessingError,
+};
 use std::sync::Arc;
 use store::config::StoreConfig;
 use tempfile::tempdir;
-use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, AttestationData,
-    AttesterSlashing, Checkpoint, Deposit, DepositData, Epoch, EthSpec, Hash256,
-    IndexedAttestation, Keypair, MainnetEthSpec, ProposerSlashing, Signature, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedVoluntaryExit, Slot, VoluntaryExit, DEPOSIT_TREE_DEPTH,
-};
+use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
 
@@ -54,6 +53,7 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
@@ -98,10 +98,11 @@ fn update_proposal_signatures(
             .get(proposer_index)
             .expect("proposer keypair should be available");
 
-        snapshot.beacon_block = snapshot.beacon_block.message.clone().sign(
+        let (block, _) = snapshot.beacon_block.clone().deconstruct();
+        snapshot.beacon_block = block.sign(
             &keypair.sk,
-            &state.fork,
-            state.genesis_validators_root,
+            &state.fork(),
+            state.genesis_validators_root(),
             spec,
         );
     }
@@ -111,7 +112,9 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
     for i in 0..snapshots.len() {
         let root = snapshots[i].beacon_block.canonical_root();
         if let Some(child) = snapshots.get_mut(i + 1) {
-            child.beacon_block.message.parent_root = root
+            let (mut block, signature) = child.beacon_block.clone().deconstruct();
+            *block.parent_root_mut() = root;
+            child.beacon_block = SignedBeaconBlock::from_block(block, signature)
         }
     }
 }
@@ -168,10 +171,7 @@ fn chain_segment_varying_chunk_size() {
                 .chain
                 .process_chain_segment(chunk.to_vec())
                 .into_block_error()
-                .expect(&format!(
-                    "should import chain segment of len {}",
-                    chunk_size
-                ));
+                .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
         harness.chain.fork_choice().expect("should run fork choice");
@@ -206,7 +206,7 @@ fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -217,13 +217,15 @@ fn chain_segment_non_linear_parent_roots() {
      * Test with a modified parent root.
      */
     let mut blocks = chain_segment_blocks();
-    blocks[3].message.parent_root = Hash256::zero();
+    let (mut block, signature) = blocks[3].clone().deconstruct();
+    *block.parent_root_mut() = Hash256::zero();
+    blocks[3] = SignedBeaconBlock::from_block(block, signature);
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -244,13 +246,15 @@ fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks = chain_segment_blocks();
-    blocks[3].message.slot = Slot::new(0);
+    let (mut block, signature) = blocks[3].clone().deconstruct();
+    *block.slot_mut() = Slot::new(0);
+    blocks[3] = SignedBeaconBlock::from_block(block, signature);
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -262,13 +266,15 @@ fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks = chain_segment_blocks();
-    blocks[3].message.slot = blocks[2].message.slot;
+    let (mut block, signature) = blocks[3].clone().deconstruct();
+    *block.slot_mut() = blocks[2].slot();
+    blocks[3] = SignedBeaconBlock::from_block(block, signature);
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks.clone())
+                .process_chain_segment(blocks)
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -342,7 +348,9 @@ fn invalid_signature_gossip_block() {
         // Ensure the block will be rejected if imported on its own (without gossip checking).
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
-        snapshots[block_index].beacon_block.signature = junk_signature();
+        let (block, _) = snapshots[block_index].beacon_block.clone().deconstruct();
+        snapshots[block_index].beacon_block =
+            SignedBeaconBlock::from_block(block.clone(), junk_signature());
         // Import all the ancestors before the `block_index` block.
         let ancestor_blocks = CHAIN_SEGMENT
             .iter()
@@ -358,7 +366,7 @@ fn invalid_signature_gossip_block() {
             matches!(
                 harness
                     .chain
-                    .process_block(snapshots[block_index].beacon_block.clone()),
+                    .process_block(SignedBeaconBlock::from_block(block, junk_signature())),
                 Err(BlockError::InvalidSignature)
             ),
             "should not import individual block with an invalid gossip signature",
@@ -371,7 +379,9 @@ fn invalid_signature_block_proposal() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
-        snapshots[block_index].beacon_block.signature = junk_signature();
+        let (block, _) = snapshots[block_index].beacon_block.clone().deconstruct();
+        snapshots[block_index].beacon_block =
+            SignedBeaconBlock::from_block(block.clone(), junk_signature());
         let blocks = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone())
@@ -395,11 +405,9 @@ fn invalid_signature_randao_reveal() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
-        snapshots[block_index]
-            .beacon_block
-            .message
-            .body
-            .randao_reveal = junk_signature();
+        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        *block.body_mut().randao_reveal_mut() = junk_signature();
+        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(&harness, block_index, &snapshots, "randao");
@@ -411,23 +419,23 @@ fn invalid_signature_proposer_slashing() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
+        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
         let proposer_slashing = ProposerSlashing {
             signed_header_1: SignedBeaconBlockHeader {
-                message: snapshots[block_index].beacon_block.message.block_header(),
+                message: block.block_header(),
                 signature: junk_signature(),
             },
             signed_header_2: SignedBeaconBlockHeader {
-                message: snapshots[block_index].beacon_block.message.block_header(),
+                message: block.block_header(),
                 signature: junk_signature(),
             },
         };
-        snapshots[block_index]
-            .beacon_block
-            .message
-            .body
-            .proposer_slashings
+        block
+            .body_mut()
+            .proposer_slashings_mut()
             .push(proposer_slashing)
             .expect("should update proposer slashing");
+        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(&harness, block_index, &snapshots, "proposer slashing");
@@ -460,13 +468,13 @@ fn invalid_signature_attester_slashing() {
             attestation_1: indexed_attestation.clone(),
             attestation_2: indexed_attestation,
         };
-        snapshots[block_index]
-            .beacon_block
-            .message
-            .body
-            .attester_slashings
+        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        block
+            .body_mut()
+            .attester_slashings_mut()
             .push(attester_slashing)
             .expect("should update attester slashing");
+        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(&harness, block_index, &snapshots, "attester slashing");
@@ -480,14 +488,10 @@ fn invalid_signature_attestation() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
-        if let Some(attestation) = snapshots[block_index]
-            .beacon_block
-            .message
-            .body
-            .attestations
-            .get_mut(0)
-        {
+        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        if let Some(attestation) = block.body_mut().attestations_mut().get_mut(0) {
             attestation.signature = junk_aggregate_signature();
+            snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
             update_parent_roots(&mut snapshots);
             update_proposal_signatures(&mut snapshots, &harness);
             assert_invalid_signature(&harness, block_index, &snapshots, "attestation");
@@ -516,13 +520,13 @@ fn invalid_signature_deposit() {
                 signature: junk_signature().into(),
             },
         };
-        snapshots[block_index]
-            .beacon_block
-            .message
-            .body
-            .deposits
+        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        block
+            .body_mut()
+            .deposits_mut()
             .push(deposit)
             .expect("should update deposit");
+        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         let blocks = snapshots
@@ -548,11 +552,10 @@ fn invalid_signature_exit() {
         let harness = get_invalid_sigs_harness();
         let mut snapshots = CHAIN_SEGMENT.clone();
         let epoch = snapshots[block_index].beacon_state.current_epoch();
-        snapshots[block_index]
-            .beacon_block
-            .message
-            .body
-            .voluntary_exits
+        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        block
+            .body_mut()
+            .voluntary_exits_mut()
             .push(SignedVoluntaryExit {
                 message: VoluntaryExit {
                     epoch,
@@ -561,6 +564,7 @@ fn invalid_signature_exit() {
                 signature: junk_signature(),
             })
             .expect("should update deposit");
+        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(&harness, block_index, &snapshots, "voluntary exit");
@@ -608,12 +612,15 @@ fn block_gossip_verification() {
      * future blocks for processing at the appropriate slot).
      */
 
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    let expected_block_slot = block.message.slot + 1;
-    block.message.slot = expected_block_slot;
+    let (mut block, signature) = CHAIN_SEGMENT[block_index]
+        .beacon_block
+        .clone()
+        .deconstruct();
+    let expected_block_slot = block.slot() + 1;
+    *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -635,7 +642,10 @@ fn block_gossip_verification() {
      * nodes, etc).
      */
 
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let (mut block, signature) = CHAIN_SEGMENT[block_index]
+        .beacon_block
+        .clone()
+        .deconstruct();
     let expected_finalized_slot = harness
         .chain
         .head_info()
@@ -643,10 +653,10 @@ fn block_gossip_verification() {
         .finalized_checkpoint
         .epoch
         .start_slot(E::slots_per_epoch());
-    block.message.slot = expected_finalized_slot;
+    *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -665,11 +675,21 @@ fn block_gossip_verification() {
      * proposer_index pubkey.
      */
 
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    block.signature = junk_signature();
+    let block = CHAIN_SEGMENT[block_index]
+        .beacon_block
+        .clone()
+        .deconstruct()
+        .0;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            unwrap_err(
+                harness
+                    .chain
+                    .verify_block_for_gossip(SignedBeaconBlock::from_block(
+                        block,
+                        junk_signature()
+                    ))
+            ),
             BlockError::ProposalSignatureInvalid
         ),
         "should not import a block with an invalid proposal signature"
@@ -683,12 +703,15 @@ fn block_gossip_verification() {
      * The block's parent (defined by block.parent_root) passes validation.
      */
 
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let (mut block, signature) = CHAIN_SEGMENT[block_index]
+        .beacon_block
+        .clone()
+        .deconstruct();
     let parent_root = Hash256::from_low_u64_be(42);
-    block.message.parent_root = parent_root;
+    *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
             BlockError::ParentUnknown(block)
             if block.parent_root() == parent_root
         ),
@@ -705,12 +728,15 @@ fn block_gossip_verification() {
      * store.finalized_checkpoint.root
      */
 
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
+    let (mut block, signature) = CHAIN_SEGMENT[block_index]
+        .beacon_block
+        .clone()
+        .deconstruct();
     let parent_root = CHAIN_SEGMENT[0].beacon_block_root;
-    block.message.parent_root = parent_root;
+    *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block)),
+            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -728,14 +754,18 @@ fn block_gossip_verification() {
      * processing while proposers for the block's branch are calculated.
      */
 
-    let mut block = CHAIN_SEGMENT[block_index].beacon_block.clone();
-    let expected_proposer = block.message.proposer_index;
+    let mut block = CHAIN_SEGMENT[block_index]
+        .beacon_block
+        .clone()
+        .deconstruct()
+        .0;
+    let expected_proposer = block.proposer_index();
     let other_proposer = (0..VALIDATOR_COUNT as u64)
         .into_iter()
-        .find(|i| *i != block.message.proposer_index)
+        .find(|i| *i != block.proposer_index())
         .expect("there must be more than one validator in this test");
-    block.message.proposer_index = other_proposer;
-    let block = block.message.clone().sign(
+    *block.proposer_index_mut() = other_proposer;
+    let block = block.sign(
         &generate_deterministic_keypair(other_proposer as usize).sk,
         &harness.chain.head_info().unwrap().fork,
         harness.chain.genesis_validators_root,
@@ -760,7 +790,7 @@ fn block_gossip_verification() {
                 proposer,
                 slot,
             }
-            if proposer == other_proposer && slot == block.message.slot
+            if proposer == other_proposer && slot == block.message().slot()
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -792,7 +822,7 @@ fn block_gossip_verification() {
                 proposer,
                 slot,
             }
-            if proposer == block.message.proposer_index && slot == block.message.slot
+            if proposer == block.message().proposer_index() && slot == block.message().slot()
         ),
         "the second proposal by this validator should be rejected"
     );
@@ -828,4 +858,246 @@ fn verify_block_for_gossip_slashing_detection() {
     drop(harness);
     drop(slasher);
     slasher_dir.close().unwrap();
+}
+
+#[test]
+fn add_base_block_to_altair_chain() {
+    let mut spec = MainnetEthSpec::default_spec();
+    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+    // The Altair fork happens at epoch 1.
+    spec.altair_fork_epoch = Some(Epoch::new(1));
+
+    let harness = BeaconChainHarness::new_with_chain_config(
+        MainnetEthSpec,
+        Some(spec),
+        KEYPAIRS[..].to_vec(),
+        1 << 32,
+        StoreConfig::default(),
+        ChainConfig::default(),
+    );
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build out all the blocks in epoch 0.
+    harness.extend_chain(
+        slots_per_epoch as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // Produce an Altair block.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (altair_signed_block, _) = harness.make_block(state.clone(), slot);
+    let altair_block = &altair_signed_block
+        .as_altair()
+        .expect("test expects an altair block")
+        .message;
+    let altair_body = &altair_block.body;
+
+    // Create a Base-equivalent of `altair_block`.
+    let base_block = SignedBeaconBlock::Base(SignedBeaconBlockBase {
+        message: BeaconBlockBase {
+            slot: altair_block.slot,
+            proposer_index: altair_block.proposer_index,
+            parent_root: altair_block.parent_root,
+            state_root: altair_block.state_root,
+            body: BeaconBlockBodyBase {
+                randao_reveal: altair_body.randao_reveal.clone(),
+                eth1_data: altair_body.eth1_data.clone(),
+                graffiti: altair_body.graffiti,
+                proposer_slashings: altair_body.proposer_slashings.clone(),
+                attester_slashings: altair_body.attester_slashings.clone(),
+                attestations: altair_body.attestations.clone(),
+                deposits: altair_body.deposits.clone(),
+                voluntary_exits: altair_body.voluntary_exits.clone(),
+            },
+        },
+        signature: Signature::empty(),
+    });
+
+    // Ensure that it would be impossible to apply this block to `per_block_processing`.
+    {
+        let mut state = state;
+        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        assert!(matches!(
+            per_block_processing(
+                &mut state,
+                &base_block,
+                None,
+                BlockSignatureStrategy::NoVerification,
+                &harness.chain.spec,
+            ),
+            Err(BlockProcessingError::InconsistentBlockFork(
+                InconsistentFork {
+                    fork_at_slot: ForkName::Altair,
+                    object_fork: ForkName::Base,
+                }
+            ))
+        ));
+    }
+
+    // Ensure that it would be impossible to verify this block for gossip.
+    assert!(matches!(
+        harness
+            .chain
+            .verify_block_for_gossip(base_block.clone())
+            .err()
+            .expect("should error when processing base block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    assert!(matches!(
+        harness
+            .chain
+            .process_block(base_block.clone())
+            .err()
+            .expect("should error when processing base block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Altair,
+            object_fork: ForkName::Base,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
+    assert!(matches!(
+        harness.chain.process_chain_segment(vec![base_block]),
+        ChainSegmentResult::Failed {
+            imported_blocks: 0,
+            error: BlockError::InconsistentFork(InconsistentFork {
+                fork_at_slot: ForkName::Altair,
+                object_fork: ForkName::Base,
+            })
+        }
+    ));
+}
+
+#[test]
+fn add_altair_block_to_base_chain() {
+    let mut spec = MainnetEthSpec::default_spec();
+
+    // Altair never happens.
+    spec.altair_fork_epoch = None;
+
+    let harness = BeaconChainHarness::new_with_chain_config(
+        MainnetEthSpec,
+        Some(spec),
+        KEYPAIRS[..].to_vec(),
+        1 << 32,
+        StoreConfig::default(),
+        ChainConfig::default(),
+    );
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build one block.
+    harness.extend_chain(
+        1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // Produce an altair block.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (base_signed_block, _) = harness.make_block(state.clone(), slot);
+    let base_block = &base_signed_block
+        .as_base()
+        .expect("test expects a base block")
+        .message;
+    let base_body = &base_block.body;
+
+    // Create an Altair-equivalent of `altair_block`.
+    let altair_block = SignedBeaconBlock::Altair(SignedBeaconBlockAltair {
+        message: BeaconBlockAltair {
+            slot: base_block.slot,
+            proposer_index: base_block.proposer_index,
+            parent_root: base_block.parent_root,
+            state_root: base_block.state_root,
+            body: BeaconBlockBodyAltair {
+                randao_reveal: base_body.randao_reveal.clone(),
+                eth1_data: base_body.eth1_data.clone(),
+                graffiti: base_body.graffiti,
+                proposer_slashings: base_body.proposer_slashings.clone(),
+                attester_slashings: base_body.attester_slashings.clone(),
+                attestations: base_body.attestations.clone(),
+                deposits: base_body.deposits.clone(),
+                voluntary_exits: base_body.voluntary_exits.clone(),
+                sync_aggregate: SyncAggregate::empty(),
+            },
+        },
+        signature: Signature::empty(),
+    });
+
+    // Ensure that it would be impossible to apply this block to `per_block_processing`.
+    {
+        let mut state = state;
+        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        assert!(matches!(
+            per_block_processing(
+                &mut state,
+                &altair_block,
+                None,
+                BlockSignatureStrategy::NoVerification,
+                &harness.chain.spec,
+            ),
+            Err(BlockProcessingError::InconsistentBlockFork(
+                InconsistentFork {
+                    fork_at_slot: ForkName::Base,
+                    object_fork: ForkName::Altair,
+                }
+            ))
+        ));
+    }
+
+    // Ensure that it would be impossible to verify this block for gossip.
+    assert!(matches!(
+        harness
+            .chain
+            .verify_block_for_gossip(altair_block.clone())
+            .err()
+            .expect("should error when processing altair block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Base,
+            object_fork: ForkName::Altair,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    assert!(matches!(
+        harness
+            .chain
+            .process_block(altair_block.clone())
+            .err()
+            .expect("should error when processing altair block"),
+        BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: ForkName::Base,
+            object_fork: ForkName::Altair,
+        })
+    ));
+
+    // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
+    assert!(matches!(
+        harness.chain.process_chain_segment(vec![altair_block]),
+        ChainSegmentResult::Failed {
+            imported_blocks: 0,
+            error: BlockError::InconsistentFork(InconsistentFork {
+                fork_at_slot: ForkName::Base,
+                object_fork: ForkName::Altair,
+            })
+        }
+    ));
 }

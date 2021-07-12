@@ -44,13 +44,6 @@ impl Eth2Config {
             spec: ChainSpec::minimal(),
         }
     }
-
-    pub fn v012_legacy() -> Self {
-        Self {
-            eth_spec_id: EthSpecId::V012Legacy,
-            spec: ChainSpec::v012_legacy(),
-        }
-    }
 }
 
 /// A directory that can be built by downloading files via HTTP.
@@ -112,16 +105,8 @@ macro_rules! define_net {
     };
 }
 
-define_net!(altona, include_altona_file, "altona", true);
-
-define_net!(medalla, include_medalla_file, "medalla", true);
-
-define_net!(spadina, include_spadina_file, "spadina", true);
-
 define_net!(pyrmont, include_pyrmont_file, "pyrmont", true);
 
 define_net!(mainnet, include_mainnet_file, "mainnet", true);
-
-define_net!(toledo, include_toledo_file, "toledo", true);
 
 define_net!(prater, include_prater_file, "prater", true);

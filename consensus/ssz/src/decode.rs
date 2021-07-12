@@ -145,6 +145,31 @@ impl<'a> SszDecoderBuilder<'a> {
         }
     }
 
+    /// Registers a variable-length object as the next item in `bytes`, without specifying the
+    /// actual type.
+    ///
+    /// ## Notes
+    ///
+    /// Use of this function is generally discouraged since it cannot detect if some type changes
+    /// from variable to fixed length.
+    ///
+    /// Use `Self::register_type` wherever possible.
+    pub fn register_anonymous_variable_length_item(&mut self) -> Result<(), DecodeError> {
+        struct Anonymous;
+
+        impl Decode for Anonymous {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
+
+            fn from_ssz_bytes(_bytes: &[u8]) -> Result<Self, DecodeError> {
+                unreachable!("Anonymous should never be decoded")
+            }
+        }
+
+        self.register_type::<Anonymous>()
+    }
+
     /// Declares that some type `T` is the next item in `bytes`.
     pub fn register_type<T: Decode>(&mut self) -> Result<(), DecodeError> {
         if T::is_ssz_fixed_len() {
@@ -276,6 +301,14 @@ impl<'a> SszDecoder<'a> {
     /// Panics when attempting to decode more items than actually exist.
     pub fn decode_next<T: Decode>(&mut self) -> Result<T, DecodeError> {
         T::from_ssz_bytes(self.items.remove(0))
+    }
+
+    /// Decodes the next item using the provided function.
+    pub fn decode_next_with<T, F>(&mut self, f: F) -> Result<T, DecodeError>
+    where
+        F: FnOnce(&'a [u8]) -> Result<T, DecodeError>,
+    {
+        f(self.items.remove(0))
     }
 }
 

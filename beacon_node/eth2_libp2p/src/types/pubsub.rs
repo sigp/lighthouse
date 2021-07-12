@@ -10,7 +10,7 @@ use std::io::{Error, ErrorKind};
 use types::SubnetId;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit,
+    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -141,8 +141,11 @@ impl<T: EthSpec> PubsubMessage<T> {
                         ))))
                     }
                     GossipKind::BeaconBlock => {
-                        let beacon_block = SignedBeaconBlock::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        // FIXME(altair): support Altair blocks
+                        let beacon_block = SignedBeaconBlock::Base(
+                            SignedBeaconBlockBase::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?,
+                        );
                         Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)))
                     }
                     GossipKind::VoluntaryExit => {
@@ -189,7 +192,8 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BeaconBlock(block) => write!(
                 f,
                 "Beacon Block: slot: {}, proposer_index: {}",
-                block.message.slot, block.message.proposer_index
+                block.slot(),
+                block.message().proposer_index()
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

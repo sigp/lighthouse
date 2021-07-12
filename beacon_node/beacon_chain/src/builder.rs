@@ -236,7 +236,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_item::<SignedBeaconBlock<TEthSpec>>(&chain.genesis_block_root)
+            .get_block(&chain.genesis_block_root)
             .map_err(|e| format!("DB error when reading genesis block: {:?}", e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -244,7 +244,7 @@ where
             .map_err(|e| format!("DB error when reading genesis state: {:?}", e))?
             .ok_or("Genesis block not found in store")?;
 
-        self.genesis_time = Some(genesis_state.genesis_time);
+        self.genesis_time = Some(genesis_state.genesis_time());
 
         self.op_pool = Some(
             store
@@ -282,7 +282,7 @@ where
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
-        let beacon_state_root = beacon_block.message.state_root;
+        let beacon_state_root = beacon_block.message().state_root();
         let beacon_block_root = beacon_block.canonical_root();
 
         self.genesis_state_root = Some(beacon_state_root);
@@ -292,12 +292,12 @@ where
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put_item(&beacon_block_root, &beacon_block)
+            .put_block(&beacon_block_root, beacon_block.clone())
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_item(&Hash256::zero(), &beacon_block)
+            .put_block(&Hash256::zero(), beacon_block.clone())
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
@@ -316,13 +316,13 @@ where
         let fork_choice = ForkChoice::from_genesis(
             fc_store,
             genesis.beacon_block_root,
-            &genesis.beacon_block.message,
+            &genesis.beacon_block.deconstruct().0,
             &genesis.beacon_state,
         )
         .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
-        self.genesis_time = Some(genesis.beacon_state.genesis_time);
+        self.genesis_time = Some(genesis.beacon_state.genesis_time());
 
         Ok(self.empty_op_pool())
     }
@@ -435,7 +435,7 @@ where
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
         let head_block = store
-            .get_item::<SignedBeaconBlock<TEthSpec>>(&head_block_root)
+            .get_block(&head_block_root)
             .map_err(|e| format!("DB error when reading head block: {:?}", e))?
             .ok_or("Head block not found in store")?;
         let head_state_root = head_block.state_root();
@@ -460,7 +460,7 @@ where
         //
         // This is a sanity check to detect database corruption.
         let fc_finalized = fork_choice.finalized_checkpoint();
-        let head_finalized = canonical_head.beacon_state.finalized_checkpoint;
+        let head_finalized = canonical_head.beacon_state.finalized_checkpoint();
         if fc_finalized != head_finalized {
             if head_finalized.root == Hash256::zero()
                 && head_finalized.epoch == fc_finalized.epoch
@@ -518,7 +518,7 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
-            genesis_validators_root: canonical_head.beacon_state.genesis_validators_root,
+            genesis_validators_root: canonical_head.beacon_state.genesis_validators_root(),
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
             genesis_state_root,
@@ -558,7 +558,7 @@ where
                     "Weak subjectivity checkpoint verification failed on startup!";
                     "head_block_root" => format!("{}", head.beacon_block_root),
                     "head_slot" => format!("{}", head.beacon_block.slot()),
-                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint.epoch),
+                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint().epoch),
                     "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
                     "error" => format!("{:?}", e),
                 );
@@ -640,16 +640,17 @@ fn genesis_block<T: EthSpec>(
     genesis_state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<T>, String> {
-    let mut genesis_block = SignedBeaconBlock {
-        message: BeaconBlock::empty(&spec),
-        // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
-        // block consistent with every other block.
-        signature: Signature::empty(),
-    };
-    genesis_block.message.state_root = genesis_state
+    let mut genesis_block = BeaconBlock::empty(&spec);
+    *genesis_block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
-    Ok(genesis_block)
+
+    Ok(SignedBeaconBlock::from_block(
+        genesis_block,
+        // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
+        // block consistent with every other block.
+        Signature::empty(),
+    ))
 }
 
 #[cfg(not(debug_assertions))]
@@ -714,9 +715,10 @@ mod test {
         let state = head.beacon_state;
         let block = head.beacon_block;
 
-        assert_eq!(state.slot, Slot::new(0), "should start from genesis");
+        assert_eq!(state.slot(), Slot::new(0), "should start from genesis");
         assert_eq!(
-            state.genesis_time, 13_371_337,
+            state.genesis_time(),
+            13_371_337,
             "should have the correct genesis time"
         );
         assert_eq!(
@@ -734,7 +736,7 @@ mod test {
             "should store genesis block under zero hash alias"
         );
         assert_eq!(
-            state.validators.len(),
+            state.validators().len(),
             validator_count,
             "should have correct validator count"
         );
@@ -757,24 +759,25 @@ mod test {
             .expect("should build state");
 
         assert_eq!(
-            state.eth1_data.block_hash,
+            state.eth1_data().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
 
         assert_eq!(
-            state.genesis_time, genesis_time,
+            state.genesis_time(),
+            genesis_time,
             "genesis time should be as specified"
         );
 
-        for b in &state.balances {
+        for b in state.balances() {
             assert_eq!(
                 *b, spec.max_effective_balance,
                 "validator balances should be max effective balance"
             );
         }
 
-        for v in &state.validators {
+        for v in state.validators() {
             let creds = v.withdrawal_credentials.as_bytes();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
@@ -788,13 +791,13 @@ mod test {
         }
 
         assert_eq!(
-            state.balances.len(),
+            state.balances().len(),
             validator_count,
             "validator balances len should be correct"
         );
 
         assert_eq!(
-            state.validators.len(),
+            state.validators().len(),
             validator_count,
             "validator count should be correct"
         );

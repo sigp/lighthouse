@@ -206,6 +206,8 @@ impl DepositContract {
             data: encode_eth1_tx_data(&deposit_data).map(Into::into).ok(),
             nonce: None,
             condition: None,
+            transaction_type: None,
+            access_list: None,
         };
 
         self.web3

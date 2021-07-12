@@ -7,16 +7,12 @@ extern crate lazy_static;
 
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
-use types::test_utils::{
-    AttesterSlashingTestTask, ProposerSlashingTestTask, TestingAttesterSlashingBuilder,
-    TestingProposerSlashingBuilder, TestingVoluntaryExitBuilder,
-};
 use types::*;
 
 pub const VALIDATOR_COUNT: usize = 24;
@@ -32,7 +28,7 @@ type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
-    let spec = E::default_spec();
+    let spec = test_spec::<E>();
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
@@ -44,6 +40,7 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
 fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
     let harness = BeaconChainHarness::new_with_disk_store(
         MinimalEthSpec,
+        None,
         store,
         KEYPAIRS[0..validator_count].to_vec(),
     );
@@ -64,21 +61,13 @@ fn voluntary_exit() {
         AttestationStrategy::AllValidators,
     );
 
-    let head_info = harness.chain.head_info().unwrap();
-
-    let make_exit = |validator_index: usize, exit_epoch: u64| {
-        TestingVoluntaryExitBuilder::new(Epoch::new(exit_epoch), validator_index as u64).build(
-            &KEYPAIRS[validator_index].sk,
-            &head_info.fork,
-            head_info.genesis_validators_root,
-            spec,
-        )
-    };
-
     let validator_index1 = VALIDATOR_COUNT - 1;
     let validator_index2 = VALIDATOR_COUNT - 2;
 
-    let exit1 = make_exit(validator_index1, spec.shard_committee_period);
+    let exit1 = harness.make_voluntary_exit(
+        validator_index1 as u64,
+        Epoch::new(spec.shard_committee_period),
+    );
 
     // First verification should show it to be fresh.
     assert!(matches!(
@@ -98,14 +87,20 @@ fn voluntary_exit() {
     ));
 
     // A different exit for the same validator should also be detected as a duplicate.
-    let exit2 = make_exit(validator_index1, spec.shard_committee_period + 1);
+    let exit2 = harness.make_voluntary_exit(
+        validator_index1 as u64,
+        Epoch::new(spec.shard_committee_period + 1),
+    );
     assert!(matches!(
         harness.chain.verify_voluntary_exit_for_gossip(exit2),
         Ok(ObservationOutcome::AlreadyKnown)
     ));
 
     // Exit for a different validator should be fine.
-    let exit3 = make_exit(validator_index2, spec.shard_committee_period);
+    let exit3 = harness.make_voluntary_exit(
+        validator_index2 as u64,
+        Epoch::new(spec.shard_committee_period),
+    );
     assert!(matches!(
         harness
             .chain
@@ -120,25 +115,11 @@ fn proposer_slashing() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), VALIDATOR_COUNT);
-    let spec = &harness.chain.spec;
-
-    let head_info = harness.chain.head_info().unwrap();
 
     let validator_index1 = VALIDATOR_COUNT - 1;
     let validator_index2 = VALIDATOR_COUNT - 2;
 
-    let make_slashing = |validator_index: usize| {
-        TestingProposerSlashingBuilder::double_vote::<E>(
-            ProposerSlashingTestTask::Valid,
-            validator_index as u64,
-            &KEYPAIRS[validator_index].sk,
-            &head_info.fork,
-            head_info.genesis_validators_root,
-            spec,
-        )
-    };
-
-    let slashing1 = make_slashing(validator_index1);
+    let slashing1 = harness.make_proposer_slashing(validator_index1 as u64);
 
     // First slashing for this proposer should be allowed.
     assert!(matches!(
@@ -171,7 +152,7 @@ fn proposer_slashing() {
     ));
 
     // Proposer slashing for a different index should be accepted
-    let slashing3 = make_slashing(validator_index2);
+    let slashing3 = harness.make_proposer_slashing(validator_index2 as u64);
     assert!(matches!(
         harness
             .chain
@@ -186,9 +167,6 @@ fn attester_slashing() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), VALIDATOR_COUNT);
-    let spec = &harness.chain.spec;
-
-    let head_info = harness.chain.head_info().unwrap();
 
     // First third of the validators
     let first_third = (0..VALIDATOR_COUNT as u64 / 3).collect::<Vec<_>>();
@@ -199,25 +177,8 @@ fn attester_slashing() {
     // Last half of the validators
     let second_half = (VALIDATOR_COUNT as u64 / 2..VALIDATOR_COUNT as u64).collect::<Vec<_>>();
 
-    let signer = |idx: u64, message: &[u8]| {
-        KEYPAIRS[idx as usize]
-            .sk
-            .sign(Hash256::from_slice(&message))
-    };
-
-    let make_slashing = |validators| {
-        TestingAttesterSlashingBuilder::double_vote::<_, E>(
-            AttesterSlashingTestTask::Valid,
-            validators,
-            signer,
-            &head_info.fork,
-            head_info.genesis_validators_root,
-            spec,
-        )
-    };
-
     // Slashing for first third of validators should be accepted.
-    let slashing1 = make_slashing(&first_third);
+    let slashing1 = harness.make_attester_slashing(first_third);
     assert!(matches!(
         harness
             .chain
@@ -227,7 +188,7 @@ fn attester_slashing() {
     ));
 
     // Overlapping slashing for first half of validators should also be accepted.
-    let slashing2 = make_slashing(&first_half);
+    let slashing2 = harness.make_attester_slashing(first_half);
     assert!(matches!(
         harness
             .chain
@@ -253,7 +214,7 @@ fn attester_slashing() {
     ));
 
     // Slashing for last half of validators should be accepted (distinct from all existing)
-    let slashing3 = make_slashing(&second_half);
+    let slashing3 = harness.make_attester_slashing(second_half);
     assert!(matches!(
         harness
             .chain
@@ -262,7 +223,7 @@ fn attester_slashing() {
         ObservationOutcome::New(_)
     ));
     // Slashing for last third (contained in last half) should be rejected.
-    let slashing4 = make_slashing(&last_third);
+    let slashing4 = harness.make_attester_slashing(last_third);
     assert!(matches!(
         harness
             .chain

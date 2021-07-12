@@ -37,8 +37,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, CommitteeCache, Epoch, EthSpec, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
+    Attestation, AttesterSlashing, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, Slot,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -75,6 +76,7 @@ pub struct Config {
     pub listen_addr: Ipv4Addr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
+    pub serve_legacy_spec: bool,
 }
 
 impl Default for Config {
@@ -84,6 +86,7 @@ impl Default for Config {
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
             listen_port: 5052,
             allow_origin: None,
+            serve_legacy_spec: true,
         }
     }
 }
@@ -332,7 +335,8 @@ pub fn serve<T: BeaconChainTypes>(
         .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
-    let log_filter = warp::any().map(move || ctx.log.clone());
+    let inner_ctx = ctx.clone();
+    let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
     /*
      *
@@ -407,9 +411,9 @@ pub fn serve<T: BeaconChainTypes>(
                 state_id
                     .map_state(&chain, |state| {
                         Ok(api_types::FinalityCheckpointsData {
-                            previous_justified: state.previous_justified_checkpoint,
-                            current_justified: state.current_justified_checkpoint,
-                            finalized: state.finalized_checkpoint,
+                            previous_justified: state.previous_justified_checkpoint(),
+                            current_justified: state.current_justified_checkpoint(),
+                            finalized: state.finalized_checkpoint(),
                         })
                     })
                     .map(api_types::GenericResponse::from)
@@ -430,9 +434,9 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
-                                .validators
+                                .validators()
                                 .iter()
-                                .zip(state.balances.iter())
+                                .zip(state.balances().iter())
                                 .enumerate()
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
@@ -475,9 +479,9 @@ pub fn serve<T: BeaconChainTypes>(
                             let far_future_epoch = chain.spec.far_future_epoch;
 
                             Ok(state
-                                .validators
+                                .validators()
                                 .iter()
-                                .zip(state.balances.iter())
+                                .zip(state.balances().iter())
                                 .enumerate()
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
@@ -541,15 +545,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_state(&chain, |state| {
                             let index_opt = match &validator_id {
                                 ValidatorId::PublicKey(pubkey) => {
-                                    state.validators.iter().position(|v| v.pubkey == *pubkey)
+                                    state.validators().iter().position(|v| v.pubkey == *pubkey)
                                 }
                                 ValidatorId::Index(index) => Some(*index as usize),
                             };
 
                             index_opt
                                 .and_then(|index| {
-                                    let validator = state.validators.get(index)?;
-                                    let balance = *state.balances.get(index)?;
+                                    let validator = state.validators().get(index)?;
+                                    let balance = *state.balances().get(index)?;
                                     let epoch = state.current_epoch();
                                     let far_future_epoch = chain.spec.far_future_epoch;
 
@@ -591,7 +595,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 blocking_json_task(move || {
                     query_state_id.map_state(&chain, |state| {
-                        let epoch = state.slot.epoch(T::EthSpec::slots_per_epoch());
+                        let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
 
                         let committee_cache = if state
                             .committee_cache_is_initialized(RelativeEpoch::Current)
@@ -725,8 +729,8 @@ pub fn serve<T: BeaconChainTypes>(
                         root,
                         canonical: true,
                         header: api_types::BlockHeaderAndSignature {
-                            message: block.message.block_header(),
-                            signature: block.signature.into(),
+                            message: block.message().block_header(),
+                            signature: block.signature().clone().into(),
                         },
                     };
 
@@ -760,8 +764,8 @@ pub fn serve<T: BeaconChainTypes>(
                     root,
                     canonical,
                     header: api_types::BlockHeaderAndSignature {
-                        message: block.message.block_header(),
-                        signature: block.signature.into(),
+                        message: block.message().block_header(),
+                        signature: block.signature().clone().into(),
                     },
                 };
 
@@ -799,7 +803,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Determine the delay after the start of the slot, register it with metrics.
                     let delay =
-                        get_block_delay_ms(seen_timestamp, &block.message, &chain.slot_clock);
+                        get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
                     metrics::observe_duration(
                         &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
                         delay,
@@ -817,7 +821,7 @@ pub fn serve<T: BeaconChainTypes>(
                             // Notify the validator monitor.
                             chain.validator_monitor.read().register_api_block(
                                 seen_timestamp,
-                                &block.message,
+                                block.message(),
                                 root,
                                 &chain.slot_clock,
                             );
@@ -935,7 +939,8 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 block_id
                     .block(&chain)
-                    .map(|block| block.message.body.attestations)
+                    // FIXME(altair): could avoid clone with by-value accessor
+                    .map(|block| block.message().body().attestations().clone())
                     .map(api_types::GenericResponse::from)
             })
         });
@@ -1266,17 +1271,19 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET config/spec
+    let serve_legacy_spec = ctx.config.serve_legacy_spec;
     let get_config_spec = config_path
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(|chain: Arc<BeaconChain<T>>| {
+        .and_then(move |chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                Ok(api_types::GenericResponse::from(YamlConfig::from_spec::<
-                    T::EthSpec,
-                >(
-                    &chain.spec
-                )))
+                let mut config_and_preset =
+                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
+                if serve_legacy_spec {
+                    config_and_preset.make_backwards_compat(&chain.spec);
+                }
+                Ok(api_types::GenericResponse::from(config_and_preset))
             })
         });
 

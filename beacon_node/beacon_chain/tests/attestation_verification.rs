@@ -17,7 +17,7 @@ use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
     BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
+    SignedAggregateAndProof, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -35,6 +35,7 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_target_aggregators(
         MainnetEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
         // not all.
@@ -75,7 +76,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         .sign(
             &validator_sk,
             validator_committee_index,
-            &head.beacon_state.fork,
+            &head.beacon_state.fork(),
             chain.genesis_validators_root,
             &chain.spec,
         )
@@ -120,7 +121,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             let proof = SelectionProof::new::<T::EthSpec>(
                 aggregate.data.slot,
                 &aggregator_sk,
-                &state.fork,
+                &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
             );
@@ -138,7 +139,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         aggregate,
         None,
         &aggregator_sk,
-        &state.fork,
+        &state.fork(),
         chain.genesis_validators_root,
         &chain.spec,
     );
@@ -169,7 +170,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
             let proof = SelectionProof::new::<T::EthSpec>(
                 aggregate.data.slot,
                 &aggregator_sk,
-                &state.fork,
+                &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
             );
@@ -922,7 +923,7 @@ fn attestation_that_skips_epochs() {
         .expect("should not error getting state")
         .expect("should find state");
 
-    while state.slot < current_slot {
+    while state.slot() < current_slot {
         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
     }
 
@@ -946,11 +947,11 @@ fn attestation_that_skips_epochs() {
     let block_slot = harness
         .chain
         .store
-        .get_item::<SignedBeaconBlock<E>>(&block_root)
+        .get_block(&block_root)
         .expect("should not error getting block")
         .expect("should find attestation block")
-        .message
-        .slot;
+        .message()
+        .slot();
 
     assert!(
         attestation.data.slot - block_slot > E::slots_per_epoch() * 2,

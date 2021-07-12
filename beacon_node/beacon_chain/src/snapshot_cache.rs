@@ -161,7 +161,7 @@ impl<T: EthSpec> SnapshotCache<T> {
                 .enumerate()
                 .filter_map(|(i, snapshot)| {
                     if snapshot.beacon_block_root != self.head_block_root {
-                        Some((i, snapshot.beacon_state.slot))
+                        Some((i, snapshot.beacon_state.slot()))
                     } else {
                         None
                     }
@@ -263,7 +263,7 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.
     pub fn prune(&mut self, finalized_epoch: Epoch) {
         self.snapshots.retain(|snapshot| {
-            snapshot.beacon_state.slot > finalized_epoch.start_slot(T::slots_per_epoch())
+            snapshot.beacon_state.slot() > finalized_epoch.start_slot(T::slots_per_epoch())
         })
     }
 
@@ -279,27 +279,43 @@ impl<T: EthSpec> SnapshotCache<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use store::StoreConfig;
     use types::{
-        test_utils::{generate_deterministic_keypair, TestingBeaconStateBuilder},
-        BeaconBlock, Epoch, MainnetEthSpec, SignedBeaconBlock, Slot,
+        test_utils::generate_deterministic_keypair, BeaconBlock, Epoch, MainnetEthSpec,
+        SignedBeaconBlock, Slot,
     };
+
+    fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
+        let harness = BeaconChainHarness::new_with_store_config(
+            MainnetEthSpec,
+            None,
+            types::test_utils::generate_deterministic_keypairs(1),
+            StoreConfig::default(),
+        );
+
+        harness.advance_slot();
+
+        harness
+    }
 
     const CACHE_SIZE: usize = 4;
 
     fn get_snapshot(i: u64) -> BeaconSnapshot<MainnetEthSpec> {
         let spec = MainnetEthSpec::default_spec();
 
-        let state_builder = TestingBeaconStateBuilder::from_deterministic_keypairs(1, &spec);
-        let (beacon_state, _keypairs) = state_builder.build();
+        let beacon_state = get_harness().chain.head_beacon_state().unwrap();
+
+        let signed_beacon_block = SignedBeaconBlock::from_block(
+            BeaconBlock::empty(&spec),
+            generate_deterministic_keypair(0)
+                .sk
+                .sign(Hash256::from_low_u64_be(42)),
+        );
 
         BeaconSnapshot {
             beacon_state,
-            beacon_block: SignedBeaconBlock {
-                message: BeaconBlock::empty(&spec),
-                signature: generate_deterministic_keypair(0)
-                    .sk
-                    .sign(Hash256::from_low_u64_be(42)),
-            },
+            beacon_block: signed_beacon_block,
             beacon_block_root: Hash256::from_low_u64_be(i),
         }
     }
@@ -319,7 +335,8 @@ mod test {
             let mut snapshot = get_snapshot(i);
 
             // Each snapshot should be one slot into an epoch, with each snapshot one epoch apart.
-            snapshot.beacon_state.slot = Slot::from(i * MainnetEthSpec::slots_per_epoch() + 1);
+            *snapshot.beacon_state.slot_mut() =
+                Slot::from(i * MainnetEthSpec::slots_per_epoch() + 1);
 
             cache.insert(snapshot, None);
 
@@ -352,20 +369,20 @@ mod test {
             .get_cloned(Hash256::from_low_u64_be(1), CloneConfig::none())
             .is_none());
 
-        assert!(
+        assert_eq!(
             cache
                 .get_cloned(Hash256::from_low_u64_be(0), CloneConfig::none())
                 .expect("the head should still be in the cache")
-                .beacon_block_root
-                == Hash256::from_low_u64_be(0),
+                .beacon_block_root,
+            Hash256::from_low_u64_be(0),
             "get_cloned should get the correct snapshot"
         );
-        assert!(
+        assert_eq!(
             cache
                 .get_state_for_block_processing(Hash256::from_low_u64_be(0))
                 .expect("the head should still be in the cache")
-                .beacon_block_root
-                == Hash256::from_low_u64_be(0),
+                .beacon_block_root,
+            Hash256::from_low_u64_be(0),
             "get_state_for_block_processing should get the correct snapshot"
         );
 
@@ -392,12 +409,12 @@ mod test {
         }
 
         // Ensure that the new head value was not removed from the cache.
-        assert!(
+        assert_eq!(
             cache
                 .get_state_for_block_processing(Hash256::from_low_u64_be(2))
                 .expect("the new head should still be in the cache")
-                .beacon_block_root
-                == Hash256::from_low_u64_be(2),
+                .beacon_block_root,
+            Hash256::from_low_u64_be(2),
             "get_state_for_block_processing should get the correct snapshot"
         );
     }
