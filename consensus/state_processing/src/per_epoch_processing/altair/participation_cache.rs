@@ -21,6 +21,11 @@ use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    InvalidFlagIndex(usize),
+}
+
 /// A balance which will never be below the specified `minimum`.
 ///
 /// This is an effort to ensure the `EFFECTIVE_BALANCE_INCREMENT` minimum is always respected.
@@ -87,11 +92,11 @@ impl SingleEpochParticipationCache {
     }
 
     /// Returns the total balance of attesters who have `flag_index` set.
-    fn total_flag_balance(&self, flag_index: usize) -> Result<u64, ArithError> {
+    fn total_flag_balance(&self, flag_index: usize) -> Result<u64, Error> {
         self.total_flag_balances
             .get(flag_index)
             .map(Balance::get)
-            .ok_or(ArithError::Overflow)
+            .ok_or(Error::InvalidFlagIndex(flag_index))
     }
 
     /// Returns `true` if `val_index` is active, unslashed and has `flag_index` set.
@@ -99,9 +104,11 @@ impl SingleEpochParticipationCache {
     /// ## Errors
     ///
     /// May return an error if `flag_index` is out-of-bounds.
-    fn has_flag(&self, val_index: usize, flag_index: usize) -> Result<bool, ArithError> {
+    fn has_flag(&self, val_index: usize, flag_index: usize) -> Result<bool, Error> {
         if let Some(participation_flags) = self.unslashed_participating_indices.get(&val_index) {
-            participation_flags.has_flag(flag_index)
+            participation_flags
+                .has_flag(flag_index)
+                .map_err(|_| Error::InvalidFlagIndex(flag_index))
         } else {
             Ok(false)
         }
@@ -282,7 +289,7 @@ impl ParticipationCache {
         self.current_epoch_participation.total_active_balance.get()
     }
 
-    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
         self.current_epoch_participation
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
@@ -291,12 +298,12 @@ impl ParticipationCache {
         self.previous_epoch_participation.total_active_balance.get()
     }
 
-    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
         self.previous_epoch_participation
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
-    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ArithError> {
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, Error> {
         self.previous_epoch_participation
             .total_flag_balance(TIMELY_HEAD_FLAG_INDEX)
     }
@@ -378,7 +385,7 @@ impl<'a> UnslashedParticipatingIndices<'a> {
     ///
     /// - An active validator.
     /// - Has `self.flag_index` set.
-    pub fn contains(&self, val_index: usize) -> Result<bool, ArithError> {
+    pub fn contains(&self, val_index: usize) -> Result<bool, Error> {
         self.participation.has_flag(val_index, self.flag_index)
     }
 
@@ -387,11 +394,11 @@ impl<'a> UnslashedParticipatingIndices<'a> {
     /// ## Notes
     ///
     /// Respects the `EFFECTIVE_BALANCE_INCREMENT` minimum.
-    pub fn total_balance(&self) -> Result<u64, ArithError> {
+    pub fn total_balance(&self) -> Result<u64, Error> {
         self.participation
             .total_flag_balances
             .get(self.flag_index)
-            .ok_or(ArithError::Overflow)
+            .ok_or(Error::InvalidFlagIndex(self.flag_index))
             .map(Balance::get)
     }
 }

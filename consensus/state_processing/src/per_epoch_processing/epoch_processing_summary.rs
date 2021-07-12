@@ -1,9 +1,8 @@
 use super::{
-    altair::ParticipationCache,
+    altair::{participation_cache::Error as ParticipationCacheError, ParticipationCache},
     base::{TotalBalances, ValidatorStatus},
     validator_statuses::InclusionInfo,
 };
-use safe_arith::ArithError;
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
@@ -30,7 +29,7 @@ impl EpochProcessingSummary {
 
     /// Returns the sum of the effective balance of all validators in the current epoch who
     /// included an attestation that matched the target.
-    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.current_epoch_target_attesters())
@@ -96,7 +95,7 @@ impl EpochProcessingSummary {
 
     /// Returns the sum of the effective balance of all validators in the previous epoch who
     /// included an attestation that matched the target.
-    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, ArithError> {
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_target_attesters())
@@ -114,7 +113,7 @@ impl EpochProcessingSummary {
     ///
     /// - Base: any attestation can match the head.
     /// - Altair: only "timely" attestations can match the head.
-    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ArithError> {
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_head_attesters())
