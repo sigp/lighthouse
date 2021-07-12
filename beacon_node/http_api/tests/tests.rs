@@ -2152,13 +2152,13 @@ impl ApiTester {
     pub async fn test_post_lighthouse_liveness(self) -> Self {
         let epoch = self.chain.epoch().unwrap();
         let head_state = self.chain.head_beacon_state().unwrap();
-        let indices = (0..head_state.validators.len())
+        let indices = (0..head_state.validators().len())
             .map(|i| i as u64)
             .collect::<Vec<_>>();
 
         // Construct the expected response
         let expected: Vec<LivenessResponseData> = head_state
-            .validators
+            .validators()
             .iter()
             .enumerate()
             .map(|(index, _)| LivenessResponseData {
