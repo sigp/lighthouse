@@ -63,6 +63,7 @@ const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 /// This can help ensure that proper endpoint fallback occurs.
 const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 
@@ -259,6 +260,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     Timeouts {
                         attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
                         attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                        liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
                         proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
                         proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
                     }

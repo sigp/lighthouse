@@ -16,7 +16,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
-use types::{ChainSpec, Epoch, ConfigAndPreset, EthSpec};
+use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{

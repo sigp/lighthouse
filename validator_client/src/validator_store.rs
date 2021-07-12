@@ -334,7 +334,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 "current_slot" => current_slot.as_u64()
             );
             return Err(Error::GreaterThanCurrentSlot {
-                slot: block.slot,
+                slot: block.slot(),
                 current_slot,
             });
         }
