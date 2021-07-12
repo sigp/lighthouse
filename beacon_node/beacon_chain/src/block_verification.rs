@@ -990,7 +990,15 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // performing `per_slot_processing`.
                 for (i, summary) in summaries.iter().enumerate() {
                     let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
-                    validator_monitor.process_validator_statuses(epoch, &summary, &chain.spec);
+                    if let Err(e) =
+                        validator_monitor.process_validator_statuses(epoch, &summary, &chain.spec)
+                    {
+                        error!(
+                            chain.log,
+                            "Failed to process validator statuses";
+                            "error" => ?e
+                        );
+                    }
                 }
             }
         }

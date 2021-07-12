@@ -238,10 +238,17 @@ fn advance_head<T: BeaconChainTypes>(
             >= current_slot.epoch(T::EthSpec::slots_per_epoch())
         {
             // Potentially create logs/metrics for locally monitored validators.
-            beacon_chain
+            if let Err(e) = beacon_chain
                 .validator_monitor
                 .read()
-                .process_validator_statuses(state.current_epoch(), &summary, &beacon_chain.spec);
+                .process_validator_statuses(state.current_epoch(), &summary, &beacon_chain.spec)
+            {
+                error!(
+                    log,
+                    "Unable to process validator statuses";
+                    "error" => ?e
+                );
+            }
         }
     }
 

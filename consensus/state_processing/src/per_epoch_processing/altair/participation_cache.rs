@@ -329,45 +329,45 @@ impl ParticipationCache {
      */
 
     /// Always returns false for a slashed validator.
-    pub fn is_previous_epoch_timely_source_attester(&self, val_index: usize) -> bool {
+    pub fn is_previous_epoch_timely_source_attester(
+        &self,
+        val_index: usize,
+    ) -> Result<bool, Error> {
         self.previous_epoch_participation
             .has_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
-            .unwrap_or(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_previous_epoch_timely_target_attester(&self, val_index: usize) -> bool {
+    pub fn is_previous_epoch_timely_target_attester(
+        &self,
+        val_index: usize,
+    ) -> Result<bool, Error> {
         self.previous_epoch_participation
             .has_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
-            .unwrap_or(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_previous_epoch_timely_head_attester(&self, val_index: usize) -> bool {
+    pub fn is_previous_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
         self.previous_epoch_participation
             .has_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
-            .unwrap_or(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_source_attester(&self, val_index: usize) -> bool {
+    pub fn is_current_epoch_timely_source_attester(&self, val_index: usize) -> Result<bool, Error> {
         self.current_epoch_participation
             .has_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
-            .unwrap_or(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_target_attester(&self, val_index: usize) -> bool {
+    pub fn is_current_epoch_timely_target_attester(&self, val_index: usize) -> Result<bool, Error> {
         self.current_epoch_participation
             .has_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
-            .unwrap_or(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_head_attester(&self, val_index: usize) -> bool {
+    pub fn is_current_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
         self.current_epoch_participation
             .has_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
-            .unwrap_or(false)
     }
 }
 

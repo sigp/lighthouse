@@ -81,11 +81,14 @@ impl EpochProcessingSummary {
     /// ## Notes
     ///
     /// Always returns `false` for an unknown `val_index`.
-    pub fn is_current_epoch_target_attester(&self, val_index: usize) -> bool {
+    pub fn is_current_epoch_target_attester(
+        &self,
+        val_index: usize,
+    ) -> Result<bool, ParticipationCacheError> {
         match self {
-            EpochProcessingSummary::Base { statuses, .. } => statuses
+            EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_current_epoch_target_attester),
+                .map_or(false, |s| s.is_current_epoch_target_attester)),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
@@ -148,11 +151,14 @@ impl EpochProcessingSummary {
     /// ## Notes
     ///
     /// Always returns `false` for an unknown `val_index`.
-    pub fn is_previous_epoch_target_attester(&self, val_index: usize) -> bool {
+    pub fn is_previous_epoch_target_attester(
+        &self,
+        val_index: usize,
+    ) -> Result<bool, ParticipationCacheError> {
         match self {
-            EpochProcessingSummary::Base { statuses, .. } => statuses
+            EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_previous_epoch_target_attester),
+                .map_or(false, |s| s.is_previous_epoch_target_attester)),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
@@ -171,11 +177,14 @@ impl EpochProcessingSummary {
     /// ## Notes
     ///
     /// Always returns `false` for an unknown `val_index`.
-    pub fn is_previous_epoch_head_attester(&self, val_index: usize) -> bool {
+    pub fn is_previous_epoch_head_attester(
+        &self,
+        val_index: usize,
+    ) -> Result<bool, ParticipationCacheError> {
         match self {
-            EpochProcessingSummary::Base { statuses, .. } => statuses
+            EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_previous_epoch_head_attester),
+                .map_or(false, |s| s.is_previous_epoch_head_attester)),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
@@ -194,11 +203,14 @@ impl EpochProcessingSummary {
     /// ## Notes
     ///
     /// Always returns `false` for an unknown `val_index`.
-    pub fn is_previous_epoch_source_attester(&self, val_index: usize) -> bool {
+    pub fn is_previous_epoch_source_attester(
+        &self,
+        val_index: usize,
+    ) -> Result<bool, ParticipationCacheError> {
         match self {
-            EpochProcessingSummary::Base { statuses, .. } => statuses
+            EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_previous_epoch_attester),
+                .map_or(false, |s| s.is_previous_epoch_attester)),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..

@@ -4,7 +4,10 @@ use eth2::{
     lighthouse::{GlobalValidatorInclusionData, ValidatorInclusionData},
     types::ValidatorId,
 };
-use state_processing::per_epoch_processing::{process_epoch, EpochProcessingSummary};
+use state_processing::per_epoch_processing::{
+    altair::participation_cache::Error as ParticipationCacheError, process_epoch,
+    EpochProcessingSummary,
+};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec};
 
 /// Returns the state in the last slot of `epoch`.
@@ -29,6 +32,10 @@ fn get_epoch_processing_summary<T: EthSpec>(
         .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
 }
 
+fn convert_cache_error(error: ParticipationCacheError) -> warp::reject::Rejection {
+    warp_utils::reject::custom_server_error(format!("{:?}", error))
+}
+
 /// Returns information about *all validators* (i.e., global) and how they performed during a given
 /// epoch.
 pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
@@ -43,13 +50,13 @@ pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
         previous_epoch_active_gwei: summary.previous_epoch_total_active_balance(),
         current_epoch_target_attesting_gwei: summary
             .current_epoch_target_attesting_balance()
-            .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?,
+            .map_err(convert_cache_error)?,
         previous_epoch_target_attesting_gwei: summary
             .previous_epoch_target_attesting_balance()
-            .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?,
+            .map_err(convert_cache_error)?,
         previous_epoch_head_attesting_gwei: summary
             .previous_epoch_head_attesting_balance()
-            .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?,
+            .map_err(convert_cache_error)?,
     })
 }
 
@@ -96,9 +103,14 @@ pub fn validator_inclusion_data<T: BeaconChainTypes>(
         is_active_unslashed_in_previous_epoch: summary
             .is_active_unslashed_in_previous_epoch(validator_index),
         current_epoch_effective_balance_gwei: validator.effective_balance,
-        is_current_epoch_target_attester: summary.is_current_epoch_target_attester(validator_index),
+        is_current_epoch_target_attester: summary
+            .is_current_epoch_target_attester(validator_index)
+            .map_err(convert_cache_error)?,
         is_previous_epoch_target_attester: summary
-            .is_previous_epoch_target_attester(validator_index),
-        is_previous_epoch_head_attester: summary.is_previous_epoch_head_attester(validator_index),
+            .is_previous_epoch_target_attester(validator_index)
+            .map_err(convert_cache_error)?,
+        is_previous_epoch_head_attester: summary
+            .is_previous_epoch_head_attester(validator_index)
+            .map_err(convert_cache_error)?,
     }))
 }

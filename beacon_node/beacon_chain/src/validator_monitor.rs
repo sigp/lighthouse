@@ -6,7 +6,9 @@ use crate::metrics;
 use parking_lot::RwLock;
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use state_processing::per_epoch_processing::EpochProcessingSummary;
+use state_processing::per_epoch_processing::{
+    errors::EpochProcessingError, EpochProcessingSummary,
+};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
@@ -331,7 +333,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         epoch: Epoch,
         summary: &EpochProcessingSummary,
         spec: &ChainSpec,
-    ) {
+    ) -> Result<(), EpochProcessingError> {
         for monitored_validator in self.validators.values() {
             // We subtract two from the state of the epoch that generated these summaries.
             //
@@ -353,9 +355,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                  */
 
                 let previous_epoch_active = summary.is_active_unslashed_in_previous_epoch(i);
-                let previous_epoch_matched_source = summary.is_previous_epoch_source_attester(i);
-                let previous_epoch_matched_target = summary.is_previous_epoch_target_attester(i);
-                let previous_epoch_matched_head = summary.is_previous_epoch_head_attester(i);
+                let previous_epoch_matched_source = summary.is_previous_epoch_source_attester(i)?;
+                let previous_epoch_matched_target = summary.is_previous_epoch_target_attester(i)?;
+                let previous_epoch_matched_head = summary.is_previous_epoch_head_attester(i)?;
                 let previous_epoch_matched_any = previous_epoch_matched_source
                     || previous_epoch_matched_target
                     || previous_epoch_matched_head;
@@ -458,6 +460,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 }
             }
         }
+
+        Ok(())
     }
 
     fn get_validator_id(&self, validator_index: u64) -> Option<&str> {
