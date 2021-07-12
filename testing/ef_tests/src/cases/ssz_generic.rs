@@ -3,15 +3,14 @@
 use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
-use crate::decode::yaml_decode_file;
+use crate::decode::{snappy_decode_file, yaml_decode_file};
 use serde::{de::Error as SerdeError, Deserializer};
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
-use std::fs;
 use std::path::{Path, PathBuf};
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, VariableList};
+use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -27,7 +26,7 @@ pub struct SszGeneric {
 }
 
 impl LoadCase for SszGeneric {
-    fn load_from_dir(path: &Path) -> Result<Self, Error> {
+    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
         let components = path
             .components()
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -119,7 +118,7 @@ macro_rules! type_dispatch {
 }
 
 impl Case for SszGeneric {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parts = self.case_name.split('_').collect::<Vec<_>>();
 
         match self.handler_name.as_str() {
@@ -195,7 +194,7 @@ impl Case for SszGeneric {
     }
 }
 
-fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
+fn ssz_generic_test<T: SszStaticType + ssz::Decode>(path: &Path) -> Result<(), Error> {
     let meta_path = path.join("meta.yaml");
     let meta: Option<Metadata> = if meta_path.is_file() {
         Some(yaml_decode_file(&meta_path)?)
@@ -203,7 +202,8 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
         None
     };
 
-    let serialized = fs::read(&path.join("serialized.ssz")).expect("serialized.ssz exists");
+    let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
+        .expect("serialized.ssz_snappy exists");
 
     let value_path = path.join("value.yaml");
     let value: Option<T> = if value_path.is_file() {
@@ -215,7 +215,7 @@ fn ssz_generic_test<T: SszStaticType>(path: &Path) -> Result<(), Error> {
     // Valid
     // TODO: signing root (annoying because of traits)
     if let Some(value) = value {
-        check_serialization(&value, &serialized)?;
+        check_serialization(&value, &serialized, T::from_ssz_bytes)?;
 
         if let Some(ref meta) = meta {
             check_tree_hash(&meta.root, value.tree_hash_root().as_bytes())?;

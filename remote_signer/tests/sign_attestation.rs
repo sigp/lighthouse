@@ -30,7 +30,7 @@ mod sign_attestation {
 
         testcase(
             "\"beacon_proposer\"",
-            "Unable to parse block from JSON: Error(\"missing field `proposer_index`\", line: 0, column: 0)",
+            "Unable to parse block from JSON: Error(\"data did not match any variant of untagged enum BeaconBlock\", line: 0, column: 0)"
         );
         testcase(
             "\"randao\"",

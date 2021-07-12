@@ -39,7 +39,7 @@ impl CommitteeCache {
             return Err(Error::ZeroSlotsPerEpoch);
         }
 
-        let active_validator_indices = get_active_validator_indices(&state.validators, epoch);
+        let active_validator_indices = get_active_validator_indices(state.validators(), epoch);
 
         if active_validator_indices.is_empty() {
             return Err(Error::InsufficientValidators);
@@ -59,13 +59,15 @@ impl CommitteeCache {
         .ok_or(Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validators.len() == usize::max_value() {
+        if state.validators().len() == usize::max_value() {
             return Err(Error::TooManyValidators);
         }
 
-        let mut shuffling_positions = vec![None; state.validators.len()];
-        for (i, v) in shuffling.iter().enumerate() {
-            shuffling_positions[*v] = NonZeroUsize::new(i + 1);
+        let mut shuffling_positions = vec![None; state.validators().len()];
+        for (i, &v) in shuffling.iter().enumerate() {
+            *shuffling_positions
+                .get_mut(v)
+                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1);
         }
 
         Ok(CommitteeCache {
@@ -229,7 +231,7 @@ impl CommitteeCache {
     ///
     /// Spec v0.12.1
     fn compute_committee(&self, index: usize) -> Option<&[usize]> {
-        Some(&self.shuffling[self.compute_committee_range(index)?])
+        self.shuffling.get(self.compute_committee_range(index)?)
     }
 
     /// Returns a range of `self.shuffling` that represents the `index`'th committee in the epoch.
@@ -255,7 +257,7 @@ impl CommitteeCache {
     /// Returns the index of some validator in `self.shuffling`.
     ///
     /// Always returns `None` for a non-initialized epoch.
-    fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
+    pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?
             .and_then(|p| Some(p.get() - 1))

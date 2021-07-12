@@ -33,19 +33,6 @@ impl BeaconBlockHeader {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
-    /// Given a `body`, consumes `self` and returns a complete `BeaconBlock`.
-    ///
-    /// Spec v0.12.1
-    pub fn into_block<T: EthSpec>(self, body: BeaconBlockBody<T>) -> BeaconBlock<T> {
-        BeaconBlock {
-            slot: self.slot,
-            proposer_index: self.proposer_index,
-            parent_root: self.parent_root,
-            state_root: self.state_root,
-            body,
-        }
-    }
-
     /// Signs `self`, producing a `SignedBeaconBlockHeader`.
     pub fn sign<E: EthSpec>(
         self,

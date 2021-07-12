@@ -38,6 +38,7 @@ mod tests {
         let beacon_chain = Arc::new(
             BeaconChainHarness::new_with_store_config(
                 MinimalEthSpec,
+                None,
                 generate_deterministic_keypairs(8),
                 StoreConfig::default(),
             )

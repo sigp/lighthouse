@@ -24,16 +24,16 @@ use types::{BeaconBlock, EthSpec, Hash256, MainnetEthSpec, Signature, SignedBeac
 lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
     // same across different `EthSpec` implementations.
-    pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec> {
-        message: BeaconBlock::empty(&MainnetEthSpec::default_spec()),
-        signature: Signature::empty(),
-    }
+    pub static ref SIGNED_BEACON_BLOCK_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::empty(&MainnetEthSpec::default_spec()),
+        Signature::empty(),
+    )
     .as_ssz_bytes()
     .len();
-    pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec> {
-        message: BeaconBlock::full(&MainnetEthSpec::default_spec()),
-        signature: Signature::empty(),
-    }
+    pub static ref SIGNED_BEACON_BLOCK_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::full(&MainnetEthSpec::default_spec()),
+        Signature::empty(),
+    )
     .as_ssz_bytes()
     .len();
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =

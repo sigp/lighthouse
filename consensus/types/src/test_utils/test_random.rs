@@ -41,6 +41,12 @@ impl TestRandom for u32 {
     }
 }
 
+impl TestRandom for u8 {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        rng.next_u32().to_be_bytes()[0]
+    }
+}
+
 impl TestRandom for usize {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         rng.next_u32() as usize
@@ -64,16 +70,15 @@ where
 
 impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
 where
-    T: TestRandom + Default,
+    T: TestRandom,
 {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let mut output = vec![];
-
-        for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
-            output.push(<T>::random_for_test(rng));
-        }
-
-        output.into()
+        Self::new(
+            (0..N::to_usize())
+                .map(|_| T::random_for_test(rng))
+                .collect(),
+        )
+        .expect("N items provided")
     }
 }
 

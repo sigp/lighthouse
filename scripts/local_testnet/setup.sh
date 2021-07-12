@@ -30,6 +30,7 @@ lcli \
 	--min-genesis-time $GENESIS_TIME \
 	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
+	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--eth1-id $NETWORK_ID \
 	--eth1-follow-distance 1 \
 	--seconds-per-slot $SECONDS_PER_SLOT \

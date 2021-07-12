@@ -29,6 +29,7 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::new_with_store_config(
         MinimalEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         StoreConfig::default(),
     );
@@ -41,7 +42,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 #[test]
 fn massive_skips() {
     let harness = get_harness(8);
-    let spec = &MinimalEthSpec::default_spec();
+    let spec = &harness.chain.spec;
     let mut state = harness.chain.head().expect("should get head").beacon_state;
 
     // Run per_slot_processing until it returns an error.
@@ -52,7 +53,7 @@ fn massive_skips() {
         }
     };
 
-    assert!(state.slot > 1, "the state should skip at least one slot");
+    assert!(state.slot() > 1, "the state should skip at least one slot");
     assert_eq!(
         error,
         SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
@@ -134,7 +135,7 @@ fn iterators() {
 
     assert_eq!(
         *state_roots.last().expect("should have some state roots"),
-        (head.beacon_state_root(), head.beacon_state.slot),
+        (head.beacon_state_root(), head.beacon_state.slot()),
         "last state root and slot should be for the head state"
     );
 }
@@ -153,7 +154,7 @@ fn find_reorgs() {
     );
 
     let head_state = harness.chain.head_beacon_state().unwrap();
-    let head_slot = head_state.slot;
+    let head_slot = head_state.slot();
     let genesis_state = harness
         .chain
         .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
@@ -167,7 +168,7 @@ fn find_reorgs() {
             .find_reorg_slot(&genesis_state, harness.chain.genesis_block_root)
             .unwrap(),
         head_state
-            .finalized_checkpoint
+            .finalized_checkpoint()
             .epoch
             .start_slot(MinimalEthSpec::slots_per_epoch())
     );
@@ -237,7 +238,7 @@ fn chooses_fork() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot,
+        state.slot(),
         Slot::from(initial_blocks + honest_fork_blocks),
         "head should be at the current slot"
     );
@@ -268,7 +269,8 @@ fn finalizes_with_full_participation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -277,12 +279,12 @@ fn finalizes_with_full_participation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch,
+        state.current_justified_checkpoint().epoch,
         state.current_epoch() - 1,
         "the head should be justified one behind the current epoch"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch,
+        state.finalized_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
     );
@@ -306,7 +308,8 @@ fn finalizes_with_two_thirds_participation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -320,12 +323,12 @@ fn finalizes_with_two_thirds_participation() {
     // included in blocks during that epoch.
 
     assert_eq!(
-        state.current_justified_checkpoint.epoch,
+        state.current_justified_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be justified two behind the current epoch"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch,
+        state.finalized_checkpoint().epoch,
         state.current_epoch() - 4,
         "the head should be finalized three behind the current epoch"
     );
@@ -350,7 +353,8 @@ fn does_not_finalize_with_less_than_two_thirds_participation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -359,11 +363,13 @@ fn does_not_finalize_with_less_than_two_thirds_participation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch, 0,
+        state.current_justified_checkpoint().epoch,
+        0,
         "no epoch should have been justified"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch, 0,
+        state.finalized_checkpoint().epoch,
+        0,
         "no epoch should have been finalized"
     );
 }
@@ -383,7 +389,8 @@ fn does_not_finalize_without_attestation() {
     let state = &harness.chain.head().expect("should get head").beacon_state;
 
     assert_eq!(
-        state.slot, num_blocks_produced,
+        state.slot(),
+        num_blocks_produced,
         "head should be at the current slot"
     );
     assert_eq!(
@@ -392,11 +399,13 @@ fn does_not_finalize_without_attestation() {
         "head should be at the expected epoch"
     );
     assert_eq!(
-        state.current_justified_checkpoint.epoch, 0,
+        state.current_justified_checkpoint().epoch,
+        0,
         "no epoch should have been justified"
     );
     assert_eq!(
-        state.finalized_checkpoint.epoch, 0,
+        state.finalized_checkpoint().epoch,
+        0,
         "no epoch should have been finalized"
     );
 }
@@ -681,7 +690,14 @@ fn block_roots_skip_slot_behaviour() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Test should be longer than the block roots to ensure a DB lookup is triggered.
-    let chain_length = harness.chain.head().unwrap().beacon_state.block_roots.len() as u64 * 3;
+    let chain_length = harness
+        .chain
+        .head()
+        .unwrap()
+        .beacon_state
+        .block_roots()
+        .len() as u64
+        * 3;
 
     let skipped_slots = [1, 6, 7, 10, chain_length];
 

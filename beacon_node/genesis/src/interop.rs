@@ -48,10 +48,12 @@ pub fn interop_genesis_state<T: EthSpec>(
     )
     .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
 
-    state.genesis_time = genesis_time;
+    *state.genesis_time_mut() = genesis_time;
 
-    // Invalid all the caches after all the manual state surgery.
-    state.drop_all_caches();
+    // Invalidate all the caches after all the manual state surgery.
+    state
+        .drop_all_caches()
+        .map_err(|e| format!("Unable to drop caches: {:?}", e))?;
 
     Ok(state)
 }
@@ -75,24 +77,25 @@ mod test {
             .expect("should build state");
 
         assert_eq!(
-            state.eth1_data.block_hash,
+            state.eth1_data().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );
 
         assert_eq!(
-            state.genesis_time, genesis_time,
+            state.genesis_time(),
+            genesis_time,
             "genesis time should be as specified"
         );
 
-        for b in &state.balances {
+        for b in state.balances() {
             assert_eq!(
                 *b, spec.max_effective_balance,
                 "validator balances should be max effective balance"
             );
         }
 
-        for v in &state.validators {
+        for v in state.validators() {
             let creds = v.withdrawal_credentials.as_bytes();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
@@ -106,13 +109,13 @@ mod test {
         }
 
         assert_eq!(
-            state.balances.len(),
+            state.balances().len(),
             validator_count,
             "validator balances len should be correct"
         );
 
         assert_eq!(
-            state.validators.len(),
+            state.validators().len(),
             validator_count,
             "validator count should be correct"
         );

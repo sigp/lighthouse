@@ -1,21 +1,28 @@
-use errors::EpochProcessingError as Error;
-use safe_arith::SafeArith;
-use tree_hash::TreeHash;
-use types::*;
+#![deny(clippy::wildcard_imports)]
 
-pub mod apply_rewards;
+// FIXME(altair): refactor to remove phase0/base structs, including `EpochProcessingSummary`
+pub use base::{TotalBalances, ValidatorStatus, ValidatorStatuses};
+use errors::EpochProcessingError as Error;
+pub use registry_updates::process_registry_updates;
+use safe_arith::SafeArith;
+pub use slashings::process_slashings;
+use types::{BeaconState, ChainSpec, EthSpec};
+pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
+
+pub mod altair;
+pub mod base;
+pub mod effective_balance_updates;
 pub mod errors;
-pub mod process_slashings;
+pub mod historical_roots_update;
 pub mod registry_updates;
+pub mod resets;
+pub mod slashings;
 pub mod tests;
 pub mod validator_statuses;
-
-pub use apply_rewards::process_rewards_and_penalties;
-pub use process_slashings::process_slashings;
-pub use registry_updates::process_registry_updates;
-pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
+pub mod weigh_justification_and_finalization;
 
 /// Provides a summary of validator participation during the epoch.
+#[derive(PartialEq, Debug)]
 pub struct EpochProcessingSummary {
     pub total_balances: TotalBalances,
     pub statuses: Vec<ValidatorStatus>,
@@ -25,195 +32,44 @@ pub struct EpochProcessingSummary {
 ///
 /// Mutates the given `BeaconState`, returning early if an error is encountered. If an error is
 /// returned, a state might be "half-processed" and therefore in an invalid state.
-///
-/// Spec v0.12.1
-pub fn per_epoch_processing<T: EthSpec>(
+pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary, Error> {
-    // Ensure the committee caches are built.
-    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-    state.build_committee_cache(RelativeEpoch::Current, spec)?;
-    state.build_committee_cache(RelativeEpoch::Next, spec)?;
+    // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
+    state
+        .fork_name(spec)
+        .map_err(Error::InconsistentStateFork)?;
 
-    // Load the struct we use to assign validators into sets based on their participation.
-    //
-    // E.g., attestation in the previous epoch, attested to the head, etc.
-    let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-    validator_statuses.process_attestations(&state, spec)?;
-
-    // Justification and finalization.
-    process_justification_and_finalization(state, &validator_statuses.total_balances)?;
-
-    // Rewards and Penalties.
-    process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
-
-    // Registry Updates.
-    process_registry_updates(state, spec)?;
-
-    // Slashings.
-    process_slashings(
-        state,
-        validator_statuses.total_balances.current_epoch(),
-        spec,
-    )?;
-
-    // Final updates.
-    process_final_updates(state, spec)?;
-
-    // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches();
-
-    Ok(EpochProcessingSummary {
-        total_balances: validator_statuses.total_balances,
-        statuses: validator_statuses.statuses,
-    })
+    match state {
+        BeaconState::Base(_) => base::process_epoch(state, spec),
+        BeaconState::Altair(_) => altair::process_epoch(state, spec),
+    }
 }
 
-/// Update the following fields on the `BeaconState`:
-///
-/// - `justification_bitfield`.
-/// - `previous_justified_epoch`
-/// - `previous_justified_root`
-/// - `current_justified_epoch`
-/// - `current_justified_root`
-/// - `finalized_epoch`
-/// - `finalized_root`
-///
-/// Spec v0.12.1
-#[allow(clippy::if_same_then_else)] // For readability and consistency with spec.
-pub fn process_justification_and_finalization<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    total_balances: &TotalBalances,
-) -> Result<(), Error> {
-    if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(());
-    }
-
-    let previous_epoch = state.previous_epoch();
-    let current_epoch = state.current_epoch();
-
-    let old_previous_justified_checkpoint = state.previous_justified_checkpoint;
-    let old_current_justified_checkpoint = state.current_justified_checkpoint;
-
-    // Process justifications
-    state.previous_justified_checkpoint = state.current_justified_checkpoint;
-    state.justification_bits.shift_up(1)?;
-
-    if total_balances
-        .previous_epoch_target_attesters()
-        .safe_mul(3)?
-        >= total_balances.current_epoch().safe_mul(2)?
-    {
-        state.current_justified_checkpoint = Checkpoint {
-            epoch: previous_epoch,
-            root: *state.get_block_root_at_epoch(previous_epoch)?,
-        };
-        state.justification_bits.set(1, true)?;
-    }
-    // If the current epoch gets justified, fill the last bit.
-    if total_balances
-        .current_epoch_target_attesters()
-        .safe_mul(3)?
-        >= total_balances.current_epoch().safe_mul(2)?
-    {
-        state.current_justified_checkpoint = Checkpoint {
-            epoch: current_epoch,
-            root: *state.get_block_root_at_epoch(current_epoch)?,
-        };
-        state.justification_bits.set(0, true)?;
-    }
-
-    let bits = &state.justification_bits;
-
-    // The 2nd/3rd/4th most recent epochs are all justified, the 2nd using the 4th as source.
-    if (1..4).all(|i| bits.get(i).unwrap_or(false))
-        && old_previous_justified_checkpoint.epoch.safe_add(3)? == current_epoch
-    {
-        state.finalized_checkpoint = old_previous_justified_checkpoint;
-    }
-    // The 2nd/3rd most recent epochs are both justified, the 2nd using the 3rd as source.
-    else if (1..3).all(|i| bits.get(i).unwrap_or(false))
-        && old_previous_justified_checkpoint.epoch.safe_add(2)? == current_epoch
-    {
-        state.finalized_checkpoint = old_previous_justified_checkpoint;
-    }
-    // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 3nd as source.
-    if (0..3).all(|i| bits.get(i).unwrap_or(false))
-        && old_current_justified_checkpoint.epoch.safe_add(2)? == current_epoch
-    {
-        state.finalized_checkpoint = old_current_justified_checkpoint;
-    }
-    // The 1st/2nd most recent epochs are both justified, the 1st using the 2nd as source.
-    else if (0..2).all(|i| bits.get(i).unwrap_or(false))
-        && old_current_justified_checkpoint.epoch.safe_add(1)? == current_epoch
-    {
-        state.finalized_checkpoint = old_current_justified_checkpoint;
-    }
-
-    Ok(())
+/// Used to track the changes to a validator's balance.
+#[derive(Default, Clone)]
+pub struct Delta {
+    pub rewards: u64,
+    pub penalties: u64,
 }
 
-/// Finish up an epoch update.
-///
-/// Spec v0.12.1
-pub fn process_final_updates<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-) -> Result<(), Error> {
-    let current_epoch = state.current_epoch();
-    let next_epoch = state.next_epoch()?;
-
-    // Reset eth1 data votes.
-    if state
-        .slot
-        .safe_add(1)?
-        .safe_rem(T::SlotsPerEth1VotingPeriod::to_u64())?
-        == 0
-    {
-        state.eth1_data_votes = VariableList::empty();
+impl Delta {
+    /// Reward the validator with the `reward`.
+    pub fn reward(&mut self, reward: u64) -> Result<(), Error> {
+        self.rewards = self.rewards.safe_add(reward)?;
+        Ok(())
     }
 
-    // Update effective balances with hysteresis (lag).
-    let hysteresis_increment = spec
-        .effective_balance_increment
-        .safe_div(spec.hysteresis_quotient)?;
-    let downward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
-    let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
-    for (index, validator) in state.validators.iter_mut().enumerate() {
-        let balance = state.balances[index];
-
-        if balance.safe_add(downward_threshold)? < validator.effective_balance
-            || validator.effective_balance.safe_add(upward_threshold)? < balance
-        {
-            validator.effective_balance = std::cmp::min(
-                balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            );
-        }
+    /// Penalize the validator with the `penalty`.
+    pub fn penalize(&mut self, penalty: u64) -> Result<(), Error> {
+        self.penalties = self.penalties.safe_add(penalty)?;
+        Ok(())
     }
 
-    // Reset slashings
-    state.set_slashings(next_epoch, 0)?;
-
-    // Set randao mix
-    state.set_randao_mix(next_epoch, *state.get_randao_mix(current_epoch)?)?;
-
-    // Set historical root accumulator
-    if next_epoch
-        .as_u64()
-        .safe_rem(T::SlotsPerHistoricalRoot::to_u64().safe_div(T::slots_per_epoch())?)?
-        == 0
-    {
-        let historical_batch = state.historical_batch();
-        state
-            .historical_roots
-            .push(historical_batch.tree_hash_root())?;
+    /// Combine two deltas.
+    fn combine(&mut self, other: Delta) -> Result<(), Error> {
+        self.reward(other.rewards)?;
+        self.penalize(other.penalties)
     }
-
-    // Rotate current/previous epoch attestations
-    state.previous_epoch_attestations =
-        std::mem::replace(&mut state.current_epoch_attestations, VariableList::empty());
-
-    Ok(())
 }

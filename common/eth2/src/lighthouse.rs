@@ -2,13 +2,12 @@
 
 use crate::{
     ok_or_error,
-    types::{BeaconState, Epoch, EthSpec, GenericResponse, ValidatorId},
+    types::{BeaconState, ChainSpec, Epoch, EthSpec, GenericResponse, ValidatorId},
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
@@ -470,6 +469,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_lighthouse_beacon_states_ssz<E: EthSpec>(
         &self,
         state_id: &StateId,
+        spec: &ChainSpec,
     ) -> Result<Option<BeaconState<E>>, Error> {
         let mut path = self.server.full.clone();
 
@@ -483,7 +483,7 @@ impl BeaconNodeHttpClient {
 
         self.get_bytes_opt(path)
             .await?
-            .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
     }
 

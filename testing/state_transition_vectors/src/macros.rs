@@ -14,7 +14,7 @@ macro_rules! vectors_and_tests {
             vec
         }
 
-        #[cfg(test)]
+        #[cfg(all(test, not(debug_assertions)))]
         mod tests {
             use super::*;
             $(

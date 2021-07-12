@@ -4,7 +4,7 @@ use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
-    BeaconNodeHttpClient,
+    BeaconNodeHttpClient, Timeouts,
 };
 use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
@@ -81,6 +81,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+        Timeouts::set_all(Duration::from_secs(env.eth2_config.spec.seconds_per_slot)),
     );
 
     let testnet_config = env
@@ -116,7 +117,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
         .beacon_state::<E>()
         .as_ref()
         .expect("network should have valid genesis state")
-        .genesis_validators_root;
+        .genesis_validators_root();
 
     // Verify that the beacon node and validator being exited are on the same network.
     if genesis_data.genesis_validators_root != testnet_genesis_root {
