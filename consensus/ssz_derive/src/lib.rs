@@ -3,11 +3,9 @@
 //!
 //! Supports field attributes, see each derive macro for more information.
 
-extern crate proc_macro;
-
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput};
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
 /// that should not be serialized.
@@ -57,7 +55,7 @@ fn should_skip_serializing(field: &syn::Field) -> bool {
     })
 }
 
-/// Implements `ssz::Encode` for some `struct`.
+/// Implements `ssz::Encode` for some `struct` or `enum`.
 ///
 /// Fields are encoded in the order they are defined.
 ///
@@ -68,17 +66,20 @@ fn should_skip_serializing(field: &syn::Field) -> bool {
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
 
-    let name = &item.ident;
-    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
+    match &item.data {
+        syn::Data::Struct(s) => ssz_encode_derive_struct(&item, s),
+        syn::Data::Enum(s) => ssz_encode_derive_enum(&item, s),
+        _ => panic!("ssz_derive only supports structs and enums"),
+    }
+}
 
-    let struct_data = match &item.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("ssz_derive only supports structs."),
-    };
+fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
 
-    let field_idents = get_serializable_named_field_idents(&struct_data);
-    let field_idents_a = get_serializable_named_field_idents(&struct_data);
-    let field_types_a = get_serializable_field_types(&struct_data);
+    let field_idents = get_serializable_named_field_idents(struct_data);
+    let field_idents_a = get_serializable_named_field_idents(struct_data);
+    let field_types_a = get_serializable_field_types(struct_data);
     let field_types_b = field_types_a.clone();
     let field_types_d = field_types_a.clone();
     let field_types_e = field_types_a.clone();
@@ -146,6 +147,72 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
                 )*
 
                 encoder.finalize();
+            }
+        }
+    };
+    output.into()
+}
+
+/// Derive `Encode` for a restricted subset of all possible enum types.
+///
+/// Only supports:
+/// - Enums with a single field per variant, where
+///     - All fields are variably sized from an SSZ-perspective (not fixed size).
+///
+/// Will panic at compile-time if the single field requirement isn't met, but will panic *at run
+/// time* if the variable-size requirement isn't met.
+fn ssz_encode_derive_enum(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+
+    let (patterns, assert_exprs): (Vec<_>, Vec<_>) = enum_data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name = &variant.ident;
+
+            if variant.fields.len() != 1 {
+                panic!("ssz::Encode can only be derived for enums with 1 field per variant");
+            }
+
+            let pattern = quote! {
+                #name::#variant_name(ref inner)
+            };
+
+            let ty = &(&variant.fields).into_iter().next().unwrap().ty;
+            let type_assert = quote! {
+                !<#ty as ssz::Encode>::is_ssz_fixed_len()
+            };
+            (pattern, type_assert)
+        })
+        .unzip();
+
+    let output = quote! {
+        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                assert!(
+                    #(
+                        #assert_exprs &&
+                    )* true,
+                    "not all enum variants are variably-sized"
+                );
+                false
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                match self {
+                    #(
+                        #patterns => inner.ssz_bytes_len(),
+                    )*
+                }
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                match self {
+                    #(
+                        #patterns => inner.ssz_append(buf),
+                    )*
+                }
             }
         }
     };

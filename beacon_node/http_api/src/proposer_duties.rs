@@ -148,7 +148,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
             state.current_epoch(),
             dependent_root,
             indices.clone(),
-            state.fork,
+            state.fork(),
         )
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;

@@ -94,6 +94,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       node is not synced.",
                 ),
         )
+        .arg(
+            Arg::with_name("use-long-timeouts")
+                .long("use-long-timeouts")
+                .help("If present, the validator client will use longer timeouts for requests \
+                        made to the beacon node. This flag is generally not recommended, \
+                        longer timeouts can cause missed duties when fallbacks are used.")
+        )
         // This overwrites the graffiti configured in the beacon node.
         .arg(
             Arg::with_name("graffiti")

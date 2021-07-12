@@ -1,7 +1,7 @@
 use crate::max_cover::MaxCover;
 use state_processing::per_block_processing::get_slashable_indices_modular;
 use std::collections::{HashMap, HashSet};
-use types::{AttesterSlashing, BeaconState, ChainSpec, EthSpec};
+use types::{AttesterSlashing, BeaconState, EthSpec};
 
 #[derive(Debug, Clone)]
 pub struct AttesterSlashingMaxCover<'a, T: EthSpec> {
@@ -14,7 +14,6 @@ impl<'a, T: EthSpec> AttesterSlashingMaxCover<'a, T> {
         slashing: &'a AttesterSlashing<T>,
         proposer_slashing_indices: &HashSet<u64>,
         state: &BeaconState<T>,
-        spec: &ChainSpec,
     ) -> Option<Self> {
         let mut effective_balances: HashMap<u64, u64> = HashMap::new();
         let epoch = state.current_epoch();
@@ -22,21 +21,18 @@ impl<'a, T: EthSpec> AttesterSlashingMaxCover<'a, T> {
         let slashable_validators =
             get_slashable_indices_modular(state, slashing, |index, validator| {
                 validator.is_slashable_at(epoch) && !proposer_slashing_indices.contains(&index)
-            });
-
-        if let Ok(validators) = slashable_validators {
-            for vd in &validators {
-                let eff_balance = state.get_effective_balance(*vd as usize, spec).ok()?;
-                effective_balances.insert(*vd, eff_balance);
-            }
-
-            Some(Self {
-                slashing,
-                effective_balances,
             })
-        } else {
-            None
+            .ok()?;
+
+        for vd in slashable_validators {
+            let eff_balance = state.get_effective_balance(vd as usize).ok()?;
+            effective_balances.insert(vd, eff_balance);
         }
+
+        Some(Self {
+            slashing,
+            effective_balances,
+        })
     }
 }
 

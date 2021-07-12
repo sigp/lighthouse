@@ -4,22 +4,18 @@ version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
-[[bench]]
-name = "benches"
-harness = false
-
 [dev-dependencies]
-criterion = "0.3.3"
 env_logger = "0.8.2"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 lazy_static = "1.4.0"
 serde_yaml = "0.8.13"
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
 
 [dependencies]
 bls = { path = "../../crypto/bls" }
 integer-sqrt = "0.1.5"
-itertools = "0.9.0"
+itertools = "0.10.0"
 eth2_ssz = "0.1.2"
 eth2_ssz_types = { path = "../ssz_types" }
 merkle_proof = { path = "../merkle_proof" }
@@ -31,6 +27,7 @@ types = { path = "../types", default-features = false }
 rayon = "1.4.1"
 eth2_hashing = "0.1.0"
 int_to_bytes = { path = "../int_to_bytes" }
+smallvec = "1.6.1"
 arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
 
 [features]

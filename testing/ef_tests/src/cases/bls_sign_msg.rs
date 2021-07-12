@@ -20,7 +20,7 @@ pub struct BlsSign {
 impl BlsCase for BlsSign {}
 
 impl Case for BlsSign {
-    fn result(&self, _case_index: usize) -> Result<(), Error> {
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         // Convert private_key and message to required types
         let sk = hex::decode(&self.input.privkey[2..])
             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;

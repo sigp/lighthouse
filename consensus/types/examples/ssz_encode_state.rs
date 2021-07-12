@@ -1,7 +1,7 @@
 //! These examples only really exist so we can use them for flamegraph. If they get annoying to
 //! maintain, feel free to delete.
 
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconState, Eth1Data, EthSpec, Hash256,
     MinimalEthSpec, Validator,
@@ -20,9 +20,12 @@ fn get_state(validator_count: usize) -> BeaconState<E> {
     let mut state = BeaconState::new(0, eth1_data, spec);
 
     for i in 0..validator_count {
-        state.balances.push(i as u64).expect("should add balance");
         state
-            .validators
+            .balances_mut()
+            .push(i as u64)
+            .expect("should add balance");
+        state
+            .validators_mut()
             .push(Validator {
                 pubkey: generate_deterministic_keypair(i).pk.into(),
                 withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
@@ -45,6 +48,7 @@ fn main() {
 
     for _ in 0..1_024 {
         let state_bytes = state.as_ssz_bytes();
-        let _: BeaconState<E> = BeaconState::from_ssz_bytes(&state_bytes).expect("should decode");
+        let _: BeaconState<E> =
+            BeaconState::from_ssz_bytes(&state_bytes, &E::default_spec()).expect("should decode");
     }
 }

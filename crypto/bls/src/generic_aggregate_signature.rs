@@ -173,7 +173,7 @@ where
 impl<Pub, AggPub, Sig, AggSig> GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
-    AggPub: TAggregatePublicKey + Clone,
+    AggPub: TAggregatePublicKey<Pub> + Clone,
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
@@ -187,6 +187,18 @@ where
             Some(point) => point.fast_aggregate_verify(msg, pubkeys),
             None => false,
         }
+    }
+
+    /// Wrapper to `fast_aggregate_verify` accepting the infinity signature when `pubkeys` is empty.
+    pub fn eth2_fast_aggregate_verify(
+        &self,
+        msg: Hash256,
+        pubkeys: &[&GenericPublicKey<Pub>],
+    ) -> bool {
+        if pubkeys.is_empty() && self.is_infinity {
+            return true;
+        }
+        self.fast_aggregate_verify(msg, pubkeys)
     }
 
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their

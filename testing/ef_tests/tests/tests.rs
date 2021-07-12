@@ -1,39 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use std::collections::HashMap;
-use std::path::PathBuf;
 use types::*;
-
-// Check that the config from the Eth2.0 spec tests matches our minimal/mainnet config.
-fn config_test<E: EthSpec + TypeName>() {
-    let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("eth2.0-spec-tests")
-        .join("tests")
-        .join(E::name())
-        .join("config")
-        .join("phase0.yaml");
-    let yaml_config = YamlConfig::from_file(&config_path).expect("config file loads OK");
-    let spec = E::default_spec();
-    let yaml_from_spec = YamlConfig::from_spec::<E>(&spec);
-    assert_eq!(yaml_config.apply_to_chain_spec::<E>(&spec), Some(spec));
-    assert_eq!(yaml_from_spec, yaml_config);
-    assert_eq!(
-        yaml_config.extra_fields,
-        HashMap::new(),
-        "not all config fields read"
-    );
-}
-
-#[test]
-fn mainnet_config_ok() {
-    config_test::<MainnetEthSpec>();
-}
-
-#[test]
-fn minimal_config_ok() {
-    config_test::<MinimalEthSpec>();
-}
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -56,118 +24,141 @@ fn derived_typenum_values() {
 
 #[test]
 fn shuffling() {
-    ShufflingHandler::<MinimalEthSpec>::run();
-    ShufflingHandler::<MainnetEthSpec>::run();
+    ShufflingHandler::<MinimalEthSpec>::default().run();
+    ShufflingHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 fn operations_deposit() {
-    OperationsHandler::<MinimalEthSpec, Deposit>::run();
-    OperationsHandler::<MainnetEthSpec, Deposit>::run();
+    OperationsHandler::<MinimalEthSpec, Deposit>::default().run();
+    OperationsHandler::<MainnetEthSpec, Deposit>::default().run();
 }
 
 #[test]
 fn operations_exit() {
-    OperationsHandler::<MinimalEthSpec, SignedVoluntaryExit>::run();
-    OperationsHandler::<MainnetEthSpec, SignedVoluntaryExit>::run();
+    OperationsHandler::<MinimalEthSpec, SignedVoluntaryExit>::default().run();
+    OperationsHandler::<MainnetEthSpec, SignedVoluntaryExit>::default().run();
 }
 
 #[test]
 fn operations_proposer_slashing() {
-    OperationsHandler::<MinimalEthSpec, ProposerSlashing>::run();
-    OperationsHandler::<MainnetEthSpec, ProposerSlashing>::run();
+    OperationsHandler::<MinimalEthSpec, ProposerSlashing>::default().run();
+    OperationsHandler::<MainnetEthSpec, ProposerSlashing>::default().run();
 }
 
 #[test]
 fn operations_attester_slashing() {
-    OperationsHandler::<MinimalEthSpec, AttesterSlashing<_>>::run();
-    OperationsHandler::<MainnetEthSpec, AttesterSlashing<_>>::run();
+    OperationsHandler::<MinimalEthSpec, AttesterSlashing<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, AttesterSlashing<_>>::default().run();
 }
 
 #[test]
 fn operations_attestation() {
-    OperationsHandler::<MinimalEthSpec, Attestation<_>>::run();
-    OperationsHandler::<MainnetEthSpec, Attestation<_>>::run();
+    OperationsHandler::<MinimalEthSpec, Attestation<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, Attestation<_>>::default().run();
 }
 
 #[test]
 fn operations_block_header() {
-    OperationsHandler::<MinimalEthSpec, BeaconBlock<_>>::run();
-    OperationsHandler::<MainnetEthSpec, BeaconBlock<_>>::run();
+    OperationsHandler::<MinimalEthSpec, BeaconBlock<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, BeaconBlock<_>>::default().run();
+}
+
+#[test]
+fn operations_sync_aggregate() {
+    OperationsHandler::<MinimalEthSpec, SyncAggregate<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, SyncAggregate<_>>::default().run();
 }
 
 #[test]
 fn sanity_blocks() {
-    SanityBlocksHandler::<MinimalEthSpec>::run();
-    SanityBlocksHandler::<MainnetEthSpec>::run();
+    SanityBlocksHandler::<MinimalEthSpec>::default().run();
+    SanityBlocksHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 fn sanity_slots() {
-    SanitySlotsHandler::<MinimalEthSpec>::run();
-    SanitySlotsHandler::<MainnetEthSpec>::run();
+    SanitySlotsHandler::<MinimalEthSpec>::default().run();
+    SanitySlotsHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_aggregate() {
-    BlsAggregateSigsHandler::run();
+    BlsAggregateSigsHandler::default().run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_sign() {
-    BlsSignMsgHandler::run();
+    BlsSignMsgHandler::default().run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_verify() {
-    BlsVerifyMsgHandler::run();
+    BlsVerifyMsgHandler::default().run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_aggregate_verify() {
-    BlsAggregateVerifyHandler::run();
+    BlsAggregateVerifyHandler::default().run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_fast_aggregate_verify() {
-    BlsFastAggregateVerifyHandler::run();
+    BlsFastAggregateVerifyHandler::default().run();
 }
 
+/// As for `ssz_static_test_no_run` (below), but also executes the function as a test.
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {
-    // Non-tree hash caching
-    ($test_name:ident, $typ:ident$(<$generics:tt>)?) => {
-        ssz_static_test!($test_name, SszStaticHandler, $typ$(<$generics>)?);
+    ($($args:tt)*) => {
+        ssz_static_test_no_run!(#[test] $($args)*);
+    };
+}
+
+/// Generate a function to run the SSZ static tests for a type.
+///
+/// Quite complex in order to support an optional #[test] attrib, generics, and the two EthSpecs.
+#[cfg(feature = "fake_crypto")]
+macro_rules! ssz_static_test_no_run {
+    // Top-level
+    ($(#[$test:meta])? $test_name:ident, $typ:ident$(<$generics:tt>)?) => {
+        ssz_static_test_no_run!($(#[$test])? $test_name, SszStaticHandler, $typ$(<$generics>)?);
     };
     // Generic
-    ($test_name:ident, $handler:ident, $typ:ident<_>) => {
-        ssz_static_test!(
-            $test_name, $handler, {
+    ($(#[$test:meta])? $test_name:ident, $handler:ident, $typ:ident<_>) => {
+        ssz_static_test_no_run!(
+            $(#[$test])?
+            $test_name,
+            $handler,
+            {
                 ($typ<MinimalEthSpec>, MinimalEthSpec),
                 ($typ<MainnetEthSpec>, MainnetEthSpec)
             }
         );
     };
     // Non-generic
-    ($test_name:ident, $handler:ident, $typ:ident) => {
-        ssz_static_test!(
-            $test_name, $handler, {
+    ($(#[$test:meta])? $test_name:ident, $handler:ident, $typ:ident) => {
+        ssz_static_test_no_run!(
+            $(#[$test])?
+            $test_name,
+            $handler,
+            {
                 ($typ, MinimalEthSpec),
                 ($typ, MainnetEthSpec)
             }
         );
     };
     // Base case
-    ($test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
-        #[test]
+    ($(#[$test:meta])? $test_name:ident, $handler:ident, { $(($($typ:ty),+)),+ }) => {
+        $(#[$test])?
         fn $test_name() {
             $(
-                $handler::<$($typ),+>::run();
+                $handler::<$($typ),+>::default().run();
             )+
         }
     };
@@ -175,101 +166,190 @@ macro_rules! ssz_static_test {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler};
+    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
     ssz_static_test!(attester_slashing, AttesterSlashing<_>);
-    ssz_static_test!(beacon_block, BeaconBlock<_>);
-    ssz_static_test!(beacon_block_body, BeaconBlockBody<_>);
+    ssz_static_test!(beacon_block, SszStaticWithSpecHandler, BeaconBlock<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
-    ssz_static_test!(
-        beacon_state,
-        SszStaticTHCHandler, {
-            (BeaconState<MinimalEthSpec>, BeaconTreeHashCache<_>, MinimalEthSpec),
-            (BeaconState<MainnetEthSpec>, BeaconTreeHashCache<_>, MainnetEthSpec)
-        }
-    );
+    ssz_static_test!(beacon_state, SszStaticTHCHandler, BeaconState<_>);
     ssz_static_test!(checkpoint, Checkpoint);
+    // FIXME(altair): add ContributionAndProof
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
-    // FIXME(sproul): move Eth1Block to consensus/types
-    //
-    // Tracked at: https://github.com/sigp/lighthouse/issues/1835
-    //
-    // ssz_static_test!(eth1_block, Eth1Block);
+    // NOTE: Eth1Block intentionally omitted, see: https://github.com/sigp/lighthouse/issues/1835
     ssz_static_test!(eth1_data, Eth1Data);
     ssz_static_test!(fork, Fork);
     ssz_static_test!(fork_data, ForkData);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
     ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
+    // NOTE: LightClient* intentionally omitted
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
     ssz_static_test!(signed_aggregate_and_proof, SignedAggregateAndProof<_>);
-    ssz_static_test!(signed_beacon_block, SignedBeaconBlock<_>);
+    ssz_static_test!(
+        signed_beacon_block,
+        SszStaticWithSpecHandler,
+        SignedBeaconBlock<_>
+    );
     ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
+    // FIXME(altair): add SignedContributionAndProof
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
+    // FIXME(altair): add SyncCommitteeContribution/Signature/SigningData
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
+
+    // BeaconBlockBody has no internal indicator of which fork it is for, so we test it separately.
+    #[test]
+    fn beacon_block_body() {
+        SszStaticHandler::<BeaconBlockBodyBase<MinimalEthSpec>, MinimalEthSpec>::base_only().run();
+        SszStaticHandler::<BeaconBlockBodyBase<MainnetEthSpec>, MainnetEthSpec>::base_only().run();
+        SszStaticHandler::<BeaconBlockBodyAltair<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
+    }
+
+    // Altair-only
+    #[test]
+    fn sync_aggregate() {
+        SszStaticHandler::<SyncAggregate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncAggregate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee() {
+        SszStaticHandler::<SyncCommittee<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommittee<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
 }
 
 #[test]
 fn ssz_generic() {
-    SszGenericHandler::<BasicVector>::run();
-    SszGenericHandler::<Bitlist>::run();
-    SszGenericHandler::<Bitvector>::run();
-    SszGenericHandler::<Boolean>::run();
-    SszGenericHandler::<Uints>::run();
-    SszGenericHandler::<Containers>::run();
+    SszGenericHandler::<BasicVector>::default().run();
+    SszGenericHandler::<Bitlist>::default().run();
+    SszGenericHandler::<Bitvector>::default().run();
+    SszGenericHandler::<Boolean>::default().run();
+    SszGenericHandler::<Uints>::default().run();
+    SszGenericHandler::<Containers>::default().run();
 }
 
 #[test]
 fn epoch_processing_justification_and_finalization() {
-    EpochProcessingHandler::<MinimalEthSpec, JustificationAndFinalization>::run();
-    EpochProcessingHandler::<MainnetEthSpec, JustificationAndFinalization>::run();
+    EpochProcessingHandler::<MinimalEthSpec, JustificationAndFinalization>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, JustificationAndFinalization>::default().run();
 }
 
 #[test]
 fn epoch_processing_rewards_and_penalties() {
-    EpochProcessingHandler::<MinimalEthSpec, RewardsAndPenalties>::run();
-    EpochProcessingHandler::<MainnetEthSpec, RewardsAndPenalties>::run();
+    EpochProcessingHandler::<MinimalEthSpec, RewardsAndPenalties>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, RewardsAndPenalties>::default().run();
 }
 
 #[test]
 fn epoch_processing_registry_updates() {
-    EpochProcessingHandler::<MinimalEthSpec, RegistryUpdates>::run();
-    EpochProcessingHandler::<MainnetEthSpec, RegistryUpdates>::run();
+    EpochProcessingHandler::<MinimalEthSpec, RegistryUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, RegistryUpdates>::default().run();
 }
 
 #[test]
 fn epoch_processing_slashings() {
-    EpochProcessingHandler::<MinimalEthSpec, Slashings>::run();
-    EpochProcessingHandler::<MainnetEthSpec, Slashings>::run();
+    EpochProcessingHandler::<MinimalEthSpec, Slashings>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, Slashings>::default().run();
 }
 
 #[test]
-fn epoch_processing_final_updates() {
-    EpochProcessingHandler::<MinimalEthSpec, FinalUpdates>::run();
-    EpochProcessingHandler::<MainnetEthSpec, FinalUpdates>::run();
+fn epoch_processing_eth1_data_reset() {
+    EpochProcessingHandler::<MinimalEthSpec, Eth1DataReset>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, Eth1DataReset>::default().run();
+}
+
+#[test]
+fn epoch_processing_effective_balance_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, EffectiveBalanceUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, EffectiveBalanceUpdates>::default().run();
+}
+
+#[test]
+fn epoch_processing_slashings_reset() {
+    EpochProcessingHandler::<MinimalEthSpec, SlashingsReset>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, SlashingsReset>::default().run();
+}
+
+#[test]
+fn epoch_processing_randao_mixes_reset() {
+    EpochProcessingHandler::<MinimalEthSpec, RandaoMixesReset>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, RandaoMixesReset>::default().run();
+}
+
+#[test]
+fn epoch_processing_historical_roots_update() {
+    EpochProcessingHandler::<MinimalEthSpec, HistoricalRootsUpdate>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, HistoricalRootsUpdate>::default().run();
+}
+
+#[test]
+fn epoch_processing_participation_record_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, ParticipationRecordUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, ParticipationRecordUpdates>::default().run();
+}
+
+#[test]
+fn epoch_processing_sync_committee_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::default().run();
+}
+
+#[test]
+fn epoch_processing_inactivity_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, InactivityUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, InactivityUpdates>::default().run();
+}
+
+#[test]
+fn epoch_processing_participation_flag_updates() {
+    EpochProcessingHandler::<MinimalEthSpec, ParticipationFlagUpdates>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, ParticipationFlagUpdates>::default().run();
+}
+
+#[test]
+fn fork_upgrade() {
+    ForkHandler::<MinimalEthSpec>::default().run();
+    ForkHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn transition() {
+    TransitionHandler::<MinimalEthSpec>::default().run();
+    TransitionHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 fn finality() {
-    FinalityHandler::<MinimalEthSpec>::run();
-    FinalityHandler::<MainnetEthSpec>::run();
+    FinalityHandler::<MinimalEthSpec>::default().run();
+    FinalityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 fn genesis_initialization() {
-    GenesisInitializationHandler::<MinimalEthSpec>::run();
+    GenesisInitializationHandler::<MinimalEthSpec>::default().run();
 }
 
 #[test]
 fn genesis_validity() {
-    GenesisValidityHandler::<MinimalEthSpec>::run();
+    GenesisValidityHandler::<MinimalEthSpec>::default().run();
     // Note: there are no genesis validity tests for mainnet
+}
+
+#[test]
+fn rewards() {
+    for handler in &["basic", "leak", "random"] {
+        RewardsHandler::<MinimalEthSpec>::new(handler).run();
+        RewardsHandler::<MainnetEthSpec>::new(handler).run();
+    }
 }

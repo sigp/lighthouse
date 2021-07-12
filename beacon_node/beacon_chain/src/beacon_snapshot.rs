@@ -1,10 +1,9 @@
 use serde_derive::Serialize;
-use ssz_derive::{Decode, Encode};
 use types::{beacon_state::CloneConfig, BeaconState, EthSpec, Hash256, SignedBeaconBlock};
 
 /// Represents some block and its associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
-#[derive(Clone, Serialize, PartialEq, Debug, Encode, Decode)]
+#[derive(Clone, Serialize, PartialEq, Debug)]
 pub struct BeaconSnapshot<E: EthSpec> {
     pub beacon_block: SignedBeaconBlock<E>,
     pub beacon_block_root: Hash256,
@@ -31,7 +30,7 @@ impl<E: EthSpec> BeaconSnapshot<E> {
     ///
     /// It is not strictly enforced that `root(self.beacon_state) == self.beacon_state_root()`.
     pub fn beacon_state_root(&self) -> Hash256 {
-        self.beacon_block.message.state_root
+        self.beacon_block.message().state_root()
     }
 
     /// Update all fields of the checkpoint.

@@ -1,5 +1,5 @@
 use crate::{get_zero_hash, Hash256, HASHSIZE};
-use eth2_hashing::{Context, Digest, SHA256};
+use eth2_hashing::{Context, Sha256Context, HASH_LEN};
 use smallvec::{smallvec, SmallVec};
 use std::mem;
 
@@ -15,7 +15,7 @@ pub enum Error {
 ///
 /// Should be used as a left or right value for some node.
 enum Preimage<'a> {
-    Digest(Digest),
+    Digest([u8; HASH_LEN]),
     Slice(&'a [u8]),
 }
 
@@ -41,7 +41,7 @@ struct HalfNode {
 impl HalfNode {
     /// Create a new half-node from the given `left` value.
     fn new(id: usize, left: Preimage) -> Self {
-        let mut context = Context::new(&SHA256);
+        let mut context = Context::new();
         context.update(left.as_bytes());
 
         Self { context, id }
@@ -49,9 +49,9 @@ impl HalfNode {
 
     /// Complete the half-node by providing a `right` value. Returns a digest of the left and right
     /// nodes.
-    fn finish(mut self, right: Preimage) -> Digest {
+    fn finish(mut self, right: Preimage) -> [u8; HASH_LEN] {
         self.context.update(right.as_bytes());
-        self.context.finish()
+        self.context.finalize()
     }
 }
 
@@ -124,7 +124,7 @@ pub struct MerkleHasher {
     /// Stores the nodes that are half-complete and awaiting a right node.
     ///
     /// A smallvec of size 8 means we can hash a tree with 256 leaves without allocating on the
-    /// heap. Each half-node is 224 bytes, so this smallvec may store 1,792 bytes on the stack.
+    /// heap. Each half-node is 232 bytes, so this smallvec may store 1856 bytes on the stack.
     half_nodes: SmallVec8<HalfNode>,
     /// The depth of the tree that will be produced.
     ///
@@ -368,7 +368,7 @@ mod test {
     fn context_size() {
         assert_eq!(
             mem::size_of::<HalfNode>(),
-            216 + 8,
+            232,
             "Halfnode size should be as expected"
         );
     }

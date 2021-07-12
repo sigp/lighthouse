@@ -20,7 +20,7 @@ pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
     let mut validator_statuses = ValidatorStatuses::new(&state, &chain.spec)
         .map_err(warp_utils::reject::beacon_state_error)?;
     validator_statuses
-        .process_attestations(&state, &chain.spec)
+        .process_attestations(&state)
         .map_err(warp_utils::reject::beacon_state_error)?;
 
     let totals = validator_statuses.total_balances;
@@ -49,7 +49,7 @@ pub fn validator_inclusion_data<T: BeaconChainTypes>(
     let mut validator_statuses = ValidatorStatuses::new(&state, &chain.spec)
         .map_err(warp_utils::reject::beacon_state_error)?;
     validator_statuses
-        .process_attestations(&state, &chain.spec)
+        .process_attestations(&state)
         .map_err(warp_utils::reject::beacon_state_error)?;
 
     state

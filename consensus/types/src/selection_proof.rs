@@ -49,8 +49,9 @@ impl SelectionProof {
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {
         let signature_hash = hash(&self.0.as_ssz_bytes());
         let signature_hash_int = u64::from_le_bytes(
-            signature_hash[0..8]
-                .as_ref()
+            signature_hash
+                .get(0..8)
+                .expect("hash is 32 bytes")
                 .try_into()
                 .expect("first 8 bytes of signature should always convert to fixed array"),
         );

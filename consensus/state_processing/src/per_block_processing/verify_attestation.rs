@@ -15,28 +15,26 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// to `state`. Otherwise, returns a descriptive `Err`.
 ///
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
-///
-/// Spec v0.12.1
 pub fn verify_attestation_for_block_inclusion<T: EthSpec>(
     state: &BeaconState<T>,
     attestation: &Attestation<T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<()> {
+) -> Result<IndexedAttestation<T>> {
     let data = &attestation.data;
 
     verify!(
-        data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot,
+        data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot(),
         Invalid::IncludedTooEarly {
-            state: state.slot,
+            state: state.slot(),
             delay: spec.min_attestation_inclusion_delay,
             attestation: data.slot,
         }
     );
     verify!(
-        state.slot <= data.slot.safe_add(T::slots_per_epoch())?,
+        state.slot() <= data.slot.safe_add(T::slots_per_epoch())?,
         Invalid::IncludedTooLate {
-            state: state.slot,
+            state: state.slot(),
             attestation: data.slot,
         }
     );
@@ -56,7 +54,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     attestation: &Attestation<T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<()> {
+) -> Result<IndexedAttestation<T>> {
     let data = &attestation.data;
 
     verify!(
@@ -72,7 +70,7 @@ pub fn verify_attestation_for_state<T: EthSpec>(
     let indexed_attestation = get_indexed_attestation(committee.committee, attestation)?;
     is_valid_indexed_attestation(state, &indexed_attestation, verify_signatures, spec)?;
 
-    Ok(())
+    Ok(indexed_attestation)
 }
 
 /// Check target epoch and source checkpoint.
@@ -92,9 +90,9 @@ fn verify_casper_ffg_vote<T: EthSpec>(
     );
     if data.target.epoch == state.current_epoch() {
         verify!(
-            data.source == state.current_justified_checkpoint,
+            data.source == state.current_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.current_justified_checkpoint,
+                state: state.current_justified_checkpoint(),
                 attestation: data.source,
                 is_current: true,
             }
@@ -102,9 +100,9 @@ fn verify_casper_ffg_vote<T: EthSpec>(
         Ok(())
     } else if data.target.epoch == state.previous_epoch() {
         verify!(
-            data.source == state.previous_justified_checkpoint,
+            data.source == state.previous_justified_checkpoint(),
             Invalid::WrongJustifiedCheckpoint {
-                state: state.previous_justified_checkpoint,
+                state: state.previous_justified_checkpoint(),
                 attestation: data.source,
                 is_current: false,
             }

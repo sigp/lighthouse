@@ -1,6 +1,27 @@
 #![cfg(test)]
-use super::*;
-use crate::{test_utils::*, *};
+use crate::test_utils::*;
+use beacon_chain::store::StoreConfig;
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::types::*;
+use swap_or_not_shuffle::shuffle_list;
+
+pub const VALIDATOR_COUNT: usize = 16;
+
+lazy_static! {
+    /// A cached set of keys.
+    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
+}
+
+fn get_harness<E: EthSpec>(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let harness = BeaconChainHarness::new_with_store_config(
+        E::default(),
+        None,
+        KEYPAIRS[0..validator_count].to_vec(),
+        StoreConfig::default(),
+    );
+    harness.advance_slot();
+    harness
+}
 
 #[test]
 fn default_values() {
@@ -16,27 +37,26 @@ fn default_values() {
 }
 
 fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
-    let spec = &T::default_spec();
-
-    let mut builder =
-        TestingBeaconStateBuilder::from_single_keypair(validator_count, &Keypair::random(), spec);
-
-    builder.teleport_to_slot(slot);
-
-    let (state, _keypairs) = builder.build();
-
-    state
+    let harness = get_harness(validator_count);
+    let head_state = harness.get_current_state();
+    if slot > Slot::new(0) {
+        harness.add_attested_blocks_at_slots(
+            head_state,
+            Hash256::zero(),
+            (1..slot.as_u64())
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..validator_count).collect::<Vec<_>>().as_slice(),
+        );
+    }
+    harness.get_current_state()
 }
 
 #[test]
+#[should_panic]
 fn fails_without_validators() {
-    let state = new_state::<MinimalEthSpec>(0, Slot::new(0));
-    let spec = &MinimalEthSpec::default_spec();
-
-    assert_eq!(
-        CommitteeCache::initialized(&state, state.current_epoch(), &spec),
-        Err(BeaconStateError::InsufficientValidators)
-    );
+    new_state::<MinimalEthSpec>(0, Slot::new(0));
 }
 
 #[test]
@@ -45,24 +65,22 @@ fn initializes_with_the_right_epoch() {
     let spec = &MinimalEthSpec::default_spec();
 
     let cache = CommitteeCache::default();
-    assert_eq!(cache.initialized_epoch, None);
+    assert!(!cache.is_initialized_at(state.current_epoch()));
 
     let cache = CommitteeCache::initialized(&state, state.current_epoch(), &spec).unwrap();
-    assert_eq!(cache.initialized_epoch, Some(state.current_epoch()));
+    assert!(cache.is_initialized_at(state.current_epoch()));
 
     let cache = CommitteeCache::initialized(&state, state.previous_epoch(), &spec).unwrap();
-    assert_eq!(cache.initialized_epoch, Some(state.previous_epoch()));
+    assert!(cache.is_initialized_at(state.previous_epoch()));
 
     let cache = CommitteeCache::initialized(&state, state.next_epoch().unwrap(), &spec).unwrap();
-    assert_eq!(cache.initialized_epoch, Some(state.next_epoch().unwrap()));
+    assert!(cache.is_initialized_at(state.next_epoch().unwrap()));
 }
 
 #[test]
 fn shuffles_for_the_right_epoch() {
-    use crate::EthSpec;
-
     let num_validators = MinimalEthSpec::minimum_validator_count() * 2;
-    let epoch = Epoch::new(100_000_000);
+    let epoch = Epoch::new(6);
     let slot = epoch.start_slot(MinimalEthSpec::slots_per_epoch());
 
     let mut state = new_state::<MinimalEthSpec>(num_validators, slot);
@@ -72,7 +90,7 @@ fn shuffles_for_the_right_epoch() {
         .map(|i| Hash256::from_low_u64_be(i as u64))
         .collect();
 
-    state.randao_mixes = FixedVector::from(distinct_hashes);
+    *state.randao_mixes_mut() = FixedVector::from(distinct_hashes);
 
     let previous_seed = state
         .get_seed(state.previous_epoch(), Domain::BeaconAttester, spec)
@@ -97,9 +115,9 @@ fn shuffles_for_the_right_epoch() {
     };
 
     let assert_shuffling_positions_accurate = |cache: &CommitteeCache| {
-        for (i, v) in cache.shuffling.iter().enumerate() {
+        for (i, v) in cache.shuffling().iter().enumerate() {
             assert_eq!(
-                cache.shuffling_positions[*v].unwrap().get() - 1,
+                cache.shuffled_position(*v).unwrap(),
                 i,
                 "Shuffling position inaccurate"
             );
@@ -107,14 +125,14 @@ fn shuffles_for_the_right_epoch() {
     };
 
     let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
-    assert_eq!(cache.shuffling, shuffling_with_seed(current_seed));
+    assert_eq!(cache.shuffling(), shuffling_with_seed(current_seed));
     assert_shuffling_positions_accurate(&cache);
 
     let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
-    assert_eq!(cache.shuffling, shuffling_with_seed(previous_seed));
+    assert_eq!(cache.shuffling(), shuffling_with_seed(previous_seed));
     assert_shuffling_positions_accurate(&cache);
 
     let cache = CommitteeCache::initialized(&state, state.next_epoch().unwrap(), spec).unwrap();
-    assert_eq!(cache.shuffling, shuffling_with_seed(next_seed));
+    assert_eq!(cache.shuffling(), shuffling_with_seed(next_seed));
     assert_shuffling_positions_accurate(&cache);
 }

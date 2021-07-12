@@ -1,23 +1,21 @@
 use eth2_config::{predefined_networks_dir, *};
 
 use enr::{CombinedKey, Enr};
-use ssz::Decode;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{BeaconState, EthSpec, EthSpecId, YamlConfig};
+use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId};
 
-pub const ADDRESS_FILE: &str = "deposit_contract.txt";
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
-pub const YAML_CONFIG_FILE: &str = "config.yaml";
+pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
     pub name: &'static str,
     pub genesis_is_known: bool,
-    pub yaml_config: &'static [u8],
+    pub config: &'static [u8],
     pub deploy_block: &'static [u8],
     pub boot_enr: &'static [u8],
     pub genesis_state_bytes: &'static [u8],
@@ -30,7 +28,7 @@ macro_rules! define_net {
         HardcodedNet {
             name: ETH2_NET_DIR.name,
             genesis_is_known: ETH2_NET_DIR.genesis_is_known,
-            yaml_config: $include_file!("../", "config.yaml"),
+            config: $include_file!("../", "config.yaml"),
             deploy_block: $include_file!("../", "deploy_block.txt"),
             boot_enr: $include_file!("../", "boot_enr.yaml"),
             genesis_state_bytes: $include_file!("../", "genesis.ssz"),
@@ -38,16 +36,11 @@ macro_rules! define_net {
     }};
 }
 
-const ALTONA: HardcodedNet = define_net!(altona, include_altona_file);
-const MEDALLA: HardcodedNet = define_net!(medalla, include_medalla_file);
-const SPADINA: HardcodedNet = define_net!(spadina, include_spadina_file);
 const PYRMONT: HardcodedNet = define_net!(pyrmont, include_pyrmont_file);
 const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
-const TOLEDO: HardcodedNet = define_net!(toledo, include_toledo_file);
 const PRATER: HardcodedNet = define_net!(prater, include_prater_file);
 
-const HARDCODED_NETS: &[HardcodedNet] =
-    &[ALTONA, MEDALLA, SPADINA, PYRMONT, MAINNET, TOLEDO, PRATER];
+const HARDCODED_NETS: &[HardcodedNet] = &[PYRMONT, MAINNET, PRATER];
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
 /// Specifies an Eth2 network.
@@ -60,7 +53,7 @@ pub struct Eth2NetworkConfig {
     pub deposit_contract_deploy_block: u64,
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state_bytes: Option<Vec<u8>>,
-    pub yaml_config: Option<YamlConfig>,
+    pub config: Config,
 }
 
 impl Eth2NetworkConfig {
@@ -85,24 +78,17 @@ impl Eth2NetworkConfig {
             ),
             genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
                 .filter(|bytes| !bytes.is_empty()),
-            yaml_config: Some(
-                serde_yaml::from_reader(net.yaml_config)
-                    .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
-            ),
+            config: serde_yaml::from_reader(net.config)
+                .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
         })
     }
 
     /// Returns an identifier that should be used for selecting an `EthSpec` instance for this
     /// network configuration.
     pub fn eth_spec_id(&self) -> Result<EthSpecId, String> {
-        self.yaml_config
-            .as_ref()
-            .ok_or_else(|| "YAML specification file missing".to_string())
-            .and_then(|config| {
-                config
-                    .eth_spec_id()
-                    .ok_or_else(|| format!("Unknown CONFIG_NAME: {}", config.config_name))
-            })
+        self.config
+            .eth_spec_id()
+            .ok_or_else(|| "Config does not match any known preset".to_string())
     }
 
     /// Returns `true` if this configuration contains a `BeaconState`.
@@ -110,14 +96,25 @@ impl Eth2NetworkConfig {
         self.genesis_state_bytes.is_some()
     }
 
+    /// Construct a consolidated `ChainSpec` from the YAML config.
+    pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
+        ChainSpec::from_config::<E>(&self.config).ok_or_else(|| {
+            format!(
+                "YAML configuration incompatible with spec constants for {}",
+                E::spec_name()
+            )
+        })
+    }
+
     /// Attempts to deserialize `self.beacon_state`, returning an error if it's missing or invalid.
     pub fn beacon_state<E: EthSpec>(&self) -> Result<BeaconState<E>, String> {
+        let spec = self.chain_spec::<E>()?;
         let genesis_state_bytes = self
             .genesis_state_bytes
             .as_ref()
             .ok_or("Genesis state is unknown")?;
 
-        BeaconState::from_ssz_bytes(genesis_state_bytes)
+        BeaconState::from_ssz_bytes(genesis_state_bytes, &spec)
             .map_err(|e| format!("Genesis state SSZ bytes are invalid: {:?}", e))
     }
 
@@ -167,9 +164,7 @@ impl Eth2NetworkConfig {
             write_to_yaml_file!(BOOT_ENR_FILE, boot_enr);
         }
 
-        if let Some(yaml_config) = &self.yaml_config {
-            write_to_yaml_file!(YAML_CONFIG_FILE, yaml_config);
-        }
+        write_to_yaml_file!(BASE_CONFIG_FILE, &self.config);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         if let Some(genesis_state_bytes) = &self.genesis_state_bytes {
@@ -210,7 +205,7 @@ impl Eth2NetworkConfig {
 
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
-        let yaml_config = optional_load_from_file!(YAML_CONFIG_FILE);
+        let config = load_from_file!(BASE_CONFIG_FILE);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
@@ -232,7 +227,7 @@ impl Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes,
-            yaml_config,
+            config,
         })
     }
 }
@@ -242,9 +237,16 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, Hash256, MainnetEthSpec, V012LegacyEthSpec, YamlConfig};
+    use types::{Config, Eth1Data, Hash256, MainnetEthSpec};
 
-    type E = V012LegacyEthSpec;
+    type E = MainnetEthSpec;
+
+    #[test]
+    fn mainnet_config_eq_chain_spec() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
+        let spec = ChainSpec::mainnet();
+        assert_eq!(spec, config.chain_spec::<E>().unwrap());
+    }
 
     #[test]
     fn hard_coded_nets_work() {
@@ -252,27 +254,8 @@ mod tests {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
-            if net.name == "mainnet"
-                || net.name == "toledo"
-                || net.name == "pyrmont"
-                || net.name == "prater"
-            {
-                // Ensure we can parse the YAML config to a chain spec.
-                config
-                    .yaml_config
-                    .as_ref()
-                    .unwrap()
-                    .apply_to_chain_spec::<MainnetEthSpec>(&E::default_spec())
-                    .unwrap();
-            } else {
-                // Ensure we can parse the YAML config to a chain spec.
-                config
-                    .yaml_config
-                    .as_ref()
-                    .unwrap()
-                    .apply_to_chain_spec::<V012LegacyEthSpec>(&E::default_spec())
-                    .unwrap();
-            }
+            // Ensure we can parse the YAML config to a chain spec.
+            config.chain_spec::<MainnetEthSpec>().unwrap();
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),
@@ -296,16 +279,16 @@ mod tests {
         // TODO: figure out how to generate ENR and add some here.
         let boot_enr = None;
         let genesis_state = Some(BeaconState::new(42, eth1_data, spec));
-        let yaml_config = Some(YamlConfig::from_spec::<E>(spec));
+        let config = Config::from_chain_spec::<E>(spec);
 
-        do_test::<E>(boot_enr, genesis_state, yaml_config);
-        do_test::<E>(None, None, None);
+        do_test::<E>(boot_enr, genesis_state, config.clone());
+        do_test::<E>(None, None, config);
     }
 
     fn do_test<E: EthSpec>(
         boot_enr: Option<Vec<Enr<CombinedKey>>>,
         genesis_state: Option<BeaconState<E>>,
-        yaml_config: Option<YamlConfig>,
+        config: Config,
     ) {
         let temp_dir = TempBuilder::new()
             .prefix("eth2_testnet_test")
@@ -318,7 +301,7 @@ mod tests {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
-            yaml_config,
+            config,
         };
 
         testnet
