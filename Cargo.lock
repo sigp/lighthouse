@@ -1941,6 +1941,7 @@ dependencies = [
 name = "eth2_hashing"
 version = "0.1.1"
 dependencies = [
+ "cpufeatures",
  "lazy_static",
  "ring",
  "rustc-hex",
@@ -3736,6 +3737,7 @@ dependencies = [
  "directory",
  "env_logger 0.8.4",
  "environment",
+ "eth2_hashing",
  "eth2_libp2p",
  "eth2_network_config",
  "futures",

@@ -7,6 +7,7 @@ use clap::{App, Arg, ArgMatches};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
+use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
@@ -43,10 +44,13 @@ fn main() {
         .long_version(
             format!(
                 "{}\n\
-                 BLS Library: {}\n\
-                 Specs: mainnet (true), minimal ({}), v0.12.3 ({})",
-                 VERSION.replace("Lighthouse/", ""), bls_library_name(),
-                 cfg!(feature = "spec-minimal"), cfg!(feature = "spec-v12"),
+                 BLS library: {}\n\
+                 SHA256 hardware acceleration: {}\n\
+                 Specs: mainnet (true), minimal ({})",
+                 VERSION.replace("Lighthouse/", ""),
+                 bls_library_name(),
+                 have_sha_extensions(),
+                 cfg!(feature = "spec-minimal"),
             ).as_str()
         )
         .arg(
@@ -205,7 +209,7 @@ fn main() {
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
-            #[cfg(any(not(feature = "spec-minimal")))]
+            #[cfg(not(feature = "spec-minimal"))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",

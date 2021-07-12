@@ -7,8 +7,7 @@ pub use merkle_hasher::{Error, MerkleHasher};
 pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
-use eth2_hashing::{Context, SHA256};
-use eth2_hashing::{ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
+use eth2_hashing::{hash_fixed, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
@@ -39,11 +38,7 @@ pub fn merkle_root(bytes: &[u8], minimum_leaf_count: usize) -> Hash256 {
         let mut leaves = [0; HASHSIZE * 2];
         leaves[0..bytes.len()].copy_from_slice(bytes);
 
-        let mut context = Context::new(&SHA256);
-        context.update(&leaves);
-        let digest = context.finish();
-
-        Hash256::from_slice(digest.as_ref())
+        Hash256::from_slice(&hash_fixed(&leaves))
     } else {
         // If there are 3 or more leaves, use `MerkleHasher`.
         let mut hasher = MerkleHasher::with_leaves(leaves);
