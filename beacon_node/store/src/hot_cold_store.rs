@@ -2,7 +2,7 @@ use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
 use crate::config::{OnDiskStoreConfig, StoreConfig};
-use crate::forwards_iter::HybridForwardsBlockRootsIterator;
+use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::impls::{
     beacon_block_as_kv_store_op,
     beacon_state::{get_full_state, store_full_state},
@@ -409,6 +409,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         spec: &ChainSpec,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
         HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
+    }
+
+    pub fn forwards_state_roots_iterator(
+        store: Arc<Self>,
+        start_slot: Slot,
+        end_state_root: Hash256,
+        end_state: BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+        HybridForwardsStateRootsIterator::new(store, start_slot, end_state, end_state_root, spec)
     }
 
     /// Load an epoch boundary state by using the hot state summary look-up.

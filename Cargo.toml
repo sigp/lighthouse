@@ -37,6 +37,7 @@ members = [
     "common/sensitive_url",
     "common/slot_clock",
     "common/task_executor",
+    "common/target_check",
     "common/test_random_derive",
     "common/validator_dir",
     "common/warp_utils",

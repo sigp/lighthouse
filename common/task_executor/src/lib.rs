@@ -69,6 +69,20 @@ impl TaskExecutor {
         }
     }
 
+    /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
+    /// are of type `()`.
+    ///
+    /// The purpose of this function is to create a compile error if some function which previously
+    /// returned `()` starts returning something else. Such a case may otherwise result in
+    /// accidental error suppression.
+    pub fn spawn_ignoring_error(
+        &self,
+        task: impl Future<Output = Result<(), ()>> + Send + 'static,
+        name: &'static str,
+    ) {
+        self.spawn(task.map(|_| ()), name)
+    }
+
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
     /// when the corresponding exit_future `Signal` is fired/dropped.
     ///
