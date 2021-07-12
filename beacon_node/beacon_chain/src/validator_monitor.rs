@@ -352,7 +352,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                  * matching the source.
                  */
 
-                let previous_epoch_active = summary.is_active_in_previous_epoch(i);
+                let previous_epoch_active = summary.is_active_unslashed_in_previous_epoch(i);
                 let previous_epoch_matched_source = summary.is_previous_epoch_source_attester(i);
                 let previous_epoch_matched_target = summary.is_previous_epoch_target_attester(i);
                 let previous_epoch_matched_head = summary.is_previous_epoch_head_attester(i);

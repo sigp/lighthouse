@@ -91,8 +91,10 @@ pub fn validator_inclusion_data<T: BeaconChainTypes>(
     Ok(Some(ValidatorInclusionData {
         is_slashed: validator.slashed,
         is_withdrawable_in_current_epoch: validator.is_withdrawable_at(epoch),
-        is_active_in_current_epoch: summary.is_active_in_current_epoch(validator_index),
-        is_active_in_previous_epoch: summary.is_active_in_previous_epoch(validator_index),
+        is_active_unslashed_in_current_epoch: summary
+            .is_active_unslashed_in_current_epoch(validator_index),
+        is_active_unslashed_in_previous_epoch: summary
+            .is_active_unslashed_in_previous_epoch(validator_index),
         current_epoch_effective_balance_gwei: validator.effective_balance,
         is_current_epoch_target_attester: summary.is_current_epoch_target_attester(validator_index),
         is_previous_epoch_target_attester: summary

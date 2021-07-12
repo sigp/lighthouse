@@ -52,25 +52,32 @@ impl EpochProcessingSummary {
     }
 
     /// Returns `true` if `val_index` was included in the active validator indices in the current
-    /// epoch.
+    /// epoch *and* the validator is not slashed.
     ///
     /// ## Notes
     ///
     /// Always returns `false` for an unknown `val_index`.
-    pub fn is_active_in_current_epoch(&self, val_index: usize) -> bool {
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
         match self {
-            EpochProcessingSummary::Base { statuses, .. } => statuses
-                .get(val_index)
-                .map_or(false, |s| s.is_current_epoch_target_attester),
+            EpochProcessingSummary::Base { statuses, .. } => {
+                statuses.get(val_index).map_or(false, |s| {
+                    s.is_current_epoch_target_attester && !s.is_slashed
+                })
+            }
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_active_in_current_epoch(val_index),
+            } => participation_cache.is_active_unslashed_in_current_epoch(val_index),
         }
     }
 
     /// Returns `true` if `val_index` had a target-matching attestation included on chain in the
     /// current epoch.
+    ///
+    /// ## Differences between Base and Altair
+    ///
+    /// - Base: active validators return `true`.
+    /// - Altair: only active and *unslashed* validators return `true`.
     ///
     /// ## Notes
     ///
@@ -119,20 +126,20 @@ impl EpochProcessingSummary {
     }
 
     /// Returns `true` if `val_index` was included in the active validator indices in the previous
-    /// epoch.
+    /// epoch *and* the validator is not slashed.
     ///
     /// ## Notes
     ///
     /// Always returns `false` for an unknown `val_index`.
-    pub fn is_active_in_previous_epoch(&self, val_index: usize) -> bool {
+    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> bool {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_active_in_previous_epoch),
+                .map_or(false, |s| s.is_active_in_previous_epoch && s.is_slashed),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_active_in_previous_epoch(val_index),
+            } => participation_cache.is_active_unslashed_in_previous_epoch(val_index),
         }
     }
 

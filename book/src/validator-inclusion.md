@@ -114,8 +114,8 @@ curl -X GET "http://localhost:5052/lighthouse/validator_inclusion/0/42" -H  "acc
   "data": {
     "is_slashed": false,
     "is_withdrawable_in_current_epoch": false,
-    "is_active_in_current_epoch": true,
-    "is_active_in_previous_epoch": true,
+    "is_active_unslashed_in_current_epoch": true,
+    "is_active_unslashed_in_previous_epoch": true,
     "current_epoch_effective_balance_gwei": 32000000000,
     "is_current_epoch_target_attester": false,
     "is_previous_epoch_target_attester": false,
