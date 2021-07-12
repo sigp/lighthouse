@@ -360,6 +360,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     || previous_epoch_matched_target
                     || previous_epoch_matched_head;
 
+                if !previous_epoch_active {
+                    // Monitored validator is not active, due to awaiting activation
+                    // or being exited/withdrawn. Do not attempt to report on its
+                    // attestations.
+                    continue;
+                }
+
                 if previous_epoch_matched_any {
                     info!(
                         self.log,
