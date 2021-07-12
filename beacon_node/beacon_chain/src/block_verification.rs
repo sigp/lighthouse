@@ -975,7 +975,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             }
         }
 
-        expose_participation_metrics(&summaries);
+        expose_participation_metrics(&summaries, &chain.log);
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1440,27 +1440,44 @@ fn verify_header_signature<T: BeaconChainTypes>(
     }
 }
 
-fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
+fn expose_participation_metrics(summaries: &[EpochProcessingSummary], log: &Logger) {
     if !cfg!(feature = "participation_metrics") {
         return;
     }
 
     for summary in summaries {
-        if let Ok(target_balance) = summary.previous_epoch_target_attesting_balance() {
-            metrics::maybe_set_float_gauge(
-                &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
-                participation_ratio(
-                    target_balance,
-                    summary.previous_epoch_total_active_balance(),
-                ),
-            );
+        match summary.previous_epoch_target_attesting_balance() {
+            Ok(target_balance) => {
+                metrics::maybe_set_float_gauge(
+                    &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
+                    participation_ratio(
+                        target_balance,
+                        summary.previous_epoch_total_active_balance(),
+                    ),
+                );
+            }
+            Err(e) => error!(
+                log,
+                "Unable to read target balance";
+                "error" => ?e,
+            ),
         }
 
-        if let Ok(head_balance) = summary.previous_epoch_head_attesting_balance() {
-            metrics::maybe_set_float_gauge(
-                &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
-                participation_ratio(head_balance, summary.previous_epoch_total_active_balance()),
-            );
+        match summary.previous_epoch_head_attesting_balance() {
+            Ok(head_balance) => {
+                metrics::maybe_set_float_gauge(
+                    &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
+                    participation_ratio(
+                        head_balance,
+                        summary.previous_epoch_total_active_balance(),
+                    ),
+                );
+            }
+            Err(e) => error!(
+                log,
+                "Unable to read head balance";
+                "error" => ?e,
+            ),
         }
     }
 }
