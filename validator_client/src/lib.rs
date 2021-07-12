@@ -30,7 +30,7 @@ use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::types::StateId;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode};
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use fork_service::{ForkService, ForkServiceBuilder};
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
@@ -57,8 +57,12 @@ const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// The time between polls when waiting for genesis.
 const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 
-/// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(12);
+/// Specific timeout constants for HTTP requests involved in different validator duties.
+/// This can help ensure that proper endpoint fallback occurs.
+const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
+const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
@@ -222,18 +226,45 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 })?;
         }
 
+        let last_beacon_node_index = config
+            .beacon_nodes
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| "No beacon nodes defined.".to_string())?;
+
         let beacon_nodes: Vec<BeaconNodeHttpClient> = config
             .beacon_nodes
-            .clone()
-            .into_iter()
-            .map(|url| {
+            .iter()
+            .enumerate()
+            .map(|(i, url)| {
+                let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+
                 let beacon_node_http_client = ClientBuilder::new()
-                    .timeout(HTTP_TIMEOUT)
+                    // Set default timeout to be the full slot duration.
+                    .timeout(slot_duration)
                     .build()
                     .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
+
+                // Use quicker timeouts if a fallback beacon node exists.
+                let timeouts = if i < last_beacon_node_index && !config.use_long_timeouts {
+                    info!(
+                        log,
+                        "Fallback endpoints are available, using optimized timeouts.";
+                    );
+                    Timeouts {
+                        attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+                        attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                        proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+                        proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                    }
+                } else {
+                    Timeouts::set_all(slot_duration)
+                };
+
                 Ok(BeaconNodeHttpClient::from_components(
-                    url,
+                    url.clone(),
                     beacon_node_http_client,
+                    timeouts,
                 ))
             })
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
@@ -244,7 +275,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map(CandidateBeaconNode::new)
             .collect();
 
-        // Set the count for beacon node fallbacks excluding the primary beacon node
+        // Set the count for beacon node fallbacks excluding the primary beacon node.
         set_gauge(
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,

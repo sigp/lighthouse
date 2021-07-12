@@ -194,6 +194,14 @@ fn init_slashing_protections_flag() {
         .with_config(|config| assert!(config.init_slashing_protection));
 }
 
+#[test]
+fn use_long_timeouts_flag() {
+    CommandLineTest::new()
+        .flag("use-long-timeouts", None)
+        .run()
+        .with_config(|config| assert!(config.use_long_timeouts));
+}
+
 // Tests for Graffiti flags.
 #[test]
 fn graffiti_flag() {

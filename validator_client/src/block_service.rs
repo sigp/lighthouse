@@ -263,17 +263,26 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let signed_block = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let get_timer = metrics::start_timer_vec(
+                    &metrics::BLOCK_SERVICE_TIMES,
+                    &[metrics::BEACON_BLOCK_HTTP_GET],
+                );
                 let block = beacon_node
                     .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
                     .data;
+                drop(get_timer);
 
                 let signed_block = self_ref
                     .validator_store
                     .sign_block(validator_pubkey_ref, block, current_slot)
                     .ok_or("Unable to sign block")?;
 
+                let _post_timer = metrics::start_timer_vec(
+                    &metrics::BLOCK_SERVICE_TIMES,
+                    &[metrics::BEACON_BLOCK_HTTP_POST],
+                );
                 beacon_node
                     .post_beacon_blocks(&signed_block)
                     .await

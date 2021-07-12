@@ -84,6 +84,7 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
         );
         let candidates = vec![CandidateBeaconNode::new(eth2::BeaconNodeHttpClient::new(
             sensitive_url::SensitiveUrl::parse("http://127.0.0.1").unwrap(),
+            eth2::Timeouts::set_all(Duration::from_secs(12)),
         ))];
         let mut beacon_nodes = BeaconNodeFallback::new(candidates, spec, log.clone());
         beacon_nodes.set_slot_clock(slot_clock);
