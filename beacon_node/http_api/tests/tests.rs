@@ -9,7 +9,7 @@ use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
-use eth2::{types::*, BeaconNodeHttpClient};
+use eth2::{types::*, BeaconNodeHttpClient, Timeouts};
 use eth2_libp2p::{
     rpc::methods::MetaData,
     types::{EnrBitfield, SyncState},
@@ -35,6 +35,7 @@ use types::{
 
 type E = MainnetEthSpec;
 
+const SECONDS_PER_SLOT: u64 = 12;
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
@@ -213,6 +214,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
+            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
         Self {
@@ -327,6 +329,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
+            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
         Self {

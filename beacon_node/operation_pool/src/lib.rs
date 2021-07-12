@@ -609,6 +609,8 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
 
 #[cfg(all(test, not(debug_assertions)))]
 mod release_tests {
+    use lazy_static::lazy_static;
+
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
