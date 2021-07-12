@@ -367,7 +367,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     continue;
                 }
 
+                // Indicates if any attestation made it on-chain.
+                //
+                // For Base states, this will be *any* attestation whatsoever. For Altair states,
+                // this will be any attestation that matched a "timely" flag.
                 if previous_epoch_matched_any {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
+                        &[id],
+                    );
                     info!(
                         self.log,
                         "Previous epoch attestation success";
@@ -377,29 +385,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         "validator" => id,
 
                     )
-                } else if previous_epoch_active && !previous_epoch_matched_any {
+                } else {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
+                        &[id],
+                    );
                     error!(
                         self.log,
                         "Previous epoch attestation missing";
                         "epoch" => prev_epoch,
                         "validator" => id,
                     )
-                }
-
-                // Indicates if anyattestation made it on-chain.
-                //
-                // For Base states, this will be *any* attestation whatsoever. For Altair states,
-                // this will be any attestation that matched a "timely" flag.
-                if previous_epoch_matched_any {
-                    metrics::inc_counter_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
-                        &[id],
-                    );
-                } else {
-                    metrics::inc_counter_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
-                        &[id],
-                    );
                 }
 
                 // Indicates if any on-chain attestation hit the head.

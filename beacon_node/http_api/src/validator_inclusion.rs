@@ -7,6 +7,7 @@ use eth2::{
 use state_processing::per_epoch_processing::{process_epoch, EpochProcessingSummary};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec};
 
+/// Returns the state in the last slot of `epoch`.
 fn end_of_epoch_state<T: BeaconChainTypes>(
     epoch: Epoch,
     chain: &BeaconChain<T>,
@@ -15,6 +16,11 @@ fn end_of_epoch_state<T: BeaconChainTypes>(
     StateId::slot(target_slot).state(chain)
 }
 
+/// Generate an `EpochProcessingSummary` for `state`.
+///
+/// ## Notes
+///
+/// Will mutate `state`, transitioning it to the next epoch.
 fn get_epoch_processing_summary<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
@@ -73,6 +79,7 @@ pub fn validator_inclusion_data<T: BeaconChainTypes>(
         }
     };
 
+    // Obtain the validator *before* transitioning the state into the next epoch.
     let validator = if let Ok(validator) = state.get_validator(validator_index) {
         validator.clone()
     } else {
