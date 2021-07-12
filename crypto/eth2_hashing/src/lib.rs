@@ -29,16 +29,11 @@ pub fn hash_fixed(input: &[u8]) -> [u8; HASH_LEN] {
 }
 
 /// Compute the hash of two slices concatenated.
-///
-/// # Panics
-///
-/// Will panic if either `h1` or `h2` are not 32 bytes in length.
 pub fn hash32_concat(h1: &[u8], h2: &[u8]) -> [u8; 32] {
-    let mut preimage = [0; 64];
-    preimage[0..32].copy_from_slice(h1);
-    preimage[32..64].copy_from_slice(h2);
-
-    hash_fixed(&preimage)
+    let mut ctxt = DynamicContext::new();
+    ctxt.update(h1);
+    ctxt.update(h2);
+    ctxt.finalize()
 }
 
 /// Context trait for abstracting over implementation contexts.
