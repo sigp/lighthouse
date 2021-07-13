@@ -8,7 +8,7 @@ edition = "2018"
 clap = "2.33.3"
 environment = { path = "../../lighthouse/environment" }
 hex = "0.4.2"
-httpmock = "0.5.1"
+httpmock = "0.5.8"
 remote_signer_client = { path = "../../remote_signer/client" }
 remote_signer_consumer = { path = "../../common/remote_signer_consumer" }
 reqwest = { version = "0.11.0", features = ["blocking", "json"] }

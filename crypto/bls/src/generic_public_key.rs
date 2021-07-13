@@ -27,7 +27,7 @@ pub trait TPublicKey: Sized + Clone {
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
 }
 
-/// A BLS aggregate public key that is generic across some BLS point (`Pub`).
+/// A BLS public key that is generic across some BLS point (`Pub`).
 ///
 /// Provides generic functionality whilst deferring all serious cryptographic operations to `Pub`.
 #[derive(Clone)]

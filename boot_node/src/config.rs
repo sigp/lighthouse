@@ -83,12 +83,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         } else {
             // build the enr_fork_id and add it to the local_enr if it exists
             let enr_fork = {
-                let spec = eth2_network_config
-                    .yaml_config
-                    .as_ref()
-                    .ok_or("The network directory must contain a spec config")?
-                    .apply_to_chain_spec::<T>(&T::default_spec())
-                    .ok_or("The loaded config is not compatible with the current spec")?;
+                let spec = eth2_network_config.chain_spec::<T>()?;
 
                 if eth2_network_config.beacon_state_is_known() {
                     let genesis_state = eth2_network_config.beacon_state::<T>()?;
@@ -96,7 +91,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
                     let enr_fork = spec.enr_fork_id(
                         types::Slot::from(0u64),
-                        genesis_state.genesis_validators_root,
+                        genesis_state.genesis_validators_root(),
                     );
 
                     Some(enr_fork.as_ssz_bytes())

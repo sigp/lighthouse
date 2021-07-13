@@ -19,7 +19,6 @@ use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn};
-use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -196,7 +195,7 @@ where
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?

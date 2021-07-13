@@ -239,31 +239,39 @@ pub fn get_block<E: EthSpec>(seed: u64) -> BeaconBlock<E> {
     let mut block: BeaconBlock<E> = BeaconBlock::empty(spec);
     for _ in 0..E::MaxProposerSlashings::to_usize() {
         block
-            .body
-            .proposer_slashings
+            .body_mut()
+            .proposer_slashings_mut()
             .push(proposer_slashing.clone())
             .unwrap();
     }
     for _ in 0..E::MaxDeposits::to_usize() {
-        block.body.deposits.push(deposit.clone()).unwrap();
+        block
+            .body_mut()
+            .deposits_mut()
+            .push(deposit.clone())
+            .unwrap();
     }
     for _ in 0..E::MaxVoluntaryExits::to_usize() {
         block
-            .body
-            .voluntary_exits
+            .body_mut()
+            .voluntary_exits_mut()
             .push(signed_voluntary_exit.clone())
             .unwrap();
     }
     for _ in 0..E::MaxAttesterSlashings::to_usize() {
         block
-            .body
-            .attester_slashings
+            .body_mut()
+            .attester_slashings_mut()
             .push(attester_slashing.clone())
             .unwrap();
     }
 
     for _ in 0..E::MaxAttestations::to_usize() {
-        block.body.attestations.push(attestation.clone()).unwrap();
+        block
+            .body_mut()
+            .attestations_mut()
+            .push(attestation.clone())
+            .unwrap();
     }
     block
 }

@@ -284,9 +284,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         // The finalized state must be for the epoch boundary slot, not the slot of the finalized
         // block.
-        if new_finalized_state.slot != new_finalized_slot {
+        if new_finalized_state.slot() != new_finalized_slot {
             return Err(PruningError::IncorrectFinalizedState {
-                state_slot: new_finalized_state.slot,
+                state_slot: new_finalized_state.slot(),
                 new_finalized_slot,
             }
             .into());

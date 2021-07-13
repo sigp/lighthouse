@@ -354,10 +354,10 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
         match self {
             RPCResponse::Status(status) => write!(f, "{}", status),
             RPCResponse::BlocksByRange(block) => {
-                write!(f, "BlocksByRange: Block slot: {}", block.message.slot)
+                write!(f, "BlocksByRange: Block slot: {}", block.slot())
             }
             RPCResponse::BlocksByRoot(block) => {
-                write!(f, "BlocksByRoot: BLock slot: {}", block.message.slot)
+                write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number),

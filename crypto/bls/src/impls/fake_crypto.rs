@@ -6,6 +6,7 @@ use crate::{
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
 };
+
 /// Provides the externally-facing, core BLS types.
 pub mod types {
     pub use super::verify_signature_sets;
@@ -63,7 +64,15 @@ impl PartialEq for PublicKey {
 #[derive(Clone)]
 pub struct AggregatePublicKey([u8; PUBLIC_KEY_BYTES_LEN]);
 
-impl TAggregatePublicKey for AggregatePublicKey {}
+impl TAggregatePublicKey<PublicKey> for AggregatePublicKey {
+    fn to_public_key(&self) -> GenericPublicKey<PublicKey> {
+        GenericPublicKey::from_point(PublicKey(self.0))
+    }
+
+    fn aggregate(_pubkeys: &[GenericPublicKey<PublicKey>]) -> Result<Self, Error> {
+        Ok(Self(INFINITY_PUBLIC_KEY))
+    }
+}
 
 impl Eq for AggregatePublicKey {}
 

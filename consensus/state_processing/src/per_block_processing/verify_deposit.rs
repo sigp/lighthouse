@@ -60,7 +60,7 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
             &deposit.proof[..],
             spec.deposit_contract_tree_depth.safe_add(1)? as usize,
             deposit_index as usize,
-            state.eth1_data.deposit_root,
+            state.eth1_data().deposit_root,
         ),
         DepositInvalid::BadMerkleProof
     );

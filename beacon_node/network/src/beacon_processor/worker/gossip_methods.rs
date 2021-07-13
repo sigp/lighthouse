@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
-            get_block_delay_ms(seen_duration, &block.message, &self.chain.slot_clock),
+            get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock),
         );
 
         let verified_block = match self.chain.verify_block_for_gossip(block) {
@@ -353,6 +353,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::InvalidSignature)
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
+            | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
@@ -370,7 +371,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // verified.
         self.chain.validator_monitor.read().register_gossip_block(
             seen_duration,
-            &verified_block.block.message,
+            verified_block.block.message(),
             verified_block.block_root,
             &self.chain.slot_clock,
         );
@@ -816,7 +817,10 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 return;
             }
-            AttnError::PriorAttestationKnown { .. } => {
+            AttnError::PriorAttestationKnown {
+                validator_index,
+                epoch,
+            } => {
                 /*
                  * We have already seen an attestation from this validator for this epoch.
                  *
@@ -827,6 +831,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Prior attestation known";
                     "peer_id" => %peer_id,
                     "block" => %beacon_block_root,
+                    "epoch" => %epoch,
+                    "validator_index" => validator_index,
                     "type" => ?attestation_type,
                 );
                 // We still penalize the peer slightly. We don't want this to be a recurring

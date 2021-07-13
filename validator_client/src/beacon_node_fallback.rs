@@ -209,7 +209,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
     /// Checks if the node has the correct specification.
     async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
-        let yaml_config = self
+        let config_and_preset = self
             .beacon_node
             .get_config_spec()
             .await
@@ -224,9 +224,8 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             })?
             .data;
 
-        let beacon_node_spec = yaml_config
-            .apply_to_chain_spec::<E>(&E::default_spec())
-            .ok_or_else(|| {
+        let beacon_node_spec =
+            ChainSpec::from_config::<E>(&config_and_preset.config).ok_or_else(|| {
                 error!(
                     log,
                     "The minimal/mainnet spec type of the beacon node does not match the validator \
@@ -236,11 +235,12 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 CandidateError::Incompatible
             })?;
 
-        if !yaml_config.extra_fields.is_empty() {
+        if !config_and_preset.extra_fields.is_empty() {
             debug!(
                 log,
                 "Beacon spec includes unknown fields";
-                "fields" => ?yaml_config.extra_fields
+                "endpoint" => %self.beacon_node,
+                "fields" => ?config_and_preset.extra_fields,
             );
         }
 

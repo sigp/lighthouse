@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
-    AttestationData, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Epoch, EthSpec,
+    AttestationData, AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec,
     Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof, Slot,
     VoluntaryExit,
 };
@@ -237,7 +237,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn process_valid_state(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
         // Add any new validator indices.
         state
-            .validators
+            .validators()
             .iter()
             .enumerate()
             .skip(self.indices.len())
@@ -255,7 +255,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
-                if let Some(balance) = state.balances.get(i) {
+                if let Some(balance) = state.balances().get(i) {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_BALANCE_GWEI,
                         &[id],
@@ -263,7 +263,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                 }
 
-                if let Some(validator) = state.validators.get(i) {
+                if let Some(validator) = state.validators().get(i) {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI,
                         &[id],
@@ -473,7 +473,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn register_gossip_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
@@ -484,7 +484,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn register_api_block<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
@@ -495,11 +495,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         &self,
         src: &str,
         seen_timestamp: Duration,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         block_root: Hash256,
         slot_clock: &S,
     ) {
-        if let Some(id) = self.get_validator_id(block.proposer_index) {
+        if let Some(id) = self.get_validator_id(block.proposer_index()) {
             let delay = get_block_delay_ms(seen_timestamp, block, slot_clock);
 
             metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL, &[src, id]);
@@ -514,7 +514,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "Block from API";
                 "root" => ?block_root,
                 "delay" => %delay.as_millis(),
-                "slot" => %block.slot,
+                "slot" => %block.slot(),
                 "src" => src,
                 "validator" => %id,
             );
@@ -741,11 +741,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: &IndexedAttestation<T>,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<'_, T>,
         spec: &ChainSpec,
     ) {
         let data = &indexed_attestation.data;
-        let delay = (block.slot - data.slot) - spec.min_attestation_inclusion_delay;
+        let delay = (block.slot() - data.slot) - spec.min_attestation_inclusion_delay;
         let epoch = data.slot.epoch(T::slots_per_epoch());
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
@@ -1043,10 +1043,10 @@ fn u64_to_i64(n: impl Into<u64>) -> i64 {
 /// Returns the delay between the start of `block.slot` and `seen_timestamp`.
 pub fn get_block_delay_ms<T: EthSpec, S: SlotClock>(
     seen_timestamp: Duration,
-    block: &BeaconBlock<T>,
+    block: BeaconBlockRef<'_, T>,
     slot_clock: &S,
 ) -> Duration {
-    get_slot_delay_ms::<S>(seen_timestamp, block.slot, slot_clock)
+    get_slot_delay_ms::<S>(seen_timestamp, block.slot(), slot_clock)
 }
 
 /// Returns the delay between the start of `slot` and `seen_timestamp`.

@@ -35,6 +35,8 @@ pub struct Config {
     pub disable_auto_discover: bool,
     /// If true, re-register existing validators in definitions.yml for slashing protection.
     pub init_slashing_protection: bool,
+    /// If true, use longer timeouts for requests made to the beacon node.
+    pub use_long_timeouts: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
@@ -68,6 +70,7 @@ impl Default for Config {
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
+            use_long_timeouts: false,
             graffiti: None,
             graffiti_file: None,
             http_api: <_>::default(),
@@ -156,6 +159,7 @@ impl Config {
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
+        config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
 
         if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());

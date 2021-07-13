@@ -99,7 +99,7 @@ async fn verify_validator_count<E: EthSpec>(
                 .await
                 .map(|body| body.unwrap().data)
                 .map_err(|e| format!("Get state root via http failed: {:?}", e))?
-                .validators
+                .validators()
                 .len();
             validator_counts.push(vc);
         }
