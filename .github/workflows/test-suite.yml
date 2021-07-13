@@ -147,7 +147,7 @@ jobs:
       - name: Run the syncing simulator
         run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
-      name: doppelganger-protecction-test
+      name: doppelganger-protection-test
       runs-on: ubuntu-latest
       needs: cargo-fmt
       steps:
