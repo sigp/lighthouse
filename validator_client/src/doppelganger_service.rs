@@ -757,7 +757,7 @@ mod test {
             self
         }
 
-        pub fn register_all_in_doppelganger_protection(self) -> Self {
+        pub fn register_all_in_doppelganger_protection_if_enabled(self) -> Self {
             let mut this = self;
             for i in 0..this.validators.len() {
                 this = this.register_validator(i as u64);
@@ -912,7 +912,7 @@ mod test {
             TestBuilder::default()
                 .build()
                 .set_slot(slot)
-                .register_all_in_doppelganger_protection()
+                .register_all_in_doppelganger_protection_if_enabled()
                 .assert_all_enabled()
                 .assert_all_states(&DoppelgangerState {
                     next_check_epoch: genesis_epoch() + 1,
@@ -929,7 +929,7 @@ mod test {
             TestBuilder::default()
                 .build()
                 .set_slot(slot)
-                .register_all_in_doppelganger_protection()
+                .register_all_in_doppelganger_protection_if_enabled()
                 .assert_all_disabled()
                 .assert_all_states(&DoppelgangerState {
                     next_check_epoch: epoch + 1,
@@ -1031,7 +1031,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(slot)
-            .register_all_in_doppelganger_protection()
+            .register_all_in_doppelganger_protection_if_enabled()
             // All validators should have signing enabled since it's the genesis epoch.
             .assert_all_enabled()
             .simulate_detect_doppelgangers(
@@ -1059,7 +1059,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(slot)
-            .register_all_in_doppelganger_protection()
+            .register_all_in_doppelganger_protection_if_enabled()
             .assert_all_disabled()
             // First, simulate a check where there are no doppelgangers.
             .simulate_detect_doppelgangers(
@@ -1127,7 +1127,7 @@ mod test {
         let mut scenario = TestBuilder::default()
             .build()
             .set_slot(initial_slot)
-            .register_all_in_doppelganger_protection()
+            .register_all_in_doppelganger_protection_if_enabled()
             .assert_all_disabled();
 
         for slot in initial_slot.as_u64()..=activation_slot.as_u64() {
@@ -1198,7 +1198,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(initial_slot)
-            .register_all_in_doppelganger_protection()
+            .register_all_in_doppelganger_protection_if_enabled()
             .assert_all_disabled()
             // First, simulate a check in the initialization epoch.
             .simulate_detect_doppelgangers(
@@ -1243,7 +1243,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_slot(initial_slot)
-            .register_all_in_doppelganger_protection()
+            .register_all_in_doppelganger_protection_if_enabled()
             .assert_all_disabled()
             // First, simulate a check in the initialization epoch.
             .simulate_detect_doppelgangers(

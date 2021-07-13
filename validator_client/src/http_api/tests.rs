@@ -86,12 +86,12 @@ impl ApiTester {
             Hash256::repeat_byte(42),
             spec,
             fork_service.clone(),
-            DoppelgangerService::new(log.clone(), true),
+            Some(Arc::new(DoppelgangerService::new(log.clone()))),
             log.clone(),
         );
 
         validator_store
-            .register_all_in_doppelganger_protection()
+            .register_all_in_doppelganger_protection_if_enabled()
             .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
