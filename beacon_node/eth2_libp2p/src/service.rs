@@ -329,8 +329,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         .peer_manager_mut()
                         .inject_connection_closed(peer_id, endpoint, num_established);
                 }
-                SwarmEvent::NewListenAddr(multiaddr) => {
-                    return Libp2pEvent::NewListenAddr(multiaddr)
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    return Libp2pEvent::NewListenAddr(address)
                 }
                 SwarmEvent::IncomingConnection {
                     local_addr,
@@ -363,16 +363,18 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
                     debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
                 }
-                SwarmEvent::ExpiredListenAddr(multiaddr) => {
-                    debug!(self.log, "Listen address expired"; "multiaddr" => %multiaddr)
+                SwarmEvent::ExpiredListenAddr { address, .. } => {
+                    debug!(self.log, "Listen address expired"; "address" => %address)
                 }
-                SwarmEvent::ListenerClosed { addresses, reason } => {
+                SwarmEvent::ListenerClosed {
+                    addresses, reason, ..
+                } => {
                     crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         return Libp2pEvent::ZeroListeners;
                     }
                 }
-                SwarmEvent::ListenerError { error } => {
+                SwarmEvent::ListenerError { error, .. } => {
                     // this is non fatal, but we still check
                     warn!(self.log, "Listener error"; "error" => ?error);
                     if Swarm::listeners(&self.swarm).count() == 0 {
