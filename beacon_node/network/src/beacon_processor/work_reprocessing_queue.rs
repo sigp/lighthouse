@@ -38,7 +38,7 @@ const ATTESTATIONS: &str = "attestations";
 const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
-pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(30);
+pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -308,7 +308,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     error!(
                         log,
-                        "Attestation delay queue is full";
+                        "Aggregate attestation delay queue is full";
                         "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
                         "msg" => "check system clock"
                     );
