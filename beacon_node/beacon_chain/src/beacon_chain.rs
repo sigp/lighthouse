@@ -1985,10 +1985,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block.body().attestations().len() as f64,
             );
 
-            if let Ok(block) = block.as_altair() {
+            if let Some(sync_aggregate) = block.body().sync_aggregate() {
                 metrics::set_gauge(
                     &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
-                    block.body.sync_aggregate.num_set_bits() as i64,
+                    sync_aggregate.num_set_bits() as i64,
                 );
             }
         }
