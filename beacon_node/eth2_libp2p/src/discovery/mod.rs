@@ -1,22 +1,34 @@
-///! This manages the discovery and management of peers.
+//! The discovery sub-behaviour of Lighthouse.
+//!
+//! This module creates a libp2p dummy-behaviour built around the discv5 protocol. It handles
+//! queries and manages access to the discovery routing table.
+
 pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
+use crate::{config, metrics};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
+use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
     Eth2Enr,
 };
-pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::{Keypair, PublicKey};
-
-use crate::{config, metrics};
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
-use libp2p::core::PeerId;
+pub use libp2p::{
+    core::{
+        connection::ConnectionId,
+        identity::{Keypair, PublicKey},
+        ConnectedPoint, Multiaddr, PeerId,
+    },
+    swarm::{
+        protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NotifyHandler, PollParameters, SubstreamProtocol,
+    },
+};
 use lru::LruCache;
 use slog::{crit, debug, error, info, warn};
 use ssz::{Decode, Encode};
@@ -885,9 +897,68 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
         None
     }
+}
 
-    // Main execution loop to be driven by the peer manager.
-    pub fn poll(&mut self, cx: &mut Context) -> Poll<DiscoveryEvent> {
+/* NetworkBehaviour Implementation */
+
+impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+    // Discovery is not a real NetworkBehaviour...
+    type ProtocolsHandler = libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+    type OutEvent = DiscoveryEvent;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        libp2p::swarm::protocols_handler::DummyProtocolsHandler::default()
+    }
+
+    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
+    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        if let Some(enr) = self.enr_of_peer(peer_id) {
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            enr.multiaddr_tcp()
+        } else {
+            // PeerId is not known
+            Vec::new()
+        }
+    }
+
+    fn inject_connected(&mut self, _peer_id: &PeerId) {}
+    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
+    fn inject_connection_established(
+        &mut self,
+        _: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
+    }
+    fn inject_connection_closed(
+        &mut self,
+        _: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
+    }
+    fn inject_event(
+        &mut self,
+        _: PeerId,
+        _: ConnectionId,
+        _: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+    }
+
+    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        // set peer as disconnected in discovery DHT
+        debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+        self.disconnect_peer(peer_id);
+    }
+
+    // Main execution loop to drive the behaviour
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -898,7 +969,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Drive the queries and return any results from completed queries
         if let Some(results) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(DiscoveryEvent::QueryResult(results));
+            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::QueryResult(
+                results,
+            )));
         }
 
         // Process the server event stream
@@ -946,7 +1019,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
-                            return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
+                            return Poll::Ready(NBAction::GenerateEvent(
+                                DiscoveryEvent::SocketUpdated(socket),
+                            ));
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)

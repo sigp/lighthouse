@@ -52,6 +52,8 @@ pub enum RPCSend<TSpec: EthSpec> {
     /// peer. The second parameter is a single chunk of a response. These go over *inbound*
     /// connections.
     Response(SubstreamId, RPCCodedResponse<TSpec>),
+    /// Lighthouse has requested to terminate the connection with a goodbye message.
+    Shutdown(GoodbyeReason),
 }
 
 /// RPC events received from outside Lighthouse.
@@ -77,6 +79,7 @@ impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
         match self {
             RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
             RPCSend::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
+            RPCSend::Shutdown(reason) => write!(f, "Sending Goodbye: {}", reason),
         }
     }
 }
@@ -115,11 +118,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
                 methods::MAX_REQUEST_BLOCKS,
                 Duration::from_secs(10),
             )
-            .n_every(
-                Protocol::BlocksByRoot,
-                methods::MAX_REQUEST_BLOCKS,
-                Duration::from_secs(10),
-            )
+            .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
             .build()
             .expect("Configuration parameters are valid");
         RPC {
@@ -158,6 +157,16 @@ impl<TSpec: EthSpec> RPC<TSpec> {
             peer_id,
             handler: NotifyHandler::Any,
             event: RPCSend::Request(request_id, event),
+        });
+    }
+
+    /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
+    /// gracefully terminates the RPC behaviour with a goodbye message.
+    pub fn shutdown(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        self.events.push(NetworkBehaviourAction::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::Any,
+            event: RPCSend::Shutdown(reason),
         });
     }
 }

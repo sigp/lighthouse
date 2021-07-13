@@ -452,6 +452,8 @@ pub enum RPCError {
     NegotiationTimeout,
     /// Handler rejected this request.
     HandlerRejected,
+    /// We have intentionally disconnected.
+    Disconnected,
 }
 
 impl From<ssz::DecodeError> for RPCError {
@@ -490,6 +492,7 @@ impl std::fmt::Display for RPCError {
             RPCError::InternalError(ref err) => write!(f, "Internal error: {}", err),
             RPCError::NegotiationTimeout => write!(f, "Negotiation timeout"),
             RPCError::HandlerRejected => write!(f, "Handler rejected the request"),
+            RPCError::Disconnected => write!(f, "Gracefully Disconnected"),
         }
     }
 }
@@ -508,6 +511,7 @@ impl std::error::Error for RPCError {
             RPCError::ErrorResponse(_, _) => None,
             RPCError::NegotiationTimeout => None,
             RPCError::HandlerRejected => None,
+            RPCError::Disconnected => None,
         }
     }
 }
