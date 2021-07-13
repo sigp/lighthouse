@@ -1,4 +1,6 @@
-use crate::behaviour::gossipsub_scoring_parameters::PeerScoreSettings;
+use crate::behaviour::gossipsub_scoring_parameters::{
+    lighthouse_gossip_thresholds, PeerScoreSettings,
+};
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
     score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -19,7 +21,7 @@ use libp2p::{
     gossipsub::{
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
         Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
-        MessageAuthenticity, MessageId, PeerScoreThresholds,
+        MessageAuthenticity, MessageId,
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
@@ -42,10 +44,9 @@ use std::{
 };
 use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
 
-mod gossipsub_scoring_parameters;
+pub mod gossipsub_scoring_parameters;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
-pub const GOSSIPSUB_GREYLIST_THRESHOLD: f64 = -16000.0;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -222,13 +223,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let active_validators = TSpec::minimum_validator_count();
         let current_slot = Slot::new(0);
 
-        let thresholds = PeerScoreThresholds {
-            gossip_threshold: -4000.0,
-            publish_threshold: -8000.0,
-            graylist_threshold: GOSSIPSUB_GREYLIST_THRESHOLD,
-            accept_px_threshold: 100.0,
-            opportunistic_graft_threshold: 5.0,
-        };
+        let thresholds = lighthouse_gossip_thresholds();
 
         let score_settings = PeerScoreSettings::new(chain_spec, &config.gs_config);
 

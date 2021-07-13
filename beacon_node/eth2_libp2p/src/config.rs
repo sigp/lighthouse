@@ -14,13 +14,15 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// The maximum transmit size of gossip messages in bytes.
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+/// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
+pub const MESH_N_LOW: usize = 6;
 
 // We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
 // specification. We leave it here for posterity.
 // const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
-pub const MESH_N_LOW: usize = 6;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -138,8 +140,8 @@ impl Default for Config {
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
-            .history_length(6)
-            .max_messages_per_rpc(Some(10))
+            .history_length(12)
+            .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
             .history_gossip(3)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Anonymous)
