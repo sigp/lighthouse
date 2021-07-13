@@ -45,6 +45,16 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub sync_aggregate: SyncAggregate<T>,
 }
 
+impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
+    /// Access the sync aggregate from the block's body, if one exists.
+    pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
+        match self {
+            BeaconBlockBodyRef::Base(_) => None,
+            BeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     mod base {
