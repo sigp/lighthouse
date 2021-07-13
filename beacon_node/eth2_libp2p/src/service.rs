@@ -363,10 +363,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
                     debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
                 }
-                SwarmEvent::ExpiredListenAddr { address, .. }  => {
+                SwarmEvent::ExpiredListenAddr { address, .. } => {
                     debug!(self.log, "Listen address expired"; "address" => %address)
                 }
-                SwarmEvent::ListenerClosed { addresses, reason, .. } => {
+                SwarmEvent::ListenerClosed {
+                    addresses, reason, ..
+                } => {
                     crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
                     if Swarm::listeners(&self.swarm).count() == 0 {
                         return Libp2pEvent::ZeroListeners;

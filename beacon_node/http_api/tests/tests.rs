@@ -8,8 +8,8 @@ use beacon_chain::{
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
-use eth2_libp2p::discv5::enr::{CombinedKey, EnrBuilder};
 use eth2::{types::*, BeaconNodeHttpClient, Timeouts};
+use eth2_libp2p::discv5::enr::{CombinedKey, EnrBuilder};
 use eth2_libp2p::{
     rpc::methods::MetaData,
     types::{EnrBitfield, SyncState},
