@@ -261,31 +261,23 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     }
 }
 
-#[derive(Clone)]
 pub struct DoppelgangerService {
-    doppelganger_states: Arc<RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>>,
-    doppelganger_protection_enabled: bool,
+    doppelganger_states: RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>,
     log: Logger,
 }
 
 impl DoppelgangerService {
-    pub fn new(log: Logger, doppelganger_protection_enabled: bool) -> Self {
+    pub fn new(log: Logger) -> Self {
         Self {
             doppelganger_states: <_>::default(),
-            doppelganger_protection_enabled,
             log,
         }
-    }
-
-    /// Returns `true` if doppelganger protection was enabled on validator startup.
-    pub fn doppelganger_protection_enabled(&self) -> bool {
-        self.doppelganger_protection_enabled
     }
 
     /// Starts a reoccurring future which will try to keep the doppelganger service updated each
     /// slot.
     pub fn start_update_service<E: EthSpec, T: 'static + SlotClock>(
-        self,
+        service: Arc<Self>,
         context: RuntimeContext<E>,
         validator_store: Arc<ValidatorStore<T, E>>,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
@@ -295,7 +287,7 @@ impl DoppelgangerService {
         let get_index = move |pubkey| validator_store.validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
-        let log = self.log.clone();
+        let log = service.log.clone();
         let get_liveness = move |current_epoch, validator_indices| {
             beacon_node_liveness(
                 beacon_nodes.clone(),
@@ -306,7 +298,7 @@ impl DoppelgangerService {
         };
 
         let mut shutdown_sender = context.executor.shutdown_sender();
-        let log = self.log.clone();
+        let log = service.log.clone();
         let mut shutdown_func = move || {
             if let Err(e) =
                 shutdown_sender.try_send(ShutdownReason::Failure("Doppelganger detected."))
@@ -321,12 +313,10 @@ impl DoppelgangerService {
         };
 
         info!(
-            self.log,
+            service.log,
             "Doppelganger detection service started";
         );
 
-        let doppelganger_service = self.clone();
-        let log = self.log.clone();
         context.executor.spawn(
             async move {
                 loop {
@@ -345,7 +335,7 @@ impl DoppelgangerService {
                     }
 
                     if let Some(slot) = slot_clock.now() {
-                        if let Err(e) = doppelganger_service
+                        if let Err(e) = service
                             .detect_doppelgangers::<E, _, _, _, _>(
                                 slot,
                                 &get_index,
@@ -355,7 +345,7 @@ impl DoppelgangerService {
                             .await
                         {
                             error!(
-                                log,
+                                service.log,
                                 "Error during doppelganger detection";
                                 "error" => ?e
                             );
@@ -741,7 +731,7 @@ mod test {
                 validators: (0..self.validator_count)
                     .map(|_| PublicKeyBytes::random_for_test(&mut rng))
                     .collect(),
-                doppelganger: DoppelgangerService::new(log, true),
+                doppelganger: DoppelgangerService::new(log),
                 slot_clock,
             }
         }

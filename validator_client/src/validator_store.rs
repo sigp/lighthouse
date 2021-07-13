@@ -68,7 +68,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
-    doppelganger_service: DoppelgangerService,
+    doppelganger_service: Option<Arc<DoppelgangerService>>,
     fork_service: ForkService<T, E>,
     slot_clock: T,
 }
@@ -80,7 +80,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         genesis_validators_root: Hash256,
         spec: ChainSpec,
         fork_service: ForkService<T, E>,
-        doppelganger_service: DoppelgangerService,
+        doppelganger_service: Option<Arc<DoppelgangerService>>,
         log: Logger,
     ) -> Self {
         Self {
@@ -96,17 +96,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    /// Returns a reference to the `doppelganger_service`.
-    pub fn doppelganger_service(&self) -> &DoppelgangerService {
-        &self.doppelganger_service
-    }
-
     /// Register all local validators in doppelganger protection to try and prevent instances of
     /// duplicate validators operating on the network at the same time.
-    pub fn register_all_in_doppelganger_protection(&self) -> Result<(), String> {
-        for pubkey in self.validators.read().iter_voting_pubkeys() {
-            self.doppelganger_service()
-                .register_new_validator::<E, _>(*pubkey, &self.slot_clock)?
+    ///
+    /// This function has no effect if doppelganger protection is disabled.
+    pub fn register_all_in_doppelganger_protection_if_enabled(&self) -> Result<(), String> {
+        if let Some(doppelganger_service) = &self.doppelganger_service {
+            for pubkey in self.validators.read().iter_voting_pubkeys() {
+                doppelganger_service.register_new_validator::<E, _>(*pubkey, &self.slot_clock)?
+            }
         }
 
         Ok(())
@@ -114,8 +112,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Returns `true` if doppelganger protection is enabled, or else `false`.
     pub fn doppelganger_protection_enabled(&self) -> bool {
-        self.doppelganger_service()
-            .doppelganger_protection_enabled()
+        self.doppelganger_service.is_some()
     }
 
     pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
@@ -152,11 +149,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         validator_def.enabled = enable;
 
-        if self
-            .doppelganger_service()
-            .doppelganger_protection_enabled()
-        {
-            self.doppelganger_service()
+        if let Some(doppelganger_service) = &self.doppelganger_service {
+            doppelganger_service
                 .register_new_validator::<E, _>(validator_pubkey, &self.slot_clock)?;
         }
 
@@ -206,12 +200,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         pubkeys
             .into_iter()
             .map(|pubkey| {
-                if self.doppelganger_protection_enabled() {
-                    self.doppelganger_service().validator_status(pubkey)
-                } else {
+                self.doppelganger_service
+                    .as_ref()
+                    .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
                     // Allow signing on all pubkeys if doppelganger protection is disabled.
-                    DoppelgangerStatus::SigningEnabled(pubkey)
-                }
+                    .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
             })
             .filter_map(filter_func)
             .collect()
@@ -232,12 +225,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         pubkeys
             .into_iter()
             .map(|pubkey| {
-                if self.doppelganger_protection_enabled() {
-                    self.doppelganger_service().validator_status(pubkey)
-                } else {
+                self.doppelganger_service
+                    .as_ref()
+                    .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
                     // Allow signing on all pubkeys if doppelganger protection is disabled.
-                    DoppelgangerStatus::SigningEnabled(pubkey)
-                }
+                    .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
             })
             .collect()
     }
@@ -245,14 +237,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Check if the `validator_pubkey` is permitted by the doppleganger protection to sign
     /// messages.
     pub fn doppelganger_protection_allows_signing(&self, validator_pubkey: PublicKeyBytes) -> bool {
-        if self.doppelganger_service.doppelganger_protection_enabled() {
-            self.doppelganger_service()
-                .validator_status(validator_pubkey)
-                .only_safe()
-                .is_some()
-        } else {
-            true
-        }
+        self.doppelganger_service
+            .as_ref()
+            // If there's no doppelganger service then we assume it is purposefully disabled and
+            // declare that all keys are safe with regard to it.
+            .map_or(true, |doppelganger_service| {
+                doppelganger_service
+                    .validator_status(validator_pubkey)
+                    .only_safe()
+                    .is_some()
+            })
     }
 
     pub fn num_voting_validators(&self) -> usize {
