@@ -25,7 +25,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an internal error.
-    fn send_sync_committee_message(&self, message: SyncMessage<T::EthSpec>) {
+    fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
         self.sync_tx.send(message).unwrap_or_else(|e| {
             error!(self.log, "Could not send message to the sync service";
                 "error" => %e)

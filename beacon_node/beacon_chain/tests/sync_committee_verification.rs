@@ -253,14 +253,14 @@ fn aggregated_gossip_verification() {
         "subcommittee index out of range",
         {
             let mut a = valid_aggregate.clone();
-            a.message.contribution.subcommittee_index = SYNC_COMMITTEE_SUBNET_COUNT + 1;
+            a.message.contribution.subcommittee_index = SYNC_COMMITTEE_SUBNET_COUNT;
             a
         },
        SyncCommitteeError::InvalidSubcommittee {
                 subcommittee_index,
                 subcommittee_size,
             }
-            if subcommittee_index == SYNC_COMMITTEE_SUBNET_COUNT + 1 && subcommittee_size == SYNC_COMMITTEE_SUBNET_COUNT
+            if subcommittee_index == SYNC_COMMITTEE_SUBNET_COUNT && subcommittee_size == SYNC_COMMITTEE_SUBNET_COUNT
 
     );
 

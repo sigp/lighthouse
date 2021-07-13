@@ -85,7 +85,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 };
 
-                self.send_sync_committee_message(SyncMessage::BatchProcessed {
+                self.send_sync_message(SyncMessage::BatchProcessed {
                     chain_id,
                     epoch,
                     result,
@@ -103,7 +103,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 match self.process_blocks(downloaded_blocks.iter().rev()) {
                     (_, Err(e)) => {
                         debug!(self.log, "Parent lookup failed"; "last_peer_id" => %peer_id, "error" => e);
-                        self.send_sync_committee_message(SyncMessage::ParentLookupFailed {
+                        self.send_sync_message(SyncMessage::ParentLookupFailed {
                             peer_id,
                             chain_head,
                         })
