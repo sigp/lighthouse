@@ -1,7 +1,7 @@
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
+use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
     score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
