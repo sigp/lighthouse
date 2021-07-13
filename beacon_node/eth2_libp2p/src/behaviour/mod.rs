@@ -840,7 +840,6 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behavio
         let peer_id = event.peer_id;
 
         if !self.peer_manager.is_connected(&peer_id) {
-            // NOTE: Upgraded to log to test occurrences
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnecting peer";
