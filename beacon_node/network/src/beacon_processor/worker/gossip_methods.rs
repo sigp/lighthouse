@@ -752,7 +752,10 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 return;
             }
-            AttnError::PriorAttestationKnown { .. } => {
+            AttnError::PriorAttestationKnown {
+                validator_index,
+                epoch,
+            } => {
                 /*
                  * We have already seen an attestation from this validator for this epoch.
                  *
@@ -763,6 +766,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Prior attestation known";
                     "peer_id" => %peer_id,
                     "block" => %beacon_block_root,
+                    "epoch" => %epoch,
+                    "validator_index" => validator_index,
                     "type" => ?attestation_type,
                 );
                 // We still penalize the peer slightly. We don't want this to be a recurring
