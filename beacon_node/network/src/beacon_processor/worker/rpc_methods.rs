@@ -99,7 +99,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     finalized_epoch: status.finalized_epoch,
                     finalized_root: status.finalized_root,
                 };
-                self.send_sync_committee_message(SyncMessage::AddPeer(peer_id, info));
+                self.send_sync_message(SyncMessage::AddPeer(peer_id, info));
             }
             Err(e) => error!(self.log, "Could not process status message"; "error" => ?e),
         }

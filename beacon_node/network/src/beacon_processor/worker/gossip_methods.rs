@@ -327,7 +327,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Unknown parent for gossip block";
                     "root" => %block.canonical_root()
                 );
-                self.send_sync_committee_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return;
             }
             Err(e @ BlockError::FutureSlot { .. })
@@ -504,7 +504,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_committee_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
             other => {
                 debug!(
