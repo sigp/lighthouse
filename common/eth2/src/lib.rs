@@ -83,6 +83,7 @@ impl fmt::Display for Error {
 pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
+    pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
 }
@@ -92,6 +93,7 @@ impl Timeouts {
         Timeouts {
             attestation: timeout,
             attester_duties: timeout,
+            liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
         }
@@ -1116,12 +1118,13 @@ impl BeaconNodeHttpClient {
             .push("lighthouse")
             .push("liveness");
 
-        self.post_with_response(
+        self.post_with_timeout_and_response(
             path,
             &LivenessRequestData {
                 indices: ids.to_vec(),
                 epoch,
             },
+            self.timeouts.liveness,
         )
         .await
     }

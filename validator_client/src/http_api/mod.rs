@@ -5,7 +5,7 @@ mod tests;
 use crate::ValidatorStore;
 use account_utils::mnemonic_from_phrase;
 use create_validator::create_validators;
-use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
+use eth2::lighthouse_vc::types::{self as api_types, DoppelgangerData, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
@@ -16,7 +16,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
-use types::{ChainSpec, Epoch, ConfigAndPreset, EthSpec};
+use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -53,7 +53,7 @@ impl From<String> for Error {
 pub struct Context<T: SlotClock, E: EthSpec> {
     pub runtime: Weak<Runtime>,
     pub api_secret: ApiSecret,
-    pub validator_store: Option<ValidatorStore<T, E>>,
+    pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub spec: ChainSpec,
     pub config: Config,
@@ -203,7 +203,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(|validator_store: ValidatorStore<T, E>, signer| {
+        .and_then(|validator_store: Arc<ValidatorStore<T, E>>, signer| {
             blocking_signed_json_task(signer, move || {
                 let validators = validator_store
                     .initialized_validators()
@@ -229,7 +229,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and_then(
-            |validator_pubkey: PublicKey, validator_store: ValidatorStore<T, E>, signer| {
+            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     let validator = validator_store
                         .initialized_validators()
@@ -254,6 +254,28 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
+    // GET lighthouse/validators/doppelganger_status
+    let get_lighthouse_validators_doppelganger = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path("doppelganger_status"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(|validator_store: Arc<ValidatorStore<T, E>>, signer| {
+            blocking_signed_json_task(signer, move || {
+                let statuses = if !validator_store.doppelganger_protection_enabled() {
+                    vec![]
+                } else {
+                    validator_store
+                        .doppelganger_statuses()
+                        .into_iter()
+                        .map(|status| status.into())
+                        .collect::<Vec<DoppelgangerData>>()
+                };
+                Ok(api_types::GenericResponse::from(statuses))
+            })
+        });
+
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
         .and(warp::path("validators"))
@@ -267,7 +289,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              signer,
              runtime: Weak<Runtime>| {
@@ -309,7 +331,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              signer,
              runtime: Weak<Runtime>| {
@@ -353,7 +375,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              signer,
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
@@ -384,11 +406,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     drop(validator_dir);
                     let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
-                    let current_epoch = get_current_epoch::<T, E>(validator_store.slot_clock())?;
-                    let genesis_epoch = validator_store
-                        .slot_clock()
-                        .genesis_slot()
-                        .epoch(E::slots_per_epoch());
 
                     let validator_def = {
                         if let Some(runtime) = runtime.upgrade() {
@@ -398,8 +415,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     voting_password,
                                     body.enable,
                                     graffiti,
-                                    current_epoch,
-                                    genesis_epoch,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -435,7 +450,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              signer,
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
@@ -449,20 +464,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            let current_epoch =
-                                get_current_epoch::<T, E>(validator_store.slot_clock())?;
-                            let genesis_epoch = validator_store
-                                .slot_clock()
-                                .genesis_slot()
-                                .epoch(E::slots_per_epoch());
                             if let Some(runtime) = runtime.upgrade() {
                                 runtime
-                                    .block_on(initialized_validators.set_validator_status(
-                                        &validator_pubkey,
-                                        body.enabled,
-                                        current_epoch,
-                                        genesis_epoch,
-                                    ))
+                                    .block_on(
+                                        initialized_validators
+                                            .set_validator_status(&validator_pubkey, body.enabled),
+                                    )
                                     .map_err(|e| {
                                         warp_utils::reject::custom_server_error(format!(
                                             "unable to set validator status: {:?}",
@@ -489,7 +496,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     .or(get_lighthouse_health)
                     .or(get_lighthouse_spec)
                     .or(get_lighthouse_validators)
-                    .or(get_lighthouse_validators_pubkey),
+                    .or(get_lighthouse_validators_pubkey)
+                    .or(get_lighthouse_validators_doppelganger),
             ),
         )
         .or(warp::post().and(
@@ -558,16 +566,4 @@ where
 
             response
         })
-}
-
-/// Helper function to get the current `Epoch` given a `SlotClock` and handle errors with `warp`.
-pub(crate) fn get_current_epoch<T: SlotClock, E: EthSpec>(
-    slot_clock: T,
-) -> Result<Epoch, warp::Rejection> {
-    Ok(slot_clock
-        .now()
-        .ok_or_else(|| {
-            warp_utils::reject::custom_server_error("failed to read slot clock".to_string())
-        })?
-        .epoch(E::slots_per_epoch()))
 }

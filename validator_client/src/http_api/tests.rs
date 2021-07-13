@@ -1,6 +1,7 @@
 #![cfg(test)]
 #![cfg(not(debug_assertions))]
 
+use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
     Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
@@ -58,9 +59,6 @@ impl ApiTester {
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
             validator_dir.path().into(),
-            false,
-            Some(Epoch::new(0)),
-            Some(Epoch::new(0)),
             log.clone(),
         )
         .await
@@ -88,8 +86,13 @@ impl ApiTester {
             Hash256::repeat_byte(42),
             spec,
             fork_service.clone(),
+            Some(Arc::new(DoppelgangerService::new(log.clone()))),
             log.clone(),
         );
+
+        validator_store
+            .register_all_in_doppelganger_protection_if_enabled()
+            .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
 
@@ -97,7 +100,7 @@ impl ApiTester {
             runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
-            validator_store: Some(validator_store),
+            validator_store: Some(Arc::new(validator_store)),
             spec: E::default_spec(),
             config: HttpConfig {
                 enabled: true,
@@ -186,6 +189,35 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_get_lighthouse_doppelganger(self) -> Self {
+        let result = self
+            .client
+            .get_lighthouse_validators_doppelganger()
+            .await
+            .unwrap()
+            .data;
+
+        let pubkeys = self
+            .initialized_validators
+            .read()
+            .iter_voting_pubkeys()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let enabled_keys = pubkeys
+            .into_iter()
+            .map(|pubkey| DoppelgangerData {
+                pubkey,
+                status: DoppelgangerStatus::SigningEnabled,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, enabled_keys);
+
+        self
+    }
+
     pub fn vals_total(&self) -> usize {
         self.initialized_validators.read().num_total()
     }
@@ -464,6 +496,8 @@ fn simple_getters() {
             .test_get_lighthouse_health()
             .await
             .test_get_lighthouse_spec()
+            .await
+            .test_get_lighthouse_doppelganger()
             .await;
     });
 }

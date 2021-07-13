@@ -8,7 +8,9 @@
 
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
-    block_service::BlockServiceNotification, http_metrics::metrics, validator_store::ValidatorStore,
+    block_service::BlockServiceNotification,
+    http_metrics::metrics,
+    validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore},
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
@@ -36,7 +38,7 @@ const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 pub enum Error {
     UnableToReadSlotClock,
     FailedToDownloadAttesters(String),
-    FailedToProduceSelectionProof,
+    FailedToProduceSelectionProof(ValidatorStoreError),
     InvalidModulo(ArithError),
 }
 
@@ -56,8 +58,8 @@ impl DutyAndProof {
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
-            .produce_selection_proof(&duty.pubkey, duty.slot)
-            .ok_or(Error::FailedToProduceSelectionProof)?;
+            .produce_selection_proof(duty.pubkey, duty.slot)
+            .map_err(Error::FailedToProduceSelectionProof)?;
 
         let selection_proof = selection_proof
             .is_aggregator(duty.committee_length as usize, spec)
@@ -93,7 +95,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Provides the canonical list of locally-managed validators.
-    pub validator_store: ValidatorStore<T, E>,
+    pub validator_store: Arc<ValidatorStore<T, E>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
@@ -115,19 +117,42 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
     /// Returns the total number of validators that should propose in the given epoch.
     pub fn proposer_count(&self, epoch: Epoch) -> usize {
+        // Only collect validators that are considered safe in terms of doppelganger protection.
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(DoppelgangerStatus::only_safe);
+
         self.proposers
             .read()
             .get(&epoch)
-            .map_or(0, |(_, proposers)| proposers.len())
+            .map_or(0, |(_, proposers)| {
+                proposers
+                    .iter()
+                    .filter(|proposer_data| signing_pubkeys.contains(&proposer_data.pubkey))
+                    .count()
+            })
     }
 
     /// Returns the total number of validators that should attest in the given epoch.
     pub fn attester_count(&self, epoch: Epoch) -> usize {
+        // Only collect validators that are considered safe in terms of doppelganger protection.
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(DoppelgangerStatus::only_safe);
         self.attesters
             .read()
             .iter()
-            .filter(|(_, map)| map.contains_key(&epoch))
+            .filter_map(|(_, map)| map.get(&epoch))
+            .map(|(_, duty_and_proof)| duty_and_proof)
+            .filter(|duty_and_proof| signing_pubkeys.contains(&duty_and_proof.duty.pubkey))
             .count()
+    }
+
+    /// Returns the total number of validators that are in a doppelganger detection period.
+    pub fn doppelganger_detecting_count(&self) -> usize {
+        self.validator_store
+            .voting_pubkeys::<HashSet<_>, _>(DoppelgangerStatus::only_unsafe)
+            .len()
     }
 
     /// Returns the pubkeys of the validators which are assigned to propose in the given slot.
@@ -137,8 +162,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn block_proposers(&self, slot: Slot) -> HashSet<PublicKeyBytes> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset();
+        // Only collect validators that are considered safe in terms of doppelganger protection.
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(DoppelgangerStatus::only_safe);
 
         self.proposers
             .read()
@@ -160,8 +187,10 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
     pub fn attesters(&self, slot: Slot) -> Vec<DutyAndProof> {
         let epoch = slot.epoch(E::slots_per_epoch());
 
-        // this is the set of local pubkeys that are not currently in a doppelganger detection period
-        let signing_pubkeys = self.validator_store.signing_pubkeys_hashset();
+        // Only collect validators that are considered safe in terms of doppelganger protection.
+        let signing_pubkeys: HashSet<_> = self
+            .validator_store
+            .voting_pubkeys(DoppelgangerStatus::only_safe);
 
         self.attesters
             .read()
@@ -284,7 +313,16 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_INDICES]);
 
     let log = duties_service.context.log();
-    for pubkey in duties_service.validator_store.duties_collection_pubkeys() {
+
+    // Collect *all* pubkeys for resolving indices, even those undergoing doppelganger protection.
+    //
+    // Since doppelganger protection queries rely on validator indices it is important to ensure we
+    // collect those indices.
+    let all_pubkeys: Vec<_> = duties_service
+        .validator_store
+        .voting_pubkeys(DoppelgangerStatus::ignored);
+
+    for pubkey in all_pubkeys {
         // This is on its own line to avoid some weirdness with locks and if statements.
         let is_known = duties_service
             .validator_store
@@ -373,11 +411,13 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let next_epoch = current_epoch + 1;
 
-    let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
+    // Collect *all* pubkeys, even those undergoing doppelganger protection.
+    //
+    // We must know the duties for doppelganger validators so that we can subscribe to their subnets
+    // and get more information about other running instances.
+    let local_pubkeys: HashSet<_> = duties_service
         .validator_store
-        .duties_collection_pubkeys()
-        .into_iter()
-        .collect();
+        .voting_pubkeys(DoppelgangerStatus::ignored);
 
     let local_indices = {
         let mut local_indices = Vec::with_capacity(local_pubkeys.len());
@@ -652,15 +692,18 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         current_slot,
         &initial_block_proposers,
         block_service_tx,
+        &duties_service.validator_store,
         &log,
     )
     .await;
 
-    let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
+    // Collect *all* pubkeys, even those undergoing doppelganger protection.
+    //
+    // It is useful to keep the duties for all validators around, so they're on hand when
+    // doppelganger finishes.
+    let local_pubkeys: HashSet<_> = duties_service
         .validator_store
-        .duties_collection_pubkeys()
-        .into_iter()
-        .collect();
+        .voting_pubkeys(DoppelgangerStatus::ignored);
 
     // Only download duties and push out additional block production events if we have some
     // validators.
@@ -739,6 +782,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 current_slot,
                 &additional_block_producers,
                 block_service_tx,
+                &duties_service.validator_store,
                 &log,
             )
             .await;
@@ -761,24 +805,33 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
 }
 
 /// Notify the block service if it should produce a block.
-async fn notify_block_production_service(
+async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
     current_slot: Slot,
     block_proposers: &HashSet<PublicKeyBytes>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
+    validator_store: &ValidatorStore<T, E>,
     log: &Logger,
 ) {
-    if let Err(e) = block_service_tx
-        .send(BlockServiceNotification {
-            slot: current_slot,
-            block_proposers: block_proposers.iter().copied().collect(),
-        })
-        .await
-    {
-        error!(
-            log,
-            "Failed to notify block service";
-            "current_slot" => current_slot,
-            "error" => %e
-        );
-    };
+    let non_doppelganger_proposers = block_proposers
+        .iter()
+        .filter(|pubkey| validator_store.doppelganger_protection_allows_signing(**pubkey))
+        .copied()
+        .collect::<Vec<_>>();
+
+    if !non_doppelganger_proposers.is_empty() {
+        if let Err(e) = block_service_tx
+            .send(BlockServiceNotification {
+                slot: current_slot,
+                block_proposers: non_doppelganger_proposers,
+            })
+            .await
+        {
+            error!(
+                log,
+                "Failed to notify block service";
+                "current_slot" => current_slot,
+                "error" => %e
+            );
+        };
+    }
 }
