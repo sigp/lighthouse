@@ -4,7 +4,7 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient};
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, Timeouts};
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -77,6 +77,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         Ok(BeaconNodeHttpClient::from_components(
             beacon_node_url,
             beacon_node_http_client,
+            Timeouts::set_all(HTTP_TIMEOUT),
         ))
     }
 }
