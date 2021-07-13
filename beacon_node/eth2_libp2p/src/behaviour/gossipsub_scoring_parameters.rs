@@ -17,6 +17,23 @@ const VOLUNTARY_EXIT_WEIGHT: f64 = 0.05;
 const PROPOSER_SLASHING_WEIGHT: f64 = 0.05;
 const ATTESTER_SLASHING_WEIGHT: f64 = 0.05;
 
+/// The time window (seconds) that we expect messages to be forwarded to us in the mesh.
+const MESH_MESSAGE_DELIVERIES_WINDOW: u64 = 2;
+
+// Const as this is used in the peer manager to prevent gossip from disconnecting peers.
+pub const GREYLIST_THRESHOLD: f64 = -16000.0;
+
+/// Builds the peer score thresholds.
+pub fn lighthouse_gossip_thresholds() -> PeerScoreThresholds {
+    PeerScoreThresholds {
+        gossip_threshold: -4000.0,
+        publish_threshold: -8000.0,
+        graylist_threshold: GREYLIST_THRESHOLD,
+        accept_px_threshold: 100.0,
+        opportunistic_graft_threshold: 5.0,
+    }
+}
+
 pub struct PeerScoreSettings<TSpec: EthSpec> {
     slot: Duration,
     epoch: Duration,
@@ -75,7 +92,7 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
             decay_to_zero: self.decay_to_zero,
             retain_score: self.epoch * 100,
             app_specific_weight: 1.0,
-            ip_colocation_factor_threshold: 3.0,
+            ip_colocation_factor_threshold: 8.0, // Allow up to 8 nodes per IP
             behaviour_penalty_threshold: 6.0,
             behaviour_penalty_decay: self.score_parameter_decay(self.epoch * 10),
             ..Default::default()
@@ -313,10 +330,10 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
                     cap_factor * t_params.mesh_message_deliveries_threshold
                 };
             t_params.mesh_message_deliveries_activation = activation_window;
-            t_params.mesh_message_deliveries_window = Duration::from_secs(2);
+            t_params.mesh_message_deliveries_window =
+                Duration::from_secs(MESH_MESSAGE_DELIVERIES_WINDOW);
             t_params.mesh_failure_penalty_decay = t_params.mesh_message_deliveries_decay;
-            t_params.mesh_message_deliveries_weight = -self.max_positive_score
-                / (t_params.topic_weight * t_params.mesh_message_deliveries_threshold.powi(2));
+            t_params.mesh_message_deliveries_weight = -t_params.topic_weight;
             t_params.mesh_failure_penalty_weight = t_params.mesh_message_deliveries_weight;
             if decay_slots >= current_slot.as_u64() {
                 t_params.mesh_message_deliveries_threshold = 0.0;
