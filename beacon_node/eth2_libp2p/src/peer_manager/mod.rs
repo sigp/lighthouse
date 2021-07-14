@@ -62,7 +62,6 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.1;
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 
-
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
     /// Storage of network globals to access the `PeerDB`.
