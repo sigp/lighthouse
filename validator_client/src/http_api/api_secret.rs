@@ -173,7 +173,7 @@ impl ApiSecret {
     /// Returns a closure which produces a signature over some bytes using the secret key in
     /// `self`. The signature is a 32-byte hash formatted as a 0x-prefixed string.
     pub fn signer(&self) -> impl Fn(&[u8]) -> String + Clone {
-        let sk = self.sk.clone();
+        let sk = self.sk;
         move |input: &[u8]| -> String {
             let message =
                 Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
