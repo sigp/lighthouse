@@ -57,7 +57,7 @@ warp_utils = { path = "../common/warp_utils" }
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 hyper = "0.14.4"
 serde_utils = { path = "../consensus/serde_utils" }
-libsecp256k1 = "0.3.5"
+libsecp256k1 = "0.5.0"
 ring = "0.16.19"
 rand = "0.7.3"
 scrypt = { version = "0.5.0", default-features = false }
