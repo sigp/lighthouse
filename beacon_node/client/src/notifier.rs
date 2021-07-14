@@ -228,7 +228,6 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
                     warn!(
                         log,
                         "Syncing eth1 block cache";
-                        "tip" => "sync is generally fastest when using a local eth1 node",
                         "est_blocks_remaining" => distance,
                     );
                 }
