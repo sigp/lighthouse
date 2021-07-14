@@ -223,7 +223,7 @@ fn aggregated_gossip_verification() {
                         .expect(&format!(
                             "{} should error during verify_aggregated_attestation_for_gossip",
                             $desc
-                        )),
+                        )).0,
                     $( $error ) |+ $( if $guard )?
                 ),
                 "case: {}",
@@ -606,7 +606,7 @@ fn unaggregated_gossip_verification() {
                         .expect(&format!(
                             "{} should error during verify_unaggregated_attestation_for_gossip",
                             $desc
-                        )),
+                        )).0,
                     $( $error ) |+ $( if $guard )?
                 ),
                 "case: {}",

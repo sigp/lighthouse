@@ -332,7 +332,7 @@ fn epoch_boundary_state_attestation_processing() {
         {
             checked_pre_fin = true;
             assert!(matches!(
-                res.err().unwrap(),
+                res.err().unwrap().0,
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,
