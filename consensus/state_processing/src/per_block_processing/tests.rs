@@ -337,6 +337,7 @@ fn invalid_attestation_no_committee_for_index() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -368,6 +369,7 @@ fn invalid_attestation_wrong_justified_checkpoint() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -400,6 +402,7 @@ fn invalid_attestation_bad_aggregation_bitfield_len() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -425,6 +428,7 @@ fn invalid_attestation_bad_signature() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -456,6 +460,7 @@ fn invalid_attestation_included_too_early() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -491,6 +496,7 @@ fn invalid_attestation_included_too_late() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
@@ -522,6 +528,7 @@ fn invalid_attestation_target_epoch_slot_mismatch() {
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
+        head_block.proposer_index(),
         VerifySignatures::True,
         &spec,
     );
