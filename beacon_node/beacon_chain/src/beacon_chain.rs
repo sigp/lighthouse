@@ -2389,6 +2389,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        if let Some(sync_aggregate) = block.body().sync_aggregate() {
+            let sync_committee =
+                self.sync_committee_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()))?;
+            let participant_pubkeys = sync_committee
+                .pubkeys
+                .into_iter()
+                .zip(sync_aggregate.sync_committee_bits.iter())
+                .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+                .collect::<Vec<_>>();
+
+            validator_monitor.register_sync_aggregate_in_block(
+                block.slot(),
+                block.body_root(),
+                participant_pubkeys,
+            );
+        }
+
         for exit in block.body().voluntary_exits() {
             validator_monitor.register_block_voluntary_exit(&exit.message)
         }

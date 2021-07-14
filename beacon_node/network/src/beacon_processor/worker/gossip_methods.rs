@@ -716,7 +716,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_id: PeerId,
         sync_signature: SyncCommitteeMessage,
         subnet_id: SyncSubnetId,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
     ) {
         let sync_signature = match self
             .chain
@@ -734,17 +734,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        /*TODO:
         // Register the sync signature with any monitored validators.
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_unaggregated_attestation(
+            .register_gossip_sync_committee_message(
                 seen_timestamp,
-                attestation.indexed_attestation(),
+                sync_signature.sync_message(),
                 &self.chain.slot_clock,
             );
-        */
 
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
@@ -778,7 +776,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         sync_contribution: SignedContributionAndProof<T::EthSpec>,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
     ) {
         let sync_contribution = match self
             .chain
@@ -801,19 +799,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        /* TODO
-        // Register the attestation with any monitored validators.
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_aggregated_attestation(
+            .register_gossip_sync_committee_aggregate(
                 seen_timestamp,
-                aggregate.aggregate(),
-                aggregate.indexed_attestation(),
+                sync_contribution.aggregate(),
+                sync_contribution.participant_pubkeys(),
                 &self.chain.slot_clock,
             );
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
-        */
 
         if let Err(e) = self
             .chain

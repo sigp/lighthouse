@@ -251,6 +251,7 @@ impl From<ContributionError> for Error {
 #[derivative(Clone(bound = "T: BeaconChainTypes"))]
 pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     signed_aggregate: SignedContributionAndProof<T::EthSpec>,
+    participant_pubkeys: Vec<PublicKeyBytes>,
 }
 
 /// Wraps a `SyncCommitteeMessage` that has been verified for propagation on the gossip network.
@@ -385,7 +386,10 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
                 slot: contribution.slot,
             });
         }
-        Ok(VerifiedSyncContribution { signed_aggregate })
+        Ok(VerifiedSyncContribution {
+            signed_aggregate,
+            participant_pubkeys,
+        })
     }
 
     /// A helper function to add this aggregate to `beacon_chain.op_pool`.
@@ -398,9 +402,19 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         self.signed_aggregate.message.contribution
     }
 
+    /// Returns the underlying `contribution` for the `signed_aggregate`.
+    pub fn contribution_ref(&self) -> &SyncCommitteeContribution<T::EthSpec> {
+        &self.signed_aggregate.message.contribution
+    }
+
     /// Returns the underlying `signed_aggregate`.
     pub fn aggregate(&self) -> &SignedContributionAndProof<T::EthSpec> {
         &self.signed_aggregate
+    }
+
+    /// Returns the pubkeys of all validators that are included in the aggregate.
+    pub fn participant_pubkeys(&self) -> &[PublicKeyBytes] {
+        &self.participant_pubkeys
     }
 }
 

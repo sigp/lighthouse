@@ -63,6 +63,23 @@ impl<T: EthSpec> SyncCommittee<T> {
             .map(|s| s.to_vec())
     }
 
+    /// Return the pubkeys in this `SyncCommittee` for the given `subcommittee_index`.
+    pub fn get_subcommittee_pubkeys_ref(
+        &self,
+        subcommittee_index: usize,
+    ) -> Result<&[PublicKeyBytes], Error> {
+        let start_subcommittee_index = subcommittee_index.safe_mul(T::sync_subcommittee_size())?;
+        let end_subcommittee_index =
+            start_subcommittee_index.safe_add(T::sync_subcommittee_size())?;
+        self.pubkeys
+            .get(start_subcommittee_index..end_subcommittee_index)
+            .ok_or(Error::InvalidSubcommitteeRange {
+                start_subcommittee_index,
+                end_subcommittee_index,
+                subcommittee_index,
+            })
+    }
+
     /// For a given `pubkey`, finds all subcommittees that it is included in, and maps the
     /// subcommittee index (typed as `SyncSubnetId`) to all positions this `pubkey` is associated
     /// with within the subcommittee.
