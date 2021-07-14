@@ -43,6 +43,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     maybe_update!("genesis-delay", genesis_delay);
     maybe_update!("eth1-id", deposit_chain_id);
     maybe_update!("eth1-id", deposit_network_id);
+    maybe_update!("seconds-per-slot", seconds_per_slot);
     maybe_update!("seconds-per-eth1-block", seconds_per_eth1_block);
 
     if let Some(v) = parse_ssz_optional(matches, "genesis-fork-version")? {

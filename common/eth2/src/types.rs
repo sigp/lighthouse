@@ -847,6 +847,19 @@ impl FromStr for Accept {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LivenessRequestData {
+    pub epoch: Epoch,
+    pub indices: Vec<u64>,
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub struct LivenessResponseData {
+    pub index: u64,
+    pub epoch: Epoch,
+    pub is_live: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

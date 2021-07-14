@@ -33,7 +33,8 @@ lcli \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--eth1-id $NETWORK_ID \
 	--eth1-follow-distance 1 \
-	--seconds-per-eth1-block 1 \
+	--seconds-per-slot $SECONDS_PER_SLOT \
+	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--force
 
 echo Specification generated at $TESTNET_DIR.

@@ -64,3 +64,17 @@ pub struct KeystoreValidatorsPostRequest {
     pub keystore: Keystore,
     pub graffiti: Option<GraffitiString>,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DoppelgangerData {
+    pub pubkey: PublicKeyBytes,
+    pub status: DoppelgangerStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DoppelgangerStatus {
+    SigningEnabled,
+    SigningDisabled,
+    Unknown,
+}

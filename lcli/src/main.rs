@@ -345,6 +345,13 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("seconds-per-slot")
+                        .long("seconds-per-slot")
+                        .value_name("SECONDS")
+                        .takes_value(true)
+                        .help("Eth2 slot time"),
+                )
+                .arg(
                     Arg::with_name("seconds-per-eth1-block")
                         .long("seconds-per-eth1-block")
                         .value_name("SECONDS")

@@ -66,3 +66,4 @@ lazy_static = "1.4.0"
 fallback = { path = "../common/fallback" }
 monitoring_api = { path = "../common/monitoring_api" }
 sensitive_url = { path = "../common/sensitive_url" }
+task_executor = { path = "../common/task_executor" }

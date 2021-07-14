@@ -20,7 +20,7 @@ use types::{
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
-    validator_store: Option<ValidatorStore<T, E>>,
+    validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
@@ -42,7 +42,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
+    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -88,7 +88,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
@@ -377,25 +377,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            if self
-                .validator_store
-                .sign_attestation(
-                    &duty.pubkey,
-                    duty.validator_committee_index as usize,
-                    &mut attestation,
-                    current_epoch,
-                )
-                .is_some()
-            {
-                attestations.push(attestation);
-            } else {
+            if let Err(e) = self.validator_store.sign_attestation(
+                duty.pubkey,
+                duty.validator_committee_index as usize,
+                &mut attestation,
+                current_epoch,
+            ) {
                 crit!(
                     log,
                     "Failed to sign attestation";
+                    "error" => ?e,
                     "committee_index" => committee_index,
                     "slot" => slot.as_u64(),
                 );
                 continue;
+            } else {
+                attestations.push(attestation);
             }
         }
 
@@ -497,17 +494,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 continue;
             }
 
-            if let Some(aggregate) = self.validator_store.produce_signed_aggregate_and_proof(
-                &duty.pubkey,
+            match self.validator_store.produce_signed_aggregate_and_proof(
+                duty.pubkey,
                 duty.validator_index,
                 aggregated_attestation.clone(),
                 selection_proof.clone(),
             ) {
-                signed_aggregate_and_proofs.push(aggregate);
-            } else {
-                crit!(log, "Failed to sign attestation");
-                continue;
-            };
+                Ok(aggregate) => signed_aggregate_and_proofs.push(aggregate),
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Failed to sign attestation";
+                        "error" => ?e
+                    );
+                    continue;
+                }
+            }
         }
 
         if !signed_aggregate_and_proofs.is_empty() {

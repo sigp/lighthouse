@@ -5,7 +5,6 @@ use crate::{
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
-use futures::TryFutureExt;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -15,7 +14,7 @@ use types::{EthSpec, PublicKeyBytes, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
-    validator_store: Option<ValidatorStore<T, E>>,
+    validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<Arc<T>>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
@@ -35,7 +34,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
+    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -89,7 +88,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: Arc<T>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
@@ -207,15 +206,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
-                service
-                    .publish_block(slot, validator_pubkey)
-                    .unwrap_or_else(move |e| {
+                async move {
+                    if let Err(e) = service.publish_block(slot, validator_pubkey).await {
                         crit!(
                             log,
                             "Error whilst producing block";
                             "message" => e
                         );
-                    }),
+                    }
+                },
                 "block service",
             );
         }
@@ -240,8 +239,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let randao_reveal = self
             .validator_store
-            .randao_reveal(&validator_pubkey, slot.epoch(E::slots_per_epoch()))
-            .ok_or("Unable to produce randao reveal")?
+            .randao_reveal(validator_pubkey, slot.epoch(E::slots_per_epoch()))
+            .map_err(|e| format!("Unable to produce randao reveal signature: {:?}", e))?
             .into();
 
         let graffiti = self
@@ -276,8 +275,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
                 let signed_block = self_ref
                     .validator_store
-                    .sign_block(validator_pubkey_ref, block, current_slot)
-                    .ok_or("Unable to sign block")?;
+                    .sign_block(*validator_pubkey_ref, block, current_slot)
+                    .map_err(|e| format!("Unable to sign block: {:?}", e))?;
 
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
