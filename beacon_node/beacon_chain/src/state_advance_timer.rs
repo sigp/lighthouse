@@ -233,6 +233,16 @@ fn advance_head<T: BeaconChainTypes>(
     if let Some(summary) = per_slot_processing(&mut state, state_root, &beacon_chain.spec)
         .map_err(BeaconChainError::from)?
     {
+        // Expose Prometheus metrics.
+        if let Err(e) = summary.observe_metrics() {
+            error!(
+                log,
+                "Failed to observe epoch summary metrics";
+                "src" => "state_advance_timer",
+                "error" => ?e
+            );
+        }
+
         // Only notify the validator monitor for recent blocks.
         if state.current_epoch() + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
             >= current_slot.epoch(T::EthSpec::slots_per_epoch())

@@ -330,17 +330,6 @@ lazy_static! {
     pub static ref OP_POOL_NUM_VOLUNTARY_EXITS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_voluntary_exits_total", "Count of voluntary exits in the op pool");
 
-    /*
-     * Participation Metrics
-     */
-    pub static ref PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER: Result<Gauge> = try_create_float_gauge(
-        "beacon_participation_prev_epoch_target_attester",
-        "Ratio of target-attesting balances to total balances"
-    );
-    pub static ref PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER: Result<Gauge> = try_create_float_gauge(
-        "beacon_participation_prev_epoch_head_attester",
-        "Ratio of head-attesting balances to total balances"
-    );
 
     /*
      * Attestation Observation Metrics

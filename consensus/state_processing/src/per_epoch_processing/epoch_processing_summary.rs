@@ -3,6 +3,7 @@ use super::{
     base::{TotalBalances, ValidatorStatus},
     validator_statuses::InclusionInfo,
 };
+use crate::metrics;
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
@@ -17,6 +18,29 @@ pub enum EpochProcessingSummary {
 }
 
 impl EpochProcessingSummary {
+    /// Updates some Prometheus metrics with some values in `self`.
+    #[cfg(feature = "metrics")]
+    pub fn observe_metrics(&self) -> Result<(), ParticipationCacheError> {
+        metrics::set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTING_GWEI_TOTAL,
+            self.previous_epoch_head_attesting_balance()? as i64,
+        );
+        metrics::set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTING_GWEI_TOTAL,
+            self.previous_epoch_target_attesting_balance()? as i64,
+        );
+        metrics::set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_SOURCE_ATTESTING_GWEI_TOTAL,
+            self.previous_epoch_source_attesting_balance()? as i64,
+        );
+        metrics::set_gauge(
+            &metrics::PARTICIPATION_PREV_EPOCH_ACTIVE_GWEI_TOTAL,
+            self.previous_epoch_total_active_balance() as i64,
+        );
+
+        Ok(())
+    }
+
     /// Returns the sum of the effective balance of all validators in the current epoch.
     pub fn current_epoch_total_active_balance(&self) -> u64 {
         match self {
@@ -124,6 +148,24 @@ impl EpochProcessingSummary {
             EpochProcessingSummary::Altair {
                 participation_cache,
             } => participation_cache.previous_epoch_head_attesting_balance(),
+        }
+    }
+
+    /// Returns the sum of the effective balance of all validators in the previous epoch who
+    /// included an attestation that matched the source.
+    ///
+    /// ## Differences between Base and Altair
+    ///
+    /// - Base: any attestation can match the source.
+    /// - Altair: only "timely" attestations can match the source.
+    pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
+        match self {
+            EpochProcessingSummary::Base { total_balances, .. } => {
+                Ok(total_balances.previous_epoch_attesters())
+            }
+            EpochProcessingSummary::Altair {
+                participation_cache,
+            } => participation_cache.previous_epoch_source_attesting_balance(),
         }
     }
 

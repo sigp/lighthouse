@@ -303,6 +303,11 @@ impl ParticipationCache {
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
+    pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, Error> {
+        self.previous_epoch_participation
+            .total_flag_balance(TIMELY_SOURCE_FLAG_INDEX)
+    }
+
     pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, Error> {
         self.previous_epoch_participation
             .total_flag_balance(TIMELY_HEAD_FLAG_INDEX)

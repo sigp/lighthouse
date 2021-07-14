@@ -58,14 +58,11 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
-    per_block_processing,
-    per_epoch_processing::EpochProcessingSummary,
-    per_slot_processing,
+    per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
     BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
 };
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
@@ -971,11 +968,18 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             };
 
             if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
-                summaries.push(summary)
+                // Expose Prometheus metrics.
+                if let Err(e) = summary.observe_metrics() {
+                    error!(
+                        chain.log,
+                        "Failed to observe epoch summary metrics";
+                        "src" => "block_verification",
+                        "error" => ?e
+                    );
+                }
+                summaries.push(summary);
             }
         }
-
-        expose_participation_metrics(&summaries, &chain.log);
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1437,62 +1441,6 @@ fn verify_header_signature<T: BeaconChainTypes>(
         Ok(())
     } else {
         Err(BlockError::ProposalSignatureInvalid)
-    }
-}
-
-fn expose_participation_metrics(summaries: &[EpochProcessingSummary], log: &Logger) {
-    if !cfg!(feature = "participation_metrics") {
-        return;
-    }
-
-    for summary in summaries {
-        match summary.previous_epoch_target_attesting_balance() {
-            Ok(target_balance) => {
-                metrics::maybe_set_float_gauge(
-                    &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
-                    participation_ratio(
-                        target_balance,
-                        summary.previous_epoch_total_active_balance(),
-                    ),
-                );
-            }
-            Err(e) => error!(
-                log,
-                "Unable to read target balance";
-                "error" => ?e,
-            ),
-        }
-
-        match summary.previous_epoch_head_attesting_balance() {
-            Ok(head_balance) => {
-                metrics::maybe_set_float_gauge(
-                    &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
-                    participation_ratio(
-                        head_balance,
-                        summary.previous_epoch_total_active_balance(),
-                    ),
-                );
-            }
-            Err(e) => error!(
-                log,
-                "Unable to read head balance";
-                "error" => ?e,
-            ),
-        }
-    }
-}
-
-fn participation_ratio(section: u64, total: u64) -> Option<f64> {
-    // Reduce the precision to help ensure we fit inside a u32.
-    const PRECISION: u64 = 100_000_000;
-
-    let section: f64 = u32::try_from(section / PRECISION).ok()?.into();
-    let total: f64 = u32::try_from(total / PRECISION).ok()?.into();
-
-    if total > 0_f64 {
-        Some(section / total)
-    } else {
-        None
     }
 }
 
