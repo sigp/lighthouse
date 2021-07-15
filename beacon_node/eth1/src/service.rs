@@ -694,8 +694,8 @@ impl Service {
                     {
                         crit!(
                             self.log,
-                            "Couldn't connect to any eth1 node. Please ensure that you have an \
-                             eth1 http server running locally on http://localhost:8545 or specify \
+                            "Could not connect to a suitable eth1 node. Please ensure that you have \
+                             an eth1 http server running locally on http://localhost:8545 or specify \
                              one or more (remote) endpoints using \
                              `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. \
                              Also ensure that `eth` and `net` apis are enabled on the eth1 http \
