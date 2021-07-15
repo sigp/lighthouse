@@ -1816,8 +1816,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
-                            Err(e) => {
+                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
+                            Err((e, aggregate)) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
