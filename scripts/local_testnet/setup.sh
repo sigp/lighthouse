@@ -22,7 +22,7 @@ GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
 
 
 lcli \
-	--spec mainnet \
+	--spec minimal \
 	new-testnet \
 	--deposit-contract-address $DEPOSIT_CONTRACT_ADDRESS \
 	--testnet-dir $TESTNET_DIR \
@@ -49,7 +49,7 @@ echo Validators generated with keystore passwords at $DATADIR.
 echo "Building genesis state... (this might take a while)"
 
 lcli \
-	--spec mainnet \
+	--spec minimal \
 	interop-genesis \
 	--genesis-time $GENESIS_TIME \
 	--testnet-dir $TESTNET_DIR \

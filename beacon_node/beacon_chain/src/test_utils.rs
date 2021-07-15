@@ -151,7 +151,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub validator_keypairs: Vec<Keypair>,
 
-    pub chain: BeaconChain<T>,
+    pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
     pub shutdown_receiver: Receiver<ShutdownReason>,
@@ -266,7 +266,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
 
         Self {
             spec: chain.spec.clone(),
-            chain,
+            chain: Arc::new(chain),
             validator_keypairs,
             data_dir,
             shutdown_receiver,
@@ -311,7 +311,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
 
         Self {
             spec: chain.spec.clone(),
-            chain,
+            chain: Arc::new(chain),
             validator_keypairs,
             data_dir,
             shutdown_receiver,
@@ -353,7 +353,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
 
         Self {
             spec: chain.spec.clone(),
-            chain,
+            chain: Arc::new(chain),
             validator_keypairs,
             data_dir,
             shutdown_receiver,

@@ -23,8 +23,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use types::{
-    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, MainnetEthSpec,
-    ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, EthSpec,
+    MainnetEthSpec, ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -71,9 +71,13 @@ impl Drop for TestRig {
 
 impl TestRig {
     pub fn new(chain_length: u64) -> Self {
-        let mut harness = BeaconChainHarness::new(
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = E::default_spec();
+        spec.shard_committee_period = 2;
+
+        let harness = BeaconChainHarness::new(
             MainnetEthSpec,
-            None,
+            Some(spec),
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 
@@ -151,13 +155,7 @@ impl TestRig {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
 
-        // Changing this *after* the chain has been initialized is a bit cheeky, but it shouldn't
-        // cause issue.
-        //
-        // This allows for testing voluntary exits without building out a massive chain.
-        harness.chain.spec.shard_committee_period = 2;
-
-        let chain = Arc::new(harness.chain);
+        let chain = harness.chain;
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
