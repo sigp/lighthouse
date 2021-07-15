@@ -3,6 +3,8 @@
 These scripts allow for running a small local testnet with multiple beacon nodes and validator clients.
 This setup can be useful for testing and development.
 
+The implementation using `docker` and `docker-compose` is present. This downloads the repository and builds the docker image. The whole setup can be run by launching `docker-compose up` in this directory. For manual setup follow the description below.
+
 ## Requirements
 
 The scripts require `lcli` and `lighthouse` to be installed on `PATH`. From the

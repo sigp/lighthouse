@@ -1,0 +1,94 @@
+version: '3'
+services:
+  ganache:
+    image: hive/clients/ganache
+    network_mode: "host"
+  
+  boot:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - ganache
+    entrypoint: bash -c "sleep 5 && ./setup.sh && ./bootnode.sh"
+
+  ##################################################
+  beacon1:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - boot
+    entrypoint: bash -c "sleep 25 && ./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000"
+
+  validator1:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - beacon1
+    entrypoint: bash -c "sleep 35 && ./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000"
+
+  ##################################################
+  beacon2:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - boot
+    entrypoint: bash -c "sleep 25 && ./beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9002 8002"
+
+  validator2:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - beacon2
+    entrypoint: bash -c "sleep 35 && ./validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:8002"
+
+  ##################################################
+  beacon3:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - boot
+    entrypoint: bash -c "sleep 25 && ./beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9003 8003"
+
+  validator3:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - beacon3
+    entrypoint: bash -c "sleep 35 && ./validator_client.sh $HOME/.lighthouse/local-testnet/node_3 http://localhost:8003"
+
+  ##################################################
+  beacon4:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - boot
+    entrypoint: bash -c "sleep 25 && ./beacon_node.sh $HOME/.lighthouse/local-testnet/node_4 9004 8004"
+
+  validator4:
+    build: .
+    network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
+    depends_on: 
+      - beacon4
+    entrypoint: bash -c "sleep 35 && ./validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8004"
+
+volumes:
+  data:
+    
