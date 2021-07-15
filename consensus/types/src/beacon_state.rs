@@ -13,7 +13,6 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
-use std::collections::HashSet;
 use std::convert::TryInto;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -1504,60 +1503,15 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
-    /// Get the unslashed participating indices for a given `flag_index`.
-    ///
-    /// The `self` state must be Altair or later.
-    pub fn get_unslashed_participating_indices(
-        &self,
-        flag_index: usize,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<HashSet<usize>, Error> {
-        let epoch_participation = if epoch == self.current_epoch() {
-            self.current_epoch_participation()?
-        } else if epoch == self.previous_epoch() {
-            self.previous_epoch_participation()?
-        } else {
-            return Err(Error::EpochOutOfBounds);
-        };
-        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-        itertools::process_results(
-            active_validator_indices.into_iter().map(|val_index| {
-                let has_flag = epoch_participation
-                    .get(val_index)
-                    .ok_or(Error::ParticipationOutOfBounds(val_index))?
-                    .has_flag(flag_index)?;
-                let not_slashed = !self.get_validator(val_index)?.slashed;
-                Ok((val_index, has_flag && not_slashed))
-            }),
-            |iter| {
-                iter.filter(|(_, eligible)| *eligible)
-                    .map(|(validator_index, _)| validator_index)
-                    .collect()
-            },
-        )
-    }
-
-    pub fn get_eligible_validator_indices(&self) -> Result<Vec<usize>, Error> {
+    pub fn is_eligible_validator(&self, val_index: usize) -> Result<bool, Error> {
         match self {
             BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Altair(_) => {
                 let previous_epoch = self.previous_epoch();
-                Ok(self
-                    .validators()
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, val)| {
-                        if val.is_active_at(previous_epoch)
-                            || (val.slashed
-                                && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
-                        {
-                            Some(i)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect())
+                self.get_validator(val_index).map(|val| {
+                    val.is_active_at(previous_epoch)
+                        || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
+                })
             }
         }
     }

@@ -58,21 +58,19 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
-    per_block_processing,
-    per_epoch_processing::EpochProcessingSummary,
-    per_slot_processing,
+    per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
     BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
 };
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::fs;
 use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
-    InconsistentFork, PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -971,11 +969,18 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             };
 
             if let Some(summary) = per_slot_processing(&mut state, Some(state_root), &chain.spec)? {
-                summaries.push(summary)
+                // Expose Prometheus metrics.
+                if let Err(e) = summary.observe_metrics() {
+                    error!(
+                        chain.log,
+                        "Failed to observe epoch summary metrics";
+                        "src" => "block_verification",
+                        "error" => ?e
+                    );
+                }
+                summaries.push(summary);
             }
         }
-
-        expose_participation_metrics(&summaries);
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -990,7 +995,15 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // performing `per_slot_processing`.
                 for (i, summary) in summaries.iter().enumerate() {
                     let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
-                    validator_monitor.process_validator_statuses(epoch, &summary.statuses);
+                    if let Err(e) =
+                        validator_monitor.process_validator_statuses(epoch, &summary, &chain.spec)
+                    {
+                        error!(
+                            chain.log,
+                            "Failed to process validator statuses";
+                            "error" => ?e
+                        );
+                    }
                 }
             }
         }
@@ -1382,22 +1395,31 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
     state: &'a BeaconState<T::EthSpec>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache<T>,
     spec: &'a ChainSpec,
-) -> BlockSignatureVerifier<'a, T::EthSpec, impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone> {
-    BlockSignatureVerifier::new(
-        state,
-        move |validator_index| {
-            // Disallow access to any validator pubkeys that are not in the current beacon
-            // state.
-            if validator_index < state.validators().len() {
-                validator_pubkey_cache
-                    .get(validator_index)
-                    .map(|pk| Cow::Borrowed(pk))
-            } else {
-                None
-            }
-        },
-        spec,
-    )
+) -> BlockSignatureVerifier<
+    'a,
+    T::EthSpec,
+    impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
+> {
+    let get_pubkey = move |validator_index| {
+        // Disallow access to any validator pubkeys that are not in the current beacon state.
+        if validator_index < state.validators().len() {
+            validator_pubkey_cache
+                .get(validator_index)
+                .map(Cow::Borrowed)
+        } else {
+            None
+        }
+    };
+
+    let decompressor = move |pk_bytes| {
+        // Map compressed pubkey to validator index.
+        let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
+        // Map validator index to pubkey (respecting guard on unknown validators).
+        get_pubkey(validator_index)
+    };
+
+    BlockSignatureVerifier::new(state, get_pubkey, decompressor, spec)
 }
 
 /// Verify that `header` was signed with a valid signature from its proposer.
@@ -1429,45 +1451,6 @@ fn verify_header_signature<T: BeaconChainTypes>(
         Ok(())
     } else {
         Err(BlockError::ProposalSignatureInvalid)
-    }
-}
-
-fn expose_participation_metrics(summaries: &[EpochProcessingSummary]) {
-    if !cfg!(feature = "participation_metrics") {
-        return;
-    }
-
-    for summary in summaries {
-        let b = &summary.total_balances;
-
-        metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_ATTESTER,
-            participation_ratio(b.previous_epoch_attesters(), b.previous_epoch()),
-        );
-
-        metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER,
-            participation_ratio(b.previous_epoch_target_attesters(), b.previous_epoch()),
-        );
-
-        metrics::maybe_set_float_gauge(
-            &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER,
-            participation_ratio(b.previous_epoch_head_attesters(), b.previous_epoch()),
-        );
-    }
-}
-
-fn participation_ratio(section: u64, total: u64) -> Option<f64> {
-    // Reduce the precision to help ensure we fit inside a u32.
-    const PRECISION: u64 = 100_000_000;
-
-    let section: f64 = u32::try_from(section / PRECISION).ok()?.into();
-    let total: f64 = u32::try_from(total / PRECISION).ok()?.into();
-
-    if total > 0_f64 {
-        Some(section / total)
-    } else {
-        None
     }
 }
 

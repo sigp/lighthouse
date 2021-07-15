@@ -6,7 +6,9 @@ use crate::metrics;
 use parking_lot::RwLock;
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use state_processing::per_epoch_processing::ValidatorStatus;
+use state_processing::per_epoch_processing::{
+    errors::EpochProcessingError, EpochProcessingSummary,
+};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
@@ -326,7 +328,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    pub fn process_validator_statuses(&self, epoch: Epoch, summaries: &[ValidatorStatus]) {
+    pub fn process_validator_statuses(
+        &self,
+        epoch: Epoch,
+        summary: &EpochProcessingSummary,
+        spec: &ChainSpec,
+    ) -> Result<(), EpochProcessingError> {
         for monitored_validator in self.validators.values() {
             // We subtract two from the state of the epoch that generated these summaries.
             //
@@ -338,93 +345,123 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
-                if let Some(summary) = summaries.get(i) {
-                    if summary.is_previous_epoch_attester {
-                        let lag = summary
-                            .inclusion_info
-                            .map(|i| format!("{} slot(s)", i.delay.saturating_sub(1).to_string()))
-                            .unwrap_or_else(|| "??".to_string());
+                /*
+                 * These metrics are reflected differently between Base and Altair.
+                 *
+                 * For Base, any attestation that is included on-chain will match the source.
+                 *
+                 * However, in Altair, only attestations that are "timely" are registered as
+                 * matching the source.
+                 */
 
-                        info!(
-                            self.log,
-                            "Previous epoch attestation success";
-                            "inclusion_lag" => lag,
-                            "matched_target" => summary.is_previous_epoch_target_attester,
-                            "matched_head" => summary.is_previous_epoch_head_attester,
-                            "epoch" => prev_epoch,
-                            "validator" => id,
-                        );
-                    } else if summary.is_active_in_previous_epoch
-                        && !summary.is_previous_epoch_attester
-                    {
-                        error!(
-                            self.log,
-                            "Previous epoch attestation missing";
-                            "epoch" => prev_epoch,
-                            "validator" => id,
-                        )
-                    } else if !summary.is_active_in_previous_epoch {
-                        // Monitored validator is not active, due to awaiting activation
-                        // or being exited/withdrawn. Do not attempt to report on its
-                        // attestations.
-                        continue;
-                    }
+                let previous_epoch_active = summary.is_active_unslashed_in_previous_epoch(i);
+                let previous_epoch_matched_source = summary.is_previous_epoch_source_attester(i)?;
+                let previous_epoch_matched_target = summary.is_previous_epoch_target_attester(i)?;
+                let previous_epoch_matched_head = summary.is_previous_epoch_head_attester(i)?;
+                let previous_epoch_matched_any = previous_epoch_matched_source
+                    || previous_epoch_matched_target
+                    || previous_epoch_matched_head;
 
-                    if summary.is_previous_epoch_attester {
-                        metrics::inc_counter_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
-                            &[id],
-                        );
-                    } else {
-                        metrics::inc_counter_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
-                            &[id],
-                        );
-                    }
-                    if summary.is_previous_epoch_head_attester {
-                        metrics::inc_counter_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT,
-                            &[id],
-                        );
-                    } else {
-                        metrics::inc_counter_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
-                            &[id],
-                        );
+                if !previous_epoch_active {
+                    // Monitored validator is not active, due to awaiting activation
+                    // or being exited/withdrawn. Do not attempt to report on its
+                    // attestations.
+                    continue;
+                }
+
+                // Indicates if any attestation made it on-chain.
+                //
+                // For Base states, this will be *any* attestation whatsoever. For Altair states,
+                // this will be any attestation that matched a "timely" flag.
+                if previous_epoch_matched_any {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
+                        &[id],
+                    );
+                    info!(
+                        self.log,
+                        "Previous epoch attestation success";
+                        "matched_target" => previous_epoch_matched_target,
+                        "matched_head" => previous_epoch_matched_head,
+                        "epoch" => prev_epoch,
+                        "validator" => id,
+
+                    )
+                } else {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
+                        &[id],
+                    );
+                    error!(
+                        self.log,
+                        "Previous epoch attestation missing";
+                        "epoch" => prev_epoch,
+                        "validator" => id,
+                    )
+                }
+
+                // Indicates if any on-chain attestation hit the head.
+                if previous_epoch_matched_head {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT,
+                        &[id],
+                    );
+                } else {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
+                        &[id],
+                    );
+                    warn!(
+                        self.log,
+                        "Attested to an incorrect head";
+                        "epoch" => prev_epoch,
+                        "validator" => id,
+                    );
+                }
+
+                // Indicates if any on-chain attestation hit the target.
+                if previous_epoch_matched_target {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT,
+                        &[id],
+                    );
+                } else {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
+                        &[id],
+                    );
+                    warn!(
+                        self.log,
+                        "Attested to an incorrect target";
+                        "epoch" => prev_epoch,
+                        "validator" => id,
+                    );
+                }
+
+                // For pre-Altair, state the inclusion distance. This information is not retained in
+                // the Altair state.
+                if let Some(inclusion_info) = summary.previous_epoch_inclusion_info(i) {
+                    if inclusion_info.delay > spec.min_attestation_inclusion_delay {
                         warn!(
                             self.log,
-                            "Attested to an incorrect head";
+                            "Sub-optimal inclusion delay";
+                            "optimal" => spec.min_attestation_inclusion_delay,
+                            "delay" => inclusion_info.delay,
                             "epoch" => prev_epoch,
                             "validator" => id,
                         );
                     }
-                    if summary.is_previous_epoch_target_attester {
-                        metrics::inc_counter_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT,
-                            &[id],
-                        );
-                    } else {
-                        metrics::inc_counter_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
-                            &[id],
-                        );
-                        warn!(
-                            self.log,
-                            "Attested to an incorrect target";
-                            "epoch" => prev_epoch,
-                            "validator" => id,
-                        );
-                    }
-                    if let Some(inclusion_info) = summary.inclusion_info {
-                        metrics::set_int_gauge(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
-                            &[id],
-                            inclusion_info.delay as i64,
-                        );
-                    }
+
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
+                        &[id],
+                        inclusion_info.delay as i64,
+                    );
                 }
             }
         }
+
+        Ok(())
     }
 
     fn get_validator_id(&self, validator_index: u64) -> Option<&str> {

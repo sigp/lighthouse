@@ -110,3 +110,17 @@ define_net!(pyrmont, include_pyrmont_file, "pyrmont", true);
 define_net!(mainnet, include_mainnet_file, "mainnet", true);
 
 define_net!(prater, include_prater_file, "prater", true);
+
+define_net!(
+    altair_devnet_0,
+    include_altair_devnet_0_file,
+    "altair-devnet-0",
+    true
+);
+
+define_net!(
+    altair_devnet_1,
+    include_altair_devnet_1_file,
+    "altair-devnet-1",
+    true
+);

@@ -3,7 +3,9 @@
 #![allow(clippy::indexing_slicing)]
 
 use super::Error;
-use crate::{BeaconState, EthSpec, Hash256, Slot, Unsigned, Validator};
+use crate::{
+    BeaconState, EthSpec, Hash256, ParticipationFlags, ParticipationList, Slot, Unsigned, Validator,
+};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
@@ -139,6 +141,9 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
     eth1_data_votes: Eth1DataVotesTreeHashCache<T>,
+    // Participation caches
+    previous_epoch_participation: ParticipationTreeHashCache,
+    current_epoch_participation: ParticipationTreeHashCache,
 }
 
 impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
@@ -163,6 +168,11 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let mut slashings_arena = CacheArena::default();
         let slashings = state.slashings().new_tree_hash_cache(&mut slashings_arena);
 
+        let previous_epoch_participation =
+            ParticipationTreeHashCache::new(state, BeaconState::previous_epoch_participation);
+        let current_epoch_participation =
+            ParticipationTreeHashCache::new(state, BeaconState::current_epoch_participation);
+
         Self {
             previous_state: None,
             validators,
@@ -176,6 +186,8 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             randao_mixes,
             slashings,
             eth1_data_votes: Eth1DataVotesTreeHashCache::new(state),
+            previous_epoch_participation,
+            current_epoch_participation,
         }
     }
 
@@ -264,31 +276,25 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         )?;
 
         // Participation
-        match state {
-            BeaconState::Base(state) => {
-                hasher.write(
-                    state
-                        .previous_epoch_attestations
-                        .tree_hash_root()
-                        .as_bytes(),
-                )?;
-                hasher.write(state.current_epoch_attestations.tree_hash_root().as_bytes())?;
-            }
-            // FIXME(altair): add a cache to accelerate hashing of these fields
-            BeaconState::Altair(state) => {
-                hasher.write(
-                    state
-                        .previous_epoch_participation
-                        .tree_hash_root()
-                        .as_bytes(),
-                )?;
-                hasher.write(
-                    state
-                        .current_epoch_participation
-                        .tree_hash_root()
-                        .as_bytes(),
-                )?;
-            }
+        if let BeaconState::Base(state) = state {
+            hasher.write(
+                state
+                    .previous_epoch_attestations
+                    .tree_hash_root()
+                    .as_bytes(),
+            )?;
+            hasher.write(state.current_epoch_attestations.tree_hash_root().as_bytes())?;
+        } else {
+            hasher.write(
+                self.previous_epoch_participation
+                    .recalculate_tree_hash_root(state.previous_epoch_participation()?)?
+                    .as_bytes(),
+            )?;
+            hasher.write(
+                self.current_epoch_participation
+                    .recalculate_tree_hash_root(state.current_epoch_participation()?)?
+                    .as_bytes(),
+            )?;
         }
 
         hasher.write(state.justification_bits().tree_hash_root().as_bytes())?;
@@ -506,6 +512,60 @@ impl ParallelValidatorTreeHash {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParticipationTreeHashCache {
+    inner: Option<ParticipationTreeHashCacheInner>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParticipationTreeHashCacheInner {
+    arena: CacheArena,
+    tree_hash_cache: TreeHashCache,
+}
+
+impl ParticipationTreeHashCache {
+    /// Initialize a new cache for the participation list returned by `field` (if any).
+    fn new<T: EthSpec>(
+        state: &BeaconState<T>,
+        field: impl FnOnce(
+            &BeaconState<T>,
+        ) -> Result<
+            &VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+            Error,
+        >,
+    ) -> Self {
+        let inner = field(state).map(ParticipationTreeHashCacheInner::new).ok();
+        Self { inner }
+    }
+
+    /// Compute the tree hash root for the given `epoch_participation`.
+    ///
+    /// This function will initialize the inner cache if necessary (e.g. when crossing the fork).
+    fn recalculate_tree_hash_root<N: Unsigned>(
+        &mut self,
+        epoch_participation: &VariableList<ParticipationFlags, N>,
+    ) -> Result<Hash256, Error> {
+        let cache = self
+            .inner
+            .get_or_insert_with(|| ParticipationTreeHashCacheInner::new(epoch_participation));
+        ParticipationList::new(epoch_participation)
+            .recalculate_tree_hash_root(&mut cache.arena, &mut cache.tree_hash_cache)
+            .map_err(Into::into)
+    }
+}
+
+impl ParticipationTreeHashCacheInner {
+    fn new<N: Unsigned>(epoch_participation: &VariableList<ParticipationFlags, N>) -> Self {
+        let mut arena = CacheArena::default();
+        let tree_hash_cache =
+            ParticipationList::new(epoch_participation).new_tree_hash_cache(&mut arena);
+        ParticipationTreeHashCacheInner {
+            arena,
+            tree_hash_cache,
+        }
+    }
+}
+
 #[cfg(feature = "arbitrary-fuzz")]
 impl<T: EthSpec> arbitrary::Arbitrary for BeaconTreeHashCache<T> {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
@@ -516,6 +576,7 @@ impl<T: EthSpec> arbitrary::Arbitrary for BeaconTreeHashCache<T> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::MainnetEthSpec;
 
     #[test]
     fn validator_node_count() {
@@ -523,5 +584,30 @@ mod test {
         let v = Validator::default();
         let _cache = v.new_tree_hash_cache(&mut arena);
         assert_eq!(arena.backing_len(), NODES_PER_VALIDATOR);
+    }
+
+    #[test]
+    fn participation_flags() {
+        type N = <MainnetEthSpec as EthSpec>::ValidatorRegistryLimit;
+        let len = 65;
+        let mut test_flag = ParticipationFlags::default();
+        test_flag.add_flag(0).unwrap();
+        let epoch_participation = VariableList::<_, N>::new(vec![test_flag; len]).unwrap();
+
+        let mut cache = ParticipationTreeHashCache { inner: None };
+
+        let cache_root = cache
+            .recalculate_tree_hash_root(&epoch_participation)
+            .unwrap();
+        let recalc_root = cache
+            .recalculate_tree_hash_root(&epoch_participation)
+            .unwrap();
+
+        assert_eq!(cache_root, recalc_root, "recalculated root should match");
+        assert_eq!(
+            cache_root,
+            epoch_participation.tree_hash_root(),
+            "cached root should match uncached"
+        );
     }
 }

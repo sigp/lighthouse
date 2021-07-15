@@ -11,7 +11,7 @@ use types::{
     DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
     ProposerSlashing, PublicKey, PublicKeyBytes, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockHeader, SignedContributionAndProof, SignedRoot,
-    SignedVoluntaryExit, SigningData, SyncAggregatorSelectionData, Unsigned,
+    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -36,6 +36,8 @@ pub enum Error {
     /// The public keys supplied do not match the number of objects requiring keys. Block validity
     /// was not determined.
     MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
+    /// Pubkey decompression failed. The block is invalid.
+    PublicKeyDecompressionFailed,
     /// The public key bytes stored in the `BeaconState` were not valid. This is a serious internal
     /// error.
     BadBlsBytes { validator_index: u64 },
@@ -516,4 +518,74 @@ where
     let message = beacon_block_root.signing_root(domain);
 
     Ok(SignatureSet::single_pubkey(signature, pubkey, message))
+}
+
+/// Signature set verifier for a block's `sync_aggregate` (Altair and later).
+///
+/// The `slot` should be the slot of the block that the sync aggregate is included in, which may be
+/// different from `state.slot()`. The `block_root` should be the block root that the sync aggregate
+/// signs over. It's passed in rather than extracted from the `state` because when verifying a batch
+/// of blocks the `state` will not yet have had the blocks applied.
+///
+/// Returns `Ok(None)` in the case where `sync_aggregate` has 0 signatures. The spec
+/// uses a separate function `eth2_fast_aggregate_verify` for this, but we can equivalently
+/// check the exceptional case eagerly and do a `fast_aggregate_verify` in the case where the
+/// check fails (by returning `Some(signature_set)`).
+pub fn sync_aggregate_signature_set<'a, T, D>(
+    decompressor: D,
+    sync_aggregate: &'a SyncAggregate<T>,
+    slot: Slot,
+    block_root: Hash256,
+    state: &'a BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<Option<SignatureSet<'a>>>
+where
+    T: EthSpec,
+    D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
+{
+    // Allow the point at infinity to count as a signature for 0 validators as per
+    // `eth2_fast_aggregate_verify` from the spec.
+    if sync_aggregate.sync_committee_bits.is_zero()
+        && sync_aggregate.sync_committee_signature.is_infinity()
+    {
+        return Ok(None);
+    }
+
+    let committee_pubkeys = &state
+        .get_built_sync_committee(slot.epoch(T::slots_per_epoch()), spec)?
+        .pubkeys;
+
+    let participant_pubkeys = committee_pubkeys
+        .iter()
+        .zip(sync_aggregate.sync_committee_bits.iter())
+        .filter_map(|(pubkey, bit)| {
+            if bit {
+                Some(decompressor(pubkey))
+            } else {
+                None
+            }
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(Error::PublicKeyDecompressionFailed)?;
+
+    let previous_slot = slot.saturating_sub(1u64);
+
+    let domain = spec.get_domain(
+        previous_slot.epoch(T::slots_per_epoch()),
+        Domain::SyncCommittee,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+
+    let message = SigningData {
+        object_root: block_root,
+        domain,
+    }
+    .tree_hash_root();
+
+    Ok(Some(SignatureSet::multiple_pubkeys(
+        &sync_aggregate.sync_committee_signature,
+        participant_pubkeys,
+        message,
+    )))
 }

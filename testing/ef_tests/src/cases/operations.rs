@@ -67,13 +67,19 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         match state {
             BeaconState::Base(_) => {
                 base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
             }
-            BeaconState::Altair(_) => {
-                altair::process_attestation(state, self, 0, VerifySignatures::True, spec)
-            }
+            BeaconState::Altair(_) => altair::process_attestation(
+                state,
+                self,
+                0,
+                proposer_index,
+                VerifySignatures::True,
+                spec,
+            ),
         }
     }
 }
@@ -192,7 +198,7 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
-        process_sync_aggregate(state, self, proposer_index, spec)
+        process_sync_aggregate(state, self, proposer_index, VerifySignatures::True, spec)
     }
 }
 

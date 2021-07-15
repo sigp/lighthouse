@@ -11,7 +11,6 @@ pub type CacheArena = cache_arena::CacheArena<Hash256>;
 pub use crate::cache::TreeHashCache;
 pub use crate::impls::int_log;
 use ethereum_types::H256 as Hash256;
-use tree_hash::TreeHash;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -34,7 +33,7 @@ impl From<cache_arena::Error> for Error {
 }
 
 /// Trait for types which can make use of a cache to accelerate calculation of their tree hash root.
-pub trait CachedTreeHash<Cache>: TreeHash {
+pub trait CachedTreeHash<Cache> {
     /// Create a new cache appropriate for use with values of this type.
     fn new_tree_hash_cache(&self, arena: &mut CacheArena) -> Cache;
 

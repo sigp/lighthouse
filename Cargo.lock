@@ -6200,6 +6200,7 @@ dependencies = [
  "integer-sqrt",
  "itertools 0.10.1",
  "lazy_static",
+ "lighthouse_metrics",
  "log",
  "merkle_proof",
  "rayon",

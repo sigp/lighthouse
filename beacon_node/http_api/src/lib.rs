@@ -941,7 +941,6 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 block_id
                     .block(&chain)
-                    // FIXME(altair): could avoid clone with by-value accessor
                     .map(|block| block.message().body().attestations().clone())
                     .map(api_types::GenericResponse::from)
             })
