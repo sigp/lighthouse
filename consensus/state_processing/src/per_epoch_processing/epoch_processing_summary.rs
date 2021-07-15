@@ -1,7 +1,6 @@
 use super::{
     altair::{participation_cache::Error as ParticipationCacheError, ParticipationCache},
-    base::{TotalBalances, ValidatorStatus},
-    validator_statuses::InclusionInfo,
+    base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus},
 };
 use crate::metrics;
 

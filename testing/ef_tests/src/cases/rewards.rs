@@ -4,11 +4,10 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use compare_fields_derive::CompareFields;
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
 use state_processing::{
     per_epoch_processing::{
         altair::{self, rewards_and_penalties::get_flag_index_deltas, ParticipationCache},
-        base::{self, rewards_and_penalties::AttestationDelta},
+        base::{self, rewards_and_penalties::AttestationDelta, ValidatorStatuses},
         Delta,
     },
     EpochProcessingError,

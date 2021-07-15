@@ -1,8 +1,8 @@
 use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
-use crate::per_epoch_processing::validator_statuses::{
-    TotalBalances, ValidatorStatus, ValidatorStatuses,
+use crate::per_epoch_processing::{
+    base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
+    Delta, Error,
 };
-use crate::per_epoch_processing::{Delta, Error};
 use safe_arith::SafeArith;
 use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
