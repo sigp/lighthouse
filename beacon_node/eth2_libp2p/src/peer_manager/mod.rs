@@ -318,7 +318,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.network_globals
                 .peers
                 .write()
-                .notify_disconnecting(&peer_id, true);
+                .notify_disconnecting(peer_id, true);
             return;
         }
 
@@ -338,7 +338,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.network_globals
                 .peers
                 .write()
-                .notify_disconnecting(&peer_id, false);
+                .notify_disconnecting(peer_id, false);
             return;
         }
 
@@ -1022,7 +1022,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let mut peer_db = self.network_globals.peers.write();
         for peer_id in disconnecting_peers {
-            peer_db.notify_disconnecting(&peer_id, false);
+            peer_db.notify_disconnecting(peer_id, false);
             self.events.push(PeerManagerEvent::DisconnectPeer(
                 peer_id,
                 GoodbyeReason::TooManyPeers,
