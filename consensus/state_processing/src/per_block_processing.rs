@@ -127,7 +127,7 @@ pub fn per_block_processing<T: EthSpec>(
 
     process_randao(state, block, verify_signatures, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), verify_signatures, spec)?;
+    process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
     if let BeaconBlockRef::Altair(inner) = block {
         process_sync_aggregate(state, &inner.body.sync_aggregate, proposer_index, spec)?;

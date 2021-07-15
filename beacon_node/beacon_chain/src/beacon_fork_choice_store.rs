@@ -321,7 +321,6 @@ where
                 .deconstruct()
                 .0;
 
-            // FIXME(altair): could remove clone with by-value `balances` accessor
             self.justified_balances = self
                 .store
                 .get_state(&justified_block.state_root(), Some(justified_block.slot()))
