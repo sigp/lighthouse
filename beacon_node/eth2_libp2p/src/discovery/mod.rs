@@ -1,22 +1,34 @@
-///! This manages the discovery and management of peers.
+//! The discovery sub-behaviour of Lighthouse.
+//!
+//! This module creates a libp2p dummy-behaviour built around the discv5 protocol. It handles
+//! queries and manages access to the discovery routing table.
+
 pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
+use crate::{config, metrics};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
+use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
     Eth2Enr,
 };
-pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::{Keypair, PublicKey};
-
-use crate::{config, metrics};
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
-use discv5::{enr::NodeId, Discv5, Discv5Event};
 use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
-use libp2p::core::PeerId;
+pub use libp2p::{
+    core::{
+        connection::ConnectionId,
+        identity::{Keypair, PublicKey},
+        ConnectedPoint, Multiaddr, PeerId,
+    },
+    swarm::{
+        protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NotifyHandler, PollParameters, SubstreamProtocol,
+    },
+};
 use lru::LruCache;
 use slog::{crit, debug, error, info, warn};
 use ssz::{Decode, Encode};
@@ -295,6 +307,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.cached_enrs.iter()
     }
 
+    /// Removes a cached ENR from the list.
+    pub fn remove_cached_enr(&mut self, peer_id: &PeerId) -> Option<Enr> {
+        self.cached_enrs.pop(peer_id)
+    }
+
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
     pub fn discover_peers(&mut self) {
         // If the discv5 service isn't running or we are in the process of a query, don't bother queuing a new one.
@@ -492,33 +509,38 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             // If we could convert this peer id, remove it from the DHT and ban it from discovery.
-            self.discv5.ban_node(&node_id);
+            self.discv5.ban_node(&node_id, None);
             // Remove the node from the routing table.
             self.discv5.remove_node(&node_id);
         }
 
         for ip_address in ip_addresses {
-            self.discv5.ban_ip(ip_address);
+            self.discv5.ban_ip(ip_address, None);
         }
     }
 
+    /// Unbans the peer in discovery.
     pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             // If we could convert this peer id, remove it from the DHT and ban it from discovery.
-            self.discv5.permit_node(&node_id);
+            self.discv5.ban_node_remove(&node_id);
         }
 
         for ip_address in ip_addresses {
-            self.discv5.permit_ip(ip_address);
+            self.discv5.ban_ip_remove(&ip_address);
         }
     }
 
-    // mark node as disconnected in DHT, freeing up space for other nodes
+    ///  Marks node as disconnected in the DHT, freeing up space for other nodes, this also removes
+    ///  nodes from the cached ENR list.
     pub fn disconnect_peer(&mut self, peer_id: &PeerId) {
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
             self.discv5.disconnect_node(&node_id);
         }
+        // Remove the peer from the cached list, to prevent redialing disconnected
+        // peers.
+        self.cached_enrs.pop(peer_id);
     }
 
     /* Internal Functions */
@@ -727,7 +749,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
         // predicate for finding nodes with a matching fork and valid tcp port
         let eth2_fork_predicate = move |enr: &Enr| {
-            enr.eth2() == Ok(enr_fork_id.clone()) && (enr.tcp().is_some() || enr.tcp6().is_some())
+            // `next_fork_epoch` and `next_fork_version` can be different so that
+            // we can connect to peers who aren't compatible with an upcoming fork.
+            // `fork_digest` **must** be same.
+            enr.eth2().map(|e| e.fork_digest) == Ok(enr_fork_id.fork_digest)
+                && (enr.tcp().is_some() || enr.tcp6().is_some())
         };
 
         // General predicate
@@ -871,9 +897,68 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
         None
     }
+}
 
-    // Main execution loop to be driven by the peer manager.
-    pub fn poll(&mut self, cx: &mut Context) -> Poll<DiscoveryEvent> {
+/* NetworkBehaviour Implementation */
+
+impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
+    // Discovery is not a real NetworkBehaviour...
+    type ProtocolsHandler = libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+    type OutEvent = DiscoveryEvent;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        libp2p::swarm::protocols_handler::DummyProtocolsHandler::default()
+    }
+
+    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
+    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
+        if let Some(enr) = self.enr_of_peer(peer_id) {
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            enr.multiaddr_tcp()
+        } else {
+            // PeerId is not known
+            Vec::new()
+        }
+    }
+
+    fn inject_connected(&mut self, _peer_id: &PeerId) {}
+    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
+    fn inject_connection_established(
+        &mut self,
+        _: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
+    }
+    fn inject_connection_closed(
+        &mut self,
+        _: &PeerId,
+        _: &ConnectionId,
+        _connected_point: &ConnectedPoint,
+    ) {
+    }
+    fn inject_event(
+        &mut self,
+        _: PeerId,
+        _: ConnectionId,
+        _: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+    }
+
+    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+        // set peer as disconnected in discovery DHT
+        debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+        self.disconnect_peer(peer_id);
+    }
+
+    // Main execution loop to drive the behaviour
+    fn poll(
+        &mut self,
+        cx: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -884,7 +969,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Drive the queries and return any results from completed queries
         if let Some(results) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(DiscoveryEvent::QueryResult(results));
+            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::QueryResult(
+                results,
+            )));
         }
 
         // Process the server event stream
@@ -932,9 +1019,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
-                            return Poll::Ready(DiscoveryEvent::SocketUpdated(socket));
+                            return Poll::Ready(NBAction::GenerateEvent(
+                                DiscoveryEvent::SocketUpdated(socket),
+                            ));
                         }
-                        _ => {} // Ignore all other discv5 server events
+                        Discv5Event::EnrAdded { .. }
+                        | Discv5Event::TalkRequest(_)
+                        | Discv5Event::NodeInserted { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }

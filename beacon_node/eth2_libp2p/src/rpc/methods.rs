@@ -149,9 +149,9 @@ impl From<u64> for GoodbyeReason {
     }
 }
 
-impl Into<u64> for GoodbyeReason {
-    fn into(self) -> u64 {
-        self as u64
+impl From<GoodbyeReason> for u64 {
+    fn from(reason: GoodbyeReason) -> u64 {
+        reason as u64
     }
 }
 

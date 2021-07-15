@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-discv5 = { version = "0.1.0-beta.5", features = ["libp2p"] }
+discv5 = { version = "0.1.0-beta.7", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
@@ -16,7 +16,7 @@ eth2_ssz = "0.1.2"
 eth2_ssz_derive = "0.1.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
-tokio = { version = "1.1.0", features = ["time", "macros"] }
+tokio = { version = "1.7.1", features = ["time", "macros"] }
 futures = "0.3.7"
 futures-io = "0.3.7"
 error-chain = "0.12.4"
@@ -42,12 +42,14 @@ regex = "1.3.9"
 strum = { version = "0.20", features = ["derive"] }
 
 [dependencies.libp2p]
-version = "0.35.1"
-default-features = false
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
+#version = "0.39.1"
+#default-features = false
+git = "https://github.com/sigp/rust-libp2p"
+rev = "323cae1d08112052740834aa1fb262ae43e6f783"
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
-tokio = { version = "1.1.0", features = ["full"] }
+tokio = { version = "1.7.1", features = ["full"] }
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempfile = "3.1.0"
