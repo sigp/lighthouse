@@ -1324,7 +1324,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
-    ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+    ) -> Result<VerifiedUnaggregatedAttestation<T>, (AttestationError, Attestation<T::EthSpec>)>
+    {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -1348,7 +1349,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_aggregated_attestation_for_gossip(
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+    ) -> Result<
+        VerifiedAggregatedAttestation<T>,
+        (AttestationError, SignedAggregateAndProof<T::EthSpec>),
+    > {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -2185,10 +2189,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(validator_monitor);
 
-        metrics::observe(
-            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-            block.body().attestations().len() as f64,
-        );
+        // Only present some metrics for blocks from the previous epoch or later.
+        //
+        // This helps avoid noise in the metrics during sync.
+        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 1 >= self.epoch()? {
+            metrics::observe(
+                &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+                block.body().attestations().len() as f64,
+            );
+
+            if let Some(sync_aggregate) = block.body().sync_aggregate() {
+                metrics::set_gauge(
+                    &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
+                    sync_aggregate.num_set_bits() as i64,
+                );
+            }
+        }
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 

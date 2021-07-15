@@ -538,7 +538,7 @@ fn attestations_with_increasing_slots() {
 
         if expected_attestation_slot < expected_earliest_permissible_slot {
             assert!(matches!(
-                res.err().unwrap(),
+                res.err().unwrap().0,
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,

@@ -1,4 +1,4 @@
-use super::QueuedBlock;
+use super::work_reprocessing_queue::ReprocessQueueMessage;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use slog::{error, Logger};
@@ -46,5 +46,5 @@ impl<T: BeaconChainTypes> Worker<T> {
 /// Contains the necessary items for a worker to do their job.
 pub struct Toolbox<T: BeaconChainTypes> {
     pub idle_tx: mpsc::Sender<()>,
-    pub delayed_block_tx: mpsc::Sender<QueuedBlock<T>>,
+    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
 }
