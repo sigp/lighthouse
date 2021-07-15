@@ -263,8 +263,8 @@ impl From<BeaconChainError> for Error {
 }
 
 /// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
-pub struct PartiallyVerifiedAggregatedAttestation<T: BeaconChainTypes> {
-    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+pub struct PartiallyVerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
+    signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     attestation_root: Hash256,
 }
@@ -278,8 +278,8 @@ pub struct PartiallyVerifiedUnaggregatedAttestation<T: BeaconChainTypes> {
 }
 
 /// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
-pub struct FullyVerifiedAggregatedAttestation<T: BeaconChainTypes> {
-    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+pub struct FullyVerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
+    signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
@@ -310,7 +310,7 @@ pub trait SignatureVerifiedAttestation<T: BeaconChainTypes> {
 }
 
 impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T>
-    for FullyVerifiedAggregatedAttestation<T>
+    for FullyVerifiedAggregatedAttestation<'a, T>
 {
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
@@ -395,11 +395,11 @@ fn process_slash_info<T: BeaconChainTypes>(
     }
 }
 
-impl<T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<T> {
+impl<'a, T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<'a, T> {
     /// Returns `Ok(Self)` if the `signed_aggregate` is valid to be (re)published on the gossip
     /// network.
     pub fn verify(
-        signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+        signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
@@ -495,7 +495,7 @@ impl<T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<T> {
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable(
-        signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+        signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, AttestationSlashInfo<T, Error>> {
         use AttestationSlashInfo::*;
@@ -504,7 +504,13 @@ impl<T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<T> {
         let aggregator_index = signed_aggregate.message.aggregator_index;
         let attestation_root = match Self::verify_early_checks(&signed_aggregate, chain) {
             Ok(root) => root,
-            Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
+            // FIXME(paul): can we remove the clone?
+            Err(e) => {
+                return Err(SignatureNotChecked(
+                    signed_aggregate.message.aggregate.clone(),
+                    e,
+                ))
+            }
         };
 
         let indexed_attestation =
@@ -531,7 +537,13 @@ impl<T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<T> {
                     .map_err(|e| BeaconChainError::from(e).into())
             }) {
                 Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
+                // FIXME(paul): can we remove the clone?
+                Err(e) => {
+                    return Err(SignatureNotChecked(
+                        signed_aggregate.message.aggregate.clone(),
+                        e,
+                    ))
+                }
             };
 
         Ok(PartiallyVerifiedAggregatedAttestation {
@@ -552,15 +564,14 @@ impl<T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<T> {
     }
 }
 
-pub fn batch_verify_aggregated_attestations<T: BeaconChainTypes>(
-    aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
+    aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<FullyVerifiedAggregatedAttestation<T>, Error>>, Error> {
+) -> Result<Vec<Result<FullyVerifiedAggregatedAttestation<'a, T>, Error>>, Error> {
     let mut num_partially_verified = 0;
     let mut num_failed = 0;
 
     let partial_results = aggregates
-        .into_iter()
         .map(|aggregate| {
             let result = PartiallyVerifiedAggregatedAttestation::verify(aggregate, chain);
             if result.is_ok() {
@@ -656,7 +667,7 @@ pub fn batch_verify_aggregated_attestations<T: BeaconChainTypes>(
     Ok(final_results)
 }
 
-impl<T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<T> {
+impl<'a, T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<'a, T> {
     /// Run the checks that happen after the indexed attestation and signature have been checked.
     fn verify_late_checks(
         signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
@@ -699,7 +710,7 @@ impl<T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<T> {
     }
 
     pub fn finish_verification(
-        signed_aggregate: PartiallyVerifiedAggregatedAttestation<T>,
+        signed_aggregate: PartiallyVerifiedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
     ) -> Result<Self, Error> {
@@ -717,7 +728,7 @@ impl<T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<T> {
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable(
-        signed_aggregate: PartiallyVerifiedAggregatedAttestation<T>,
+        signed_aggregate: PartiallyVerifiedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
     ) -> Result<Self, AttestationSlashInfo<T, Error>> {

@@ -1004,7 +1004,7 @@ where
             if let Some(signed_aggregate) = maybe_signed_aggregate {
                 let attn = self
                     .chain
-                    .verify_aggregated_attestation_for_gossip(signed_aggregate)
+                    .verify_aggregated_attestation_for_gossip(&signed_aggregate)
                     .unwrap();
 
                 self.chain.apply_attestation_to_fork_choice(&attn).unwrap();

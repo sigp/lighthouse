@@ -1265,11 +1265,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn batch_verify_aggregated_attestations_for_gossip(
+    pub fn batch_verify_aggregated_attestations_for_gossip<'a>(
         &self,
-        aggregates: Vec<SignedAggregateAndProof<T::EthSpec>>,
+        aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
     ) -> Result<
-        Vec<Result<FullyVerifiedAggregatedAttestation<T>, AttestationError>>,
+        Vec<Result<FullyVerifiedAggregatedAttestation<'a, T>, AttestationError>>,
         AttestationError,
     > {
         batch_verify_aggregated_attestations(aggregates, self)
@@ -1277,10 +1277,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accepts some `SignedAggregateAndProof` from the network and attempts to verify it,
     /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
-    pub fn verify_aggregated_attestation_for_gossip(
+    pub fn verify_aggregated_attestation_for_gossip<'a>(
         &self,
-        signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Result<FullyVerifiedAggregatedAttestation<T>, AttestationError> {
+        signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
+    ) -> Result<FullyVerifiedAggregatedAttestation<'a, T>, AttestationError> {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -1377,10 +1377,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accepts a `FullyVerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
-    pub fn add_to_block_inclusion_pool(
+    pub fn add_to_block_inclusion_pool<'a>(
         &self,
-        signed_aggregate: FullyVerifiedAggregatedAttestation<T>,
-    ) -> Result<FullyVerifiedAggregatedAttestation<T>, AttestationError> {
+        signed_aggregate: FullyVerifiedAggregatedAttestation<'a, T>,
+    ) -> Result<FullyVerifiedAggregatedAttestation<'a, T>, AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore

@@ -1791,7 +1791,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Verify that all messages in the post are valid before processing further
                     for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
-                        match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
+                        match chain.verify_aggregated_attestation_for_gossip(&aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     verified_aggregate.aggregate().clone(),

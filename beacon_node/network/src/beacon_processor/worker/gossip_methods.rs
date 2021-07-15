@@ -296,7 +296,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .verify_aggregated_attestation_for_gossip(aggregate);
+            .verify_aggregated_attestation_for_gossip(&aggregate);
 
         self.process_gossip_aggregate_result(
             result,
@@ -307,15 +307,11 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
     }
 
-    pub fn process_gossip_aggregate_batch(
-        self,
-        mut packages: Vec<GossipAggregatePackage<T::EthSpec>>,
-    ) {
+    pub fn process_gossip_aggregate_batch(self, packages: Vec<GossipAggregatePackage<T::EthSpec>>) {
         let aggregates = packages
-            .iter_mut()
-            .filter_map(|package| package.aggregate.take())
-            .map(|boxed| *boxed)
-            .collect();
+            .iter()
+            .filter_map(|package| package.aggregate.as_ref().take())
+            .map(|boxed| boxed.as_ref());
 
         let results = match self
             .chain
@@ -344,11 +340,11 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+        for (result, package) in results.into_iter().zip(packages.iter()) {
             self.process_gossip_aggregate_result(
                 result,
                 package.beacon_block_root,
-                package.message_id,
+                package.message_id.clone(),
                 package.peer_id,
                 package.seen_timestamp,
             );
