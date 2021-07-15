@@ -3,6 +3,7 @@ use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use ssz_types::typenum::Unsigned;
+use std::sync::Arc;
 
 mod address;
 mod aggregate_signature;
@@ -65,6 +66,15 @@ where
         }
 
         output
+    }
+}
+
+impl<U> TestRandom for Arc<U>
+where
+    U: TestRandom,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        Arc::new(U::random_for_test(rng))
     }
 }
 

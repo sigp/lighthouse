@@ -14,15 +14,25 @@ use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
-use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
-use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
-use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
+use crate::naive_aggregation_pool::{
+    AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
+    SyncContributionAggregateMap,
+};
+use crate::observed_aggregates::{
+    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncContributions,
+};
+use crate::observed_attesters::{
+    ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
+};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
+use crate::sync_committee_verification::{
+    Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
+};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
     get_block_delay_ms, get_slot_delay_ms, timestamp_now, ValidatorMonitor,
@@ -39,6 +49,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -221,14 +232,28 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     ///
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
-    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<T::EthSpec>>,
+    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<AggregatedAttestationMap<T::EthSpec>>>,
+    /// A pool of `SyncCommitteeContribution` dedicated to the "naive aggregation strategy" defined in the eth2
+    /// specs.
+    ///
+    /// This pool accepts `SyncCommitteeContribution` objects that only have one aggregation bit set and provides
+    /// a method to get an aggregated `SyncCommitteeContribution` for some `SyncCommitteeContributionData`.
+    pub naive_sync_aggregation_pool:
+        RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
-    pub(crate) observed_attestations: RwLock<ObservedAttestations<T::EthSpec>>,
+    pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
+    /// Contains a store of sync contributions which have been observed by the beacon chain.
+    pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen sending sync messages in recent epochs.
+    pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
     pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
+    /// in recent epochs.
+    pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub(crate) observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -823,6 +848,80 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Return the sync committee at `slot + 1` from the canonical chain.
+    ///
+    /// This is useful when dealing with sync committee messages, because messages are signed
+    /// and broadcast one slot prior to the slot of the sync committee (which is relevant at
+    /// sync committee period boundaries).
+    pub fn sync_committee_at_next_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        let epoch = slot.safe_add(1)?.epoch(T::EthSpec::slots_per_epoch());
+        self.sync_committee_at_epoch(epoch)
+    }
+
+    /// Return the sync committee at `epoch` from the canonical chain.
+    pub fn sync_committee_at_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        // Try to read a committee from the head. This will work most of the time, but will fail
+        // for faraway committees, or if there are skipped slots at the transition to Altair.
+        let spec = &self.spec;
+        let committee_from_head =
+            self.with_head(
+                |head| match head.beacon_state.get_built_sync_committee(epoch, spec) {
+                    Ok(committee) => Ok(Some(committee.clone())),
+                    Err(BeaconStateError::SyncCommitteeNotKnown { .. })
+                    | Err(BeaconStateError::IncorrectStateVariant) => Ok(None),
+                    Err(e) => Err(Error::from(e)),
+                },
+            )?;
+
+        if let Some(committee) = committee_from_head {
+            Ok(committee)
+        } else {
+            // Slow path: load a state (or advance the head).
+            let sync_committee_period = epoch.sync_committee_period(spec)?;
+            let committee = self
+                .state_for_sync_committee_period(sync_committee_period)?
+                .get_built_sync_committee(epoch, spec)?
+                .clone();
+            Ok(committee)
+        }
+    }
+
+    /// Load a state suitable for determining the sync committee for the given period.
+    ///
+    /// Specifically, the state at the start of the *previous* sync committee period.
+    ///
+    /// This is sufficient for historical duties, and efficient in the case where the head
+    /// is lagging the current period and we need duties for the next period (because we only
+    /// have to transition the head to start of the current period).
+    ///
+    /// We also need to ensure that the load slot is after the Altair fork.
+    ///
+    /// **WARNING**: the state returned will have dummy state roots. It should only be used
+    /// for its sync committees (determining duties, etc).
+    pub fn state_for_sync_committee_period(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<BeaconState<T::EthSpec>, Error> {
+        let altair_fork_epoch = self
+            .spec
+            .altair_fork_epoch
+            .ok_or(Error::AltairForkDisabled)?;
+
+        let load_slot = std::cmp::max(
+            self.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
+            altair_fork_epoch,
+        )
+        .start_slot(T::EthSpec::slots_per_epoch());
+
+        self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
+    }
+
     /// Returns info representing the head block and state.
     ///
     /// A summarized version of `Self::head` that involves less cloning.
@@ -1270,6 +1369,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
+    /// it is valid to be (re)broadcast on the gossip network.
+    pub fn verify_sync_committee_message_for_gossip(
+        &self,
+        sync_message: SyncCommitteeMessage,
+        subnet_id: SyncSubnetId,
+    ) -> Result<VerifiedSyncCommitteeMessage, SyncCommitteeError> {
+        metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES);
+
+        VerifiedSyncCommitteeMessage::verify(sync_message, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
+    /// Accepts some `SignedContributionAndProof` from the network and attempts to verify it,
+    /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
+    pub fn verify_sync_contribution_for_gossip(
+        &self,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+    ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
+        metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_GOSSIP_VERIFICATION_TIMES);
+        VerifiedSyncContribution::verify(sync_contribution, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
     ///
@@ -1339,6 +1468,70 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(unaggregated_attestation)
     }
 
+    /// Accepts a `VerifiedSyncCommitteeMessage` and attempts to apply it to the "naive
+    /// aggregation pool".
+    ///
+    /// The naive aggregation pool is used by local validators to produce
+    /// `SignedContributionAndProof`.
+    ///
+    /// If the sync message is too old (low slot) to be included in the pool it is simply dropped
+    /// and no error is returned.
+    pub fn add_to_naive_sync_aggregation_pool(
+        &self,
+        verified_sync_committee_message: VerifiedSyncCommitteeMessage,
+    ) -> Result<VerifiedSyncCommitteeMessage, SyncCommitteeError> {
+        let sync_message = verified_sync_committee_message.sync_message();
+        let positions_by_subnet_id: &HashMap<SyncSubnetId, Vec<usize>> =
+            verified_sync_committee_message.subnet_positions();
+        for (subnet_id, positions) in positions_by_subnet_id.iter() {
+            for position in positions {
+                let _timer =
+                    metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_AGG_POOL);
+                let contribution = SyncCommitteeContribution::from_message(
+                    sync_message,
+                    subnet_id.into(),
+                    *position,
+                )?;
+
+                match self
+                    .naive_sync_aggregation_pool
+                    .write()
+                    .insert(&contribution)
+                {
+                    Ok(outcome) => trace!(
+                        self.log,
+                        "Stored unaggregated sync committee message";
+                        "outcome" => ?outcome,
+                        "index" => sync_message.validator_index,
+                        "slot" => sync_message.slot.as_u64(),
+                    ),
+                    Err(NaiveAggregationError::SlotTooLow {
+                        slot,
+                        lowest_permissible_slot,
+                    }) => {
+                        trace!(
+                            self.log,
+                            "Refused to store unaggregated sync committee message";
+                            "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                            "slot" => slot.as_u64(),
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                                self.log,
+                                "Failed to store unaggregated sync committee message";
+                                "error" => ?e,
+                                "index" => sync_message.validator_index,
+                                "slot" => sync_message.slot.as_u64(),
+                        );
+                        return Err(Error::from(e).into());
+                    }
+                };
+            }
+        }
+        Ok(verified_sync_committee_message)
+    }
+
     /// Accepts a `VerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
@@ -1366,6 +1559,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(signed_aggregate)
+    }
+
+    /// Accepts a `VerifiedSyncContribution` and attempts to apply it to `self.op_pool`.
+    ///
+    /// The op pool is used by local block producers to pack blocks with operations.
+    pub fn add_contribution_to_block_inclusion_pool(
+        &self,
+        contribution: VerifiedSyncContribution<T>,
+    ) -> Result<(), SyncCommitteeError> {
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL);
+
+        // If there's no eth1 chain then it's impossible to produce blocks and therefore
+        // useless to put things in the op pool.
+        if self.eth1_chain.is_some() {
+            self.op_pool
+                .insert_sync_contribution(contribution.contribution())
+                .map_err(Error::from)?;
+        }
+
+        Ok(())
     }
 
     /// Filter an attestation from the op pool for shuffling compatibility.
@@ -1818,11 +2031,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in signed_block.message().body().attestations() {
-            match self
-                .observed_attestations
-                .write()
-                .observe_attestation(a, None)
-            {
+            match self.observed_attestations.write().observe_item(a, None) {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
                 //

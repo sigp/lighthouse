@@ -30,6 +30,7 @@ pub mod beacon_state;
 pub mod chain_spec;
 pub mod checkpoint;
 pub mod consts;
+pub mod contribution_and_proof;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;
@@ -51,6 +52,7 @@ pub mod shuffling_id;
 pub mod signed_aggregate_and_proof;
 pub mod signed_beacon_block;
 pub mod signed_beacon_block_header;
+pub mod signed_contribution_and_proof;
 pub mod signed_voluntary_exit;
 pub mod signing_data;
 pub mod validator;
@@ -64,9 +66,15 @@ pub mod preset;
 pub mod slot_epoch;
 pub mod subnet_id;
 pub mod sync_aggregate;
+pub mod sync_aggregator_selection_data;
 pub mod sync_committee;
+pub mod sync_committee_contribution;
+pub mod sync_committee_message;
+pub mod sync_selection_proof;
+pub mod sync_subnet_id;
 mod tree_hash_impls;
 
+pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
@@ -90,6 +98,7 @@ pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *}
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::ConfigAndPreset;
+pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
@@ -115,12 +124,18 @@ pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};
 pub use crate::subnet_id::SubnetId;
 pub use crate::sync_aggregate::SyncAggregate;
+pub use crate::sync_aggregator_selection_data::SyncAggregatorSelectionData;
 pub use crate::sync_committee::SyncCommittee;
+pub use crate::sync_committee_contribution::SyncCommitteeContribution;
+pub use crate::sync_committee_message::SyncCommitteeMessage;
+pub use crate::sync_selection_proof::SyncSelectionProof;
+pub use crate::sync_subnet_id::SyncSubnetId;
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;

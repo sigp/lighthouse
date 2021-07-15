@@ -553,14 +553,14 @@ fn import_gossip_block_at_current_slot() {
 fn import_gossip_attestation() {
     let mut rig = TestRig::new(SMALL_CHAIN);
 
-    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
     rig.enqueue_unaggregated_attestation();
 
     rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns + 1,
         "op pool should have one more attestation"
     );
@@ -578,14 +578,14 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
 
     // Send the attestation but not the block, and check that it was not imported.
 
-    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
     rig.enqueue_next_block_unaggregated_attestation();
 
     rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns,
         "Attestation should not have been included."
     );
@@ -616,7 +616,7 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
     );
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns + 1,
         "Attestation should have been included."
     );
@@ -707,14 +707,14 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
 
     // Send the attestation but not the block, and check that it was not imported.
 
-    let initial_attns = rig.chain.naive_aggregation_pool.read().num_attestations();
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
     rig.enqueue_next_block_unaggregated_attestation();
 
     rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns,
         "Attestation should not have been included."
     );
@@ -727,7 +727,7 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
     );
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns,
         "Attestation should not have been included."
     );
@@ -748,7 +748,7 @@ fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
     rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO]);
 
     assert_eq!(
-        rig.chain.naive_aggregation_pool.read().num_attestations(),
+        rig.chain.naive_aggregation_pool.read().num_items(),
         initial_attns,
         "Attestation should not have been included."
     );

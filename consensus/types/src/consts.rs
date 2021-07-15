@@ -8,6 +8,8 @@ pub mod altair {
     pub const SYNC_REWARD_WEIGHT: u64 = 2;
     pub const PROPOSER_WEIGHT: u64 = 8;
     pub const WEIGHT_DENOMINATOR: u64 = 64;
+    pub const SYNC_COMMITTEE_SUBNET_COUNT: u64 = 4;
+    pub const TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE: u64 = 4;
 
     pub const PARTICIPATION_FLAG_WEIGHTS: [u64; NUM_FLAG_INDICES] = [
         TIMELY_SOURCE_WEIGHT,

@@ -217,6 +217,20 @@ mod ssz_static {
 
     // Altair-only
     #[test]
+    fn contribution_and_proof() {
+        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only()
+            .run();
+        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only()
+            .run();
+    }
+
+    #[test]
+    fn signed_contribution_and_proof() {
+        SszStaticHandler::<SignedContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SignedContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
     fn sync_aggregate() {
         SszStaticHandler::<SyncAggregate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncAggregate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
@@ -226,6 +240,28 @@ mod ssz_static {
     fn sync_committee() {
         SszStaticHandler::<SyncCommittee<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
         SszStaticHandler::<SyncCommittee<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_committee_contribution() {
+        SszStaticHandler::<SyncCommitteeContribution<MinimalEthSpec>, MinimalEthSpec>::altair_only(
+        )
+        .run();
+        SszStaticHandler::<SyncCommitteeContribution<MainnetEthSpec>, MainnetEthSpec>::altair_only(
+        )
+        .run();
+    }
+
+    #[test]
+    fn sync_committee_message() {
+        SszStaticHandler::<SyncCommitteeMessage, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeMessage, MainnetEthSpec>::altair_only().run();
+    }
+
+    #[test]
+    fn sync_aggregator_selection_data() {
+        SszStaticHandler::<SyncAggregatorSelectionData, MinimalEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncAggregatorSelectionData, MainnetEthSpec>::altair_only().run();
     }
 }
 

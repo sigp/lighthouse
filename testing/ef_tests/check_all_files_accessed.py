@@ -45,24 +45,6 @@ excluded_paths = [
     # LightClientSnapshot
     "tests/minimal/altair/ssz_static/LightClientSnapshot",
     "tests/mainnet/altair/ssz_static/LightClientSnapshot",
-    # ContributionAndProof
-    "tests/minimal/altair/ssz_static/ContributionAndProof",
-    "tests/mainnet/altair/ssz_static/ContributionAndProof",
-    # SignedContributionAndProof
-    "tests/minimal/altair/ssz_static/SignedContributionAndProof",
-    "tests/mainnet/altair/ssz_static/SignedContributionAndProof",
-    # SyncCommitteeContribution
-    "tests/minimal/altair/ssz_static/SyncCommitteeContribution",
-    "tests/mainnet/altair/ssz_static/SyncCommitteeContribution",
-    # SyncCommitteeMessage
-    "tests/minimal/altair/ssz_static/SyncCommitteeMessage",
-    "tests/mainnet/altair/ssz_static/SyncCommitteeMessage",
-    # SyncCommitteeSigningData
-    "tests/minimal/altair/ssz_static/SyncCommitteeSigningData",
-    "tests/mainnet/altair/ssz_static/SyncCommitteeSigningData",
-    # SyncAggregatorSelectionData
-    "tests/minimal/altair/ssz_static/SyncAggregatorSelectionData",
-    "tests/mainnet/altair/ssz_static/SyncAggregatorSelectionData",
     # Fork choice
     "tests/mainnet/phase0/fork_choice",
     "tests/minimal/phase0/fork_choice",

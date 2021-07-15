@@ -436,7 +436,8 @@ fn roundtrip_operation_pool() {
         .get_item::<PersistedOperationPool<MinimalEthSpec>>(&OP_POOL_DB_KEY)
         .expect("should read db")
         .expect("should find op pool")
-        .into_operation_pool();
+        .into_operation_pool()
+        .unwrap();
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
