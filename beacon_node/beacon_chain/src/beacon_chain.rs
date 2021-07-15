@@ -1218,11 +1218,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn batch_verify_unaggregated_attestations_for_gossip(
+    pub fn batch_verify_unaggregated_attestations_for_gossip<'a>(
         &self,
-        attestations: Vec<(Attestation<T::EthSpec>, Option<SubnetId>)>,
+        attestations: impl Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)>,
     ) -> Result<
-        Vec<Result<FullyVerifiedUnaggregatedAttestation<T>, AttestationError>>,
+        Vec<Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttestationError>>,
         AttestationError,
     > {
         batch_verify_unaggregated_attestations(attestations, self)
@@ -1233,11 +1233,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// The attestation must be "unaggregated", that is it must have exactly one
     /// aggregation bit set.
-    pub fn verify_unaggregated_attestation_for_gossip(
+    pub fn verify_unaggregated_attestation_for_gossip<'a>(
         &self,
-        unaggregated_attestation: Attestation<T::EthSpec>,
+        unaggregated_attestation: &'a Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
-    ) -> Result<FullyVerifiedUnaggregatedAttestation<T>, AttestationError> {
+    ) -> Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -1332,10 +1332,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// If the attestation is too old (low slot) to be included in the pool it is simply dropped
     /// and no error is returned.
-    pub fn add_to_naive_aggregation_pool(
+    pub fn add_to_naive_aggregation_pool<'a>(
         &self,
-        unaggregated_attestation: FullyVerifiedUnaggregatedAttestation<T>,
-    ) -> Result<FullyVerifiedUnaggregatedAttestation<T>, AttestationError> {
+        unaggregated_attestation: FullyVerifiedUnaggregatedAttestation<'a, T>,
+    ) -> Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
 
         let attestation = unaggregated_attestation.attestation();

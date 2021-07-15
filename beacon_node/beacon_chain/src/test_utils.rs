@@ -993,10 +993,7 @@ where
             for (attestation, subnet_id) in unaggregated_attestations {
                 let verified = self
                     .chain
-                    .verify_unaggregated_attestation_for_gossip(
-                        attestation.clone(),
-                        Some(subnet_id),
-                    )
+                    .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
                     .unwrap();
                 self.chain.add_to_naive_aggregation_pool(verified).unwrap();
             }

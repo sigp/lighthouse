@@ -133,7 +133,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id));
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         self.process_gossip_attestation_result(
             result,
@@ -147,15 +147,14 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     pub fn process_gossip_attestation_batch(
         self,
-        mut packages: Vec<GossipAttestationPackage<T::EthSpec>>,
+        packages: Vec<GossipAttestationPackage<T::EthSpec>>,
     ) {
-        let attestations_and_subnets = packages
-            .iter_mut()
-            .filter_map(|package| {
-                let attestation = package.attestation.take()?;
-                Some((*attestation, Some(package.subnet_id)))
-            })
-            .collect();
+        let attestations_and_subnets = packages.iter().filter_map(|package| {
+            package
+                .attestation
+                .as_ref()
+                .map(|boxed| (boxed.as_ref(), Some(package.subnet_id)))
+        });
 
         let results = match self
             .chain
@@ -184,11 +183,11 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
 
-        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+        for (result, package) in results.into_iter().zip(packages.iter()) {
             self.process_gossip_attestation_result(
                 result,
                 package.beacon_block_root,
-                package.message_id,
+                package.message_id.clone(),
                 package.peer_id,
                 package.should_import,
                 package.seen_timestamp,

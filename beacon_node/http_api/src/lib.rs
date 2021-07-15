@@ -973,7 +973,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
-                            .verify_unaggregated_attestation_for_gossip(attestation.clone(), None)
+                            .verify_unaggregated_attestation_for_gossip(&attestation, None)
                         {
                             Ok(attestation) => attestation,
                             Err(e) => {
