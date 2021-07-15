@@ -430,7 +430,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "aggregated",
                     e,
                 );
-                return;
             }
         }
     }

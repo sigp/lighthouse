@@ -587,47 +587,46 @@ pub fn batch_verify_aggregated_attestations<T: BeaconChainTypes>(
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-            .map(|head| head.beacon_state.fork)?;
+            .map(|head| head.beacon_state.fork())?;
 
         let mut signature_sets = Vec::with_capacity(num_partially_verified * 3);
 
-        for result in &partial_results {
-            if let Ok(partially_verified) = result {
-                let signed_aggregate = &partially_verified.signed_aggregate;
-                let indexed_attestation = &partially_verified.indexed_attestation;
+        // Iterate, flattening to get only the `Ok` values.
+        for partially_verified in partial_results.iter().flatten() {
+            let signed_aggregate = &partially_verified.signed_aggregate;
+            let indexed_attestation = &partially_verified.indexed_attestation;
 
-                signature_sets.push(
-                    signed_aggregate_selection_proof_signature_set(
-                        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                        &signed_aggregate,
-                        &fork,
-                        chain.genesis_validators_root,
-                        &chain.spec,
-                    )
-                    .map_err(BeaconChainError::SignatureSetError)?,
-                );
-                signature_sets.push(
-                    signed_aggregate_signature_set(
-                        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                        &signed_aggregate,
-                        &fork,
-                        chain.genesis_validators_root,
-                        &chain.spec,
-                    )
-                    .map_err(BeaconChainError::SignatureSetError)?,
-                );
-                signature_sets.push(
-                    indexed_attestation_signature_set_from_pubkeys(
-                        |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                        &indexed_attestation.signature,
-                        &indexed_attestation,
-                        &fork,
-                        chain.genesis_validators_root,
-                        &chain.spec,
-                    )
-                    .map_err(BeaconChainError::SignatureSetError)?,
-                );
-            }
+            signature_sets.push(
+                signed_aggregate_selection_proof_signature_set(
+                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    &signed_aggregate,
+                    &fork,
+                    chain.genesis_validators_root,
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::SignatureSetError)?,
+            );
+            signature_sets.push(
+                signed_aggregate_signature_set(
+                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    &signed_aggregate,
+                    &fork,
+                    chain.genesis_validators_root,
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::SignatureSetError)?,
+            );
+            signature_sets.push(
+                indexed_attestation_signature_set_from_pubkeys(
+                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    &indexed_attestation.signature,
+                    &indexed_attestation,
+                    &fork,
+                    chain.genesis_validators_root,
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::SignatureSetError)?,
+            );
         }
 
         metrics::stop_timer(signature_setup_timer);
@@ -981,26 +980,25 @@ pub fn batch_verify_unaggregated_attestations<T: BeaconChainTypes>(
             .canonical_head
             .try_read_for(HEAD_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-            .map(|head| head.beacon_state.fork)?;
+            .map(|head| head.beacon_state.fork())?;
 
         let mut signature_sets = Vec::with_capacity(num_partially_verified * 3);
 
-        for result in &partial_results {
-            if let Ok(partially_verified) = result {
-                let indexed_attestation = &partially_verified.indexed_attestation;
+        // Iterate, flattening to get only the `Ok` values.
+        for partially_verified in partial_results.iter().flatten() {
+            let indexed_attestation = &partially_verified.indexed_attestation;
 
-                let signature_set = indexed_attestation_signature_set_from_pubkeys(
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                    &indexed_attestation.signature,
-                    &indexed_attestation,
-                    &fork,
-                    chain.genesis_validators_root,
-                    &chain.spec,
-                )
-                .map_err(BeaconChainError::SignatureSetError)?;
+            let signature_set = indexed_attestation_signature_set_from_pubkeys(
+                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                &indexed_attestation.signature,
+                &indexed_attestation,
+                &fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+            .map_err(BeaconChainError::SignatureSetError)?;
 
-                signature_sets.push(signature_set);
-            }
+            signature_sets.push(signature_set);
         }
 
         metrics::stop_timer(signature_setup_timer);
