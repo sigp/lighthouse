@@ -54,14 +54,13 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
-const PEER_EXCESS_FACTOR: f32 = 0.1;
+pub const PEER_EXCESS_FACTOR: f32 = 0.1;
+/// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
+pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.1;
 
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
-
-/// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
-const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.1;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {

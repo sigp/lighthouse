@@ -27,6 +27,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{ChainSpec, EnrForkId, EthSpec};
 
+use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR};
+
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
 const MAX_CONNECTIONS_PER_PEER: u32 = 1;
@@ -129,8 +131,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
             let limits = ConnectionLimits::default()
                 .with_max_pending_incoming(Some(5))
                 .with_max_pending_outgoing(Some(16))
-                .with_max_established_incoming(Some((config.target_peers as f64 * 1.2) as u32))
-                .with_max_established_outgoing(Some((config.target_peers as f64 * 1.2) as u32))
+                .with_max_established_incoming(Some(
+                    (config.target_peers as f32
+                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
+                        as u32,
+                ))
+                .with_max_established_outgoing(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
+                ))
+                .with_max_established_total(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
+                ))
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
