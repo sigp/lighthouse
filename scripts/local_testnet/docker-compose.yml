@@ -1,8 +1,9 @@
 version: '3'
 services:
   ganache:
-    image: hive/clients/ganache
+    build: .
     network_mode: "host"
+    entrypoint: "./ganache_test_node.sh"
   
   boot:
     build: .
