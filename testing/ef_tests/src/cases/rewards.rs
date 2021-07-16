@@ -4,11 +4,10 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use compare_fields_derive::CompareFields;
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing::validator_statuses::ValidatorStatuses;
 use state_processing::{
     per_epoch_processing::{
-        altair::{self, rewards_and_penalties::get_flag_index_deltas},
-        base::{self, rewards_and_penalties::AttestationDelta},
+        altair::{self, rewards_and_penalties::get_flag_index_deltas, ParticipationCache},
+        base::{self, rewards_and_penalties::AttestationDelta, ValidatorStatuses},
         Delta,
     },
     EpochProcessingError,
@@ -187,7 +186,14 @@ fn compute_altair_flag_deltas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Deltas, EpochProcessingError> {
     let mut deltas = vec![Delta::default(); state.validators().len()];
-    get_flag_index_deltas(&mut deltas, state, flag_index, total_active_balance, spec)?;
+    get_flag_index_deltas(
+        &mut deltas,
+        state,
+        flag_index,
+        total_active_balance,
+        &ParticipationCache::new(state, spec).unwrap(),
+        spec,
+    )?;
     Ok(convert_altair_deltas(deltas))
 }
 
@@ -196,7 +202,12 @@ fn compute_altair_inactivity_deltas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Deltas, EpochProcessingError> {
     let mut deltas = vec![Delta::default(); state.validators().len()];
-    altair::rewards_and_penalties::get_inactivity_penalty_deltas(&mut deltas, state, spec)?;
+    altair::rewards_and_penalties::get_inactivity_penalty_deltas(
+        &mut deltas,
+        state,
+        &ParticipationCache::new(state, spec).unwrap(),
+        spec,
+    )?;
     Ok(convert_altair_deltas(deltas))
 }
 
