@@ -10,10 +10,11 @@ use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, ChainSpec, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
@@ -309,6 +310,36 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
+    pub fn on_sync_committee_signature_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: SyncCommitteeMessage,
+        subnet_id: SyncSubnetId,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_signature(
+            message_id,
+            peer_id,
+            sync_signature,
+            subnet_id,
+            timestamp_now(),
+        ))
+    }
+
+    pub fn on_sync_committee_contribution_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_contribution(
+            message_id,
+            peer_id,
+            sync_contribution,
+            timestamp_now(),
+        ))
+    }
+
     fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T>) {
         self.beacon_processor_send
             .try_send(work)
@@ -328,10 +359,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Result<StatusMessage, BeaconChainError> {
     let head_info = beacon_chain.head_info()?;
-    let genesis_validators_root = beacon_chain.genesis_validators_root;
-
-    let fork_digest =
-        ChainSpec::compute_fork_digest(head_info.fork.current_version, genesis_validators_root);
+    let fork_digest = beacon_chain.enr_fork_id().fork_digest;
 
     Ok(StatusMessage {
         fork_digest,

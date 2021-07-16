@@ -89,7 +89,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                     let genesis_state = eth2_network_config.beacon_state::<T>()?;
 
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
-                    let enr_fork = spec.enr_fork_id(
+                    let enr_fork = spec.enr_fork_id::<T>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
                     );
@@ -111,7 +111,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", &enr_fork_bytes);
+                    builder.add_value("eth2", enr_fork_bytes.as_slice());
                 }
                 builder
                     .build(&local_key)

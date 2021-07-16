@@ -3177,14 +3177,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // therefore use the genesis slot.
         let slot = self.slot().unwrap_or(self.spec.genesis_slot);
 
-        self.spec.enr_fork_id(slot, self.genesis_validators_root)
+        self.spec
+            .enr_fork_id::<T::EthSpec>(slot, self.genesis_validators_root)
     }
 
-    /// Calculates the `Duration` to the next fork, if one exists.
-    pub fn duration_to_next_fork(&self) -> Option<Duration> {
-        let epoch = self.spec.next_fork_epoch()?;
+    /// Calculates the `Duration` to the next fork if it exists and returns it
+    /// with it's corresponding `ForkName`.
+    pub fn duration_to_next_fork(&self) -> Option<(ForkName, Duration)> {
+        // If we are unable to read the slot clock we assume that it is prior to genesis and
+        // therefore use the genesis slot.
+        let slot = self.slot().unwrap_or(self.spec.genesis_slot);
+
+        let (fork_name, epoch) = self.spec.next_fork_epoch::<T::EthSpec>(slot)?;
         self.slot_clock
             .duration_to_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+            .map(|duration| (fork_name, duration))
     }
 
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {

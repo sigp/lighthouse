@@ -247,6 +247,31 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_attester_slashing_gossip(id, peer_id, attester_slashing);
             }
+            PubsubMessage::SignedContributionAndProof(contribution_and_proof) => {
+                debug!(
+                    self.log,
+                    "Received sync committee aggregate";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_sync_committee_contribution_gossip(
+                    id,
+                    peer_id,
+                    *contribution_and_proof,
+                );
+            }
+            PubsubMessage::SyncCommitteeMessage(sync_committtee_msg) => {
+                debug!(
+                    self.log,
+                    "Received sync committee signature";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_sync_committee_signature_gossip(
+                    id,
+                    peer_id,
+                    sync_committtee_msg.1,
+                    sync_committtee_msg.0,
+                );
+            }
         }
     }
 }

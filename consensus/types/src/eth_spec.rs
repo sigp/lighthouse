@@ -78,6 +78,8 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      * New in Altair
      */
     type SyncCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The number of `sync_committee` subnets.
+    type SyncCommitteeSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -218,6 +220,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
     type SyncCommitteeSize = U512;
+    type SyncCommitteeSubnetCount = U4;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -250,6 +253,7 @@ impl EthSpec for MinimalEthSpec {
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
         SubnetBitfieldLength,
+        SyncCommitteeSubnetCount,
         MaxValidatorsPerCommittee,
         GenesisEpoch,
         HistoricalRootsLimit,

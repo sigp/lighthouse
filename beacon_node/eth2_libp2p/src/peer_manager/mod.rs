@@ -3,6 +3,7 @@
 pub use self::peerdb::*;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
+use crate::Subnet;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkConfig, NetworkGlobals, PeerId};
 use discv5::Enr;
@@ -19,7 +20,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -264,16 +265,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
-    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+    pub fn add_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.insert(subnet_id);
+            info.subnets.insert(subnet);
         }
     }
 
     /// Removes a gossipsub subscription to a peer in the peerdb.
-    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+    pub fn remove_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.remove(&subnet_id);
+            info.subnets.remove(&subnet);
         }
     }
 
@@ -599,9 +600,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // if the sequence number is unknown send an update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
+                if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "ping_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
@@ -623,9 +624,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // if the sequence number is unknown send update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
+                if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "pong_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
@@ -643,19 +644,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data {
-                if known_meta_data.seq_number < meta_data.seq_number {
+                if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
-                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                 } else {
                     debug!(self.log, "Received old metadata";
-                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                     // Updating metadata even in this case to prevent storing
-                    // incorrect  `metadata.attnets` for a peer
+                    // incorrect  `attnets/syncnets` for a peer
                 }
             } else {
                 // we have no meta-data for this peer, update
                 debug!(self.log, "Obtained peer's metadata";
-                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number);
+                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
             peer_info.meta_data = Some(meta_data);
         } else {
@@ -1115,7 +1116,7 @@ mod tests {
     use super::*;
     use crate::discovery::enr::build_enr;
     use crate::discovery::enr_ext::CombinedKeyExt;
-    use crate::rpc::methods::MetaData;
+    use crate::rpc::methods::{MetaData, MetaDataV2};
     use crate::Enr;
     use discv5::enr::CombinedKey;
     use slog::{o, Drain};
@@ -1156,10 +1157,11 @@ mod tests {
             enr,
             9000,
             9000,
-            MetaData {
+            MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
-            },
+                syncnets: Default::default(),
+            }),
             vec![],
             &log,
         );
