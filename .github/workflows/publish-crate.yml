@@ -1,0 +1,66 @@
+name:   Publish Crate
+
+on:
+    push:
+        tags:
+            - *
+env:
+    CARGO_API_TOKEN: ${{ secrets.CARGO_API_TOKEN }}
+
+jobs:
+    extract-tag:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Extract tag
+              run: echo "::set-output name=TAG::$(echo ${GITHUB_REF#refs/tags/})"
+              id: extract_tag
+        outputs:
+            TAG: ${{ steps.extract_tag.outputs.TAG }}
+
+    publish-crate:
+        runs-on: ubuntu-latest
+        needs: [extract-tag]
+        env:
+            TAG: ${{ needs.extract-tag.outputs.TAG }}
+        steps:
+            - uses: actions/checkout@v2
+            - name: Update Rust
+              run: rustup update stable
+            - name: Cargo login
+              run: |
+                  echo "${CARGO_API_TOKEN}" | cargo login
+            - name: publish tree hash
+              if: startsWith($TAG, 'tree-hash-v')
+              run: |
+                VERSION=$(sed -e 's#.*tree-hash-v\(\)#\1#' <<< "$TAG")
+                ./scripts/ci/publish.sh consensus/tree_hash tree_hash "$VERSION"
+            - name: publish tree hash derive
+              if: startsWith($TAG, 'tree-hash-derive-v')
+              run: |
+                  VERSION=$(sed -e 's#.*tree-hash-derive-v\(\)#\1#' <<< "$TAG")
+                  ./scripts/ci/publish.sh consensus/tree_hash_derive tree_hash_derive "$VERSION"
+            - name: publish eth2 ssz
+              if: startsWith($TAG, 'eth2-ssz-v')
+              run: |
+                  VERSION=$(sed -e 's#.*eth2-ssz-v\(\)#\1#' <<< "$TAG")
+                  ./scripts/ci/publish.sh consensus/ssz eth2_ssz "$VERSION"
+            - name: publish eth2 ssz derive
+              if: startsWith($TAG, 'eth2-ssz-derive-v')
+              run: |
+                  VERSION=$(sed -e 's#.*eth2-ssz-derive-v\(\)#\1#' <<< "$TAG")
+                  ./scripts/ci/publish.sh consensus/ssz_derive eth2_ssz_derive "$VERSION"
+            - name: publish ssz types
+              if: startsWith($TAG, 'eth2-ssz-types-v')
+              run: |
+                  VERSION=$(sed -e 's#.*eth2-ssz-types-v\(\)#\1#' <<< "$TAG")
+                  ./scripts/ci/publish.sh consensus/ssz_types eth2_ssz_types "$VERSION"
+            - name: publish serde util
+              if: startsWith($TAG, 'eth2-serde-util-v')
+              run: |
+                  VERSION=$(sed -e 's#.*eth2-serde-util-v\(\)#\1#' <<< "$TAG")
+                  ./scripts/ci/publish.sh consensus/serde_utils eth2_serde_utils "$VERSION"
+            - name: publish eth2 hashing
+              if: startsWith($TAG, 'eth2-hashing-v')
+              run: |
+                  VERSION=$(sed -e 's#.*eth2-hashing-v\(\)#\1#' <<< "$TAG")
+                  ./scripts/ci/publish.sh crypto/eth2_hashing eth2_hashing "$VERSION"
