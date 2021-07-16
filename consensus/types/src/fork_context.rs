@@ -1,9 +1,12 @@
-use crate::{ChainSpec, ForkName, Hash256};
+use parking_lot::RwLock;
+
+use crate::{ChainSpec, EthSpec, ForkName, Hash256, Slot};
 use std::collections::HashMap;
 
-/// Provides fork specific info like the fork digest corresponding to a fork.
-#[derive(Debug, Clone)]
+/// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
+#[derive(Debug)]
 pub struct ForkContext {
+    current_fork: RwLock<ForkName>,
     fork_to_digest: HashMap<ForkName, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkName>,
 }
@@ -13,7 +16,11 @@ impl ForkContext {
     /// fork digest.
     ///
     /// A fork is disabled in the `ChainSpec` if the activation slot corresponding to that fork is `None`.
-    pub fn new(genesis_validators_root: Hash256, spec: &ChainSpec) -> Self {
+    pub fn new<T: EthSpec>(
+        current_slot: Slot,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Self {
         let mut fork_to_digest = vec![(
             ForkName::Base,
             ChainSpec::compute_fork_digest(spec.genesis_fork_version, genesis_validators_root),
@@ -36,9 +43,25 @@ impl ForkContext {
             .collect();
 
         Self {
+            current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
             fork_to_digest,
             digest_to_fork,
         }
+    }
+
+    /// Returns `true` if the provided `fork_name` exists in the `ForkContext` object.
+    pub fn fork_exists(&self, fork_name: ForkName) -> bool {
+        self.fork_to_digest.contains_key(&fork_name)
+    }
+
+    /// Returns the `current_fork`.
+    pub fn current_fork(&self) -> ForkName {
+        *self.current_fork.read()
+    }
+
+    /// Updates the `current_fork` field to a new fork.
+    pub fn update_current_fork(&self, new_fork: ForkName) {
+        *self.current_fork.write() = new_fork;
     }
 
     /// Returns the context bytes/fork_digest corresponding to the genesis fork version.
@@ -59,5 +82,10 @@ impl ForkContext {
     /// Returns `None` if the `ForkName` has not been initialized.
     pub fn to_context_bytes(&self, fork_name: ForkName) -> Option<[u8; 4]> {
         self.fork_to_digest.get(&fork_name).cloned()
+    }
+
+    /// Returns all `fork_digest`s that are currently in the `ForkContext` object.
+    pub fn all_fork_digests(&self) -> Vec<[u8; 4]> {
+        self.digest_to_fork.keys().cloned().collect()
     }
 }

@@ -11,8 +11,8 @@ use eth2::Error;
 use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient, Timeouts};
 use eth2_libp2p::{
-    rpc::methods::MetaData,
-    types::{EnrBitfield, SyncState},
+    rpc::methods::{MetaData, MetaDataV2},
+    types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     Enr, EnrExt, NetworkGlobals, PeerId,
 };
 use futures::stream::{Stream, StreamExt};
@@ -162,10 +162,11 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         // Default metadata
-        let meta_data = MetaData {
+        let meta_data = MetaData::V2(MetaDataV2 {
             seq_number: SEQ_NUMBER,
-            attnets: EnrBitfield::<MainnetEthSpec>::default(),
-        };
+            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+        });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
         let enr_clone = enr.clone();
@@ -277,10 +278,11 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         // Default metadata
-        let meta_data = MetaData {
+        let meta_data = MetaData::V2(MetaDataV2 {
             seq_number: SEQ_NUMBER,
-            attnets: EnrBitfield::<MainnetEthSpec>::default(),
-        };
+            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+        });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
         let enr_clone = enr.clone();
@@ -1338,6 +1340,7 @@ impl ApiTester {
             metadata: eth2::types::MetaData {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
+                syncnets: "0x00".to_string(),
             },
         };
 

@@ -136,6 +136,7 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
+    pub sync_committee_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
 }
@@ -168,14 +169,11 @@ impl ChainSpec {
     /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
     /// otherwise, returns the fork digest based on the slot.
     pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        match self.fork_name_at_slot::<T>(slot) {
-            ForkName::Altair => {
-                Self::compute_fork_digest(self.altair_fork_version, genesis_validators_root)
-            }
-            ForkName::Base => {
-                Self::compute_fork_digest(self.genesis_fork_version, genesis_validators_root)
-            }
-        }
+        let fork_name = self.fork_name_at_slot::<T>(slot);
+        Self::compute_fork_digest(
+            self.fork_version_for_name(fork_name),
+            genesis_validators_root,
+        )
     }
 
     /// Returns the `next_fork_version`.
@@ -186,16 +184,14 @@ impl ChainSpec {
         self.altair_fork_version
     }
 
-    /// Returns the epoch of the next scheduled fork along with it's corresponding `ForkName`.
+    /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
     ///
     /// If no future forks are scheduled, this function returns `None`.
     pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
-        match self.fork_name_at_slot::<T>(slot) {
-            ForkName::Altair => None,
-            ForkName::Base => self
-                .altair_fork_epoch
-                .map(|epoch| (ForkName::Altair, epoch)),
-        }
+        let current_fork_name = self.fork_name_at_slot::<T>(slot);
+        let next_fork_name = current_fork_name.next_fork()?;
+        let fork_epoch = self.fork_epoch(next_fork_name)?;
+        Some((next_fork_name, fork_epoch))
     }
 
     /// Returns the name of the fork which is active at `slot`.
@@ -468,6 +464,7 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
+            sync_committee_subnet_count: 4,
             random_subnets_per_validator: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,

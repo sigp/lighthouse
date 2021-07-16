@@ -176,6 +176,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
         ]
     }
@@ -276,8 +277,8 @@ impl ProtocolId {
                 <Ping as Encode>::ssz_fixed_len(),
             ),
             Protocol::MetaData => RpcLimits::new(
-                <MetaData<T> as Encode>::ssz_fixed_len(),
-                <MetaData<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV1<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -428,11 +429,10 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            InboundRequest::MetaData(_) => vec![ProtocolId::new(
-                Protocol::MetaData,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            InboundRequest::MetaData(_) => vec![
+                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ],
         }
     }
 
@@ -477,8 +477,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
         }
     }
 }
-
-/* RPC Response type - used for outbound upgrades */
 
 /// Error in RPC Encoding/Decoding.
 #[derive(Debug, Clone, PartialEq, AsStaticStr)]

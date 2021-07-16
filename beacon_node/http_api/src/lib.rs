@@ -1381,23 +1381,27 @@ pub fn serve<T: BeaconChainTypes>(
                 let enr = network_globals.local_enr();
                 let p2p_addresses = enr.multiaddr_p2p_tcp();
                 let discovery_addresses = enr.multiaddr_p2p_udp();
+                let meta_data = network_globals.local_metadata.read();
                 Ok(api_types::GenericResponse::from(api_types::IdentityData {
                     peer_id: network_globals.local_peer_id().to_base58(),
                     enr,
                     p2p_addresses,
                     discovery_addresses,
                     metadata: api_types::MetaData {
-                        seq_number: network_globals.local_metadata.read().seq_number,
+                        seq_number: *meta_data.seq_number(),
                         attnets: format!(
                             "0x{}",
+                            hex::encode(meta_data.attnets().clone().into_bytes()),
+                        ),
+                        syncnets: format!(
+                            "0x{}",
                             hex::encode(
-                                network_globals
-                                    .local_metadata
-                                    .read()
-                                    .attnets
-                                    .clone()
+                                meta_data
+                                    .syncnets()
+                                    .map(|x| x.clone())
+                                    .unwrap_or_default()
                                     .into_bytes()
-                            ),
+                            )
                         ),
                     },
                 }))
@@ -1899,7 +1903,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                         publish_network_message(
                             &network_tx,
-                            NetworkMessage::Subscribe {
+                            NetworkMessage::AttestationSubscribe {
                                 subscriptions: vec![subscription],
                             },
                         )?;

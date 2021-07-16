@@ -12,7 +12,9 @@ use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
+use types::{ForkContext, ForkName};
 
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 
@@ -107,47 +109,9 @@ impl Default for Config {
             .join(DEFAULT_BEACON_NODE_DIR)
             .join(DEFAULT_NETWORK_DIR);
 
-        // The function used to generate a gossipsub message id
-        // We use the first 8 bytes of SHA256(data) for content addressing
-        let fast_gossip_message_id = |message: &RawGossipsubMessage| {
-            FastMessageId::from(&Sha256::digest(&message.data)[..8])
-        };
-
-        fn prefix(prefix: [u8; 4], data: &[u8]) -> Vec<u8> {
-            let mut vec = Vec::with_capacity(prefix.len() + data.len());
-            vec.extend_from_slice(&prefix);
-            vec.extend_from_slice(data);
-            vec
-        }
-
-        let gossip_message_id = |message: &GossipsubMessage| {
-            MessageId::from(
-                &Sha256::digest(prefix(MESSAGE_DOMAIN_VALID_SNAPPY, &message.data).as_slice())
-                    [..20],
-            )
-        };
-
-        // gossipsub configuration
-        // Note: The topics by default are sent as plain strings. Hashes are an optional
-        // parameter.
+        // Note: Using the default config here. Use `gossipsub_config` function for getting
+        // Lighthouse specific configuration for gossipsub.
         let gs_config = GossipsubConfigBuilder::default()
-            .max_transmit_size(GOSSIP_MAX_SIZE)
-            .heartbeat_interval(Duration::from_millis(700))
-            .mesh_n(8)
-            .mesh_n_low(MESH_N_LOW)
-            .mesh_n_high(12)
-            .gossip_lazy(6)
-            .fanout_ttl(Duration::from_secs(60))
-            .history_length(6)
-            .max_messages_per_rpc(Some(10))
-            .history_gossip(3)
-            .validate_messages() // require validation before propagation
-            .validation_mode(ValidationMode::Anonymous)
-            // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
-            .duplicate_cache_time(Duration::from_secs(385))
-            .message_id_fn(gossip_message_id)
-            .fast_message_id_fn(fast_gossip_message_id)
-            .allow_self_origin(true)
             .build()
             .expect("valid gossipsub configuration");
 
@@ -191,4 +155,66 @@ impl Default for Config {
             topics: Vec::new(),
         }
     }
+}
+
+/// Return a Lighthouse specifi `GossipsubConfig` where the `message_id_fn` depends on the current fork.
+pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
+    // The function used to generate a gossipsub message id
+    // We use the first 8 bytes of SHA256(data) for content addressing
+    let fast_gossip_message_id =
+        |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..8]);
+    fn prefix(
+        prefix: [u8; 4],
+        message: &GossipsubMessage,
+        fork_context: Arc<ForkContext>,
+    ) -> Vec<u8> {
+        let topic_bytes = message.topic.as_str().as_bytes();
+        match fork_context.current_fork() {
+            ForkName::Altair => {
+                let topic_len_bytes = topic_bytes.len().to_le_bytes();
+                let mut vec = Vec::with_capacity(
+                    prefix.len() + topic_bytes.len() + topic_len_bytes.len() + message.data.len(),
+                );
+                vec.extend_from_slice(&prefix);
+                vec.extend_from_slice(&topic_bytes.len().to_le_bytes());
+                vec.extend_from_slice(topic_bytes);
+                vec.extend_from_slice(&message.data);
+                vec
+            }
+            ForkName::Base => {
+                let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
+                vec.extend_from_slice(&prefix);
+                vec.extend_from_slice(&message.data);
+                vec
+            }
+        }
+    }
+
+    let gossip_message_id = move |message: &GossipsubMessage| {
+        MessageId::from(
+            &Sha256::digest(
+                prefix(MESSAGE_DOMAIN_VALID_SNAPPY, &message, fork_context.clone()).as_slice(),
+            )[..20],
+        )
+    };
+    GossipsubConfigBuilder::default()
+        .max_transmit_size(GOSSIP_MAX_SIZE)
+        .heartbeat_interval(Duration::from_millis(700))
+        .mesh_n(8)
+        .mesh_n_low(MESH_N_LOW)
+        .mesh_n_high(12)
+        .gossip_lazy(6)
+        .fanout_ttl(Duration::from_secs(60))
+        .history_length(6)
+        .max_messages_per_rpc(Some(10))
+        .history_gossip(3)
+        .validate_messages() // require validation before propagation
+        .validation_mode(ValidationMode::Anonymous)
+        // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
+        .duplicate_cache_time(Duration::from_secs(385))
+        .message_id_fn(gossip_message_id)
+        .fast_message_id_fn(fast_gossip_message_id)
+        .allow_self_origin(true)
+        .build()
+        .expect("valid gossipsub configuration")
 }

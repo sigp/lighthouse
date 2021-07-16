@@ -7,10 +7,10 @@ use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
 use std::boxed::Box;
 use std::io::{Error, ErrorKind};
-use types::SubnetId;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockBase, SignedVoluntaryExit,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +27,10 @@ pub enum PubsubMessage<T: EthSpec> {
     ProposerSlashing(Box<ProposerSlashing>),
     /// Gossipsub message providing notification of a new attester slashing.
     AttesterSlashing(Box<AttesterSlashing<T>>),
+    /// Gossipsub message providing notification of partially aggregated sync committee signatures.
+    SignedContributionAndProof(Box<SignedContributionAndProof<T>>),
+    /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
+    SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -107,6 +111,8 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::VoluntaryExit(_) => GossipKind::VoluntaryExit,
             PubsubMessage::ProposerSlashing(_) => GossipKind::ProposerSlashing,
             PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
+            PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
+            PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
         }
     }
 
@@ -114,7 +120,11 @@ impl<T: EthSpec> PubsubMessage<T> {
     /* Note: This is assuming we are not hashing topics. If we choose to hash topics, these will
      * need to be modified.
      */
-    pub fn decode(topic: &TopicHash, data: &[u8]) -> Result<Self, String> {
+    pub fn decode(
+        topic: &TopicHash,
+        data: &[u8],
+        fork_context: &ForkContext,
+    ) -> Result<Self, String> {
         match GossipTopic::decode(topic.as_str()) {
             Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
             Ok(gossip_topic) => {
@@ -141,11 +151,23 @@ impl<T: EthSpec> PubsubMessage<T> {
                         ))))
                     }
                     GossipKind::BeaconBlock => {
-                        // FIXME(altair): support Altair blocks
-                        let beacon_block = SignedBeaconBlock::Base(
-                            SignedBeaconBlockBase::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?,
-                        );
+                        let beacon_block =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(ForkName::Base) => SignedBeaconBlock::<T>::Base(
+                                    SignedBeaconBlockBase::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Altair) => SignedBeaconBlock::<T>::Altair(
+                                    SignedBeaconBlockAltair::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)))
                     }
                     GossipKind::VoluntaryExit => {
@@ -162,6 +184,21 @@ impl<T: EthSpec> PubsubMessage<T> {
                         let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
+                    }
+                    GossipKind::SignedContributionAndProof => {
+                        let sync_aggregate = SignedContributionAndProof::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::SignedContributionAndProof(Box::new(
+                            sync_aggregate,
+                        )))
+                    }
+                    GossipKind::SyncCommitteeMessage(subnet_id) => {
+                        let sync_committee = SyncCommitteeMessage::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::SyncCommitteeMessage(Box::new((
+                            *subnet_id,
+                            sync_committee,
+                        ))))
                     }
                 }
             }
@@ -182,6 +219,8 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::AttesterSlashing(data) => data.as_ssz_bytes(),
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
+            PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
         }
     }
 }
@@ -210,6 +249,12 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),
             PubsubMessage::AttesterSlashing(_data) => write!(f, "Attester Slashing"),
+            PubsubMessage::SignedContributionAndProof(_) => {
+                write!(f, "Signed Contribution and Proof")
+            }
+            PubsubMessage::SyncCommitteeMessage(data) => {
+                write!(f, "Sync committee signature: subnet_id: {}", *data.0)
+            }
         }
     }
 }

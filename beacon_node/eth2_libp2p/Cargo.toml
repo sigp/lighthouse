@@ -40,9 +40,13 @@ rand = "0.7.3"
 directory = { path = "../../common/directory" }
 regex = "1.3.9"
 strum = { version = "0.20", features = ["derive"] }
+superstruct = "0.2.0"
 
 [dependencies.libp2p]
-version = "0.35.1"
+# version = "0.35.1"
+# TODO: Update once https://github.com/libp2p/rust-libp2p/pull/2103 is merged.
+git = "https://github.com/pawanjay176/rust-libp2p"
+branch = "message-id-gossipsub"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp-tokio"]
 

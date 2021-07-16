@@ -18,7 +18,7 @@ use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
 fn fork_context() -> ForkContext {
-    ForkContext::new(Hash256::zero(), &ChainSpec::minimal())
+    ForkContext::new::<E>(types::Slot::new(0), Hash256::zero(), &ChainSpec::minimal())
 }
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);

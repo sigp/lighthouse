@@ -66,26 +66,23 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            OutboundRequest::BlocksByRange(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRange,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            OutboundRequest::BlocksByRoot(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRoot,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            OutboundRequest::BlocksByRange(_) => vec![
+                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ],
+            OutboundRequest::BlocksByRoot(_) => vec![
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            OutboundRequest::MetaData(_) => vec![ProtocolId::new(
-                Protocol::MetaData,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            OutboundRequest::MetaData(_) => vec![
+                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ],
         }
     }
 

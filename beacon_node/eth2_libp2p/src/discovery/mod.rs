@@ -11,16 +11,16 @@ pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::core::identity::{Keypair, PublicKey};
 
 use crate::{config, metrics};
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, SubnetDiscovery};
+use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
-use enr::{BITFIELD_ENR_KEY, ETH2_ENR_KEY};
+use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::PeerId;
 use lru::LruCache;
-use slog::{crit, debug, error, info, warn};
-use ssz::{Decode, Encode};
-use ssz_types::BitVector;
+use slog::{crit, debug, error, info, trace, warn};
+use ssz::Encode;
+use std::fmt::Display;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -31,7 +31,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use types::{EnrForkId, EthSpec, SubnetId};
+use types::{EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
@@ -67,9 +67,22 @@ pub enum DiscoveryEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 struct SubnetQuery {
-    subnet_id: SubnetId,
+    subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
+}
+
+impl Display for SubnetQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let min_ttl_secs = self
+            .min_ttl
+            .map(|ttl| ttl.saturating_duration_since(Instant::now()).as_secs());
+        write!(
+            f,
+            "Subnet: {:?}, ttl_seconds: {:?}, attempt: {}",
+            self.subnet, min_ttl_secs, self.retries
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -318,13 +331,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if !self.started {
             return;
         }
-        debug!(
+        trace!(
             self.log,
             "Making discovery query for subnets";
-            "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet_id).collect::<Vec<_>>()
+            "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
         );
         for subnet in subnets_to_discover {
-            self.add_subnet_query(subnet.subnet_id, subnet.min_ttl, 0);
+            self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
         }
     }
 
@@ -409,41 +422,83 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         Ok(())
     }
 
-    /// Adds/Removes a subnet from the ENR Bitfield
-    pub fn update_enr_bitfield(&mut self, subnet_id: SubnetId, value: bool) -> Result<(), String> {
-        let id = *subnet_id as usize;
-
+    /// Adds/Removes a subnet from the ENR attnets/syncnets Bitfield
+    pub fn update_enr_bitfield(&mut self, subnet: Subnet, value: bool) -> Result<(), String> {
         let local_enr = self.discv5.local_enr();
-        let mut current_bitfield = local_enr.bitfield::<TSpec>()?;
 
-        if id >= current_bitfield.len() {
-            return Err(format!(
-                "Subnet id: {} is outside the ENR bitfield length: {}",
-                id,
-                current_bitfield.len()
-            ));
+        match subnet {
+            Subnet::Attestation(id) => {
+                let id = *id as usize;
+                let mut current_bitfield = local_enr.attestation_bitfield::<TSpec>()?;
+                if id >= current_bitfield.len() {
+                    return Err(format!(
+                        "Subnet id: {} is outside the ENR bitfield length: {}",
+                        id,
+                        current_bitfield.len()
+                    ));
+                }
+
+                if current_bitfield
+                    .get(id)
+                    .map_err(|_| String::from("Subnet ID out of bounds"))?
+                    == value
+                {
+                    return Err(format!(
+                        "Subnet id: {} already in the local ENR already has value: {}",
+                        id, value
+                    ));
+                }
+
+                // set the subnet bitfield in the ENR
+                current_bitfield.set(id, value).map_err(|_| {
+                    String::from("Subnet ID out of bounds, could not set subnet ID")
+                })?;
+
+                // insert the bitfield into the ENR record
+                self.discv5
+                    .enr_insert(
+                        ATTESTATION_BITFIELD_ENR_KEY,
+                        &current_bitfield.as_ssz_bytes(),
+                    )
+                    .map_err(|e| format!("{:?}", e))?;
+            }
+            Subnet::SyncCommittee(id) => {
+                let id = *id as usize;
+                let mut current_bitfield = local_enr.sync_committee_bitfield::<TSpec>()?;
+
+                if id >= current_bitfield.len() {
+                    return Err(format!(
+                        "Subnet id: {} is outside the ENR bitfield length: {}",
+                        id,
+                        current_bitfield.len()
+                    ));
+                }
+
+                if current_bitfield
+                    .get(id)
+                    .map_err(|_| String::from("Subnet ID out of bounds"))?
+                    == value
+                {
+                    return Err(format!(
+                        "Subnet id: {} already in the local ENR already has value: {}",
+                        id, value
+                    ));
+                }
+
+                // set the subnet bitfield in the ENR
+                current_bitfield.set(id, value).map_err(|_| {
+                    String::from("Subnet ID out of bounds, could not set subnet ID")
+                })?;
+
+                // insert the bitfield into the ENR record
+                self.discv5
+                    .enr_insert(
+                        SYNC_COMMITTEE_BITFIELD_ENR_KEY,
+                        &current_bitfield.as_ssz_bytes(),
+                    )
+                    .map_err(|e| format!("{:?}", e))?;
+            }
         }
-
-        if current_bitfield
-            .get(id)
-            .map_err(|_| String::from("Subnet ID out of bounds"))?
-            == value
-        {
-            return Err(format!(
-                "Subnet id: {} already in the local ENR already has value: {}",
-                id, value
-            ));
-        }
-
-        // set the subnet bitfield in the ENR
-        current_bitfield
-            .set(id, value)
-            .map_err(|_| String::from("Subnet ID out of bounds, could not set subnet ID"))?;
-
-        // insert the bitfield into the ENR record
-        self.discv5
-            .enr_insert(BITFIELD_ENR_KEY, &current_bitfield.as_ssz_bytes())
-            .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
@@ -525,7 +580,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Adds a subnet query if one doesn't exist. If a subnet query already exists, this
     /// updates the min_ttl field.
-    fn add_subnet_query(&mut self, subnet_id: SubnetId, min_ttl: Option<Instant>, retries: usize) {
+    fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
         // remove the entry and complete the query if greater than the maximum search count
         if retries > MAX_DISCOVERY_RETRY {
             debug!(
@@ -540,7 +595,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let mut found = false;
         for query in self.queued_queries.iter_mut() {
             if let QueryType::Subnet(ref mut subnet_query) = query {
-                if subnet_query.subnet_id == subnet_id {
+                if subnet_query.subnet == subnet {
                     if subnet_query.min_ttl < min_ttl {
                         subnet_query.min_ttl = min_ttl;
                     }
@@ -555,12 +610,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if !found {
             // Set up the query and add it to the queue
             let query = QueryType::Subnet(SubnetQuery {
-                subnet_id,
+                subnet,
                 min_ttl,
                 retries,
             });
             // update the metrics and insert into the queue.
-            debug!(self.log, "Queuing subnet query"; "subnet" => *subnet_id, "retries" => retries);
+            trace!(self.log, "Queuing subnet query"; "subnet" => ?subnet, "retries" => retries);
             self.queued_queries.push_back(query);
             metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
         }
@@ -614,11 +669,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         // This query is for searching for peers of a particular subnet
                         // Drain subnet_queries so we can re-use it as we continue to process the queue
                         let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
-                        debug!(
-                            self.log,
-                            "Starting grouped subnet query";
-                            "subnets" => ?grouped_queries.iter().map(|q| q.subnet_id).collect::<Vec<_>>(),
-                        );
                         self.start_subnet_query(grouped_queries);
                         processed = true;
                     }
@@ -639,7 +689,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
     /// Runs a discovery request for a given group of subnets.
     fn start_subnet_query(&mut self, subnet_queries: Vec<SubnetQuery>) {
-        let mut filtered_subnet_ids: Vec<SubnetId> = Vec::new();
+        let mut filtered_subnets: Vec<Subnet> = Vec::new();
 
         // find subnet queries that are still necessary
         let filtered_subnet_queries: Vec<SubnetQuery> = subnet_queries
@@ -650,7 +700,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     .network_globals
                     .peers
                     .read()
-                    .good_peers_on_subnet(subnet_query.subnet_id)
+                    .good_peers_on_subnet(subnet_query.subnet)
                     .count();
 
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
@@ -663,16 +713,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 }
 
                 let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
-                debug!(self.log, "Discovery query started for subnet";
-                    "subnet_id" => *subnet_query.subnet_id,
+                trace!(self.log, "Discovery query started for subnet";
+                    "subnet_query" => %subnet_query,
                     "connected_peers_on_subnet" => peers_on_subnet,
-                    "target_subnet_peers" => TARGET_SUBNET_PEERS,
                     "peers_to_find" => target_peers,
-                    "attempt" => subnet_query.retries,
-                    "min_ttl" => ?subnet_query.min_ttl,
                 );
 
-                filtered_subnet_ids.push(subnet_query.subnet_id);
+                filtered_subnets.push(subnet_query.subnet);
                 true
             })
             .collect();
@@ -680,8 +727,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnet_ids, &self.log);
+            let subnet_predicate = subnet_predicate::<TSpec>(filtered_subnets, &self.log);
 
+            debug!(
+                self.log,
+                "Starting grouped subnet query";
+                "subnets" => ?filtered_subnet_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>(),
+            );
             self.start_query(
                 GroupedQueryType::Subnet(filtered_subnet_queries),
                 TARGET_PEERS_FOR_GROUPED_QUERY,
@@ -727,7 +779,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
         // predicate for finding nodes with a matching fork and valid tcp port
         let eth2_fork_predicate = move |enr: &Enr| {
-            enr.eth2() == Ok(enr_fork_id.clone()) && (enr.tcp().is_some() || enr.tcp6().is_some())
+            // `next_fork_epoch` and `next_fork_version` can be different so that
+            // we can connect to peers who aren't compatible with an upcoming fork.
+            // `fork_digest` **must** be same.
+            enr.eth2().map(|e| e.fork_digest) == Ok(enr_fork_id.fork_digest)
+                && (enr.tcp().is_some() || enr.tcp6().is_some())
         };
 
         // General predicate
@@ -772,17 +828,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 }
             }
             GroupedQueryType::Subnet(queries) => {
-                let subnets_searched_for: Vec<SubnetId> =
-                    queries.iter().map(|query| query.subnet_id).collect();
+                let subnets_searched_for: Vec<Subnet> =
+                    queries.iter().map(|query| query.subnet).collect();
                 match query_result.1 {
                     Ok(r) if r.is_empty() => {
                         debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
                         queries.iter().for_each(|query| {
-                            self.add_subnet_query(
-                                query.subnet_id,
-                                query.min_ttl,
-                                query.retries + 1,
-                            );
+                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
                         })
                     }
                     Ok(r) => {
@@ -798,15 +850,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         // Map each subnet query's min_ttl to the set of ENR's returned for that subnet.
                         queries.iter().for_each(|query| {
                             // A subnet query has completed. Add back to the queue, incrementing retries.
-                            self.add_subnet_query(
-                                query.subnet_id,
-                                query.min_ttl,
-                                query.retries + 1,
-                            );
+                            self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
                             // Check the specific subnet against the enr
                             let subnet_predicate =
-                                subnet_predicate::<TSpec>(vec![query.subnet_id], &self.log);
+                                subnet_predicate::<TSpec>(vec![query.subnet], &self.log);
 
                             r.iter()
                                 .filter(|enr| subnet_predicate(enr))
@@ -946,11 +994,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::methods::MetaData;
+    use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use std::net::UdpSocket;
-    use types::MinimalEthSpec;
+    use types::{BitVector, MinimalEthSpec, SubnetId};
 
     type E = MinimalEthSpec;
 
@@ -985,10 +1033,11 @@ mod tests {
             enr,
             9000,
             9000,
-            MetaData {
+            MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
-            },
+                syncnets: Default::default(),
+            }),
             vec![],
             &log,
         );
@@ -1002,12 +1051,12 @@ mod tests {
         let mut discovery = build_discovery().await;
         let now = Instant::now();
         let mut subnet_query = SubnetQuery {
-            subnet_id: SubnetId::new(1),
+            subnet: Subnet::Attestation(SubnetId::new(1)),
             min_ttl: Some(now),
             retries: 0,
         };
         discovery.add_subnet_query(
-            subnet_query.subnet_id,
+            subnet_query.subnet,
             subnet_query.min_ttl,
             subnet_query.retries,
         );
@@ -1018,7 +1067,7 @@ mod tests {
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
-        discovery.add_subnet_query(subnet_query.subnet_id, subnet_query.min_ttl, 1);
+        discovery.add_subnet_query(subnet_query.subnet, subnet_query.min_ttl, 1);
 
         subnet_query.retries += 1;
 
@@ -1031,7 +1080,7 @@ mod tests {
         // Retries > MAX_DISCOVERY_RETRY must return immediately without adding
         // anything.
         discovery.add_subnet_query(
-            subnet_query.subnet_id,
+            subnet_query.subnet,
             subnet_query.min_ttl,
             MAX_DISCOVERY_RETRY + 1,
         );
@@ -1049,7 +1098,7 @@ mod tests {
 
         let now = Instant::now();
         let subnet_query = SubnetQuery {
-            subnet_id: SubnetId::new(1),
+            subnet: Subnet::Attestation(SubnetId::new(1)),
             min_ttl: Some(now + Duration::from_secs(10)),
             retries: 0,
         };
@@ -1083,7 +1132,7 @@ mod tests {
             bitfield.set(id, true).unwrap();
         }
 
-        builder.add_value(BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+        builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
         builder.build(&enr_key).unwrap()
     }
 
@@ -1096,12 +1145,12 @@ mod tests {
 
         let query = GroupedQueryType::Subnet(vec![
             SubnetQuery {
-                subnet_id: SubnetId::new(1),
+                subnet: Subnet::Attestation(SubnetId::new(1)),
                 min_ttl: instant1,
                 retries: 0,
             },
             SubnetQuery {
-                subnet_id: SubnetId::new(2),
+                subnet: Subnet::Attestation(SubnetId::new(2)),
                 min_ttl: instant2,
                 retries: 0,
             },

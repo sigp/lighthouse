@@ -1,7 +1,9 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::SubnetId;
+use types::{SubnetId, SyncSubnetId};
+
+use crate::Subnet;
 
 /// The gossipsub topic names.
 // These constants form a topic name of the form /TOPIC_PREFIX/TOPIC/ENCODING_POSTFIX
@@ -14,13 +16,16 @@ pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
+pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
+pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 
-pub const CORE_TOPICS: [GossipKind; 5] = [
+pub const CORE_TOPICS: [GossipKind; 6] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
+    GossipKind::SignedContributionAndProof,
 ];
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -30,7 +35,7 @@ pub struct GossipTopic {
     /// The encoding of the topic.
     encoding: GossipEncoding,
     /// The fork digest of the topic,
-    fork_digest: [u8; 4],
+    pub fork_digest: [u8; 4],
     /// The kind of topic.
     kind: GossipKind,
 }
@@ -53,12 +58,20 @@ pub enum GossipKind {
     ProposerSlashing,
     /// Topic for publishing attester slashings.
     AttesterSlashing,
+    /// Topic for publishing partially aggregated sync committee signatures.
+    SignedContributionAndProof,
+    /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
+    #[strum(serialize = "sync_committee")]
+    SyncCommitteeMessage(SyncSubnetId),
 }
 
 impl std::fmt::Display for GossipKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GossipKind::Attestation(subnet_id) => write!(f, "beacon_attestation_{}", **subnet_id),
+            GossipKind::SyncCommitteeMessage(subnet_id) => {
+                write!(f, "sync_committee_{}", **subnet_id)
+            }
             x => f.write_str(x.as_ref()),
         }
     }
@@ -124,11 +137,15 @@ impl GossipTopic {
             let kind = match topic_parts[3] {
                 BEACON_BLOCK_TOPIC => GossipKind::BeaconBlock,
                 BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipKind::BeaconAggregateAndProof,
+                SIGNED_CONTRIBUTION_AND_PROOF_TOPIC => GossipKind::SignedContributionAndProof,
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
                 topic => match committee_topic_index(topic) {
-                    Some(subnet_id) => GossipKind::Attestation(subnet_id),
+                    Some(subnet) => match subnet {
+                        Subnet::Attestation(s) => GossipKind::Attestation(s),
+                        Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
+                    },
                     None => return Err(format!("Unknown topic: {}", topic)),
                 },
             };
@@ -163,6 +180,10 @@ impl Into<String> for GossipTopic {
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
             GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
             GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
+            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
+            GossipKind::SyncCommitteeMessage(index) => {
+                format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
+            }
         };
         format!(
             "/{}/{}/{}/{}",
@@ -174,32 +195,72 @@ impl Into<String> for GossipTopic {
     }
 }
 
-impl From<SubnetId> for GossipKind {
-    fn from(subnet_id: SubnetId) -> Self {
-        GossipKind::Attestation(subnet_id)
+impl std::fmt::Display for GossipTopic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let encoding = match self.encoding {
+            GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
+        };
+
+        let kind = match self.kind {
+            GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
+            GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
+            GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
+            GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
+            GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
+            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
+            GossipKind::SyncCommitteeMessage(index) => {
+                format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
+            }
+        };
+        write!(
+            f,
+            "/{}/{}/{}/{}",
+            TOPIC_PREFIX,
+            hex::encode(self.fork_digest),
+            kind,
+            encoding
+        )
+    }
+}
+
+impl From<Subnet> for GossipKind {
+    fn from(subnet_id: Subnet) -> Self {
+        match subnet_id {
+            Subnet::Attestation(s) => GossipKind::Attestation(s),
+            Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
+        }
     }
 }
 
 // helper functions
 
 /// Get subnet id from an attestation subnet topic hash.
-pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
+pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
     let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
-    if let GossipKind::Attestation(subnet_id) = gossip_topic.kind() {
-        return Some(*subnet_id);
+    match gossip_topic.kind() {
+        GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
+        GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
+        _ => None,
     }
-    None
 }
 
 // Determines if a string is a committee topic.
-fn committee_topic_index(topic: &str) -> Option<SubnetId> {
+fn committee_topic_index(topic: &str) -> Option<Subnet> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
-        return Some(SubnetId::new(
+        return Some(Subnet::Attestation(SubnetId::new(
             topic
                 .trim_start_matches(BEACON_ATTESTATION_PREFIX)
                 .parse::<u64>()
                 .ok()?,
-        ));
+        )));
+    } else if topic.starts_with(SYNC_COMMITTEE_PREFIX_TOPIC) {
+        return Some(Subnet::SyncCommittee(SyncSubnetId::new(
+            topic
+                .trim_start_matches(SYNC_COMMITTEE_PREFIX_TOPIC)
+                .parse::<u64>()
+                .ok()?,
+        )));
     }
     None
 }
@@ -222,7 +283,9 @@ mod tests {
             for kind in [
                 BeaconBlock,
                 BeaconAggregateAndProof,
+                SignedContributionAndProof,
                 Attestation(SubnetId::new(42)),
+                SyncCommitteeMessage(SyncSubnetId::new(42)),
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
@@ -299,7 +362,13 @@ mod tests {
         let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/beacon_attestation_42/ssz_snappy");
         assert_eq!(
             subnet_id_from_topic_hash(&topic_hash),
-            Some(SubnetId::new(42))
+            Some(Subnet::Attestation(SubnetId::new(42)))
+        );
+
+        let topic_hash = TopicHash::from_raw("/eth2/e1925f3b/sync_committee_42/ssz_snappy");
+        assert_eq!(
+            subnet_id_from_topic_hash(&topic_hash),
+            Some(Subnet::SyncCommittee(SyncSubnetId::new(42)))
         );
     }
 
@@ -313,6 +382,11 @@ mod tests {
         assert_eq!(
             "beacon_attestation",
             Attestation(SubnetId::new(42)).as_ref()
+        );
+
+        assert_eq!(
+            "sync_committee",
+            SyncCommitteeMessage(SyncSubnetId::new(42)).as_ref()
         );
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());

@@ -1,37 +1,50 @@
 use crate::persisted_dht::{load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
+use crate::subnet_service::SyncCommitteeService;
+use crate::{error, metrics};
 use crate::{
-    attestation_service::{AttServiceMessage, AttestationService},
+    subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
-use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response,
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
-use eth2_libp2p::{types::GossipKind, BehaviourEvent, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    types::{GossipEncoding, GossipTopic},
+    BehaviourEvent, MessageId, NetworkGlobals, PeerId,
+};
 use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
+use futures::future::OptionFuture;
 use futures::prelude::*;
-use slog::{debug, error, info, o, trace, warn};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use slog::{crit, debug, error, info, o, trace, warn};
+use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use types::{EthSpec, ForkContext, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
+use types::{
+    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
+};
 
 mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 1;
+/// Delay after a fork where we unsubscribe from pre-fork topics.
+const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
 pub enum NetworkMessage<T: EthSpec> {
     /// Subscribes a list of validators to specific slots for attestation duties.
-    Subscribe {
+    AttestationSubscribe {
         subscriptions: Vec<ValidatorSubscription>,
+    },
+    SyncCommitteeSubscribe {
+        subscriptions: Vec<SyncCommitteeSubscription>,
     },
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
@@ -97,6 +110,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     libp2p: LibP2PService<T::EthSpec>,
     /// An attestation and subnet manager service.
     attestation_service: AttestationService<T>,
+    /// A sync committeee subnet manager service.
+    sync_committee_service: SyncCommitteeService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The sending channel for the network service to send messages to be routed throughout
@@ -113,7 +128,9 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// update the UDP socket of discovery if the UPnP mappings get established.
     discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
-    next_fork_update: Option<Sleep>,
+    next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
+    /// A delay that expires when we need to unsubscribe from old fork topics.
+    next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
     /// Subscribe to all the subnets once synced.
     subscribe_all_subnets: bool,
     /// A timer for updating various network metrics.
@@ -121,6 +138,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// gossipsub_parameter_update timer
     gossipsub_parameter_update: tokio::time::Interval,
     /// The logger for the network service.
+    fork_context: Arc<ForkContext>,
     log: slog::Logger,
 }
 
@@ -158,10 +176,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let enr_fork_id = beacon_chain.enr_fork_id();
 
         // keep track of when our fork_id needs to be updated
-        let next_fork_update = next_fork_delay(&beacon_chain);
+        let next_fork_update = Box::pin(next_fork_delay(&beacon_chain).into());
+        let next_unsubscribe = Box::pin(None.into());
+
+        let current_slot = beacon_chain
+            .slot()
+            .unwrap_or(beacon_chain.spec.genesis_slot);
 
         // Create a fork context for the given config and genesis validators root
-        let fork_context = Arc::new(ForkContext::new(
+        let fork_context = Arc::new(ForkContext::new::<T::EthSpec>(
+            current_slot,
             beacon_chain.genesis_validators_root,
             &beacon_chain.spec,
         ));
@@ -172,7 +196,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             config,
             enr_fork_id,
             &network_log,
-            fork_context,
+            fork_context.clone(),
             &beacon_chain.spec,
         )
         .await?;
@@ -200,9 +224,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_log.clone(),
         )?;
 
-        // attestation service
+        // attestation subnet service
         let attestation_service =
             AttestationService::new(beacon_chain.clone(), &config, &network_log);
+
+        // sync committee subnet service
+        let sync_committee_service =
+            SyncCommitteeService::new(beacon_chain.clone(), &config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -216,6 +244,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain,
             libp2p,
             attestation_service,
+            sync_committee_service,
             network_recv,
             router_send,
             store,
@@ -223,15 +252,37 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             upnp_mappings: (None, None),
             discovery_auto_update: config.discv5_config.enr_update,
             next_fork_update,
+            next_unsubscribe,
             subscribe_all_subnets: config.subscribe_all_subnets,
             metrics_update,
             gossipsub_parameter_update,
+            fork_context,
             log: network_log,
         };
 
         spawn_service(executor, network_service);
 
         Ok((network_globals, network_send))
+    }
+
+    /// Returns the required fork digests that gossipsub needs to subscribe to based on the current slot.
+    ///
+    /// For `current_slot < fork_slot`, this function returns both the pre-fork and post-fork
+    /// digests since we should be subscribed to post fork topics before the fork.
+    pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
+        let fork_context = &self.fork_context;
+        match fork_context.current_fork() {
+            ForkName::Base => {
+                if fork_context.fork_exists(ForkName::Altair) {
+                    fork_context.all_fork_digests()
+                } else {
+                    vec![fork_context.genesis_context_bytes()]
+                }
+            }
+            ForkName::Altair => vec![fork_context
+                .to_context_bytes(ForkName::Altair)
+                .expect("Altair fork bytes should exist as it's initialized in ForkContext")],
+        }
     }
 }
 
@@ -370,42 +421,69 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                         NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
                         NetworkMessage::GoodbyePeer { peer_id, reason, source } => service.libp2p.goodbye_peer(&peer_id, reason, source),
-                        NetworkMessage::Subscribe { subscriptions } => {
+                        NetworkMessage::AttestationSubscribe { subscriptions } => {
                             if let Err(e) = service
                                 .attestation_service
                                 .validator_subscriptions(subscriptions) {
-                                    warn!(service.log, "Validator subscription failed"; "error" => e);
+                                    warn!(service.log, "Attestation validator subscription failed"; "error" => e);
+                                }
+                        }
+                        NetworkMessage::SyncCommitteeSubscribe { subscriptions } => {
+                            if let Err(e) = service
+                                .sync_committee_service
+                                .validator_subscriptions(subscriptions) {
+                                    warn!(service.log, "Sync committee calidator subscription failed"; "error" => e);
                                 }
                         }
                         NetworkMessage::SubscribeCoreTopics => {
-                            let mut subscribed_topics: Vec<GossipKind> = vec![];
-                            let already_subscribed = service.network_globals.gossipsub_subscriptions.read().clone();
-                            let already_subscribed = already_subscribed.iter().map(|x| x.kind()).collect::<std::collections::HashSet<_>>();
-                            for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter().filter(|topic| already_subscribed.get(topic).is_none()) {
-                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
-                                    subscribed_topics.push(topic_kind.clone());
-                                } else {
-                                    warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
+                            let mut subscribed_topics: Vec<GossipTopic> = vec![];
+                            for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter() {
+                                for fork_digest in service.required_gossip_fork_digests() {
+                                    let topic = GossipTopic::new(topic_kind.clone(), GossipEncoding::default(), fork_digest);
+                                    if service.libp2p.swarm.subscribe(topic.clone()) {
+                                        subscribed_topics.push(topic);
+                                    } else {
+                                        warn!(service.log, "Could not subscribe to topic"; "topic" => %topic);
+                                    }
                                 }
                             }
 
-                            // if we are to subscribe to all subnets we do it here
+                            // If we are to subscribe to all subnets we do it here
                             if service.subscribe_all_subnets {
                                 for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
-                                    let subnet_id = SubnetId::new(subnet_id);
-                                    let topic_kind = eth2_libp2p::types::GossipKind::Attestation(subnet_id);
-                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
-                                    // Update the ENR bitfield.
-                                    service.libp2p.swarm.update_enr_subnet(subnet_id, true);
-                                    subscribed_topics.push(topic_kind.clone());
-                                } else {
-                                    warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
+                                    let subnet = Subnet::Attestation(SubnetId::new(subnet_id));
+                                    // Update the ENR bitfield
+                                    service.libp2p.swarm.update_enr_subnet(subnet, true);
+                                    for fork_digest in service.required_gossip_fork_digests() {
+                                        let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                        if service.libp2p.swarm.subscribe(topic.clone()) {
+                                            subscribed_topics.push(topic);
+                                        } else {
+                                            warn!(service.log, "Could not subscribe to topic"; "topic" => %topic);
+                                        }
+                                    }
                                 }
+                                for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetCount::to_u64() {
+                                    let subnet = Subnet::SyncCommittee(SyncSubnetId::new(subnet_id));
+                                    // Update the ENR bitfield
+                                    service.libp2p.swarm.update_enr_subnet(subnet, true);
+                                    for fork_digest in service.required_gossip_fork_digests() {
+                                        let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                        if service.libp2p.swarm.subscribe(topic.clone()) {
+                                            subscribed_topics.push(topic);
+                                        } else {
+                                            warn!(service.log, "Could not subscribe to topic"; "topic" => %topic);
+                                        }
+                                    }
                                 }
                             }
 
                             if !subscribed_topics.is_empty() {
-                                info!(service.log, "Subscribed to topics"; "topics" => ?subscribed_topics);
+                                info!(
+                                    service.log,
+                                    "Subscribed to topics";
+                                    "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
+                                );
                             }
                         }
                     }
@@ -413,19 +491,51 @@ fn spawn_service<T: BeaconChainTypes>(
                 // process any attestation service events
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
-                        AttServiceMessage::Subscribe(subnet_id) => {
-                            service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                        SubnetServiceMessage::Subscribe(subnet) => {
+                            for fork_digest in service.required_gossip_fork_digests() {
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                service.libp2p.swarm.subscribe(topic);
+                            }
                         }
-                        AttServiceMessage::Unsubscribe(subnet_id) => {
-                            service.libp2p.swarm.unsubscribe_from_subnet(subnet_id);
+                        SubnetServiceMessage::Unsubscribe(subnet) => {
+                            for fork_digest in service.required_gossip_fork_digests() {
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                service.libp2p.swarm.unsubscribe(topic);
+                            }
                         }
-                        AttServiceMessage::EnrAdd(subnet_id) => {
-                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                        SubnetServiceMessage::EnrAdd(subnet) => {
+                            service.libp2p.swarm.update_enr_subnet(subnet, true);
                         }
-                        AttServiceMessage::EnrRemove(subnet_id) => {
-                            service.libp2p.swarm.update_enr_subnet(subnet_id, false);
+                        SubnetServiceMessage::EnrRemove(subnet) => {
+                            service.libp2p.swarm.update_enr_subnet(subnet, false);
                         }
-                        AttServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                        SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
+                            service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
+                        }
+                    }
+                }
+                // process any sync committee service events
+                Some(sync_committee_service_message) = service.sync_committee_service.next() => {
+                    match sync_committee_service_message {
+                        SubnetServiceMessage::Subscribe(subnet) => {
+                            for fork_digest in service.required_gossip_fork_digests() {
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                service.libp2p.swarm.subscribe(topic);
+                            }
+                        }
+                        SubnetServiceMessage::Unsubscribe(subnet) => {
+                            for fork_digest in service.required_gossip_fork_digests() {
+                                let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
+                                service.libp2p.swarm.unsubscribe(topic);
+                            }
+                        }
+                        SubnetServiceMessage::EnrAdd(subnet) => {
+                            service.libp2p.swarm.update_enr_subnet(subnet, true);
+                        }
+                        SubnetServiceMessage::EnrRemove(subnet) => {
+                            service.libp2p.swarm.update_enr_subnet(subnet, false);
+                        }
+                        SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
                             service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
                         }
                     }
@@ -541,33 +651,56 @@ fn spawn_service<T: BeaconChainTypes>(
                         }
                     }
                 }
-            }
+                Some(_) = &mut service.next_fork_update => {
+                    let new_enr_fork_id = service.beacon_chain.enr_fork_id();
 
-            if let Some(delay) = &service.next_fork_update {
-                if delay.is_elapsed() {
-                    service
-                        .libp2p
-                        .swarm
-                        .update_fork_version(service.beacon_chain.enr_fork_id());
-                    service.next_fork_update = next_fork_delay(&service.beacon_chain);
+                    let fork_context = &service.fork_context;
+                    if let Some(new_fork_name) = fork_context.from_context_bytes(new_enr_fork_id.fork_digest) {
+                        info!(
+                            service.log,
+                            "Updating enr fork version";
+                            "old_fork" => ?fork_context.current_fork(),
+                            "new_fork" => ?new_fork_name,
+                        );
+                        fork_context.update_current_fork(*new_fork_name);
+
+                        service
+                            .libp2p
+                            .swarm
+                            .update_fork_version(new_enr_fork_id.clone());
+                        // Reinitialize the next_fork_update
+                        service.next_fork_update = Box::pin(next_fork_delay(&service.beacon_chain).into());
+
+                        // Set the next_unsubscribe delay.
+                        let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
+                        let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY_EPOCHS * epoch_duration);
+                        service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
+                        info!(service.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
+                    } else {
+                        crit!(service.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
+                    }
+
+                }
+                Some(_) = &mut service.next_unsubscribe => {
+                    let new_enr_fork_id = service.beacon_chain.enr_fork_id();
+                    service.libp2p.swarm.unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
+                    info!(service.log, "Unsubscribed from old fork topics");
+                    service.next_unsubscribe = Box::pin(None.into());
                 }
             }
-
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
     }, "network");
 }
 
-/// Returns a `Sleep` that triggers shortly after the next change in the beacon chain fork version.
+/// Returns a `Sleep` that triggers after the next change in the beacon chain fork version.
 /// If there is no scheduled fork, `None` is returned.
 fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    beacon_chain.duration_to_next_fork().map(|(_, until_fork)| {
-        // Add a short time-out to start within the new fork period.
-        let delay = Duration::from_millis(200);
-        tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
-    })
+    beacon_chain
+        .duration_to_next_fork()
+        .map(|(_, until_fork)| tokio::time::sleep(until_fork))
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {
