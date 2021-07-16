@@ -78,13 +78,13 @@ fn iterators() {
 
     let block_roots: Vec<(Hash256, Slot)> = harness
         .chain
-        .rev_iter_block_roots()
+        .forwards_iter_block_roots(Slot::new(0))
         .expect("should get iter")
         .map(Result::unwrap)
         .collect();
     let state_roots: Vec<(Hash256, Slot)> = harness
         .chain
-        .rev_iter_state_roots()
+        .forwards_iter_state_roots(Slot::new(0))
         .expect("should get iter")
         .map(Result::unwrap)
         .collect();
@@ -113,30 +113,30 @@ fn iterators() {
     block_roots.windows(2).for_each(|x| {
         assert_eq!(
             x[1].1,
-            x[0].1 - 1,
-            "block root slots should be decreasing by one"
+            x[0].1 + 1,
+            "block root slots should be increasing by one"
         )
     });
     state_roots.windows(2).for_each(|x| {
         assert_eq!(
             x[1].1,
-            x[0].1 - 1,
-            "state root slots should be decreasing by one"
+            x[0].1 + 1,
+            "state root slots should be increasing by one"
         )
     });
 
     let head = &harness.chain.head().expect("should get head");
 
     assert_eq!(
-        *block_roots.first().expect("should have some block roots"),
+        *block_roots.last().expect("should have some block roots"),
         (head.beacon_block_root, head.beacon_block.slot()),
-        "first block root and slot should be for the head block"
+        "last block root and slot should be for the head block"
     );
 
     assert_eq!(
-        *state_roots.first().expect("should have some state roots"),
+        *state_roots.last().expect("should have some state roots"),
         (head.beacon_state_root(), head.beacon_state.slot()),
-        "first state root and slot should be for the head state"
+        "last state root and slot should be for the head state"
     );
 }
 
@@ -538,7 +538,7 @@ fn attestations_with_increasing_slots() {
 
         if expected_attestation_slot < expected_earliest_permissible_slot {
             assert!(matches!(
-                res.err().unwrap(),
+                res.err().unwrap().0,
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,

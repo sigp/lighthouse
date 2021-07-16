@@ -415,29 +415,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
-    /// Iterates across all `(block_root, slot)` pairs from the head of the chain (inclusive) to
-    /// the earliest reachable ancestor (may or may not be genesis).
+    /// Iterates across all `(block_root, slot)` pairs from `start_slot`
+    /// to the head of the chain (inclusive).
     ///
     /// ## Notes
     ///
-    /// `slot` always decreases by `1`.
+    /// - `slot` always increases by `1`.
     /// - Skipped slots contain the root of the closest prior
-    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
+    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`).
     /// - Iterator returns `(Hash256, Slot)`.
-    /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
-    ///     returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_block_roots(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        let head = self.head()?;
-        let iter = BlockRootsIterator::owned(self.store.clone(), head.beacon_state);
-        Ok(
-            std::iter::once(Ok((head.beacon_block_root, head.beacon_block.slot())))
-                .chain(iter)
-                .map(|result| result.map_err(|e| e.into())),
-        )
-    }
-
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
@@ -459,7 +445,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// `slot` always decreases by `1`.
+    /// - `slot` always decreases by `1`.
     /// - Skipped slots contain the root of the closest prior
     ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
     /// - Iterator returns `(Hash256, Slot)`.
@@ -551,29 +537,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Iterates across all `(state_root, slot)` pairs from the head of the chain (inclusive) to
-    /// the earliest reachable ancestor (may or may not be genesis).
+    /// Iterates backwards across all `(state_root, slot)` pairs starting from
+    /// an arbitrary `BeaconState` to the earliest reachable ancestor (may or may not be genesis).
     ///
     /// ## Notes
     ///
-    /// `slot` always decreases by `1`.
+    /// - `slot` always decreases by `1`.
     /// - Iterator returns `(Hash256, Slot)`.
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
-    pub fn rev_iter_state_roots(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        let head = self.head()?;
-        let head_slot = head.beacon_state.slot();
-        let head_state_root = head.beacon_state_root();
-        let iter = StateRootsIterator::owned(self.store.clone(), head.beacon_state);
-        let iter = std::iter::once(Ok((head_state_root, head_slot)))
-            .chain(iter)
-            .map(|result| result.map_err(Into::into));
-        Ok(iter)
-    }
-
-    /// As for `rev_iter_state_roots` but starting from an arbitrary `BeaconState`.
     pub fn rev_iter_state_roots_from<'a>(
         &self,
         state_root: Hash256,
@@ -582,6 +554,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         std::iter::once(Ok((state_root, state.slot())))
             .chain(StateRootsIterator::new(self.store.clone(), state))
             .map(|result| result.map_err(Into::into))
+    }
+
+    /// Iterates across all `(state_root, slot)` pairs from `start_slot`
+    /// to the head of the chain (inclusive).
+    ///
+    /// ## Notes
+    ///
+    /// - `slot` always increases by `1`.
+    /// - Iterator returns `(Hash256, Slot)`.
+    pub fn forwards_iter_state_roots(
+        &self,
+        start_slot: Slot,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+        let local_head = self.head()?;
+
+        let iter = HotColdDB::forwards_state_roots_iterator(
+            self.store.clone(),
+            start_slot,
+            local_head.beacon_state_root(),
+            local_head.beacon_state,
+            &self.spec,
+        )?;
+
+        Ok(iter.map(|result| result.map_err(Into::into)))
     }
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
@@ -605,16 +601,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
+    /// Returns the state root at the given slot, if any. Only returns state roots in the canonical chain.
     ///
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn state_root_at_slot(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
-        process_results(self.rev_iter_state_roots()?, |mut iter| {
-            iter.find(|(_, this_slot)| *this_slot == slot)
-                .map(|(root, _)| root)
-        })
+    pub fn state_root_at_slot(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
+        if request_slot > self.slot()? {
+            return Ok(None);
+        } else if request_slot == self.spec.genesis_slot {
+            return Ok(Some(self.genesis_state_root));
+        }
+
+        // Try an optimized path of reading the root directly from the head state.
+        let fast_lookup: Option<Hash256> = self.with_head(|head| {
+            if head.beacon_block.slot() <= request_slot {
+                // Return the head state root if all slots between the request and the head are skipped.
+                Ok(Some(head.beacon_state_root()))
+            } else if let Ok(root) = head.beacon_state.get_state_root(request_slot) {
+                // Return the root if it's easily accessible from the head state.
+                Ok(Some(*root))
+            } else {
+                // Fast lookup is not possible.
+                Ok::<_, Error>(None)
+            }
+        })?;
+
+        if let Some(root) = fast_lookup {
+            return Ok(Some(root));
+        }
+
+        process_results(self.forwards_iter_state_roots(request_slot)?, |mut iter| {
+            if let Some((root, slot)) = iter.next() {
+                if slot == request_slot {
+                    Ok(Some(root))
+                } else {
+                    // Sanity check.
+                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                }
+            } else {
+                Ok(None)
+            }
+        })?
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
@@ -995,7 +1023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(state)
             }
             Ordering::Less => {
-                let state_root = process_results(self.rev_iter_state_roots()?, |iter| {
+                let state_root = process_results(self.forwards_iter_state_roots(slot)?, |iter| {
                     iter.take_while(|(_, current_slot)| *current_slot >= slot)
                         .find(|(_, current_slot)| *current_slot == slot)
                         .map(|(root, _slot)| root)
@@ -1296,7 +1324,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unaggregated_attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
-    ) -> Result<VerifiedUnaggregatedAttestation<T>, AttestationError> {
+    ) -> Result<VerifiedUnaggregatedAttestation<T>, (AttestationError, Attestation<T::EthSpec>)>
+    {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -1320,7 +1349,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_aggregated_attestation_for_gossip(
         &self,
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
-    ) -> Result<VerifiedAggregatedAttestation<T>, AttestationError> {
+    ) -> Result<
+        VerifiedAggregatedAttestation<T>,
+        (AttestationError, SignedAggregateAndProof<T::EthSpec>),
+    > {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -2157,10 +2189,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(validator_monitor);
 
-        metrics::observe(
-            &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-            block.body().attestations().len() as f64,
-        );
+        // Only present some metrics for blocks from the previous epoch or later.
+        //
+        // This helps avoid noise in the metrics during sync.
+        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 1 >= self.epoch()? {
+            metrics::observe(
+                &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+                block.body().attestations().len() as f64,
+            );
+
+            if let Some(sync_aggregate) = block.body().sync_aggregate() {
+                metrics::set_gauge(
+                    &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
+                    sync_aggregate.num_set_bits() as i64,
+                );
+            }
+        }
 
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 

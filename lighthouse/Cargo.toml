@@ -16,8 +16,6 @@ modern = ["bls/supranational-force-adx"]
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
-# Support spec v0.12 (used by Medalla testnet).
-spec-v12 = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
@@ -26,6 +24,7 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.1"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
+eth2_hashing = "0.1.0"
 clap = "2.33.3"
 env_logger = "0.8.2"
 logging = { path = "../common/logging" }
@@ -47,6 +46,7 @@ lazy_static = "1.4.0"
 serde_json = "1.0.59"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
+target_check = { path = "../common/target_check" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
@@ -57,3 +57,8 @@ eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
 [[test]]
 name = "lighthouse_tests"
 path = "tests/main.rs"
+
+# Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
+# to assert properties of the compilation target.
+[package.metadata.cargo-udeps.ignore]
+normal = ["target_check"]

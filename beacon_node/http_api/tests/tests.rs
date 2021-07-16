@@ -9,7 +9,7 @@ use discv5::enr::{CombinedKey, EnrBuilder};
 use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
-use eth2::{types::*, BeaconNodeHttpClient};
+use eth2::{types::*, BeaconNodeHttpClient, Timeouts};
 use eth2_libp2p::{
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
@@ -35,6 +35,7 @@ use types::{
 
 type E = MainnetEthSpec;
 
+const SECONDS_PER_SLOT: u64 = 12;
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const CHAIN_LENGTH: u64 = SLOTS_PER_EPOCH * 5 - 1; // Make `next_block` an epoch transition
@@ -214,6 +215,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
+            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
         Self {
@@ -329,6 +331,7 @@ impl ApiTester {
                 listening_socket.port()
             ))
             .unwrap(),
+            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
 
         Self {
@@ -865,13 +868,10 @@ impl ApiTester {
     pub async fn test_beacon_headers_all_parents(self) -> Self {
         let mut roots = self
             .chain
-            .rev_iter_block_roots()
+            .forwards_iter_block_roots(Slot::new(0))
             .unwrap()
             .map(Result::unwrap)
             .map(|(root, _slot)| root)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
             .collect::<Vec<_>>();
 
         // The iterator natively returns duplicate roots for skipped slots.

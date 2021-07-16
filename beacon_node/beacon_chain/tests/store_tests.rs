@@ -314,7 +314,7 @@ fn epoch_boundary_state_attestation_processing() {
         let finalized_epoch = harness
             .chain
             .head_info()
-            .expect("head ok")
+            .expect("should get head")
             .finalized_checkpoint
             .epoch;
 
@@ -332,7 +332,7 @@ fn epoch_boundary_state_attestation_processing() {
         {
             checked_pre_fin = true;
             assert!(matches!(
-                res.err().unwrap(),
+                res.err().unwrap().0,
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,
@@ -453,8 +453,8 @@ fn delete_blocks_and_states() {
     let split_slot = store.get_split_slot();
     let finalized_states = harness
         .chain
-        .rev_iter_state_roots()
-        .expect("rev iter ok")
+        .forwards_iter_state_roots(Slot::new(0))
+        .expect("should get iter")
         .map(Result::unwrap);
 
     for (state_root, slot) in finalized_states {
@@ -718,7 +718,7 @@ fn check_shuffling_compatible(
     {
         let (block_root, slot) = maybe_tuple.unwrap();
         // Shuffling is compatible targeting the current epoch,
-        // iff slot is greater than or equal to the current epoch pivot block
+        // if slot is greater than or equal to the current epoch pivot block.
         assert_eq!(
             harness.chain.shuffling_is_compatible(
                 &block_root,
@@ -1683,7 +1683,7 @@ fn pruning_test(
 
     let all_canonical_states = harness
         .chain
-        .rev_iter_state_roots()
+        .forwards_iter_state_roots(Slot::new(0))
         .unwrap()
         .map(Result::unwrap)
         .map(|(state_root, _)| state_root.into())
@@ -1944,17 +1944,12 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
         .map(|checkpoint| (checkpoint.beacon_block_root, checkpoint.beacon_block.slot()))
         .collect::<Vec<_>>();
 
-    let head = harness.chain.head().expect("should get head");
-    let mut forward_block_roots = HotColdDB::forwards_block_roots_iterator(
-        harness.chain.store.clone(),
-        Slot::new(0),
-        head.beacon_state,
-        head.beacon_block_root,
-        &harness.spec,
-    )
-    .unwrap()
-    .map(Result::unwrap)
-    .collect::<Vec<_>>();
+    let mut forward_block_roots = harness
+        .chain
+        .forwards_iter_block_roots(Slot::new(0))
+        .expect("should get iter")
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
 
     // Drop the block roots for skipped slots.
     forward_block_roots.dedup_by_key(|(block_root, _)| *block_root);
@@ -1972,10 +1967,10 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 /// Check that every state from the canonical chain is in the database, and that the
 /// reverse state and block root iterators reach genesis.
 fn check_iterators(harness: &TestHarness) {
-    let mut min_slot = None;
+    let mut max_slot = None;
     for (state_root, slot) in harness
         .chain
-        .rev_iter_state_roots()
+        .forwards_iter_state_roots(Slot::new(0))
         .expect("should get iter")
         .map(Result::unwrap)
     {
@@ -1989,20 +1984,23 @@ fn check_iterators(harness: &TestHarness) {
             "state {:?} from canonical chain should be in DB",
             state_root
         );
-        min_slot = Some(slot);
+        max_slot = Some(slot);
     }
-    // Assert that we reached genesis.
-    assert_eq!(min_slot, Some(Slot::new(0)));
-    // Assert that the block root iterator reaches genesis.
+    // Assert that we reached the head.
+    assert_eq!(
+        max_slot,
+        Some(harness.chain.head_info().expect("should get head").slot)
+    );
+    // Assert that the block root iterator reaches the head.
     assert_eq!(
         harness
             .chain
-            .rev_iter_block_roots()
+            .forwards_iter_block_roots(Slot::new(0))
             .expect("should get iter")
             .last()
             .map(Result::unwrap)
             .map(|(_, slot)| slot),
-        Some(Slot::new(0))
+        Some(harness.chain.head_info().expect("should get head").slot)
     );
 }
 

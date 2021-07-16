@@ -24,7 +24,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{HotColdDB, ItemStore};
+use store::{Error as StoreError, HotColdDB, ItemStore};
 use task_executor::ShutdownReason;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
@@ -237,11 +237,11 @@ where
 
         let genesis_block = store
             .get_block(&chain.genesis_block_root)
-            .map_err(|e| format!("DB error when reading genesis block: {:?}", e))?
+            .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
             .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
-            .map_err(|e| format!("DB error when reading genesis state: {:?}", e))?
+            .map_err(|e| descriptive_db_error("genesis state", &e))?
             .ok_or("Genesis block not found in store")?;
 
         self.genesis_time = Some(genesis_state.genesis_time());
@@ -443,12 +443,12 @@ where
 
         let head_block = store
             .get_block(&head_block_root)
-            .map_err(|e| format!("DB error when reading head block: {:?}", e))?
+            .map_err(|e| descriptive_db_error("head block", &e))?
             .ok_or("Head block not found in store")?;
         let head_state_root = head_block.state_root();
         let head_state = store
             .get_state(&head_state_root, Some(head_block.slot()))
-            .map_err(|e| format!("DB error when reading head state: {:?}", e))?
+            .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 
         let mut canonical_head = BeaconSnapshot {
@@ -666,6 +666,21 @@ fn genesis_block<T: EthSpec>(
         // block consistent with every other block.
         Signature::empty(),
     ))
+}
+
+// Helper function to return more useful errors when reading from the database.
+fn descriptive_db_error(item: &str, error: &StoreError) -> String {
+    let additional_info = if let StoreError::SszDecodeError(_) = error {
+        "Ensure the data directory is not initialized for a different network. The \
+        --purge-db flag can be used to permanently delete the existing data directory."
+    } else {
+        "Database corruption may be present. If the issue persists, use \
+        --purge-db to permanently delete the existing data directory."
+    };
+    format!(
+        "DB error when reading {}: {:?}. {}",
+        item, error, additional_info
+    )
 }
 
 #[cfg(not(debug_assertions))]

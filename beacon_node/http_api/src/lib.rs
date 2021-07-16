@@ -1794,8 +1794,8 @@ pub fn serve<T: BeaconChainTypes>(
                     let mut failures = Vec::new();
 
                     // Verify that all messages in the post are valid before processing further
-                    for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
-                        match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
+                    for (index, aggregate) in aggregates.into_iter().enumerate() {
+                        match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     verified_aggregate.aggregate().clone(),
@@ -1820,8 +1820,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
-                            Err(e) => {
+                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
+                            Err((e, aggregate)) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),

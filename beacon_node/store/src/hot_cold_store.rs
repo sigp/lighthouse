@@ -2,7 +2,7 @@ use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
 use crate::config::{OnDiskStoreConfig, StoreConfig};
-use crate::forwards_iter::HybridForwardsBlockRootsIterator;
+use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::impls::{
     beacon_block_as_kv_store_op,
     beacon_state::{get_full_state, store_full_state},
@@ -411,6 +411,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
     }
 
+    pub fn forwards_state_roots_iterator(
+        store: Arc<Self>,
+        start_slot: Slot,
+        end_state_root: Hash256,
+        end_state: BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+        HybridForwardsStateRootsIterator::new(store, start_slot, end_state, end_state_root, spec)
+    }
+
     /// Load an epoch boundary state by using the hot state summary look-up.
     ///
     /// Will fall back to the cold DB if a hot state summary is not found.
@@ -711,7 +721,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let high_restore_point_idx = low_restore_point_idx + 1;
 
         // Acquire the read lock, so that the split can't change while this is happening.
-        let split = self.split.read();
+        let split = self.split.read_recursive();
 
         let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
         // If the slot of the high point lies outside the freezer, use the split state
@@ -873,7 +883,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Fetch a copy of the current split slot from memory.
     pub fn get_split_slot(&self) -> Slot {
-        self.split.read().slot
+        self.split.read_recursive().slot
     }
 
     /// Fetch the slot of the most recently stored restore point.
@@ -1046,7 +1056,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // 0. Check that the migration is sensible.
     // The new frozen head must increase the current split slot, and lie on an epoch
     // boundary (in order for the hot state summary scheme to work).
-    let current_split_slot = store.split.read().slot;
+    let current_split_slot = store.split.read_recursive().slot;
 
     if frozen_head.slot() < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {

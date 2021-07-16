@@ -228,7 +228,6 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
                     warn!(
                         log,
                         "Syncing eth1 block cache";
-                        "msg" => "sync can take longer when using remote eth1 nodes",
                         "est_blocks_remaining" => distance,
                     );
                 }
