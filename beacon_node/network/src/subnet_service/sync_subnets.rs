@@ -218,6 +218,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
             .collect();
 
         if !discovery_subnets.is_empty() {
+            trace!(self.log, "Making a discovery query");
             self.events
                 .push_back(SubnetServiceMessage::DiscoverPeers(discovery_subnets));
         }
@@ -252,6 +253,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let until_slot = exact_subnet.until_epoch.end_slot(slots_per_epoch);
+        dbg!(&until_slot);
         // Calculate the duration to the unsubscription event.
         let expected_end_subscription_duration = if current_slot >= until_slot {
             warn!(

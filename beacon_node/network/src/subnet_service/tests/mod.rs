@@ -10,7 +10,7 @@ use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use lazy_static::lazy_static;
 use matches::assert_matches;
 use slog::Logger;
-use sloggers::{null::NullLoggerBuilder, Build};
+use slog::{o, Drain};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -41,7 +41,7 @@ impl TestBeaconChain {
 
         let keypairs = generate_deterministic_keypairs(1);
 
-        let log = get_logger();
+        let log = get_logger(false);
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
@@ -80,8 +80,17 @@ pub fn recent_genesis_time() -> u64 {
         .as_secs()
 }
 
-fn get_logger() -> Logger {
-    NullLoggerBuilder.build().expect("logger should build")
+fn get_logger(enabled: bool) -> Logger {
+    let level = slog::Level::Trace;
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+
+    if enabled {
+        slog::Logger::root(drain.filter_level(level).fuse(), o!())
+    } else {
+        slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+    }
 }
 
 lazy_static! {
@@ -89,7 +98,7 @@ lazy_static! {
 }
 
 fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
-    let log = get_logger();
+    let log = get_logger(false);
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
@@ -98,7 +107,7 @@ fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
 }
 
 fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {
-    let log = get_logger();
+    let log = get_logger(true);
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
@@ -480,6 +489,7 @@ mod sync_committee_service {
         let subnet_id = subnet_ids.iter().next().unwrap();
 
         // Note: the unsubscription event takes a full epoch (8 * 0.2 secs = 1.6 secs)
+        dbg!(MinimalEthSpec::slots_per_epoch());
         let events = get_events(
             &mut sync_committee_service,
             Some(5),
