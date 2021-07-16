@@ -192,7 +192,7 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
-        process_sync_aggregate(state, self, proposer_index, spec)
+        process_sync_aggregate(state, self, proposer_index, VerifySignatures::True, spec)
     }
 }
 

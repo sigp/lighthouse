@@ -1,55 +1,44 @@
 use crate::common::{altair::get_base_reward_per_increment, decrease_balance, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
+use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
 use safe_arith::SafeArith;
-use tree_hash::TreeHash;
+use std::borrow::Cow;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconState, ChainSpec, Domain, EthSpec, SigningData, SyncAggregate, Unsigned};
+use types::{BeaconState, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned};
 
 pub fn process_sync_aggregate<T: EthSpec>(
     state: &mut BeaconState<T>,
     aggregate: &SyncAggregate<T>,
     proposer_index: u64,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // Verify sync committee aggregate signature signing over the previous slot block root
-    let previous_slot = state.slot().saturating_sub(1u64);
-
     let current_sync_committee = state.current_sync_committee()?.clone();
-    let committee_pubkeys = &current_sync_committee.pubkeys;
 
-    let participant_pubkeys = committee_pubkeys
-        .iter()
-        .zip(aggregate.sync_committee_bits.iter())
-        .flat_map(|(pubkey, bit)| {
-            if bit {
-                // FIXME(altair): accelerate pubkey decompression with a cache
-                Some(pubkey.decompress())
-            } else {
-                None
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| SyncAggregateInvalid::PubkeyInvalid)?;
+    // Verify sync committee aggregate signature signing over the previous slot block root
+    if verify_signatures.is_true() {
+        // This decompression could be avoided with a cache, but we're not likely
+        // to encounter this case in practice due to the use of pre-emptive signature
+        // verification (which uses the `ValidatorPubkeyCache`).
+        let decompressor = |pk_bytes: &PublicKeyBytes| pk_bytes.decompress().ok().map(Cow::Owned);
 
-    let domain = spec.get_domain(
-        previous_slot.epoch(T::slots_per_epoch()),
-        Domain::SyncCommittee,
-        &state.fork(),
-        state.genesis_validators_root(),
-    );
+        // Check that the signature is over the previous block root.
+        let previous_slot = state.slot().saturating_sub(1u64);
+        let previous_block_root = *state.get_block_root(previous_slot)?;
 
-    let signing_root = SigningData {
-        object_root: *state.get_block_root(previous_slot)?,
-        domain,
-    }
-    .tree_hash_root();
+        let signature_set = sync_aggregate_signature_set(
+            decompressor,
+            aggregate,
+            state.slot(),
+            previous_block_root,
+            state,
+            spec,
+        )?;
 
-    let pubkey_refs = participant_pubkeys.iter().collect::<Vec<_>>();
-    if !aggregate
-        .sync_committee_signature
-        .eth2_fast_aggregate_verify(signing_root, &pubkey_refs)
-    {
-        return Err(SyncAggregateInvalid::SignatureInvalid.into());
+        // If signature set is `None` then the signature is valid (infinity).
+        if signature_set.map_or(false, |signature| !signature.verify()) {
+            return Err(SyncAggregateInvalid::SignatureInvalid.into());
+        }
     }
 
     // Compute participant and proposer rewards

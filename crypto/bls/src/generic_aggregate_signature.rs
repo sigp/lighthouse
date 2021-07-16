@@ -110,6 +110,11 @@ where
         self.point.is_none()
     }
 
+    /// Returns `true` if `self` is equal to the point at infinity.
+    pub fn is_infinity(&self) -> bool {
+        self.is_infinity
+    }
+
     /// Returns a reference to the underlying BLS point.
     pub(crate) fn point(&self) -> Option<&AggSig> {
         self.point.as_ref()
@@ -187,18 +192,6 @@ where
             Some(point) => point.fast_aggregate_verify(msg, pubkeys),
             None => false,
         }
-    }
-
-    /// Wrapper to `fast_aggregate_verify` accepting the infinity signature when `pubkeys` is empty.
-    pub fn eth2_fast_aggregate_verify(
-        &self,
-        msg: Hash256,
-        pubkeys: &[&GenericPublicKey<Pub>],
-    ) -> bool {
-        if pubkeys.is_empty() && self.is_infinity {
-            return true;
-        }
-        self.fast_aggregate_verify(msg, pubkeys)
     }
 
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their

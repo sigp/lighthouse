@@ -2,6 +2,7 @@ use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
+use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -102,6 +103,7 @@ pub fn per_block_processing<T: EthSpec>(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
                     |i| get_pubkey_from_state(state, i),
+                    |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
                     block_root,
                     spec
@@ -130,7 +132,13 @@ pub fn per_block_processing<T: EthSpec>(
     process_operations(state, block.body(), verify_signatures, spec)?;
 
     if let BeaconBlockRef::Altair(inner) = block {
-        process_sync_aggregate(state, &inner.body.sync_aggregate, proposer_index, spec)?;
+        process_sync_aggregate(
+            state,
+            &inner.body.sync_aggregate,
+            proposer_index,
+            verify_signatures,
+            spec,
+        )?;
     }
 
     Ok(())
