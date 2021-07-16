@@ -1,9 +1,11 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination};
+use super::methods::{
+    GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
+};
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{Protocol, RPCError, RPCProtocol};
+use super::protocol::{InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
@@ -228,13 +230,14 @@ where
         }
     }
 
-    /// Initiates the handler's shutdown process, sending an optional last message to the peer.
-    pub fn shutdown(&mut self, final_msg: Option<(RequestId, OutboundRequest<TSpec>)>) {
+    /// Initiates the handler's shutdown process, sending an optional Goodbye message to the
+    /// peer.
+    fn shutdown(&mut self, goodbye_reason: Option<GoodbyeReason>) {
         if matches!(self.state, HandlerState::Active) {
             if !self.dial_queue.is_empty() {
                 debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
             }
-            // we now drive to completion communications already dialed/established
+            // We now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.events_out.push(Err(HandlerErr::Outbound {
                     error: RPCError::HandlerRejected,
@@ -243,9 +246,10 @@ where
                 }));
             }
 
-            // Queue our final message, if any
-            if let Some((id, req)) = final_msg {
-                self.dial_queue.push((id, req));
+            // Queue our goodbye message.
+            if let Some(reason) = goodbye_reason {
+                self.dial_queue
+                    .push((RequestId::Router, OutboundRequest::Goodbye(reason)));
             }
 
             self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
@@ -352,6 +356,11 @@ where
             );
         }
 
+        // If we received a goodbye, shutdown the connection.
+        if let InboundRequest::Goodbye(_) = req {
+            self.shutdown(None);
+        }
+
         self.events_out.push(Ok(RPCReceived::Request(
             self.current_inbound_substream_id,
             req,
@@ -419,6 +428,7 @@ where
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
+            RPCSend::Shutdown(reason) => self.shutdown(Some(reason)),
         }
     }
 
@@ -519,6 +529,9 @@ where
             if delay.is_elapsed() {
                 self.state = HandlerState::Deactivated;
                 debug!(self.log, "Handler deactivated");
+                return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::InternalError(
+                    "Shutdown timeout",
+                )));
             }
         }
 
@@ -878,6 +891,19 @@ where
                 .map_info(|()| (id, req)),
             });
         }
+
+        // Check if we have completed sending a goodbye, disconnect.
+        if let HandlerState::ShuttingDown(_) = self.state {
+            if self.dial_queue.is_empty()
+                && self.outbound_substreams.is_empty()
+                && self.inbound_substreams.is_empty()
+                && self.events_out.is_empty()
+                && self.dial_negotiated == 0
+            {
+                return Poll::Ready(ProtocolsHandlerEvent::Close(RPCError::Disconnected));
+            }
+        }
+
         Poll::Pending
     }
 }

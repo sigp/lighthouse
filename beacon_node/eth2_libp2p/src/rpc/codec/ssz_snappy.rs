@@ -415,16 +415,16 @@ fn handle_length(
     bytes: &mut BytesMut,
 ) -> Result<Option<usize>, RPCError> {
     if let Some(length) = len {
-        return Ok(Some(*length));
+        Ok(Some(*length))
     } else {
         // Decode the length of the uncompressed bytes from an unsigned varint
         // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
         match uvi_codec.decode(bytes).map_err(RPCError::from)? {
             Some(length) => {
                 *len = Some(length as usize);
-                return Ok(Some(length));
+                Ok(Some(length))
             }
-            None => return Ok(None), // need more bytes to decode length
+            None => Ok(None), // need more bytes to decode length
         }
     }
 }
