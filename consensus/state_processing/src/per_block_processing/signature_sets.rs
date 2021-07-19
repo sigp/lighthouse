@@ -7,10 +7,11 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttesterSlashing, BeaconBlock, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, EthSpec, Fork, Hash256, IndexedAttestation, ProposerSlashing, PublicKey,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader, SignedRoot,
-    SignedVoluntaryExit, SigningData,
+    AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
+    DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
+    ProposerSlashing, PublicKey, PublicKeyBytes, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, SigningData, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -25,6 +26,9 @@ pub enum Error {
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorUnknown(u64),
+    /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
+    /// between an error and an invalid block in this case.
+    ValidatorPubkeyUnknown(PublicKeyBytes),
     /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
     ///
     /// The block is invalid.
@@ -35,6 +39,8 @@ pub enum Error {
     /// The public key bytes stored in the `BeaconState` were not valid. This is a serious internal
     /// error.
     BadBlsBytes { validator_index: u64 },
+    /// The block structure is not appropriate for the fork at `block.slot()`.
+    InconsistentBlockFork(InconsistentFork),
 }
 
 impl From<BeaconStateError> for Error {
@@ -52,7 +58,7 @@ where
     T: EthSpec,
 {
     state
-        .validators
+        .validators()
         .get(validator_index)
         .and_then(|v| {
             let pk: Option<PublicKey> = v.pubkey.decompress().ok();
@@ -73,21 +79,26 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let block = &signed_block.message;
-    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
+    signed_block
+        .fork_name(spec)
+        .map_err(Error::InconsistentBlockFork)?;
 
-    if proposer_index as u64 != block.proposer_index {
+    let block = signed_block.message();
+    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
+
+    if proposer_index as u64 != block.proposer_index() {
         return Err(Error::IncorrectBlockProposer {
-            block: block.proposer_index,
+            block: block.proposer_index(),
             local_shuffling: proposer_index as u64,
         });
     }
 
     let domain = spec.get_domain(
-        block.slot.epoch(T::slots_per_epoch()),
+        block.slot().epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = if let Some(root) = block_root {
@@ -101,7 +112,7 @@ where
     };
 
     Ok(SignatureSet::single_pubkey(
-        &signed_block.signature,
+        signed_block.signature(),
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
@@ -111,26 +122,29 @@ where
 pub fn randao_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
-    block: &'a BeaconBlock<T>,
+    block: BeaconBlockRef<'a, T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
 
     let domain = spec.get_domain(
-        block.slot.epoch(T::slots_per_epoch()),
+        block.slot().epoch(T::slots_per_epoch()),
         Domain::Randao,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
-    let message = block.slot.epoch(T::slots_per_epoch()).signing_root(domain);
+    let message = block
+        .slot()
+        .epoch(T::slots_per_epoch())
+        .signing_root(domain);
 
     Ok(SignatureSet::single_pubkey(
-        &block.body.randao_reveal,
+        block.body().randao_reveal(),
         get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
@@ -156,14 +170,14 @@ where
             get_pubkey(proposer_index)
                 .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
-        )?,
+        ),
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_2,
             get_pubkey(proposer_index)
                 .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
-        )?,
+        ),
     ))
 }
 
@@ -173,21 +187,17 @@ fn block_header_signature_set<'a, T: EthSpec>(
     signed_header: &'a SignedBeaconBlockHeader,
     pubkey: Cow<'a, PublicKey>,
     spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>> {
+) -> SignatureSet<'a> {
     let domain = spec.get_domain(
         signed_header.message.slot.epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = signed_header.message.signing_root(domain);
 
-    Ok(SignatureSet::single_pubkey(
-        &signed_header.signature,
-        pubkey,
-        message,
-    ))
+    SignatureSet::single_pubkey(&signed_header.signature, pubkey, message)
 }
 
 /// Returns the signature set for the given `indexed_attestation`.
@@ -202,19 +212,18 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let pubkeys = indexed_attestation
-        .attesting_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            Ok(get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?)
-        })
-        .collect::<Result<_>>()?;
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
+    for &validator_idx in &indexed_attestation.attesting_indices {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
         Domain::BeaconAttester,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = indexed_attestation.data.signing_root(domain);
@@ -236,13 +245,12 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let pubkeys = indexed_attestation
-        .attesting_indices
-        .into_iter()
-        .map(|&validator_idx| {
-            Ok(get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?)
-        })
-        .collect::<Result<_>>()?;
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
+    for &validator_idx in &indexed_attestation.attesting_indices {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
 
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
@@ -315,8 +323,8 @@ where
     let domain = spec.get_domain(
         exit.epoch,
         Domain::VoluntaryExit,
-        &state.fork,
-        state.genesis_validators_root,
+        &state.fork(),
+        state.genesis_validators_root(),
     );
 
     let message = exit.signing_root(domain);
@@ -391,4 +399,121 @@ where
         get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
         message,
     ))
+}
+
+pub fn signed_sync_aggregate_selection_proof_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_contribution_and_proof: &'a SignedContributionAndProof<T>,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let slot = signed_contribution_and_proof.message.contribution.slot;
+
+    let domain = spec.get_domain(
+        slot.epoch(T::slots_per_epoch()),
+        Domain::SyncCommitteeSelectionProof,
+        fork,
+        genesis_validators_root,
+    );
+    let selection_data = SyncAggregatorSelectionData {
+        slot,
+        subcommittee_index: signed_contribution_and_proof
+            .message
+            .contribution
+            .subcommittee_index,
+    };
+    let message = selection_data.signing_root(domain);
+    let signature = &signed_contribution_and_proof.message.selection_proof;
+    let validator_index = signed_contribution_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single_pubkey(
+        signature,
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        message,
+    ))
+}
+
+pub fn signed_sync_aggregate_signature_set<'a, T, F>(
+    get_pubkey: F,
+    signed_contribution_and_proof: &'a SignedContributionAndProof<T>,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let epoch = signed_contribution_and_proof
+        .message
+        .contribution
+        .slot
+        .epoch(T::slots_per_epoch());
+
+    let domain = spec.get_domain(
+        epoch,
+        Domain::ContributionAndProof,
+        fork,
+        genesis_validators_root,
+    );
+    let message = signed_contribution_and_proof.message.signing_root(domain);
+    let signature = &signed_contribution_and_proof.signature;
+    let validator_index = signed_contribution_and_proof.message.aggregator_index;
+
+    Ok(SignatureSet::single_pubkey(
+        signature,
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        message,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sync_committee_contribution_signature_set_from_pubkeys<'a, T, F>(
+    get_pubkey: F,
+    pubkey_bytes: &[PublicKeyBytes],
+    signature: &'a AggregateSignature,
+    epoch: Epoch,
+    beacon_block_root: Hash256,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(&PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
+{
+    let mut pubkeys = Vec::with_capacity(T::SyncSubcommitteeSize::to_usize());
+    for pubkey in pubkey_bytes {
+        pubkeys.push(get_pubkey(pubkey).ok_or_else(|| Error::ValidatorPubkeyUnknown(*pubkey))?);
+    }
+
+    let domain = spec.get_domain(epoch, Domain::SyncCommittee, &fork, genesis_validators_root);
+
+    let message = beacon_block_root.signing_root(domain);
+
+    Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
+}
+
+pub fn sync_committee_message_set_from_pubkeys<'a, T>(
+    pubkey: Cow<'a, PublicKey>,
+    signature: &'a AggregateSignature,
+    epoch: Epoch,
+    beacon_block_root: Hash256,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+{
+    let domain = spec.get_domain(epoch, Domain::SyncCommittee, &fork, genesis_validators_root);
+
+    let message = beacon_block_root.signing_root(domain);
+
+    Ok(SignatureSet::single_pubkey(signature, pubkey, message))
 }

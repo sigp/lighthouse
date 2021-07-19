@@ -1,4 +1,4 @@
-use types::*;
+use types::{BeaconStateError, InconsistentFork};
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {
@@ -10,6 +10,7 @@ pub enum EpochProcessingError {
     InclusionDistanceZero,
     ValidatorStatusesInconsistent,
     DeltasInconsistent,
+    DeltaOutOfBounds(usize),
     /// Unable to get the inclusion distance for a validator that should have an inclusion
     /// distance. This indicates an internal inconsistency.
     ///
@@ -19,6 +20,9 @@ pub enum EpochProcessingError {
     InclusionError(InclusionError),
     SszTypesError(ssz_types::Error),
     ArithError(safe_arith::ArithError),
+    InconsistentStateFork(InconsistentFork),
+    InvalidJustificationBit(ssz_types::Error),
+    InvalidFlagIndex(usize),
 }
 
 impl From<InclusionError> for EpochProcessingError {

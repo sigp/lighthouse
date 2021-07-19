@@ -182,7 +182,7 @@ fn concurrency() {
     let harness = Harness::new();
 
     let val_dir = harness.create_and_test(&BuildConfig::default());
-    let path = val_dir.dir().clone();
+    let path = val_dir.dir().to_owned();
 
     // Should not re-open whilst opened after build.
     ValidatorDir::open(&path).unwrap_err();

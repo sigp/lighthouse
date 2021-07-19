@@ -14,7 +14,9 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 #[derivative(PartialEq, Eq)]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,

@@ -29,7 +29,7 @@ pub trait EnrExt {
 /// Extend ENR CombinedPublicKey for libp2p types.
 pub trait CombinedKeyPublicExt {
     /// Converts the publickey into a peer id, without consuming the key.
-    fn into_peer_id(&self) -> PeerId;
+    fn as_peer_id(&self) -> PeerId;
 }
 
 /// Extend ENR CombinedKey for conversion to libp2p keys.
@@ -41,7 +41,7 @@ pub trait CombinedKeyExt {
 impl EnrExt for Enr {
     /// The libp2p `PeerId` for the record.
     fn peer_id(&self) -> PeerId {
-        self.public_key().into_peer_id()
+        self.public_key().as_peer_id()
     }
 
     /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
@@ -88,14 +88,14 @@ impl EnrExt for Enr {
             if let Some(udp) = self.udp() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
-                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
 
             if let Some(tcp) = self.tcp() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
-                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -103,7 +103,7 @@ impl EnrExt for Enr {
             if let Some(udp6) = self.udp6() {
                 let mut multiaddr: Multiaddr = ip6.into();
                 multiaddr.push(Protocol::Udp(udp6));
-                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
 
@@ -128,7 +128,7 @@ impl EnrExt for Enr {
             if let Some(tcp) = self.tcp() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
-                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -154,7 +154,7 @@ impl EnrExt for Enr {
             if let Some(udp) = self.udp() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
-                multiaddr.push(Protocol::P2p(peer_id.clone().into()));
+                multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
         }
@@ -195,7 +195,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
     /// Converts the publickey into a peer id, without consuming the key.
     ///
     /// This is only available with the `libp2p` feature flag.
-    fn into_peer_id(&self) -> PeerId {
+    fn as_peer_id(&self) -> PeerId {
         match self {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_bytes();
@@ -221,8 +221,9 @@ impl CombinedKeyExt for CombinedKey {
     fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str> {
         match key {
             Keypair::Secp256k1(key) => {
-                let secret = discv5::enr::k256::ecdsa::SigningKey::new(&key.secret().to_bytes())
-                    .expect("libp2p key must be valid");
+                let secret =
+                    discv5::enr::k256::ecdsa::SigningKey::from_bytes(&key.secret().to_bytes())
+                        .expect("libp2p key must be valid");
                 Ok(CombinedKey::Secp256k1(secret))
             }
             Keypair::Ed25519(key) => {
@@ -277,7 +278,7 @@ mod tests {
     fn test_secp256k1_peer_id_conversion() {
         let sk_hex = "df94a73d528434ce2309abb19c16aedb535322797dbd59c157b1e04095900f48";
         let sk_bytes = hex::decode(sk_hex).unwrap();
-        let secret_key = discv5::enr::k256::ecdsa::SigningKey::new(&sk_bytes).unwrap();
+        let secret_key = discv5::enr::k256::ecdsa::SigningKey::from_bytes(&sk_bytes).unwrap();
 
         let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
@@ -298,7 +299,7 @@ mod tests {
         let sk_bytes = hex::decode(sk_hex).unwrap();
         let secret = discv5::enr::ed25519_dalek::SecretKey::from_bytes(&sk_bytes).unwrap();
         let public = discv5::enr::ed25519_dalek::PublicKey::from(&secret);
-        let keypair = discv5::enr::ed25519_dalek::Keypair { public, secret };
+        let keypair = discv5::enr::ed25519_dalek::Keypair { secret, public };
 
         let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
         let ed25519_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();

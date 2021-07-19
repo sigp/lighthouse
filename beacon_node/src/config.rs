@@ -1,17 +1,17 @@
-use beacon_chain::builder::PUBKEY_CACHE_FILENAME;
 use clap::ArgMatches;
-use clap_utils::BAD_TESTNET_DIR_MESSAGE;
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
@@ -45,13 +45,6 @@ pub fn get_config<E: EthSpec>(
                 .ok_or("Failed to get freezer db path")?,
         )
         .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-
-        // Remove the pubkey cache file if it exists
-        let pubkey_cache_file = client_config.data_dir.join(PUBKEY_CACHE_FILENAME);
-        if pubkey_cache_file.exists() {
-            fs::remove_file(&pubkey_cache_file)
-                .map_err(|e| format!("Failed to remove {:?}: {:?}", pubkey_cache_file, e))?;
-        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -114,6 +107,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_origin = Some(allow_origin.to_string());
     }
 
+    if cli_args.is_present("http-disable-legacy-spec") {
+        client_config.http_api.serve_legacy_spec = false;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
@@ -143,6 +140,17 @@ pub fn get_config<E: EthSpec>(
         client_config.http_metrics.allow_origin = Some(allow_origin.to_string());
     }
 
+    /*
+     * Explorer metrics
+     */
+    if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        client_config.monitoring_api = Some(monitoring_api::Config {
+            db_path: None,
+            freezer_db_path: None,
+            monitoring_endpoint: monitoring_endpoint.to_string(),
+        });
+    }
+
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
     if cli_args.is_present("staking") {
@@ -150,6 +158,11 @@ pub fn get_config<E: EthSpec>(
             log,
             "Running HTTP server on port {}", client_config.http_api.listen_port
         );
+    }
+
+    // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
+    if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        client_config.http_metrics.allocator_metrics_enabled = false;
     }
 
     /*
@@ -171,17 +184,22 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Defines the URL to reach the eth1 node.
-    if let Some(val) = cli_args.value_of("eth1-endpoint") {
+    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
         warn!(
             log,
             "The --eth1-endpoint flag is deprecated";
             "msg" => "please use --eth1-endpoints instead"
         );
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = vec![val.to_string()];
-    } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
+        client_config.eth1.endpoints = vec![SensitiveUrl::parse(endpoint)
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
+    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = val.split(',').map(String::from).collect();
+        client_config.eth1.endpoints = endpoints
+            .split(',')
+            .map(|s| SensitiveUrl::parse(s))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -267,8 +285,11 @@ pub fn get_config<E: EthSpec>(
         "address" => &client_config.eth1.deposit_contract_address
     );
 
-    if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
-        client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+    // Only append network config bootnodes if discovery is not disabled
+    if !client_config.network.disable_discovery {
+        if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
+            client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+        }
     }
 
     if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
@@ -427,7 +448,7 @@ pub fn get_config<E: EthSpec>(
 pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
-    data_dir: &PathBuf,
+    data_dir: &Path,
     log: &Logger,
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
@@ -643,7 +664,7 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
 
 /// A bit of hack to find an unused port.
 ///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// Does not guarantee that the given port is unused after the function exits, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
 ///
 /// Used for passing unused ports to libp2 so that lighthouse won't have to update

@@ -1,7 +1,6 @@
 use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::NetworkGlobals;
-use futures::prelude::*;
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -64,26 +63,35 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         }
 
         // Perform post-genesis logging.
-        while interval.next().await.is_some() {
+        loop {
+            interval.tick().await;
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
 
-            let head_info = beacon_chain.head_info().map_err(|e| {
-                error!(
-                    log,
-                    "Failed to get beacon chain head info";
-                    "error" => format!("{:?}", e)
-                )
-            })?;
+            let head_info = match beacon_chain.head_info() {
+                Ok(head_info) => head_info,
+                Err(e) => {
+                    error!(log, "Failed to get beacon chain head info"; "error" => format!("{:?}", e));
+                    break;
+                }
+            };
 
             let head_slot = head_info.slot;
-            let current_slot = beacon_chain.slot().map_err(|e| {
-                error!(
-                    log,
-                    "Unable to read current slot";
-                    "error" => format!("{:?}", e)
-                )
-            })?;
+
+            metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
+
+            let current_slot = match beacon_chain.slot() {
+                Ok(slot) => slot,
+                Err(e) => {
+                    error!(
+                        log,
+                        "Unable to read current slot";
+                        "error" => format!("{:?}", e)
+                    );
+                    break;
+                }
+            };
+
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
             let finalized_epoch = head_info.finalized_checkpoint.epoch;
             let finalized_root = head_info.finalized_checkpoint.root;
@@ -118,6 +126,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             // Log if we are syncing
             if sync_state.is_syncing() {
+                metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 let distance = format!(
                     "{} slots ({})",
                     head_distance.as_u64(),
@@ -146,6 +155,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     );
                 }
             } else if sync_state.is_synced() {
+                metrics::set_gauge(&metrics::IS_SYNCED, 1);
                 let block_info = if current_slot > head_slot {
                     "   …  empty".to_string()
                 } else {
@@ -162,6 +172,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "slot" => current_slot,
                 );
             } else {
+                metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     log,
                     "Searching for peers";
@@ -175,11 +186,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             eth1_logging(&beacon_chain, &log);
         }
-        Ok::<(), ()>(())
     };
 
     // run the notifier on the current executor
-    executor.spawn(interval_future.unwrap_or_else(|_| ()), "notifier");
+    executor.spawn(interval_future, "notifier");
 
     Ok(())
 }
@@ -218,7 +228,6 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
                     warn!(
                         log,
                         "Syncing eth1 block cache";
-                        "msg" => "sync can take longer when using remote eth1 nodes",
                         "est_blocks_remaining" => distance,
                     );
                 }

@@ -94,6 +94,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       node is not synced.",
                 ),
         )
+        .arg(
+            Arg::with_name("use-long-timeouts")
+                .long("use-long-timeouts")
+                .help("If present, the validator client will use longer timeouts for requests \
+                        made to the beacon node. This flag is generally not recommended, \
+                        longer timeouts can cause missed duties when fallbacks are used.")
+        )
         // This overwrites the graffiti configured in the beacon node.
         .arg(
             Arg::with_name("graffiti")
@@ -101,6 +108,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specify your custom graffiti to be included in blocks.")
                 .value_name("GRAFFITI")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("graffiti-file")
+                .long("graffiti-file")
+                .help("Specify a graffiti file to load validator graffitis from.")
+                .value_name("GRAFFITI-FILE")
+                .takes_value(true)
+                .conflicts_with("graffiti")
         )
         /* REST API related arguments */
         .arg(
@@ -171,6 +186,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5064).")
+                .takes_value(true),
+        )
+        /*
+         * Explorer metrics
+         */
+         .arg(
+            Arg::with_name("monitoring-endpoint")
+                .long("monitoring-endpoint")
+                .value_name("ADDRESS")
+                .help("Enables the monitoring service for sending system metrics to a remote endpoint. \
+                This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
+                This flag sets the endpoint where the beacon node metrics will be sent. \
+                Note: This will send information to a remote sever which may identify and associate your \
+                validators, IP address and other personal information. Always use a HTTPS connection \
+                and never provide an untrusted URL.")
                 .takes_value(true),
         )
 }

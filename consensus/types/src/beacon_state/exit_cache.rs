@@ -11,22 +11,18 @@ pub struct ExitCache {
 }
 
 impl ExitCache {
-    /// Build the cache if not initialized.
-    pub fn build(
-        &mut self,
-        validators: &[Validator],
-        spec: &ChainSpec,
-    ) -> Result<(), BeaconStateError> {
-        if self.initialized {
-            return Ok(());
-        }
-
-        self.initialized = true;
+    /// Initialize a new cache for the given list of validators.
+    pub fn new(validators: &[Validator], spec: &ChainSpec) -> Result<Self, BeaconStateError> {
+        let mut exit_cache = ExitCache {
+            initialized: true,
+            ..ExitCache::default()
+        };
         // Add all validators with a non-default exit epoch to the cache.
         validators
             .iter()
             .filter(|validator| validator.exit_epoch != spec.far_future_epoch)
-            .try_for_each(|validator| self.record_validator_exit(validator.exit_epoch))
+            .try_for_each(|validator| exit_cache.record_validator_exit(validator.exit_epoch))?;
+        Ok(exit_cache)
     }
 
     /// Check that the cache is initialized and return an error if it is not.

@@ -1,4 +1,4 @@
-use super::Worker;
+use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::BlockResultSender;
 use crate::metrics;
@@ -6,7 +6,8 @@ use crate::sync::manager::SyncMessage;
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::{BeaconChainTypes, BlockError, ChainSegmentResult};
 use eth2_libp2p::PeerId;
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, error, info, trace, warn};
+use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a block processing request, either a batch or a single block.
@@ -27,10 +28,33 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         block: SignedBeaconBlock<T::EthSpec>,
         result_tx: BlockResultSender<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
     ) {
+        let slot = block.slot();
         let block_result = self.chain.process_block(block);
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+
+        if let Ok(root) = &block_result {
+            info!(
+                self.log,
+                "New RPC block received";
+                "slot" => slot,
+                "hash" => %root
+            );
+
+            if reprocess_tx
+                .try_send(ReprocessQueueMessage::BlockImported(*root))
+                .is_err()
+            {
+                error!(
+                    self.log,
+                    "Failed to inform block import";
+                    "source" => "rpc",
+                    "block_root" => %root,
+                )
+            };
+        }
 
         if result_tx.send(block_result).is_err() {
             crit!(self.log, "Failed return sync block result");
@@ -47,8 +71,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         match process_id {
             // this a request from the range sync
             ProcessId::RangeBatchId(chain_id, epoch) => {
-                let start_slot = downloaded_blocks.first().map(|b| b.message.slot.as_u64());
-                let end_slot = downloaded_blocks.last().map(|b| b.message.slot.as_u64());
+                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
                 let result = match self.process_blocks(downloaded_blocks.iter()) {

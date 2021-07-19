@@ -16,7 +16,7 @@ fn block_same_slot() {
 
     let pk = pubkey(0);
 
-    slashing_db.register_validator(&pk).unwrap();
+    slashing_db.register_validator(pk).unwrap();
 
     // A stream of blocks all with the same slot.
     let num_blocks = 10;
@@ -37,7 +37,7 @@ fn attestation_same_target() {
 
     let pk = pubkey(0);
 
-    slashing_db.register_validator(&pk).unwrap();
+    slashing_db.register_validator(pk).unwrap();
 
     // A stream of attestations all with the same target.
     let num_attestations = 10;
@@ -64,7 +64,7 @@ fn attestation_surround_fest() {
 
     let pk = pubkey(0);
 
-    slashing_db.register_validator(&pk).unwrap();
+    slashing_db.register_validator(pk).unwrap();
 
     // A stream of attestations that all surround each other.
     let num_attestations = 10;

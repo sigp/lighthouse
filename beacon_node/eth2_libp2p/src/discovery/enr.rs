@@ -174,6 +174,21 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && local_enr.get(BITFIELD_ENR_KEY) == disk_enr.get(BITFIELD_ENR_KEY)
 }
 
+/// Loads enr from the given directory
+pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
+    let enr_f = dir.join(ENR_FILENAME);
+    let mut enr_file =
+        File::open(enr_f).map_err(|e| format!("Failed to open enr file: {:?}", e))?;
+    let mut enr_string = String::new();
+    match enr_file.read_to_string(&mut enr_string) {
+        Err(_) => Err("Could not read ENR from file".to_string()),
+        Ok(_) => match Enr::from_str(&enr_string) {
+            Ok(disk_enr) => Ok(disk_enr),
+            Err(e) => Err(format!("ENR from file could not be decoded: {:?}", e)),
+        },
+    }
+}
+
 /// Saves an ENR to disk
 pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
     let _ = std::fs::create_dir_all(dir);

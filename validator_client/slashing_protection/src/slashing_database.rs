@@ -5,12 +5,13 @@ use crate::interchange::{
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
+use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::Duration;
-use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKey, SignedRoot, Slot};
+use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
 
 type Pool = r2d2::Pool<SqliteConnectionManager>;
 
@@ -46,13 +47,13 @@ impl SlashingDatabase {
     ///
     /// Error if a database (or any file) already exists at `path`.
     pub fn create(path: &Path) -> Result<Self, NotSafe> {
-        let file = OpenOptions::new()
+        let _file = OpenOptions::new()
             .write(true)
             .read(true)
             .create_new(true)
             .open(path)?;
 
-        Self::set_db_file_permissions(&file)?;
+        restrict_file_permissions(path).map_err(|_| NotSafe::PermissionsError)?;
         let conn_pool = Self::open_conn_pool(path)?;
         let conn = conn_pool.get()?;
 
@@ -121,21 +122,6 @@ impl SlashingDatabase {
         Ok(())
     }
 
-    /// Set the database file to readable and writable only by its owner (0600).
-    #[cfg(unix)]
-    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut perm = file.metadata()?.permissions();
-        perm.set_mode(0o600);
-        file.set_permissions(perm)?;
-        Ok(())
-    }
-
-    // TODO: add support for Windows ACLs
-    #[cfg(windows)]
-    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {}
-
     /// Creates an empty transaction and drops it. Used to test whether the database is locked.
     pub fn test_transaction(&self) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
@@ -147,14 +133,14 @@ impl SlashingDatabase {
     ///
     /// This allows the validator to record their signatures in the database, and check
     /// for slashings.
-    pub fn register_validator(&self, validator_pk: &PublicKey) -> Result<(), NotSafe> {
-        self.register_validators(std::iter::once(validator_pk))
+    pub fn register_validator(&self, validator_pk: PublicKeyBytes) -> Result<(), NotSafe> {
+        self.register_validators(std::iter::once(&validator_pk))
     }
 
     /// Register multiple validators with the slashing protection database.
     pub fn register_validators<'a>(
         &self,
-        public_keys: impl Iterator<Item = &'a PublicKey>,
+        public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
@@ -168,13 +154,13 @@ impl SlashingDatabase {
     /// The caller must commit the transaction for the changes to be persisted.
     pub fn register_validators_in_txn<'a>(
         &self,
-        public_keys: impl Iterator<Item = &'a PublicKey>,
+        public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
             if self.get_validator_id_opt(&txn, pubkey)?.is_none() {
-                stmt.execute(&[pubkey.to_hex_string()])?;
+                stmt.execute(&[pubkey.as_hex_string()])?;
             }
         }
         Ok(())
@@ -183,7 +169,7 @@ impl SlashingDatabase {
     /// Check that all of the given validators are registered.
     pub fn check_validator_registrations<'a>(
         &self,
-        mut public_keys: impl Iterator<Item = &'a PublicKey>,
+        mut public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<(), NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
@@ -195,7 +181,7 @@ impl SlashingDatabase {
     ///
     /// This is NOT the same as a validator index, and depends on the ordering that validators
     /// are registered with the slashing protection database (and may vary between machines).
-    pub fn get_validator_id(&self, public_key: &PublicKey) -> Result<i64, NotSafe> {
+    pub fn get_validator_id(&self, public_key: &PublicKeyBytes) -> Result<i64, NotSafe> {
         let mut conn = self.conn_pool.get()?;
         let txn = conn.transaction()?;
         self.get_validator_id_in_txn(&txn, public_key)
@@ -204,22 +190,22 @@ impl SlashingDatabase {
     fn get_validator_id_in_txn(
         &self,
         txn: &Transaction,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
     ) -> Result<i64, NotSafe> {
         self.get_validator_id_opt(txn, public_key)?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(public_key.clone()))
+            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))
     }
 
     /// Optional version of `get_validator_id`.
     fn get_validator_id_opt(
         &self,
         txn: &Transaction,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
     ) -> Result<Option<i64>, NotSafe> {
         Ok(txn
             .query_row(
                 "SELECT id FROM validators WHERE public_key = ?1",
-                params![&public_key.to_hex_string()],
+                params![&public_key.as_hex_string()],
                 |row| row.get(0),
             )
             .optional()?)
@@ -229,7 +215,7 @@ impl SlashingDatabase {
     fn check_block_proposal(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
@@ -278,7 +264,7 @@ impl SlashingDatabase {
     fn check_attestation(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -408,7 +394,7 @@ impl SlashingDatabase {
     fn insert_block_proposal(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
     ) -> Result<(), NotSafe> {
@@ -429,7 +415,7 @@ impl SlashingDatabase {
     fn insert_attestation(
         &self,
         txn: &Transaction,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -457,7 +443,7 @@ impl SlashingDatabase {
     /// This is the safe, externally-callable interface for checking block proposals.
     pub fn check_and_insert_block_proposal(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         block_header: &BeaconBlockHeader,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
@@ -471,7 +457,7 @@ impl SlashingDatabase {
     /// As for `check_and_insert_block_proposal` but without requiring the whole `BeaconBlockHeader`.
     pub fn check_and_insert_block_signing_root(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
@@ -490,7 +476,7 @@ impl SlashingDatabase {
     /// Transactional variant of `check_and_insert_block_signing_root`.
     pub fn check_and_insert_block_signing_root_txn(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         signing_root: SigningRoot,
         txn: &Transaction,
@@ -511,7 +497,7 @@ impl SlashingDatabase {
     /// This is the safe, externally-callable interface for checking attestations.
     pub fn check_and_insert_attestation(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         attestation: &AttestationData,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
@@ -527,7 +513,7 @@ impl SlashingDatabase {
     /// As for `check_and_insert_attestation` but without requiring the whole `AttestationData`.
     pub fn check_and_insert_attestation_signing_root(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -548,7 +534,7 @@ impl SlashingDatabase {
     /// Transactional variant of `check_and_insert_attestation_signing_root`.
     fn check_and_insert_attestation_signing_root_txn(
         &self,
-        validator_pubkey: &PublicKey,
+        validator_pubkey: &PublicKeyBytes,
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
@@ -576,8 +562,8 @@ impl SlashingDatabase {
 
     /// Import slashing protection from another client in the interchange format.
     ///
-    /// Return a vector of public keys and errors for any validators whose data could not be
-    /// imported.
+    /// This function will atomically import the entire interchange, failing if *any*
+    /// record cannot be imported.
     pub fn import_interchange_info(
         &self,
         interchange: Interchange,
@@ -595,25 +581,33 @@ impl SlashingDatabase {
             });
         }
 
+        // Create a single transaction for the entire batch, which will only be committed if
+        // all records are imported successfully.
         let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
 
         let mut import_outcomes = vec![];
+        let mut commit = true;
 
         for record in interchange.data {
-            let pubkey = record.pubkey.clone();
-            let txn = conn.transaction()?;
+            let pubkey = record.pubkey;
             match self.import_interchange_record(record, &txn) {
                 Ok(summary) => {
                     import_outcomes.push(InterchangeImportOutcome::Success { pubkey, summary });
-                    txn.commit()?;
                 }
                 Err(error) => {
                     import_outcomes.push(InterchangeImportOutcome::Failure { pubkey, error });
+                    commit = false;
                 }
             }
         }
 
-        Ok(import_outcomes)
+        if commit {
+            txn.commit()?;
+            Ok(import_outcomes)
+        } else {
+            Err(InterchangeError::AtomicBatchAborted(import_outcomes))
+        }
     }
 
     pub fn import_interchange_record(
@@ -662,15 +656,16 @@ impl SlashingDatabase {
             )?;
         }
 
-        // Prune attestations less than the min source and target from this interchange file.
-        // See the rationale for blocks above.
-        if let Some((new_min_source, new_min_target)) = record
+        // Prune attestations less than the min target from this interchange file.
+        // See the rationale for blocks above, and the doc comment for `prune_signed_attestations`
+        // for why we don't need to separately prune for the min source.
+        if let Some(new_min_target) = record
             .signed_attestations
             .iter()
-            .map(|attestation| (attestation.source_epoch, attestation.target_epoch))
+            .map(|attestation| attestation.target_epoch)
             .min()
         {
-            self.prune_signed_attestations(&record.pubkey, new_min_source, new_min_target, txn)?;
+            self.prune_signed_attestations(&record.pubkey, new_min_target, txn)?;
         }
 
         let summary = self.validator_summary(&record.pubkey, txn)?;
@@ -754,9 +749,9 @@ impl SlashingDatabase {
     }
 
     /// Remove all blocks for `public_key` with slots less than `new_min_slot`.
-    pub fn prune_signed_blocks(
+    fn prune_signed_blocks(
         &self,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
         new_min_slot: Slot,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
@@ -764,36 +759,79 @@ impl SlashingDatabase {
 
         txn.execute(
             "DELETE FROM signed_blocks
-             WHERE validator_id = ?1 AND slot < ?2",
+             WHERE
+                validator_id = ?1 AND
+                slot < ?2 AND
+                slot < (SELECT MAX(slot)
+                        FROM signed_blocks
+                        WHERE validator_id = ?1)",
             params![validator_id, new_min_slot],
         )?;
 
         Ok(())
     }
 
-    /// Remove all attestations for `public_key` with
-    /// `(source, target) < (new_min_source, new_min_target)`.
-    pub fn prune_signed_attestations(
+    /// Prune the signed blocks table for the given public keys.
+    pub fn prune_all_signed_blocks<'a>(
         &self,
-        public_key: &PublicKey,
-        new_min_source: Epoch,
+        mut public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
+        new_min_slot: Slot,
+    ) -> Result<(), NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        public_keys.try_for_each(|pubkey| self.prune_signed_blocks(pubkey, new_min_slot, &txn))?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Remove all attestations for `public_key` with `target < new_min_target`.
+    ///
+    /// Pruning every attestation with target less than `new_min_target` also has the effect of
+    /// making the new minimum source the source of the attestation with `target == new_min_target`
+    /// (if any exists). This is exactly what's required for pruning after importing an interchange
+    /// file, whereby we want to update the new minimum source to the min source from the
+    /// interchange.
+    ///
+    /// If the `new_min_target` was plucked out of thin air and doesn't necessarily correspond to
+    /// an extant attestation then this function is still safe. It will never delete *all* the
+    /// attestations in the database.
+    fn prune_signed_attestations(
+        &self,
+        public_key: &PublicKeyBytes,
         new_min_target: Epoch,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
 
-        // Delete attestations with source *and* target less than the minimums.
-        // Assuming `(new_min_source, new_min_target)` was successfully
-        // inserted into the database, then any other attestation in the database
-        // can't have just its source or just its target less than the new minimum.
-        // I.e. the following holds:
-        //   a.source < new_min_source <--> a.target < new_min_target
+        // The following holds:
+        //   a.target < new_min_target --> a.source <= new_min_source
+        //
+        // The `MAX(target_epoch)` acts as a guard to prevent accidentally clearing the DB.
         txn.execute(
             "DELETE FROM signed_attestations
-             WHERE validator_id = ?1 AND source_epoch < ?2 AND target_epoch < ?3",
-            params![validator_id, new_min_source, new_min_target],
+             WHERE
+                validator_id = ?1 AND
+                target_epoch < ?2 AND
+                target_epoch < (SELECT MAX(target_epoch)
+                                FROM signed_attestations
+                                WHERE validator_id = ?1)",
+            params![validator_id, new_min_target],
         )?;
 
+        Ok(())
+    }
+
+    /// Prune the signed attestations table for the given validator keys.
+    pub fn prune_all_signed_attestations<'a>(
+        &self,
+        mut public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
+        new_min_target: Epoch,
+    ) -> Result<(), NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
+        public_keys
+            .try_for_each(|pubkey| self.prune_signed_attestations(pubkey, new_min_target, &txn))?;
+        txn.commit()?;
         Ok(())
     }
 
@@ -809,7 +847,7 @@ impl SlashingDatabase {
     /// Get a summary of a validator's slashing protection data for consumption by the user.
     pub fn validator_summary(
         &self,
-        public_key: &PublicKey,
+        public_key: &PublicKeyBytes,
         txn: &Transaction,
     ) -> Result<ValidatorSummary, NotSafe> {
         let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
@@ -862,11 +900,11 @@ pub struct ValidatorSummary {
 #[derive(Debug)]
 pub enum InterchangeImportOutcome {
     Success {
-        pubkey: PublicKey,
+        pubkey: PublicKeyBytes,
         summary: ValidatorSummary,
     },
     Failure {
-        pubkey: PublicKey,
+        pubkey: PublicKeyBytes,
         error: NotSafe,
     },
 }
@@ -884,12 +922,14 @@ pub enum InterchangeError {
         interchange_file: Hash256,
         client: Hash256,
     },
-    MinimalAttestationSourceAndTargetInconsistent,
+    MinAndMaxInconsistent,
     SQLError(String),
     SQLPoolError(r2d2::Error),
     SerdeJsonError(serde_json::Error),
     InvalidPubkey(String),
     NotSafe(NotSafe),
+    /// One or more records were found to be slashable, so the whole batch was aborted.
+    AtomicBatchAborted(Vec<InterchangeImportOutcome>),
 }
 
 impl From<NotSafe> for InterchangeError {
@@ -937,7 +977,7 @@ mod tests {
         let _db1 = SlashingDatabase::create(&file).unwrap();
 
         let db2 = SlashingDatabase::open(&file).unwrap();
-        db2.register_validator(&pubkey(0)).unwrap_err();
+        db2.register_validator(pubkey(0)).unwrap_err();
     }
 
     // Attempting to create the same database twice should error.
@@ -960,11 +1000,9 @@ mod tests {
             assert_eq!(db.conn_pool.max_size(), POOL_SIZE);
             assert_eq!(db.conn_pool.connection_timeout(), CONNECTION_TIMEOUT);
             let conn = db.conn_pool.get().unwrap();
-            assert_eq!(
-                conn.pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
-                    .unwrap(),
-                true
-            );
+            assert!(conn
+                .pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
+                .unwrap());
             assert_eq!(
                 conn.pragma_query_value(None, "locking_mode", |row| { row.get::<_, String>(0) })
                     .unwrap()

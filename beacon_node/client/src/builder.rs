@@ -1,10 +1,12 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
+    state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
@@ -12,11 +14,11 @@ use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn};
-use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -120,7 +122,6 @@ where
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
-        let data_dir = config.data_dir.clone();
         let disabled_forks = config.disabled_forks.clone();
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
@@ -139,7 +140,6 @@ where
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
-            .data_dir(data_dir)
             .custom_spec(spec.clone())
             .chain_config(chain_config)
             .disabled_forks(disabled_forks)
@@ -195,7 +195,7 @@ where
                     "Starting from known genesis state";
                 );
 
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
@@ -374,6 +374,22 @@ where
         SlasherService::new(beacon_chain, network_send).run(&context.executor)
     }
 
+    /// Start the explorer client which periodically sends beacon
+    /// and system metrics to the configured endpoint.
+    pub fn monitoring_client(self, config: &monitoring_api::Config) -> Result<Self, String> {
+        let context = self
+            .runtime_context
+            .as_ref()
+            .ok_or("monitoring_client requires a runtime_context")?
+            .service_context("monitoring_client".into());
+        let monitoring_client = MonitoringHttpClient::new(config, context.log().clone())?;
+        monitoring_client.auto_update(
+            context.executor,
+            vec![ProcessType::BeaconNode, ProcessType::System],
+        );
+        Ok(self)
+    }
+
     /// Immediately starts the service that periodically logs information each slot.
     pub fn notifier(self) -> Result<Self, String> {
         let context = self
@@ -481,6 +497,12 @@ where
             self.start_slasher_service()?;
         }
 
+        if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            let state_advance_context = runtime_context.service_context("state_advance".into());
+            let log = state_advance_context.log().clone();
+            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone(), log);
+        }
+
         Ok(Client {
             beacon_chain: self.beacon_chain,
             network_globals: self.network_globals,
@@ -537,6 +559,7 @@ where
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
         mut self,
+        datadir: &Path,
         hot_path: &Path,
         cold_path: &Path,
         config: StoreConfig,
@@ -554,9 +577,20 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        let store = HotColdDB::open(hot_path, cold_path, config, spec, context.log().clone())
-            .map_err(|e| format!("Unable to open database: {:?}", e))?;
-        self.store = Some(Arc::new(store));
+        let schema_upgrade = |db, from, to| {
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to)
+        };
+
+        let store = HotColdDB::open(
+            hot_path,
+            cold_path,
+            schema_upgrade,
+            config,
+            spec,
+            context.log().clone(),
+        )
+        .map_err(|e| format!("Unable to open database: {:?}", e))?;
+        self.store = Some(store);
         Ok(self)
     }
 }

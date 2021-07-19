@@ -5,7 +5,7 @@ use eth1::{DepositLog, Eth1Block, Service as Eth1Service};
 use slog::{debug, error, info, trace, Logger};
 use state_processing::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
-    per_block_processing::process_deposit, process_activations,
+    per_block_processing::process_operations::process_deposit, process_activations,
 };
 use std::sync::{
     atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -190,7 +190,7 @@ impl Eth1GenesisService {
                         .get_active_validator_indices(E::genesis_epoch(), &spec)
                         .map_err(|e| format!("Genesis validators error: {:?}", e))?
                         .len(),
-                    "genesis_time" => genesis_state.genesis_time,
+                    "genesis_time" => genesis_state.genesis_time(),
                 );
                 break Ok(genesis_state);
             }

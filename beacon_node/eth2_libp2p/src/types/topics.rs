@@ -81,8 +81,8 @@ impl GossipTopic {
     pub fn new(kind: GossipKind, encoding: GossipEncoding, fork_digest: [u8; 4]) -> Self {
         GossipTopic {
             encoding,
-            kind,
             fork_digest,
+            kind,
         }
     }
 
@@ -135,8 +135,8 @@ impl GossipTopic {
 
             return Ok(GossipTopic {
                 encoding,
-                kind,
                 fork_digest,
+                kind,
             });
         }
 
@@ -144,19 +144,19 @@ impl GossipTopic {
     }
 }
 
-impl Into<Topic> for GossipTopic {
-    fn into(self) -> Topic {
-        Topic::new(self)
+impl From<GossipTopic> for Topic {
+    fn from(topic: GossipTopic) -> Topic {
+        Topic::new(topic)
     }
 }
 
-impl Into<String> for GossipTopic {
-    fn into(self) -> String {
-        let encoding = match self.encoding {
+impl From<GossipTopic> for String {
+    fn from(topic: GossipTopic) -> String {
+        let encoding = match topic.encoding {
             GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
         };
 
-        let kind = match self.kind {
+        let kind = match topic.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
@@ -167,7 +167,7 @@ impl Into<String> for GossipTopic {
         format!(
             "/{}/{}/{}/{}",
             TOPIC_PREFIX,
-            hex::encode(self.fork_digest),
+            hex::encode(topic.fork_digest),
             kind,
             encoding
         )
@@ -195,7 +195,10 @@ pub fn subnet_id_from_topic_hash(topic_hash: &TopicHash) -> Option<SubnetId> {
 fn committee_topic_index(topic: &str) -> Option<SubnetId> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
         return Some(SubnetId::new(
-            u64::from_str_radix(topic.trim_start_matches(BEACON_ATTESTATION_PREFIX), 10).ok()?,
+            topic
+                .trim_start_matches(BEACON_ATTESTATION_PREFIX)
+                .parse::<u64>()
+                .ok()?,
         ));
     }
     None

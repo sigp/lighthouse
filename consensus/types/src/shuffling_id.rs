@@ -15,12 +15,12 @@ use std::hash::Hash;
 ///
 /// The struct stores exactly that 2-tuple.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]
-pub struct ShufflingId {
+pub struct AttestationShufflingId {
     pub shuffling_epoch: Epoch,
-    shuffling_decision_block: Hash256,
+    pub shuffling_decision_block: Hash256,
 }
 
-impl ShufflingId {
+impl AttestationShufflingId {
     /// Using the given `state`, return the shuffling id for the shuffling at the given
     /// `relative_epoch`.
     ///
@@ -35,16 +35,8 @@ impl ShufflingId {
     ) -> Result<Self, BeaconStateError> {
         let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
 
-        let shuffling_decision_slot = shuffling_epoch
-            .saturating_sub(1_u64)
-            .start_slot(E::slots_per_epoch())
-            .saturating_sub(1_u64);
-
-        let shuffling_decision_block = if state.slot == shuffling_decision_slot {
-            block_root
-        } else {
-            *state.get_block_root(shuffling_decision_slot)?
-        };
+        let shuffling_decision_block =
+            state.attester_shuffling_decision_root(block_root, relative_epoch)?;
 
         Ok(Self {
             shuffling_epoch,

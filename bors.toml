@@ -1,6 +1,7 @@
 status = [
     "cargo-fmt",
     "release-tests-ubuntu",
+    "release-tests-windows",
     "debug-tests-ubuntu",
     "state-transition-vectors-ubuntu",
     "ef-tests-ubuntu",
@@ -16,4 +17,4 @@ status = [
 ]
 use_squash_merge = true
 timeout_sec = 7200
-pr_status = ["license/cla"]
+pr_status = ["license/cla", "target-branch-check"]

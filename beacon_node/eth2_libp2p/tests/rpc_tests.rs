@@ -17,6 +17,7 @@ type E = MinimalEthSpec;
 
 // Tests the STATUS RPC message
 #[test]
+#[allow(clippy::single_match)]
 fn test_status_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
@@ -52,10 +53,10 @@ fn test_status_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -89,7 +90,7 @@ fn test_status_rpc() {
                         if request == rpc_request {
                             // send the response
                             debug!(log, "Receiver Received");
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 rpc_response.clone(),
@@ -113,6 +114,7 @@ fn test_status_rpc() {
 
 // Tests a streamed BlocksByRange RPC Message
 #[test]
+#[allow(clippy::single_match)]
 fn test_blocks_by_range_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
@@ -138,10 +140,7 @@ fn test_blocks_by_range_chunked_rpc() {
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock {
-            message: empty_block,
-            signature: Signature::empty(),
-        };
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
         // keep count of the number of messages received
@@ -150,10 +149,10 @@ fn test_blocks_by_range_chunked_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -198,14 +197,14 @@ fn test_blocks_by_range_chunked_rpc() {
                             // send the response
                             warn!(log, "Receiver got request");
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.send_successful_response(
-                                    peer_id.clone(),
+                                receiver.swarm.behaviour_mut().send_successful_response(
+                                    peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
                             }
                             // send the stream termination
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 Response::BlocksByRange(None),
@@ -255,10 +254,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock {
-            message: empty_block,
-            signature: Signature::empty(),
-        };
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
         // keep count of the number of messages received
@@ -267,10 +263,10 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -313,7 +309,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                 // sent in the timeout
                 match futures::future::select(
                     Box::pin(receiver.next_event()),
-                    tokio::time::sleep(Duration::from_secs(1)),
+                    Box::pin(tokio::time::sleep(Duration::from_secs(1))),
                 )
                 .await
                 {
@@ -339,9 +335,9 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
                 if message_info.is_some() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.swarm.send_successful_response(
-                        peer_id.clone(),
-                        stream_id.clone(),
+                    receiver.swarm.behaviour_mut().send_successful_response(
+                        *peer_id,
+                        *stream_id,
                         rpc_response.clone(),
                     );
                     debug!(log, "Sending message {}", messages_sent);
@@ -365,6 +361,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 
 // Tests an empty response to a BlocksByRange RPC Message
 #[test]
+#[allow(clippy::single_match)]
 fn test_blocks_by_range_single_empty_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
@@ -387,10 +384,7 @@ fn test_blocks_by_range_single_empty_rpc() {
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock {
-            message: empty_block,
-            signature: Signature::empty(),
-        };
+        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
 
         let messages_to_send = 1;
@@ -401,10 +395,10 @@ fn test_blocks_by_range_single_empty_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -447,14 +441,14 @@ fn test_blocks_by_range_single_empty_rpc() {
                             warn!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.send_successful_response(
-                                    peer_id.clone(),
+                                receiver.swarm.behaviour_mut().send_successful_response(
+                                    peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
                             }
                             // send the stream termination
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 Response::BlocksByRange(None),
@@ -480,6 +474,7 @@ fn test_blocks_by_range_single_empty_rpc() {
 // which is greater than the Snappy frame size. Hence, this test
 // serves to test the snappy framing format as well.
 #[test]
+#[allow(clippy::single_match)]
 fn test_blocks_by_root_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
@@ -506,10 +501,7 @@ fn test_blocks_by_root_chunked_rpc() {
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::full(&spec);
-        let signed_full_block = SignedBeaconBlock {
-            message: full_block,
-            signature: Signature::empty(),
-        };
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
         // keep count of the number of messages received
@@ -518,10 +510,10 @@ fn test_blocks_by_root_chunked_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -564,15 +556,15 @@ fn test_blocks_by_root_chunked_rpc() {
                             debug!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.swarm.send_successful_response(
-                                    peer_id.clone(),
+                                receiver.swarm.behaviour_mut().send_successful_response(
+                                    peer_id,
                                     id,
                                     rpc_response.clone(),
                                 );
                                 debug!(log, "Sending message");
                             }
                             // send the stream termination
-                            receiver.swarm.send_successful_response(
+                            receiver.swarm.behaviour_mut().send_successful_response(
                                 peer_id,
                                 id,
                                 Response::BlocksByRange(None),
@@ -630,10 +622,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::full(&spec);
-        let signed_full_block = SignedBeaconBlock {
-            message: full_block,
-            signature: Signature::empty(),
-        };
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
         // keep count of the number of messages received
@@ -642,10 +631,10 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.send_request(
+                        sender.swarm.behaviour_mut().send_request(
                             peer_id,
                             RequestId::Sync(10),
                             rpc_request.clone(),
@@ -688,7 +677,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 // sent in the timeout
                 match futures::future::select(
                     Box::pin(receiver.next_event()),
-                    tokio::time::sleep(Duration::from_millis(1000)),
+                    Box::pin(tokio::time::sleep(Duration::from_secs(1))),
                 )
                 .await
                 {
@@ -714,9 +703,9 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 if message_info.is_some() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.swarm.send_successful_response(
-                        peer_id.clone(),
-                        stream_id.clone(),
+                    receiver.swarm.behaviour_mut().send_successful_response(
+                        *peer_id,
+                        *stream_id,
                         rpc_response.clone(),
                     );
                     debug!(log, "Sending message {}", messages_sent);
@@ -740,6 +729,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
 
 // Tests a Goodbye RPC message
 #[test]
+#[allow(clippy::single_match)]
 fn test_goodbye_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Trace;
@@ -756,10 +746,10 @@ fn test_goodbye_rpc() {
         let sender_future = async {
             loop {
                 match sender.next_event().await {
-                    Libp2pEvent::Behaviour(BehaviourEvent::PeerDialed(peer_id)) => {
+                    Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a goodbye and disconnect
                         debug!(log, "Sending RPC");
-                        sender.swarm.goodbye_peer(
+                        sender.swarm.behaviour_mut().goodbye_peer(
                             &peer_id,
                             GoodbyeReason::IrrelevantNetwork,
                             ReportSource::SyncService,

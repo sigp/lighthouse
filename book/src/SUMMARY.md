@@ -30,6 +30,7 @@
 	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
     * [Custom Data Directories](./advanced-datadir.md)
+    * [Validator Graffiti](./graffiti.md)
     * [Database Configuration](./advanced_database.md)
 	* [Local Testnets](./local-testnets.md)
     * [Advanced Networking](./advanced_networking.md)

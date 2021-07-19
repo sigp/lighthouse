@@ -7,9 +7,9 @@ use crate::json_keystore::{
     Kdf, KdfModule, Scrypt, Sha256Checksum, Version,
 };
 use crate::Uuid;
-use aes_ctr::cipher::generic_array::GenericArray;
-use aes_ctr::cipher::{NewStreamCipher, SyncStreamCipher};
-use aes_ctr::Aes128Ctr as AesCtr;
+use aes::cipher::generic_array::GenericArray;
+use aes::cipher::{NewCipher, StreamCipher};
+use aes::Aes128Ctr as AesCtr;
 use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
 use eth2_key_derivation::PlainText;
 use hmac::Hmac;
@@ -230,7 +230,7 @@ impl Keystore {
                 },
                 uuid,
                 path: Some(path),
-                pubkey: keypair.pk.to_hex_string()[2..].to_string(),
+                pubkey: keypair.pk.as_hex_string()[2..].to_string(),
                 version: Version::four(),
                 description: Some(description),
                 name: None,
@@ -261,7 +261,7 @@ impl Keystore {
 
         let keypair = keypair_from_secret(plain_text.as_bytes())?;
         // Verify that the derived `PublicKey` matches `self`.
-        if keypair.pk.to_hex_string()[2..] != self.json.pubkey {
+        if keypair.pk.as_hex_string()[2..] != self.json.pubkey {
             return Err(Error::PublicKeyMismatch);
         }
 

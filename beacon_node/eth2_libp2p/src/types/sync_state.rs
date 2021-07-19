@@ -23,12 +23,16 @@ pub enum SyncState {
 
 impl PartialEq for SyncState {
     fn eq(&self, other: &Self) -> bool {
-        matches!((self, other),
-            (SyncState::SyncingFinalized { .. }, SyncState::SyncingFinalized { .. }) |
-            (SyncState::SyncingHead { .. }, SyncState::SyncingHead { .. }) |
-            (SyncState::Synced, SyncState::Synced) |
-            (SyncState::Stalled, SyncState::Stalled) |
-            (SyncState::SyncTransition, SyncState::SyncTransition))
+        matches!(
+            (self, other),
+            (
+                SyncState::SyncingFinalized { .. },
+                SyncState::SyncingFinalized { .. }
+            ) | (SyncState::SyncingHead { .. }, SyncState::SyncingHead { .. })
+                | (SyncState::Synced, SyncState::Synced)
+                | (SyncState::Stalled, SyncState::Stalled)
+                | (SyncState::SyncTransition, SyncState::SyncTransition)
+        )
     }
 }
 

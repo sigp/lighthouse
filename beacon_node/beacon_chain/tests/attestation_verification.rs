@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    BeaconChain, BeaconChainTypes,
+    BeaconChain, BeaconChainTypes, WhenSlotSkipped,
 };
 use int_to_bytes::int_to_bytes32;
 use state_processing::{
@@ -17,7 +17,7 @@ use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
     BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, SignedBeaconBlock, SubnetId, Unsigned,
+    SignedAggregateAndProof, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -35,6 +35,7 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::new_with_target_aggregators(
         MainnetEthSpec,
+        None,
         KEYPAIRS[0..validator_count].to_vec(),
         // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
         // not all.
@@ -75,7 +76,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         .sign(
             &validator_sk,
             validator_committee_index,
-            &head.beacon_state.fork,
+            &head.beacon_state.fork(),
             chain.genesis_validators_root,
             &chain.spec,
         )
@@ -120,7 +121,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             let proof = SelectionProof::new::<T::EthSpec>(
                 aggregate.data.slot,
                 &aggregator_sk,
-                &state.fork,
+                &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
             );
@@ -138,7 +139,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         aggregate,
         None,
         &aggregator_sk,
-        &state.fork,
+        &state.fork(),
         chain.genesis_validators_root,
         &chain.spec,
     );
@@ -169,7 +170,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
             let proof = SelectionProof::new::<T::EthSpec>(
                 aggregate.data.slot,
                 &aggregator_sk,
-                &state.fork,
+                &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
             );
@@ -222,7 +223,7 @@ fn aggregated_gossip_verification() {
                         .expect(&format!(
                             "{} should error during verify_aggregated_attestation_for_gossip",
                             $desc
-                        )),
+                        )).0,
                     $( $error ) |+ $( if $guard )?
                 ),
                 "case: {}",
@@ -276,6 +277,23 @@ fn aggregated_gossip_verification() {
             && earliest_permissible_slot == current_slot - E::slots_per_epoch() - 1
     );
 
+    /*
+     * The following test ensures:
+     *
+     * The aggregate attestation's epoch matches its target -- i.e. `aggregate.data.target.epoch ==
+     *   compute_epoch_at_slot(attestation.data.slot)`
+     *
+     */
+
+    assert_invalid!(
+        "attestation with invalid target epoch",
+        {
+            let mut a = valid_aggregate.clone();
+            a.message.aggregate.data.target.epoch += 1;
+            a
+        },
+        AttnError::InvalidTargetEpoch { .. }
+    );
     /*
      * This is not in the specification for aggregate attestations (only unaggregates), but we
      * check it anyway to avoid weird edge cases.
@@ -588,7 +606,7 @@ fn unaggregated_gossip_verification() {
                         .expect(&format!(
                             "{} should error during verify_unaggregated_attestation_for_gossip",
                             $desc
-                        )),
+                        )).0,
                     $( $error ) |+ $( if $guard )?
                 ),
                 "case: {}",
@@ -895,7 +913,7 @@ fn attestation_that_skips_epochs() {
     let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
     let earlier_block = harness
         .chain
-        .block_at_slot(earlier_slot)
+        .block_at_slot(earlier_slot, WhenSlotSkipped::Prev)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
 
@@ -905,14 +923,17 @@ fn attestation_that_skips_epochs() {
         .expect("should not error getting state")
         .expect("should find state");
 
-    while state.slot < current_slot {
+    while state.slot() < current_slot {
         per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
     }
+
+    let state_root = state.update_tree_hash_cache().unwrap();
 
     let (attestation, subnet_id) = harness
         .get_unaggregated_attestations(
             &AttestationStrategy::AllValidators,
             &state,
+            state_root,
             earlier_block.canonical_root(),
             current_slot,
         )
@@ -926,11 +947,11 @@ fn attestation_that_skips_epochs() {
     let block_slot = harness
         .chain
         .store
-        .get_item::<SignedBeaconBlock<E>>(&block_root)
+        .get_block(&block_root)
         .expect("should not error getting block")
         .expect("should find attestation block")
-        .message
-        .slot;
+        .message()
+        .slot();
 
     assert!(
         attestation.data.slot - block_slot > E::slots_per_epoch() * 2,

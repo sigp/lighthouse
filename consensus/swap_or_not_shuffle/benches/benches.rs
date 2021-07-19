@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list as fast_shuffle};

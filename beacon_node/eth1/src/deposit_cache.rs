@@ -397,7 +397,7 @@ pub mod tests {
             .expect("should get the four from the full tree");
         assert_eq!(
             deposits.len(),
-            4 as usize,
+            4_usize,
             "should get 4 deposits from full tree"
         );
         assert_eq!(
@@ -418,7 +418,7 @@ pub mod tests {
             .expect("should get the half tree");
         assert_eq!(
             deposits.len(),
-            4 as usize,
+            4_usize,
             "should get 4 deposits from half tree"
         );
         assert_eq!(

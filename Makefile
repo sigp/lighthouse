@@ -1,6 +1,7 @@
 .PHONY: tests
 
 EF_TESTS = "testing/ef_tests"
+BEACON_CHAIN_CRATE = "beacon_node/beacon_chain"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 GIT_TAG := $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
@@ -9,6 +10,8 @@ X86_64_TAG = "x86_64-unknown-linux-gnu"
 BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
+
+PINNED_NIGHTLY ?= nightly
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -77,12 +80,12 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --all --release --exclude ef_tests
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --all --exclude ef_tests
+	cargo test --workspace --exclude ef_tests --exclude beacon_chain
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -90,7 +93,7 @@ cargo-fmt:
 
 # Typechecks benchmark code
 check-benches:
-	cargo check --all --benches
+	cargo check --workspace --benches
 
 # Typechecks consensus code *without* allowing deprecated legacy arithmetic
 check-consensus:
@@ -98,9 +101,17 @@ check-consensus:
 
 # Runs only the ef-test vectors.
 run-ef-tests:
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/eth2.0-spec-tests
+
+# Run the tests in the `beacon_chain` crate.
+test-beacon-chain: test-beacon-chain-base test-beacon-chain-altair
+
+test-beacon-chain-%:
+	env FORK_NAME=$* cargo test --release --features fork_from_env --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -119,7 +130,11 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --all -- -D warnings
+	cargo clippy --workspace --tests -- \
+        -D warnings \
+        -A clippy::from-over-into \
+        -A clippy::upper-case-acronyms \
+        -A clippy::vec-init-then-push
 
 # Runs the makefile in the `ef_tests` repo.
 #
@@ -136,12 +151,11 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	# TODO: we should address this --ignore.
-	cargo audit --ignore RUSTSEC-2016-0002 --ignore RUSTSEC-2020-0008 --ignore RUSTSEC-2017-0002
+	cargo audit --ignore RUSTSEC-2021-0073 --ignore RUSTSEC-2021-0076
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
-	cargo +nightly udeps --tests --all-targets --release
+	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release
 
 # Performs a `cargo` clean and cleans the `ef_tests` directory.
 clean:

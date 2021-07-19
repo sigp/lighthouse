@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-bytes = "0.6.0"
+bytes = "1.0.1"
 
 [dev-dependencies]
 yaml-rust = "0.4.4"

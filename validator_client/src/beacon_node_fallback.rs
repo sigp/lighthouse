@@ -7,7 +7,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -209,7 +209,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
     /// Checks if the node has the correct specification.
     async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
-        let yaml_config = self
+        let config_and_preset = self
             .beacon_node
             .get_config_spec()
             .await
@@ -224,9 +224,8 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             })?
             .data;
 
-        let beacon_node_spec = yaml_config
-            .apply_to_chain_spec::<E>(&E::default_spec())
-            .ok_or_else(|| {
+        let beacon_node_spec =
+            ChainSpec::from_config::<E>(&config_and_preset.config).ok_or_else(|| {
                 error!(
                     log,
                     "The minimal/mainnet spec type of the beacon node does not match the validator \
@@ -235,6 +234,15 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 );
                 CandidateError::Incompatible
             })?;
+
+        if !config_and_preset.extra_fields.is_empty() {
+            debug!(
+                log,
+                "Beacon spec includes unknown fields";
+                "endpoint" => %self.beacon_node,
+                "fields" => ?config_and_preset.extra_fields,
+            );
+        }
 
         if *spec == beacon_node_spec {
             Ok(())
@@ -294,7 +302,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     }
 
     /// The count of candidates, regardless of their state.
-    pub async fn num_total(&self) -> usize {
+    pub fn num_total(&self) -> usize {
         self.candidates.len()
     }
 
@@ -302,6 +310,17 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_synced(&self) -> usize {
         let mut n = 0;
         for candidate in &self.candidates {
+            if candidate.status(RequireSynced::Yes).await.is_ok() {
+                n += 1
+            }
+        }
+        n
+    }
+
+    /// The count of synced and ready fallbacks excluding the primary beacon node candidate.
+    pub async fn num_synced_fallback(&self) -> usize {
+        let mut n = 0;
+        for candidate in self.candidates.iter().skip(1) {
             if candidate.status(RequireSynced::Yes).await.is_ok() {
                 n += 1
             }

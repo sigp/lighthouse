@@ -1,5 +1,6 @@
 use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
+use graffiti::GraffitiString;
 use serde::{Deserialize, Serialize};
 
 pub use crate::lighthouse::Health;
@@ -17,6 +18,9 @@ pub struct ValidatorData {
 pub struct ValidatorRequest {
     pub enable: bool,
     pub description: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
@@ -34,6 +38,9 @@ pub struct CreatedValidator {
     pub enabled: bool,
     pub description: String,
     pub voting_pubkey: PublicKeyBytes,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
     pub eth1_deposit_tx_data: String,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
@@ -55,4 +62,5 @@ pub struct KeystoreValidatorsPostRequest {
     pub password: ZeroizeString,
     pub enable: bool,
     pub keystore: Keystore,
+    pub graffiti: Option<GraffitiString>,
 }

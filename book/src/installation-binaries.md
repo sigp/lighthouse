@@ -4,14 +4,15 @@ Each Lighthouse release contains several downloadable binaries in the "Assets"
 section of the release. You can find the [releases
 on Github](https://github.com/sigp/lighthouse/releases).
 
-> Note: binaries are not yet provided for MacOS or Windows native.
+> Note: binaries are not yet provided for Windows native.
 
 ## Platforms
 
-Binaries are supplied for two platforms:
+Binaries are supplied for three platforms:
 
 - `x86_64-unknown-linux-gnu`: AMD/Intel 64-bit processors (most desktops, laptops, servers)
 - `aarch64-unknown-linux-gnu`: 64-bit ARM processors (Raspberry Pi 4)
+- `x86_64-apple-darwin`: macOS with Intel chips
 
 Additionally there is also a `-portable` suffix which indicates if the `portable` feature is used:
 

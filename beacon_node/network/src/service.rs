@@ -1,4 +1,4 @@
-use crate::persisted_dht::{load_dht, persist_dht};
+use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::{
     attestation_service::{AttServiceMessage, AttestationService},
@@ -16,6 +16,7 @@ use futures::prelude::*;
 use slog::{debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use store::HotColdDB;
+use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{EthSpec, RelativeEpoch, SubnetId, Unsigned, ValidatorSubscription};
@@ -169,14 +170,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )
         .await?;
 
-        // Repopulate the DHT with stored ENR's.
-        let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
-        debug!(
-            network_log,
-            "Loading peers into the routing table"; "peers" => enrs_to_load.len()
-        );
-        for enr in enrs_to_load {
-            libp2p.swarm.add_enr(enr.clone());
+        // Repopulate the DHT with stored ENR's if discovery is not disabled.
+        if !config.disable_discovery {
+            let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
+            debug!(
+                network_log,
+                "Loading peers into the routing table"; "peers" => enrs_to_load.len()
+            );
+            for enr in enrs_to_load {
+                libp2p.swarm.behaviour_mut().add_enr(enr.clone());
+            }
         }
 
         // launch derived network services
@@ -219,7 +222,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             log: network_log,
         };
 
-        spawn_service(executor, network_service)?;
+        spawn_service(executor, network_service);
 
         Ok((network_globals, network_send))
     }
@@ -228,45 +231,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 fn spawn_service<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     mut service: NetworkService<T>,
-) -> error::Result<()> {
-    let mut exit_rx = executor.exit();
+) {
     let mut shutdown_sender = executor.shutdown_sender();
 
     // spawn on the current executor
-    executor.spawn_without_exit(async move {
+    executor.spawn(async move {
 
         let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
-                // handle network shutdown
-                _ = (&mut exit_rx) => {
-                    // network thread is terminating
-                    let enrs = service.libp2p.swarm.enr_entries();
-                    debug!(
-                        service.log,
-                        "Persisting DHT to store";
-                        "Number of peers" => enrs.len(),
-                    );
-                    match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(service.store.clone(), enrs) {
-                        Err(e) => error!(
-                            service.log,
-                            "Failed to persist DHT on drop";
-                            "error" => ?e
-                        ),
-                        Ok(_) => info!(
-                            service.log,
-                            "Saved DHT state";
-                        ),
-                    }
-
-                    // attempt to remove port mappings
-                    crate::nat::remove_mappings(service.upnp_mappings.0, service.upnp_mappings.1, &service.log);
-
-                    info!(service.log, "Network service shutdown");
-                    return;
-                }
-                _ = service.metrics_update.next() => {
+                _ = service.metrics_update.tick() => {
                     // update various network metrics
                     metric_update_counter +=1;
                     if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
@@ -276,14 +251,14 @@ fn spawn_service<T: BeaconChainTypes>(
                             .map(|gauge| gauge.reset());
                     }
                     metrics::update_gossip_metrics::<T::EthSpec>(
-                        &service.libp2p.swarm.gs(),
+                        &service.libp2p.swarm.behaviour_mut().gs(),
                         &service.network_globals,
                     );
                     // update sync metrics
                     metrics::update_sync_metrics(&service.network_globals);
 
                 }
-                _ = service.gossipsub_parameter_update.next() => {
+                _ = service.gossipsub_parameter_update.tick() => {
                     if let Ok(slot) = service.beacon_chain.slot() {
                         if let Some(active_validators) = service.beacon_chain.with_head(|head| {
                                 Ok::<_, BeaconChainError>(
@@ -302,7 +277,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                             .map(|current_epoch| {
                                                 head
                                                 .beacon_state
-                                                .validators
+                                                .validators()
                                                 .iter()
                                                 .filter(|validator|
                                                     validator.is_active_at(current_epoch)
@@ -312,8 +287,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                     })
                                 )
                             }).unwrap_or(None) {
-                            if (*service.libp2p.swarm)
-                                .update_gossipsub_parameters(active_validators, slot).is_err() {
+                            if service.libp2p.swarm.behaviour_mut().update_gossipsub_parameters(active_validators, slot).is_err() {
                                 error!(
                                     service.log,
                                     "Failed to update gossipsub parameters";
@@ -339,7 +313,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.upnp_mappings = (tcp_socket.map(|s| s.port()), udp_socket.map(|s| s.port()));
                             // If there is an external TCP port update, modify our local ENR.
                             if let Some(tcp_socket) = tcp_socket {
-                                if let Err(e) = service.libp2p.swarm.peer_manager().discovery_mut().update_enr_tcp_port(tcp_socket.port()) {
+                                if let Err(e) = service.libp2p.swarm.behaviour_mut().discovery_mut().update_enr_tcp_port(tcp_socket.port()) {
                                     warn!(service.log, "Failed to update ENR"; "error" => e);
                                 }
                             }
@@ -347,7 +321,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             // UPnP mappings
                             if !service.discovery_auto_update {
                                 if let Some(udp_socket) = udp_socket {
-                                    if let Err(e) = service.libp2p.swarm.peer_manager().discovery_mut().update_enr_udp_socket(udp_socket) {
+                                    if let Err(e) = service.libp2p.swarm.behaviour_mut().discovery_mut().update_enr_udp_socket(udp_socket) {
                                     warn!(service.log, "Failed to update ENR"; "error" => e);
                                 }
                                 }
@@ -366,6 +340,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 service
                                     .libp2p
                                     .swarm
+                                    .behaviour_mut()
                                     .report_message_validation_result(
                                         &propagation_source, message_id, validation_result
                                     );
@@ -384,7 +359,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                     "topics" => ?topic_kinds
                                 );
                                 metrics::expose_publish_metrics(&messages);
-                                service.libp2p.swarm.publish(messages);
+                                service.libp2p.swarm.behaviour_mut().publish(messages);
                         }
                         NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
                         NetworkMessage::GoodbyePeer { peer_id, reason, source } => service.libp2p.goodbye_peer(&peer_id, reason, source),
@@ -400,7 +375,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             let already_subscribed = service.network_globals.gossipsub_subscriptions.read().clone();
                             let already_subscribed = already_subscribed.iter().map(|x| x.kind()).collect::<std::collections::HashSet<_>>();
                             for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter().filter(|topic| already_subscribed.get(topic).is_none()) {
-                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
+                                if service.libp2p.swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
                                     subscribed_topics.push(topic_kind.clone());
                                 } else {
                                     warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
@@ -412,9 +387,9 @@ fn spawn_service<T: BeaconChainTypes>(
                                 for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
                                     let subnet_id = SubnetId::new(subnet_id);
                                     let topic_kind = eth2_libp2p::types::GossipKind::Attestation(subnet_id);
-                                if service.libp2p.swarm.subscribe_kind(topic_kind.clone()) {
+                                if service.libp2p.swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
                                     // Update the ENR bitfield.
-                                    service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                                    service.libp2p.swarm.behaviour_mut().update_enr_subnet(subnet_id, true);
                                     subscribed_topics.push(topic_kind.clone());
                                 } else {
                                     warn!(service.log, "Could not subscribe to topic"; "topic" => %topic_kind);
@@ -432,19 +407,19 @@ fn spawn_service<T: BeaconChainTypes>(
                 Some(attestation_service_message) = service.attestation_service.next() => {
                     match attestation_service_message {
                         AttServiceMessage::Subscribe(subnet_id) => {
-                            service.libp2p.swarm.subscribe_to_subnet(subnet_id);
+                            service.libp2p.swarm.behaviour_mut().subscribe_to_subnet(subnet_id);
                         }
                         AttServiceMessage::Unsubscribe(subnet_id) => {
-                            service.libp2p.swarm.unsubscribe_from_subnet(subnet_id);
+                            service.libp2p.swarm.behaviour_mut().unsubscribe_from_subnet(subnet_id);
                         }
                         AttServiceMessage::EnrAdd(subnet_id) => {
-                            service.libp2p.swarm.update_enr_subnet(subnet_id, true);
+                            service.libp2p.swarm.behaviour_mut().update_enr_subnet(subnet_id, true);
                         }
                         AttServiceMessage::EnrRemove(subnet_id) => {
-                            service.libp2p.swarm.update_enr_subnet(subnet_id, false);
+                            service.libp2p.swarm.behaviour_mut().update_enr_subnet(subnet_id, false);
                         }
                         AttServiceMessage::DiscoverPeers(subnets_to_discover) => {
-                            service.libp2p.swarm.discover_subnet_peers(subnets_to_discover);
+                            service.libp2p.swarm.behaviour_mut().discover_subnet_peers(subnets_to_discover);
                         }
                     }
                 }
@@ -452,17 +427,15 @@ fn spawn_service<T: BeaconChainTypes>(
                     // poll the swarm
                     match libp2p_event {
                         Libp2pEvent::Behaviour(event) => match event {
-
-                            BehaviourEvent::PeerDialed(peer_id) => {
+                            BehaviourEvent::PeerConnectedOutgoing(peer_id) => {
                                     let _ = service
                                         .router_send
                                         .send(RouterMessage::PeerDialed(peer_id))
                                         .map_err(|_| {
                                             debug!(service.log, "Failed to send peer dialed to router"); });
                             },
-                            BehaviourEvent::PeerConnected(_peer_id) => {
-                                // A peer has connected to us
-                                // We currently do not perform any action here.
+                            BehaviourEvent::PeerConnectedIncoming(_) | BehaviourEvent::PeerBanned(_) | BehaviourEvent::PeerUnbanned(_) => {
+                                // No action required for these events.
                             },
                             BehaviourEvent::PeerDisconnected(peer_id) => {
                                 let _ = service
@@ -548,10 +521,14 @@ fn spawn_service<T: BeaconChainTypes>(
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);
                         }
                         Libp2pEvent::ZeroListeners => {
-                            let _ = shutdown_sender.send("All listeners are closed. Unable to listen").await.map_err(|e| {
-                                warn!(service.log, "failed to send a shutdown signal"; "error" => %e
-                                )
-                            });
+                            let _ = shutdown_sender
+                                .send(ShutdownReason::Failure("All listeners are closed. Unable to listen"))
+                                .await
+                                .map_err(|e| warn!(
+                                    service.log,
+                                    "failed to send a shutdown signal";
+                                    "error" => %e
+                                ));
                         }
                     }
                 }
@@ -562,6 +539,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     service
                         .libp2p
                         .swarm
+                        .behaviour_mut()
                         .update_fork_version(service.beacon_chain.enr_fork_id());
                     service.next_fork_update = next_fork_delay(&service.beacon_chain);
                 }
@@ -570,8 +548,6 @@ fn spawn_service<T: BeaconChainTypes>(
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
     }, "network");
-
-    Ok(())
 }
 
 /// Returns a `Sleep` that triggers shortly after the next change in the beacon chain fork version.
@@ -584,4 +560,36 @@ fn next_fork_delay<T: BeaconChainTypes>(
         let delay = Duration::from_millis(200);
         tokio::time::sleep_until(tokio::time::Instant::now() + until_fork + delay)
     })
+}
+
+impl<T: BeaconChainTypes> Drop for NetworkService<T> {
+    fn drop(&mut self) {
+        // network thread is terminating
+        let enrs = self.libp2p.swarm.behaviour_mut().enr_entries();
+        debug!(
+            self.log,
+            "Persisting DHT to store";
+            "Number of peers" => enrs.len(),
+        );
+        if let Err(e) = clear_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone()) {
+            error!(self.log, "Failed to clear old DHT entries"; "error" => ?e);
+        }
+        // Still try to update new entries
+        match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone(), enrs) {
+            Err(e) => error!(
+                self.log,
+                "Failed to persist DHT on drop";
+                "error" => ?e
+            ),
+            Ok(_) => info!(
+                self.log,
+                "Saved DHT state";
+            ),
+        }
+
+        // attempt to remove port mappings
+        crate::nat::remove_mappings(self.upnp_mappings.0, self.upnp_mappings.1, &self.log);
+
+        info!(self.log, "Network service shutdown");
+    }
 }

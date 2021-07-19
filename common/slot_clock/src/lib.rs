@@ -16,7 +16,7 @@ pub use types::Slot;
 /// A clock that reports the current slot.
 ///
 /// The clock is not required to be monotonically increasing and may go backwards.
-pub trait SlotClock: Send + Sync + Sized {
+pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occurred
     /// `genesis_duration` after the `UNIX_EPOCH` and each slot is `slot_duration` apart.
     fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self;
@@ -74,5 +74,17 @@ pub trait SlotClock: Send + Sync + Sized {
     fn now_with_past_tolerance(&self, tolerance: Duration) -> Option<Slot> {
         self.slot_of(self.now_duration()?.checked_sub(tolerance)?)
             .or_else(|| Some(self.genesis_slot()))
+    }
+
+    /// Returns the delay between the start of the slot and when unaggregated attestations should be
+    /// produced.
+    fn unagg_attestation_production_delay(&self) -> Duration {
+        self.slot_duration() / 3
+    }
+
+    /// Returns the delay between the start of the slot and when aggregated attestations should be
+    /// produced.
+    fn agg_attestation_production_delay(&self) -> Duration {
+        self.slot_duration() * 2 / 3
     }
 }

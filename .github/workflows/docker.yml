@@ -28,6 +28,8 @@ jobs:
             DOCKER_CLI_EXPERIMENTAL: enabled
         steps:
             - uses: actions/checkout@v2
+            - name: Update Rust
+              run: rustup update stable
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
@@ -58,6 +60,8 @@ jobs:
         needs: [extract-branch-name]
         steps:
             - uses: actions/checkout@v2
+            - name: Update Rust
+              run: rustup update stable
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin

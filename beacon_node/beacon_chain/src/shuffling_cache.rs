@@ -1,6 +1,6 @@
 use crate::metrics;
 use lru::LruCache;
-use types::{beacon_state::CommitteeCache, Epoch, Hash256, ShufflingId};
+use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
 ///
@@ -14,7 +14,7 @@ const CACHE_SIZE: usize = 16;
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
 pub struct ShufflingCache {
-    cache: LruCache<ShufflingId, CommitteeCache>,
+    cache: LruCache<AttestationShufflingId, CommitteeCache>,
 }
 
 impl ShufflingCache {
@@ -24,7 +24,7 @@ impl ShufflingCache {
         }
     }
 
-    pub fn get(&mut self, key: &ShufflingId) -> Option<&CommitteeCache> {
+    pub fn get(&mut self, key: &AttestationShufflingId) -> Option<&CommitteeCache> {
         let opt = self.cache.get(key);
 
         if opt.is_some() {
@@ -36,11 +36,11 @@ impl ShufflingCache {
         opt
     }
 
-    pub fn contains(&self, key: &ShufflingId) -> bool {
+    pub fn contains(&self, key: &AttestationShufflingId) -> bool {
         self.cache.contains(key)
     }
 
-    pub fn insert(&mut self, key: ShufflingId, committee_cache: &CommitteeCache) {
+    pub fn insert(&mut self, key: AttestationShufflingId, committee_cache: &CommitteeCache) {
         if !self.cache.contains(&key) {
             self.cache.put(key, committee_cache.clone());
         }
@@ -49,8 +49,8 @@ impl ShufflingCache {
 
 /// Contains the shuffling IDs for a beacon block.
 pub struct BlockShufflingIds {
-    pub current: ShufflingId,
-    pub next: ShufflingId,
+    pub current: AttestationShufflingId,
+    pub next: AttestationShufflingId,
     pub block_root: Hash256,
 }
 
@@ -58,13 +58,16 @@ impl BlockShufflingIds {
     /// Returns the shuffling ID for the given epoch.
     ///
     /// Returns `None` if `epoch` is prior to `self.current.shuffling_epoch`.
-    pub fn id_for_epoch(&self, epoch: Epoch) -> Option<ShufflingId> {
+    pub fn id_for_epoch(&self, epoch: Epoch) -> Option<AttestationShufflingId> {
         if epoch == self.current.shuffling_epoch {
             Some(self.current.clone())
         } else if epoch == self.next.shuffling_epoch {
             Some(self.next.clone())
         } else if epoch > self.next.shuffling_epoch {
-            Some(ShufflingId::from_components(epoch, self.block_root))
+            Some(AttestationShufflingId::from_components(
+                epoch,
+                self.block_root,
+            ))
         } else {
             None
         }

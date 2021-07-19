@@ -75,6 +75,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
@@ -90,7 +92,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
 
     let mut validator_definitions = ValidatorDefinitions::open_or_create(&validator_dir)
         .map_err(|e| format!("Unable to create {}: {:?}", CONFIG_FILENAME, e))?;
@@ -119,9 +121,9 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         )
     })?;
 
-    eprintln!("");
+    eprintln!();
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
-    eprintln!("");
+    eprintln!();
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 

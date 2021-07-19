@@ -179,7 +179,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     single_block_lookups: FnvHashMap<RequestId, SingleBlockRequest>,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -210,7 +210,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
@@ -331,8 +331,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // check if the parent of this block isn't in our failed cache. If it is, this
                 // chain should be dropped and the peer downscored.
-                if self.failed_chains.contains(&block.message.parent_root) {
-                    debug!(self.log, "Parent chain ignored due to past failure"; "block" => ?block.message.parent_root, "slot" => block.message.slot);
+                if self.failed_chains.contains(&block.message().parent_root()) {
+                    debug!(
+                        self.log,
+                        "Parent chain ignored due to past failure";
+                        "block" => ?block.message().parent_root(),
+                        "slot" => block.slot()
+                    );
                     if !parent_request.downloaded_blocks.is_empty() {
                         // Add the root block to failed chains
                         self.failed_chains
@@ -490,7 +495,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .head_info()
                 .map(|info| info.slot)
                 .unwrap_or_else(|_| Slot::from(0u64));
-            let unknown_block_slot = block.message.slot;
+            let unknown_block_slot = block.slot();
 
             // if the block is far in the future, ignore it. If its within the slot tolerance of
             // our current head, regardless of the syncing state, fetch it.
@@ -505,10 +510,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let block_root = block.canonical_root();
         // If this block or it's parent is part of a known failed chain, ignore it.
-        if self.failed_chains.contains(&block.message.parent_root)
+        if self.failed_chains.contains(&block.message().parent_root())
             || self.failed_chains.contains(&block_root)
         {
-            debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => ?block_root, "block_slot" => block.message.slot);
+            debug!(self.log, "Block is from a past failed chain. Dropping"; "block_root" => ?block_root, "block_slot" => block.slot());
             return;
         }
 
@@ -525,7 +530,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
 
-        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.message.slot, "block_hash" => %block.canonical_root());
+        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.slot(), "block_hash" => %block.canonical_root());
 
         let parent_request = ParentRequests {
             downloaded_blocks: vec![block],
@@ -553,6 +558,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             return;
         }
+
+        debug!(
+            self.log,
+            "Searching for block";
+            "peer_id" => %peer_id,
+            "block" => %block_hash
+        );
 
         let request = BlocksByRootRequest {
             block_roots: VariableList::from(vec![block_hash]),

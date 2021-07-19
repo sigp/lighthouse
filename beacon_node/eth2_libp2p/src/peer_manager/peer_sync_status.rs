@@ -29,12 +29,20 @@ pub struct SyncInfo {
 
 impl std::cmp::PartialEq for PeerSyncStatus {
     fn eq(&self, other: &Self) -> bool {
-        matches!((self, other),
-            (PeerSyncStatus::Synced { .. }, PeerSyncStatus::Synced { .. }) |
-            (PeerSyncStatus::Advanced { .. }, PeerSyncStatus::Advanced { .. }) |
-            (PeerSyncStatus::Behind { .. }, PeerSyncStatus::Behind { .. }) |
-            (PeerSyncStatus::IrrelevantPeer, PeerSyncStatus::IrrelevantPeer) |
-            (PeerSyncStatus::Unknown, PeerSyncStatus::Unknown))
+        matches!(
+            (self, other),
+            (PeerSyncStatus::Synced { .. }, PeerSyncStatus::Synced { .. })
+                | (
+                    PeerSyncStatus::Advanced { .. },
+                    PeerSyncStatus::Advanced { .. }
+                )
+                | (PeerSyncStatus::Behind { .. }, PeerSyncStatus::Behind { .. })
+                | (
+                    PeerSyncStatus::IrrelevantPeer,
+                    PeerSyncStatus::IrrelevantPeer
+                )
+                | (PeerSyncStatus::Unknown, PeerSyncStatus::Unknown)
+        )
     }
 }
 
@@ -54,14 +62,14 @@ impl PeerSyncStatus {
         matches!(self, PeerSyncStatus::Behind { .. })
     }
 
+    /// Updates the peer's sync status, returning whether the status transitioned.
+    ///
+    /// E.g. returns `true` if the state changed from `Synced` to `Advanced`, but not if
+    /// the status remained `Synced` with different `SyncInfo` within.
     pub fn update(&mut self, new_state: PeerSyncStatus) -> bool {
-        if *self == new_state {
-            *self = new_state;
-            false // state was not updated
-        } else {
-            *self = new_state;
-            true
-        }
+        let changed_status = *self != new_state;
+        *self = new_state;
+        changed_status
     }
 
     pub fn as_str(&self) -> &'static str {

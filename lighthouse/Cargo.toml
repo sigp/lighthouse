@@ -1,8 +1,9 @@
 [package]
 name = "lighthouse"
-version = "1.1.0"
+version = "1.4.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
+autotests = false
 
 [features]
 # Writes debugging .ssz files to /tmp during block processing.
@@ -15,16 +16,15 @@ modern = ["bls/supranational-force-adx"]
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
-# Support spec v0.12 (used by Medalla testnet).
-spec-v12 = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
-tokio = "0.3.2"
+tokio = "1.7.1"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "1.0.1"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
+eth2_hashing = "0.1.0"
 clap = "2.33.3"
 env_logger = "0.8.2"
 logging = { path = "../common/logging" }
@@ -41,9 +41,24 @@ directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 remote_signer = { "path" = "../remote_signer" }
-tokio-compat-02 = "0.1"
+lighthouse_metrics = { path = "../common/lighthouse_metrics" }
+lazy_static = "1.4.0"
+serde_json = "1.0.59"
+task_executor = { path = "../common/task_executor" }
+malloc_utils = { path = "../common/malloc_utils" }
+target_check = { path = "../common/target_check" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
+eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
+
+[[test]]
+name = "lighthouse_tests"
+path = "tests/main.rs"
+
+# Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
+# to assert properties of the compilation target.
+[package.metadata.cargo-udeps.ignore]
+normal = ["target_check"]

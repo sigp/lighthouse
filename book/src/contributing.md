@@ -14,7 +14,7 @@ to work on.
 
 To start contributing,
 
-1. Read our [how to contribute](https://github.com/sigp/lighthouse/blob/master/CONTRIBUTING.md) document.
+1. Read our [how to contribute](https://github.com/sigp/lighthouse/blob/unstable/CONTRIBUTING.md) document.
 2. Setup a [development environment](./setup.md).
 3. Browse through the [open issues](https://github.com/sigp/lighthouse/issues)
    (tip: look for the [good first

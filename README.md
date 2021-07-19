@@ -4,11 +4,11 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 
 [![Build Status]][Build Link] [![Book Status]][Book Link] [![Chat Badge]][Chat Link]
 
-[Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg?branch=master
+[Build Status]: https://github.com/sigp/lighthouse/workflows/test-suite/badge.svg?branch=stable
 [Build Link]: https://github.com/sigp/lighthouse/actions
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
-[Book Status]:https://img.shields.io/badge/user--docs-master-informational
+[Book Status]:https://img.shields.io/badge/user--docs-unstable-informational
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
@@ -53,7 +53,7 @@ Lighthouse maintains two permanent branches:
 - [`stable`][stable]: Always points to the latest stable release.
   - This is ideal for most users.
 - [`unstable`][unstable]: Used for development, contains the latest PRs.
-  - Developers should base thier PRs on this branch.
+  - Developers should base their PRs on this branch.
 
 ## Contributing
 
@@ -69,8 +69,8 @@ The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh). Alternatively, you may use the
 [sigp/lighthouse gitter](https://gitter.im/sigp/lighthouse).
 
-Sign up to the [Lighthouse Development Updates](https://mailchi.mp/3d9df0417779/lighthouse-dev-updates)
-mailing list for email notifications about releases, network status and other important information.
+Sign up to the [Lighthouse Development Updates](http://eepurl.com/dh9Lvb) mailing list for email
+notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP
 key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=15e66d941f697e28f49381f426416dc3f30674b0).

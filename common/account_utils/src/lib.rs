@@ -6,12 +6,12 @@ use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     Wallet,
 };
+use filesystem::{create_with_600_perms, Error as FsError};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_derive::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroize;
 
@@ -59,19 +59,28 @@ pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
     fs::read(path).map(strip_off_newlines).map(Into::into)
 }
 
-/// Creates a file with `600 (-rw-------)` permissions.
-pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), io::Error> {
-    let path = path.as_ref();
+/// Write a file atomically by using a temporary file as an intermediate.
+///
+/// Care is taken to preserve the permissions of the file at `file_path` being written.
+///
+/// If no file exists at `file_path` one will be created with restricted 0o600-equivalent
+/// permissions.
+pub fn write_file_via_temporary(
+    file_path: &Path,
+    temp_path: &Path,
+    bytes: &[u8],
+) -> Result<(), FsError> {
+    // If the file already exists, preserve its permissions by copying it.
+    // Otherwise, create a new file with restricted permissions.
+    if file_path.exists() {
+        fs::copy(&file_path, &temp_path).map_err(FsError::UnableToCopyFile)?;
+        fs::write(&temp_path, &bytes).map_err(FsError::UnableToWriteFile)?;
+    } else {
+        create_with_600_perms(&temp_path, &bytes)?;
+    }
 
-    let mut file = File::create(&path)?;
-
-    let mut perm = file.metadata()?.permissions();
-
-    perm.set_mode(0o600);
-
-    file.set_permissions(perm)?;
-
-    file.write_all(bytes)?;
+    // With the temporary file created, perform an atomic rename.
+    fs::rename(&temp_path, &file_path).map_err(FsError::UnableToRenameFile)?;
 
     Ok(())
 }
@@ -187,6 +196,12 @@ impl ZeroizeString {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Remove any number of newline or carriage returns from the end of a vector of bytes.
+    pub fn without_newlines(&self) -> ZeroizeString {
+        let stripped_string = self.0.trim_end_matches(|c| c == '\r' || c == '\n').into();
+        Self(stripped_string)
+    }
 }
 
 impl AsRef<[u8]> for ZeroizeString {
@@ -200,37 +215,73 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_strip_off() {
-        let expected = "hello world".as_bytes().to_vec();
+    fn test_zeroize_strip_off() {
+        let expected = "hello world";
 
         assert_eq!(
-            strip_off_newlines("hello world\n".as_bytes().to_vec()),
+            ZeroizeString::from("hello world\n".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
         assert_eq!(
-            strip_off_newlines("hello world\n\n\n\n".as_bytes().to_vec()),
+            ZeroizeString::from("hello world\n\n\n\n".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
         assert_eq!(
-            strip_off_newlines("hello world\r".as_bytes().to_vec()),
+            ZeroizeString::from("hello world\r".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
         assert_eq!(
-            strip_off_newlines("hello world\r\r\r\r\r".as_bytes().to_vec()),
+            ZeroizeString::from("hello world\r\r\r\r\r".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
         assert_eq!(
-            strip_off_newlines("hello world\r\n".as_bytes().to_vec()),
+            ZeroizeString::from("hello world\r\n".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
         assert_eq!(
-            strip_off_newlines("hello world\r\n\r\n".as_bytes().to_vec()),
+            ZeroizeString::from("hello world\r\n\r\n".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
         assert_eq!(
-            strip_off_newlines("hello world".as_bytes().to_vec()),
+            ZeroizeString::from("hello world".to_string())
+                .without_newlines()
+                .as_str(),
             expected
         );
+    }
+
+    #[test]
+    fn test_strip_off() {
+        let expected = b"hello world".to_vec();
+
+        assert_eq!(strip_off_newlines(b"hello world\n".to_vec()), expected);
+        assert_eq!(
+            strip_off_newlines(b"hello world\n\n\n\n".to_vec()),
+            expected
+        );
+        assert_eq!(strip_off_newlines(b"hello world\r".to_vec()), expected);
+        assert_eq!(
+            strip_off_newlines(b"hello world\r\r\r\r\r".to_vec()),
+            expected
+        );
+        assert_eq!(strip_off_newlines(b"hello world\r\n".to_vec()), expected);
+        assert_eq!(
+            strip_off_newlines(b"hello world\r\n\r\n".to_vec()),
+            expected
+        );
+        assert_eq!(strip_off_newlines(b"hello world".to_vec()), expected);
     }
 
     #[test]

@@ -13,7 +13,9 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 #[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
 #[serde(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
@@ -103,10 +105,7 @@ mod tests {
         let indexed_vote_first = create_indexed_attestation(3, 1);
         let indexed_vote_second = create_indexed_attestation(3, 2);
 
-        assert_eq!(
-            indexed_vote_first.is_double_vote(&indexed_vote_second),
-            true
-        )
+        assert!(indexed_vote_first.is_double_vote(&indexed_vote_second))
     }
 
     #[test]
@@ -114,10 +113,7 @@ mod tests {
         let indexed_vote_first = create_indexed_attestation(1, 1);
         let indexed_vote_second = create_indexed_attestation(2, 1);
 
-        assert_eq!(
-            indexed_vote_first.is_double_vote(&indexed_vote_second),
-            false
-        );
+        assert!(!indexed_vote_first.is_double_vote(&indexed_vote_second));
     }
 
     #[test]
@@ -125,10 +121,7 @@ mod tests {
         let indexed_vote_first = create_indexed_attestation(2, 1);
         let indexed_vote_second = create_indexed_attestation(1, 2);
 
-        assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second),
-            true
-        );
+        assert!(indexed_vote_first.is_surround_vote(&indexed_vote_second));
     }
 
     #[test]
@@ -136,10 +129,7 @@ mod tests {
         let indexed_vote_first = create_indexed_attestation(4, 1);
         let indexed_vote_second = create_indexed_attestation(3, 2);
 
-        assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second),
-            true
-        );
+        assert!(indexed_vote_first.is_surround_vote(&indexed_vote_second));
     }
 
     #[test]
@@ -147,10 +137,7 @@ mod tests {
         let indexed_vote_first = create_indexed_attestation(2, 2);
         let indexed_vote_second = create_indexed_attestation(1, 1);
 
-        assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second),
-            false
-        );
+        assert!(!indexed_vote_first.is_surround_vote(&indexed_vote_second));
     }
 
     #[test]
@@ -158,10 +145,7 @@ mod tests {
         let indexed_vote_first = create_indexed_attestation(1, 1);
         let indexed_vote_second = create_indexed_attestation(2, 2);
 
-        assert_eq!(
-            indexed_vote_first.is_surround_vote(&indexed_vote_second),
-            false
-        );
+        assert!(!indexed_vote_first.is_surround_vote(&indexed_vote_second));
     }
 
     ssz_and_tree_hash_tests!(IndexedAttestation<MainnetEthSpec>);

@@ -20,10 +20,9 @@ pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
-mod metadata;
-mod metrics;
+pub mod metadata;
+pub mod metrics;
 mod partial_beacon_state;
-mod schema_change;
 
 pub mod iter;
 
@@ -153,6 +152,7 @@ pub enum DBColumn {
     OpPool,
     Eth1Cache,
     ForkChoice,
+    PubkeyCache,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
@@ -178,6 +178,7 @@ impl Into<&'static str> for DBColumn {
             DBColumn::OpPool => "opo",
             DBColumn::Eth1Cache => "etc",
             DBColumn::ForkChoice => "frk",
+            DBColumn::PubkeyCache => "pkc",
             DBColumn::BeaconRestorePoint => "brp",
             DBColumn::BeaconStateSummary => "bss",
             DBColumn::BeaconStateTemporary => "bst",
@@ -250,18 +251,18 @@ mod tests {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
 
         store.put(&key, &item).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), true);
+        assert!(store.exists::<StorableThing>(&key).unwrap());
 
         let retrieved = store.get(&key).unwrap().unwrap();
         assert_eq!(item, retrieved);
 
         store.delete::<StorableThing>(&key).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
 
         assert_eq!(store.get::<StorableThing>(&key).unwrap(), None);
     }
@@ -288,14 +289,14 @@ mod tests {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
 
         store.put(&key, &item).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), true);
+        assert!(store.exists::<StorableThing>(&key).unwrap());
 
         store.delete::<StorableThing>(&key).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
     }
 }

@@ -3,7 +3,7 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use crate::{create_with_600_perms, default_keystore_password_path, ZeroizeString};
+use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
@@ -13,11 +13,17 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use types::PublicKey;
+use types::{graffiti::GraffitiString, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
+
+/// The temporary file name for the serialized `ValidatorDefinitions` struct.
+///
+/// This is used to achieve an atomic update of the contents on disk, without truncation.
+/// See: https://github.com/sigp/lighthouse/issues/2159
+pub const CONFIG_TEMP_FILENAME: &str = ".validator_definitions.yml.tmp";
 
 #[derive(Debug)]
 pub enum Error {
@@ -29,8 +35,8 @@ pub enum Error {
     UnableToSearchForKeystores(io::Error),
     /// The config file could not be serialized as YAML.
     UnableToEncodeFile(serde_yaml::Error),
-    /// The config file could not be written to the filesystem.
-    UnableToWriteFile(io::Error),
+    /// The config file or temp file could not be written to the filesystem.
+    UnableToWriteFile(filesystem::Error),
     /// The public key from the keystore is invalid.
     InvalidKeystorePubkey,
     /// The keystore was unable to be opened.
@@ -66,6 +72,9 @@ pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -81,6 +90,7 @@ impl ValidatorDefinition {
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -91,6 +101,7 @@ impl ValidatorDefinition {
             enabled: true,
             voting_public_key,
             description: keystore.description().unwrap_or("").to_string(),
+            graffiti,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path: None,
@@ -164,6 +175,12 @@ impl ValidatorDefinitions {
             })
             .collect();
 
+        let known_pubkeys: HashSet<PublicKey> = self
+            .0
+            .iter()
+            .map(|def| def.voting_public_key.clone())
+            .collect();
+
         let mut new_defs = keystore_paths
             .into_iter()
             .filter_map(|voting_keystore_path| {
@@ -200,7 +217,13 @@ impl ValidatorDefinitions {
                 .filter(|path| path.exists());
 
                 let voting_public_key = match keystore.public_key() {
-                    Some(pubkey) => pubkey,
+                    Some(pubkey) => {
+                        if known_pubkeys.contains(&pubkey) {
+                            return None;
+                        } else {
+                            pubkey
+                        }
+                    }
                     None => {
                         error!(
                             log,
@@ -215,6 +238,7 @@ impl ValidatorDefinitions {
                     enabled: true,
                     voting_public_key,
                     description: keystore.description().unwrap_or("").to_string(),
+                    graffiti: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -231,19 +255,19 @@ impl ValidatorDefinitions {
         Ok(new_defs_count)
     }
 
-    /// Encodes `self` as a YAML string it writes it to the `CONFIG_FILENAME` file in the
-    /// `validators_dir` directory.
+    /// Encodes `self` as a YAML string and atomically writes it to the `CONFIG_FILENAME` file in
+    /// the `validators_dir` directory.
     ///
-    /// Will create a new file if it does not exist or over-write any existing file.
+    /// Will create a new file if it does not exist or overwrite any existing file.
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
+        let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
         let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
 
-        if config_path.exists() {
-            fs::write(config_path, &bytes).map_err(Error::UnableToWriteFile)
-        } else {
-            create_with_600_perms(&config_path, &bytes).map_err(Error::UnableToWriteFile)
-        }
+        write_file_via_temporary(&config_path, &temp_path, &bytes)
+            .map_err(Error::UnableToWriteFile)?;
+
+        Ok(())
     }
 
     /// Adds a new `ValidatorDefinition` to `self`.
@@ -335,6 +359,7 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
@@ -369,5 +394,45 @@ mod tests {
         assert!(!is_voting_keystore("keystore-.json"));
         assert!(!is_voting_keystore("keystore-0a.json"));
         assert!(!is_voting_keystore("keystore-cats.json"));
+    }
+
+    #[test]
+    fn graffiti_checks() {
+        let no_graffiti = r#"---
+        description: ""
+        enabled: true
+        type: local_keystore
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+        let def: ValidatorDefinition = serde_yaml::from_str(&no_graffiti).unwrap();
+        assert!(def.graffiti.is_none());
+
+        let invalid_graffiti = r#"---
+        description: ""
+        enabled: true
+        type: local_keystore
+        graffiti: "mrfwasheremrfwasheremrfwasheremrf"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: Result<ValidatorDefinition, _> = serde_yaml::from_str(&invalid_graffiti);
+        assert!(def.is_err());
+
+        let valid_graffiti = r#"---
+        description: ""
+        enabled: true
+        type: local_keystore
+        graffiti: "mrfwashere"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: ValidatorDefinition = serde_yaml::from_str(&valid_graffiti).unwrap();
+        assert_eq!(
+            def.graffiti,
+            Some(GraffitiString::from_str("mrfwashere").unwrap())
+        );
     }
 }

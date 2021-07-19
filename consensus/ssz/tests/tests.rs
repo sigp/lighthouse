@@ -83,6 +83,7 @@ mod round_trip {
     }
 
     #[test]
+    #[allow(clippy::zero_prefixed_literal)]
     fn fixed_len_struct_encoding() {
         let items: Vec<FixedLen> = vec![
             FixedLen { a: 0, b: 0, c: 0 },
@@ -142,6 +143,7 @@ mod round_trip {
     }
 
     #[test]
+    #[allow(clippy::zero_prefixed_literal)]
     fn offset_into_fixed_bytes() {
         let bytes = vec![
             //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
@@ -172,6 +174,7 @@ mod round_trip {
     }
 
     #[test]
+    #[allow(clippy::zero_prefixed_literal)]
     fn first_offset_skips_byte() {
         let bytes = vec![
             //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
@@ -186,6 +189,7 @@ mod round_trip {
     }
 
     #[test]
+    #[allow(clippy::zero_prefixed_literal)]
     fn variable_len_struct_encoding() {
         let items: Vec<VariableLen> = vec![
             VariableLen {
@@ -274,6 +278,7 @@ mod round_trip {
     }
 
     #[test]
+    #[allow(clippy::zero_prefixed_literal)]
     fn offsets_decreasing() {
         let bytes = vec![
             //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15
@@ -296,6 +301,7 @@ mod round_trip {
     }
 
     #[test]
+    #[allow(clippy::zero_prefixed_literal)]
     fn two_variable_len_options_encoding() {
         let s = TwoVariableLenOptions {
             a: 42,

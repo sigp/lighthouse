@@ -4,7 +4,7 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
-use types::{Epoch, Hash256, ShufflingId, Slot};
+use types::{AttestationShufflingId, Epoch, Hash256, Slot};
 
 pub use ffg_updates::*;
 pub use no_votes::*;
@@ -55,7 +55,8 @@ pub struct ForkChoiceTestDefinition {
 
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
-        let junk_shuffling_id = ShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
@@ -128,11 +129,11 @@ impl ForkChoiceTestDefinition {
                         parent_root: Some(parent_root),
                         state_root: Hash256::zero(),
                         target_root: Hash256::zero(),
-                        current_epoch_shuffling_id: ShufflingId::from_components(
+                        current_epoch_shuffling_id: AttestationShufflingId::from_components(
                             Epoch::new(0),
                             Hash256::zero(),
                         ),
-                        next_epoch_shuffling_id: ShufflingId::from_components(
+                        next_epoch_shuffling_id: AttestationShufflingId::from_components(
                             Epoch::new(0),
                             Hash256::zero(),
                         ),

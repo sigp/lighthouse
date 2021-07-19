@@ -19,11 +19,12 @@ use futures_util::StreamExt;
 pub use reqwest;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
+use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
-use ssz::Decode;
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub enum Error {
@@ -36,7 +37,7 @@ pub enum Error {
     /// The server returned an error message where the body was unable to be parsed.
     StatusCode(StatusCode),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
-    InvalidUrl(Url),
+    InvalidUrl(SensitiveUrl),
     /// The supplied validator client secret is invalid.
     InvalidSecret(String),
     /// The server returned a response with an invalid signature. It may be an impostor.
@@ -76,12 +77,34 @@ impl fmt::Display for Error {
     }
 }
 
+/// A struct to define a variety of different timeouts for different validator tasks to ensure
+/// proper fallback behaviour.
+#[derive(Clone)]
+pub struct Timeouts {
+    pub attestation: Duration,
+    pub attester_duties: Duration,
+    pub proposal: Duration,
+    pub proposer_duties: Duration,
+}
+
+impl Timeouts {
+    pub fn set_all(timeout: Duration) -> Self {
+        Timeouts {
+            attestation: timeout,
+            attester_duties: timeout,
+            proposal: timeout,
+            proposer_duties: timeout,
+        }
+    }
+}
+
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
 #[derive(Clone)]
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
-    server: Url,
+    server: SensitiveUrl,
+    timeouts: Timeouts,
 }
 
 impl fmt::Display for BeaconNodeHttpClient {
@@ -92,25 +115,34 @@ impl fmt::Display for BeaconNodeHttpClient {
 
 impl AsRef<str> for BeaconNodeHttpClient {
     fn as_ref(&self) -> &str {
-        self.server.as_str()
+        self.server.as_ref()
     }
 }
 
 impl BeaconNodeHttpClient {
-    pub fn new(server: Url) -> Self {
+    pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
         Self {
             client: reqwest::Client::new(),
             server,
+            timeouts,
         }
     }
 
-    pub fn from_components(server: Url, client: reqwest::Client) -> Self {
-        Self { client, server }
+    pub fn from_components(
+        server: SensitiveUrl,
+        client: reqwest::Client,
+        timeouts: Timeouts,
+    ) -> Self {
+        Self {
+            client,
+            server,
+            timeouts,
+        }
     }
 
     /// Return the path with the standard `/eth1/v1` prefix applied.
     fn eth_path(&self) -> Result<Url, Error> {
-        let mut path = self.server.clone();
+        let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -130,9 +162,54 @@ impl BeaconNodeHttpClient {
             .map_err(Error::Reqwest)
     }
 
+    /// Perform a HTTP GET request with a custom timeout.
+    async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Duration,
+    ) -> Result<T, Error> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
+    }
+
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
         let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        match ok_or_error(response).await {
+            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
+            Err(err) => {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
+    /// Perform a HTTP GET request with a custom timeout, returning `None` on a 404 error.
+    async fn get_opt_with_timeout<T: DeserializeOwned, U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Duration,
+    ) -> Result<Option<T>, Error> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(timeout)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
         match ok_or_error(response).await {
             Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
             Err(err) => {
@@ -189,15 +266,36 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// Perform a HTTP POST request, returning a JSON response.
-    async fn post_with_response<T: DeserializeOwned, U: IntoUrl, V: Serialize>(
+    /// Perform a HTTP POST request with a custom timeout.
+    async fn post_with_timeout<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let response = self
+            .client
+            .post(url)
+            .timeout(timeout)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        ok_or_error(response).await?;
+        Ok(())
+    }
+
+    /// Perform a HTTP POST request with a custom timeout, returning a JSON response.
+    async fn post_with_timeout_and_response<T: DeserializeOwned, U: IntoUrl, V: Serialize>(
         &self,
         url: U,
         body: &V,
+        timeout: Duration,
     ) -> Result<T, Error> {
         let response = self
             .client
             .post(url)
+            .timeout(timeout)
             .json(body)
             .send()
             .await
@@ -468,7 +566,8 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post(path, block).await?;
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
 
         Ok(())
     }
@@ -489,6 +588,28 @@ impl BeaconNodeHttpClient {
             .push(&block_id.to_string());
 
         self.get_opt(path).await
+    }
+
+    /// `GET beacon/blocks` as SSZ
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_blocks_ssz<T: EthSpec>(
+        &self,
+        block_id: BlockId,
+        spec: &ChainSpec,
+    ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks")
+            .push(&block_id.to_string());
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+            .await?
+            .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
+            .transpose()
     }
 
     /// `GET beacon/blocks/{block_id}/root`
@@ -545,6 +666,7 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
+            .timeout(self.timeouts.attestation)
             .json(attestations)
             .send()
             .await
@@ -693,7 +815,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET config/spec`
-    pub async fn get_config_spec(&self) -> Result<GenericResponse<YamlConfig>, Error> {
+    pub async fn get_config_spec(&self) -> Result<GenericResponse<ConfigAndPreset>, Error> {
         let mut path = self.eth_path()?;
 
         path.path_segments_mut()
@@ -861,6 +983,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states_ssz<T: EthSpec>(
         &self,
         state_id: StateId,
+        spec: &ChainSpec,
     ) -> Result<Option<BeaconState<T>>, Error> {
         let mut path = self.eth_path()?;
 
@@ -873,7 +996,7 @@ impl BeaconNodeHttpClient {
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz)
             .await?
-            .map(|bytes| BeaconState::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
     }
 
@@ -906,7 +1029,8 @@ impl BeaconNodeHttpClient {
             .push("proposer")
             .push(&epoch.to_string());
 
-        self.get(path).await
+        self.get_with_timeout(path, self.timeouts.proposer_duties)
+            .await
     }
 
     /// `GET validator/blocks/{slot}`
@@ -952,10 +1076,10 @@ impl BeaconNodeHttpClient {
             .append_pair("slot", &slot.to_string())
             .append_pair("committee_index", &committee_index.to_string());
 
-        self.get(path).await
+        self.get_with_timeout(path, self.timeouts.attestation).await
     }
 
-    /// `GET validator/attestation_attestation?slot,attestation_data_root`
+    /// `GET validator/aggregate_attestation?slot,attestation_data_root`
     pub async fn get_validator_aggregate_attestation<T: EthSpec>(
         &self,
         slot: Slot,
@@ -975,7 +1099,8 @@ impl BeaconNodeHttpClient {
                 &format!("{:?}", attestation_data_root),
             );
 
-        self.get_opt(path).await
+        self.get_opt_with_timeout(path, self.timeouts.attestation)
+            .await
     }
 
     /// `POST validator/duties/attester/{epoch}`
@@ -993,7 +1118,8 @@ impl BeaconNodeHttpClient {
             .push("attester")
             .push(&epoch.to_string());
 
-        self.post_with_response(path, &indices).await
+        self.post_with_timeout_and_response(path, &indices, self.timeouts.attester_duties)
+            .await
     }
 
     /// `POST validator/aggregate_and_proofs`
@@ -1011,6 +1137,7 @@ impl BeaconNodeHttpClient {
         let response = self
             .client
             .post(path)
+            .timeout(self.timeouts.attestation)
             .json(aggregates)
             .send()
             .await

@@ -20,6 +20,7 @@ use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
 use crate::metrics;
 
+#[cfg(test)]
 mod tests;
 
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
@@ -558,11 +559,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             return;
         }
         // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
-        if self
+        if !self
             .unsubscriptions
             .keys()
-            .find(|s| s.subnet_id == subnet_id)
-            .is_none()
+            .any(|s| s.subnet_id == subnet_id)
         {
             // we are not at capacity, unsubscribe from the current subnet.
             debug!(self.log, "Unsubscribing from random subnet"; "subnet_id" => *subnet_id);
@@ -583,13 +583,13 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// We don't keep track of a specific validator to random subnet, rather the ratio of active
     /// validators to random subnets. So when a validator goes offline, we can simply remove the
     /// allocated amount of random subnets.
-    fn handle_known_validator_expiry(&mut self) -> Result<(), ()> {
+    fn handle_known_validator_expiry(&mut self) {
         let spec = &self.beacon_chain.spec;
         let subnet_count = spec.attestation_subnet_count;
         let random_subnets_per_validator = spec.random_subnets_per_validator;
         if self.known_validators.len() as u64 * random_subnets_per_validator >= subnet_count {
             // have too many validators, ignore
-            return Ok(());
+            return;
         }
 
         let subscribed_subnets = self.random_subnets.keys().cloned().collect::<Vec<_>>();
@@ -600,11 +600,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         for subnet_id in to_remove_subnets {
             // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
-            if self
+            if !self
                 .unsubscriptions
                 .keys()
-                .find(|s| s.subnet_id == *subnet_id)
-                .is_none()
+                .any(|s| s.subnet_id == *subnet_id)
             {
                 self.events
                     .push_back(AttServiceMessage::Unsubscribe(*subnet_id));
@@ -615,7 +614,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .push_back(AttServiceMessage::EnrRemove(*subnet_id));
             self.random_subnets.remove(subnet_id);
         }
-        Ok(())
     }
 }
 

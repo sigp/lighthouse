@@ -68,7 +68,7 @@ pub struct RangeSync<T: BeaconChainTypes> {
     /// that need to be downloaded.
     chains: ChainCollection<T>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The syncing logger.
     log: slog::Logger,
 }
@@ -76,7 +76,7 @@ pub struct RangeSync<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> RangeSync<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
-        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
         log: slog::Logger,
     ) -> Self {
         RangeSync {

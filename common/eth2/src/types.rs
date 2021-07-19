@@ -246,66 +246,84 @@ pub struct ValidatorBalanceData {
     pub balance: u64,
 }
 
-// TODO: This does not currently match the spec, but I'm going to try and change the spec using
+// Implemented according to what is described here:
+//
+// https://hackmd.io/ofFJ5gOmQpu1jjHilHbdQQ
+//
+// We expect this to be updated in v2 of the standard api to
 // this proposal:
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidatorStatus {
-    Unknown,
-    WaitingForEligibility,
-    WaitingForFinality,
-    WaitingInQueue,
-    StandbyForActive,
-    Active,
-    ActiveAwaitingVoluntaryExit,
-    ActiveAwaitingSlashedExit,
-    ExitedVoluntarily,
+    PendingInitialized,
+    PendingQueued,
+    ActiveOngoing,
+    ActiveExiting,
+    ActiveSlashed,
+    ExitedUnslashed,
     ExitedSlashed,
-    Withdrawable,
-    Withdrawn,
+    WithdrawalPossible,
+    WithdrawalDone,
+    Active,
+    Pending,
+    Exited,
+    Withdrawal,
 }
 
 impl ValidatorStatus {
-    pub fn from_validator(
-        validator_opt: Option<&Validator>,
-        epoch: Epoch,
-        finalized_epoch: Epoch,
-        far_future_epoch: Epoch,
-    ) -> Self {
-        if let Some(validator) = validator_opt {
-            if validator.is_withdrawable_at(epoch) {
-                ValidatorStatus::Withdrawable
-            } else if validator.is_exited_at(epoch) {
+    pub fn from_validator(validator: &Validator, epoch: Epoch, far_future_epoch: Epoch) -> Self {
+        if validator.is_withdrawable_at(epoch) {
+            if validator.effective_balance == 0 {
+                ValidatorStatus::WithdrawalDone
+            } else {
+                ValidatorStatus::WithdrawalPossible
+            }
+        } else if validator.is_exited_at(epoch) && epoch < validator.withdrawable_epoch {
+            if validator.slashed {
+                ValidatorStatus::ExitedSlashed
+            } else {
+                ValidatorStatus::ExitedUnslashed
+            }
+        } else if validator.is_active_at(epoch) {
+            if validator.exit_epoch < far_future_epoch {
                 if validator.slashed {
-                    ValidatorStatus::ExitedSlashed
+                    ValidatorStatus::ActiveSlashed
                 } else {
-                    ValidatorStatus::ExitedVoluntarily
-                }
-            } else if validator.is_active_at(epoch) {
-                if validator.exit_epoch < far_future_epoch {
-                    if validator.slashed {
-                        ValidatorStatus::ActiveAwaitingSlashedExit
-                    } else {
-                        ValidatorStatus::ActiveAwaitingVoluntaryExit
-                    }
-                } else {
-                    ValidatorStatus::Active
-                }
-            } else if validator.activation_epoch < far_future_epoch {
-                ValidatorStatus::StandbyForActive
-            } else if validator.activation_eligibility_epoch < far_future_epoch {
-                if finalized_epoch < validator.activation_eligibility_epoch {
-                    ValidatorStatus::WaitingForFinality
-                } else {
-                    ValidatorStatus::WaitingInQueue
+                    ValidatorStatus::ActiveExiting
                 }
             } else {
-                ValidatorStatus::WaitingForEligibility
+                ValidatorStatus::ActiveOngoing
             }
+        // `pending` statuses are specified as validators where `validator.activation_epoch > current_epoch`.
+        // If this code is reached, this criteria must have been met because `validator.is_active_at(epoch)`,
+        // `validator.is_exited_at(epoch)`, and `validator.is_withdrawable_at(epoch)` all returned false.
+        } else if validator.activation_eligibility_epoch == far_future_epoch {
+            ValidatorStatus::PendingInitialized
         } else {
-            ValidatorStatus::Unknown
+            ValidatorStatus::PendingQueued
+        }
+    }
+
+    pub fn superstatus(&self) -> Self {
+        match self {
+            ValidatorStatus::PendingInitialized | ValidatorStatus::PendingQueued => {
+                ValidatorStatus::Pending
+            }
+            ValidatorStatus::ActiveOngoing
+            | ValidatorStatus::ActiveExiting
+            | ValidatorStatus::ActiveSlashed => ValidatorStatus::Active,
+            ValidatorStatus::ExitedUnslashed | ValidatorStatus::ExitedSlashed => {
+                ValidatorStatus::Exited
+            }
+            ValidatorStatus::WithdrawalPossible | ValidatorStatus::WithdrawalDone => {
+                ValidatorStatus::Withdrawal
+            }
+            ValidatorStatus::Active
+            | ValidatorStatus::Pending
+            | ValidatorStatus::Exited
+            | ValidatorStatus::Withdrawal => *self,
         }
     }
 }
@@ -315,18 +333,19 @@ impl FromStr for ValidatorStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "unknown" => Ok(ValidatorStatus::Unknown),
-            "waiting_for_eligibility" => Ok(ValidatorStatus::WaitingForEligibility),
-            "waiting_for_finality" => Ok(ValidatorStatus::WaitingForFinality),
-            "waiting_in_queue" => Ok(ValidatorStatus::WaitingInQueue),
-            "standby_for_active" => Ok(ValidatorStatus::StandbyForActive),
-            "active" => Ok(ValidatorStatus::Active),
-            "active_awaiting_voluntary_exit" => Ok(ValidatorStatus::ActiveAwaitingVoluntaryExit),
-            "active_awaiting_slashed_exit" => Ok(ValidatorStatus::ActiveAwaitingSlashedExit),
-            "exited_voluntarily" => Ok(ValidatorStatus::ExitedVoluntarily),
+            "pending_initialized" => Ok(ValidatorStatus::PendingInitialized),
+            "pending_queued" => Ok(ValidatorStatus::PendingQueued),
+            "active_ongoing" => Ok(ValidatorStatus::ActiveOngoing),
+            "active_exiting" => Ok(ValidatorStatus::ActiveExiting),
+            "active_slashed" => Ok(ValidatorStatus::ActiveSlashed),
+            "exited_unslashed" => Ok(ValidatorStatus::ExitedUnslashed),
             "exited_slashed" => Ok(ValidatorStatus::ExitedSlashed),
-            "withdrawable" => Ok(ValidatorStatus::Withdrawable),
-            "withdrawn" => Ok(ValidatorStatus::Withdrawn),
+            "withdrawal_possible" => Ok(ValidatorStatus::WithdrawalPossible),
+            "withdrawal_done" => Ok(ValidatorStatus::WithdrawalDone),
+            "active" => Ok(ValidatorStatus::Active),
+            "pending" => Ok(ValidatorStatus::Pending),
+            "exited" => Ok(ValidatorStatus::Exited),
+            "withdrawal" => Ok(ValidatorStatus::Withdrawal),
             _ => Err(format!("{} cannot be parsed as a validator status.", s)),
         }
     }
@@ -335,20 +354,19 @@ impl FromStr for ValidatorStatus {
 impl fmt::Display for ValidatorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ValidatorStatus::Unknown => write!(f, "unknown"),
-            ValidatorStatus::WaitingForEligibility => write!(f, "waiting_for_eligibility"),
-            ValidatorStatus::WaitingForFinality => write!(f, "waiting_for_finality"),
-            ValidatorStatus::WaitingInQueue => write!(f, "waiting_in_queue"),
-            ValidatorStatus::StandbyForActive => write!(f, "standby_for_active"),
-            ValidatorStatus::Active => write!(f, "active"),
-            ValidatorStatus::ActiveAwaitingVoluntaryExit => {
-                write!(f, "active_awaiting_voluntary_exit")
-            }
-            ValidatorStatus::ActiveAwaitingSlashedExit => write!(f, "active_awaiting_slashed_exit"),
-            ValidatorStatus::ExitedVoluntarily => write!(f, "exited_voluntarily"),
+            ValidatorStatus::PendingInitialized => write!(f, "pending_initialized"),
+            ValidatorStatus::PendingQueued => write!(f, "pending_queued"),
+            ValidatorStatus::ActiveOngoing => write!(f, "active_ongoing"),
+            ValidatorStatus::ActiveExiting => write!(f, "active_exiting"),
+            ValidatorStatus::ActiveSlashed => write!(f, "active_slashed"),
+            ValidatorStatus::ExitedUnslashed => write!(f, "exited_unslashed"),
             ValidatorStatus::ExitedSlashed => write!(f, "exited_slashed"),
-            ValidatorStatus::Withdrawable => write!(f, "withdrawable"),
-            ValidatorStatus::Withdrawn => write!(f, "withdrawn"),
+            ValidatorStatus::WithdrawalPossible => write!(f, "withdrawal_possible"),
+            ValidatorStatus::WithdrawalDone => write!(f, "withdrawal_done"),
+            ValidatorStatus::Active => write!(f, "active"),
+            ValidatorStatus::Pending => write!(f, "pending"),
+            ValidatorStatus::Exited => write!(f, "exited"),
+            ValidatorStatus::Withdrawal => write!(f, "withdrawal"),
         }
     }
 }
@@ -671,6 +689,18 @@ pub struct SseHead {
     pub epoch_transition: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseChainReorg {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub depth: u64,
+    pub old_head_block: Hash256,
+    pub old_head_state: Hash256,
+    pub new_head_block: Hash256,
+    pub new_head_state: Hash256,
+    pub epoch: Epoch,
+}
+
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
@@ -679,9 +709,21 @@ pub enum EventKind<T: EthSpec> {
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
+    ChainReorg(SseChainReorg),
 }
 
 impl<T: EthSpec> EventKind<T> {
+    pub fn topic_name(&self) -> &str {
+        match self {
+            EventKind::Head(_) => "head",
+            EventKind::Block(_) => "block",
+            EventKind::Attestation(_) => "attestation",
+            EventKind::VoluntaryExit(_) => "voluntary_exit",
+            EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
+            EventKind::ChainReorg(_) => "chain_reorg",
+        }
+    }
+
     pub fn from_sse_bytes(message: &[u8]) -> Result<Self, ServerError> {
         let s = from_utf8(message)
             .map_err(|e| ServerError::InvalidServerSentEvent(format!("{:?}", e)))?;
@@ -706,6 +748,9 @@ impl<T: EthSpec> EventKind<T> {
             )?)),
             "block" => Ok(EventKind::Block(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
+            )?)),
+            "chain_reorg" => Ok(EventKind::ChainReorg(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Chain Reorg: {:?}", e)),
             )?)),
             "finalized_checkpoint" => Ok(EventKind::FinalizedCheckpoint(
                 serde_json::from_str(data).map_err(|e| {
@@ -740,6 +785,7 @@ pub enum EventTopic {
     Attestation,
     VoluntaryExit,
     FinalizedCheckpoint,
+    ChainReorg,
 }
 
 impl FromStr for EventTopic {
@@ -752,6 +798,7 @@ impl FromStr for EventTopic {
             "attestation" => Ok(EventTopic::Attestation),
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
+            "chain_reorg" => Ok(EventTopic::ChainReorg),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -765,6 +812,7 @@ impl fmt::Display for EventTopic {
             EventTopic::Attestation => write!(f, "attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
+            EventTopic::ChainReorg => write!(f, "chain_reorg"),
         }
     }
 }

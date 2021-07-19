@@ -1,3 +1,4 @@
+use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
@@ -6,8 +7,9 @@ use directory::{
     DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
+use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
-use slog::{warn, Logger};
+use slog::{info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -25,7 +27,7 @@ pub struct Config {
     /// The http endpoints of the beacon node APIs.
     ///
     /// Should be similar to `["http://localhost:8080"]`
-    pub beacon_nodes: Vec<String>,
+    pub beacon_nodes: Vec<SensitiveUrl>,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -33,12 +35,18 @@ pub struct Config {
     pub disable_auto_discover: bool,
     /// If true, re-register existing validators in definitions.yml for slashing protection.
     pub init_slashing_protection: bool,
+    /// If true, use longer timeouts for requests made to the beacon node.
+    pub use_long_timeouts: bool,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
+    /// Graffiti file to load per validator graffitis.
+    pub graffiti_file: Option<GraffitiFile>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for sending metrics to a remote explorer endpoint.
+    pub monitoring_api: Option<monitoring_api::Config>,
 }
 
 impl Default for Config {
@@ -52,16 +60,22 @@ impl Default for Config {
             .join(DEFAULT_HARDCODED_NETWORK);
         let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
+
+        let beacon_nodes = vec![SensitiveUrl::parse(DEFAULT_BEACON_NODE)
+            .expect("beacon_nodes must always be a valid url.")];
         Self {
             validator_dir,
             secrets_dir,
-            beacon_nodes: vec![DEFAULT_BEACON_NODE.to_string()],
+            beacon_nodes,
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
+            use_long_timeouts: false,
             graffiti: None,
+            graffiti_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            monitoring_api: None,
         }
     }
 }
@@ -107,25 +121,31 @@ impl Config {
         }
 
         if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
-            config.beacon_nodes = beacon_nodes.as_str().split(',').map(String::from).collect()
+            config.beacon_nodes = beacon_nodes
+                .split(',')
+                .map(|s| SensitiveUrl::parse(s))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
         // To be deprecated.
-        else if let Some(beacon_node) = parse_optional(cli_args, "beacon-node")? {
+        else if let Some(beacon_node) = parse_optional::<String>(cli_args, "beacon-node")? {
             warn!(
                 log,
                 "The --beacon-node flag is deprecated";
                 "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_nodes = vec![beacon_node];
+            config.beacon_nodes = vec![SensitiveUrl::parse(&beacon_node)
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
         // To be deprecated.
-        else if let Some(server) = parse_optional(cli_args, "server")? {
+        else if let Some(server) = parse_optional::<String>(cli_args, "server")? {
             warn!(
                 log,
                 "The --server flag is deprecated";
                 "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_nodes = vec![server];
+            config.beacon_nodes = vec![SensitiveUrl::parse(&server)
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
 
         if cli_args.is_present("delete-lockfiles") {
@@ -139,6 +159,16 @@ impl Config {
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
+        config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
+
+        if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
+            let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
+            graffiti_file
+                .read_graffiti_file()
+                .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
+            config.graffiti_file = Some(graffiti_file);
+            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
+        }
 
         if let Some(input_graffiti) = cli_args.value_of("graffiti") {
             let graffiti_bytes = input_graffiti.as_bytes();
@@ -210,7 +240,28 @@ impl Config {
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
+        /*
+         * Explorer metrics
+         */
+        if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            config.monitoring_api = Some(monitoring_api::Config {
+                db_path: None,
+                freezer_db_path: None,
+                monitoring_endpoint: monitoring_endpoint.to_string(),
+            });
+        }
 
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // Ensures the default config does not panic.
+    fn default_config() {
+        Config::default();
     }
 }

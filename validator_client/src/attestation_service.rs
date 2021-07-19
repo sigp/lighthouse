@@ -5,14 +5,12 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
-use futures::future::FutureExt;
-use futures::StreamExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{interval_at, sleep_until, Duration, Instant};
+use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
@@ -21,7 +19,7 @@ use types::{
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
-    duties_service: Option<DutiesService<T, E>>,
+    duties_service: Option<Arc<DutiesService<T, E>>>,
     validator_store: Option<ValidatorStore<T, E>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
@@ -39,7 +37,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         }
     }
 
-    pub fn duties_service(mut self, service: DutiesService<T, E>) -> Self {
+    pub fn duties_service(mut self, service: Arc<DutiesService<T, E>>) -> Self {
         self.duties_service = Some(service);
         self
     }
@@ -89,7 +87,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    duties_service: DutiesService<T, E>,
+    duties_service: Arc<DutiesService<T, E>>,
     validator_store: ValidatorStore<T, E>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
@@ -138,31 +136,31 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             "next_update_millis" => duration_to_next_slot.as_millis()
         );
 
-        let mut interval = {
-            // Note: `interval_at` panics if `slot_duration` is 0
-            interval_at(
-                Instant::now() + duration_to_next_slot + slot_duration / 3,
-                slot_duration,
-            )
-        };
-
         let executor = self.context.executor.clone();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
-                let log = self.context.log();
+            loop {
+                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
+                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    let log = self.context.log();
 
-                if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
-                    crit!(
-                        log,
-                        "Failed to spawn attestation tasks";
-                        "error" => e
-                    )
+                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                        crit!(
+                            log,
+                            "Failed to spawn attestation tasks";
+                            "error" => e
+                        )
+                    } else {
+                        trace!(
+                            log,
+                            "Spawned attestation tasks";
+                        )
+                    }
                 } else {
-                    trace!(
-                        log,
-                        "Spawned attestation tasks";
-                    )
+                    error!(log, "Failed to read slot clock");
+                    // If we can't read the slot clock, just wait another slot.
+                    sleep(slot_duration).await;
+                    continue;
                 }
             }
         };
@@ -192,12 +190,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .attesters(slot)
             .into_iter()
             .fold(HashMap::new(), |mut map, duty_and_proof| {
-                if let Some(committee_index) = duty_and_proof.duty.attestation_committee_index {
-                    let validator_duties = map.entry(committee_index).or_insert_with(Vec::new);
-
-                    validator_duties.push(duty_and_proof);
-                }
-
+                map.entry(duty_and_proof.duty.committee_index)
+                    .or_insert_with(Vec::new)
+                    .push(duty_and_proof);
                 map
             });
 
@@ -209,18 +204,21 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.executor.spawn(
-                    self.clone()
-                        .publish_attestations_and_aggregates(
-                            slot,
-                            committee_index,
-                            validator_duties,
-                            aggregate_production_instant,
-                        )
-                        .map(|_| ()),
+                self.inner.context.executor.spawn_ignoring_error(
+                    self.clone().publish_attestations_and_aggregates(
+                        slot,
+                        committee_index,
+                        validator_duties,
+                        aggregate_production_instant,
+                    ),
                     "attestation publish",
                 );
             });
+
+        // Schedule pruning of the slashing protection database once all unaggregated
+        // attestations have (hopefully) been signed, i.e. at the same time as aggregate
+        // production.
+        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
 
         Ok(())
     }
@@ -339,6 +337,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let attestation_data = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_attestation_data(slot, committee_index)
                     .await
@@ -350,43 +352,27 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let mut attestations = Vec::with_capacity(validator_duties.len());
 
-        for duty in validator_duties {
-            // Ensure that all required fields are present in the validator duty.
-            let (
-                duty_slot,
-                duty_committee_index,
-                validator_committee_position,
-                _,
-                _,
-                committee_length,
-            ) = if let Some(tuple) = duty.attestation_duties() {
-                tuple
-            } else {
-                crit!(
-                    log,
-                    "Missing validator duties when signing";
-                    "duties" => format!("{:?}", duty)
-                );
-                continue;
-            };
+        for duty_and_proof in validator_duties {
+            let duty = &duty_and_proof.duty;
 
             // Ensure that the attestation matches the duties.
-            if duty_slot != attestation_data.slot || duty_committee_index != attestation_data.index
+            #[allow(clippy::suspicious_operation_groupings)]
+            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
             {
                 crit!(
                     log,
                     "Inconsistent validator duties during signing";
-                    "validator" => format!("{:?}", duty.validator_pubkey()),
-                    "duty_slot" => duty_slot,
+                    "validator" => ?duty.pubkey,
+                    "duty_slot" => duty.slot,
                     "attestation_slot" => attestation_data.slot,
-                    "duty_index" => duty_committee_index,
+                    "duty_index" => duty.committee_index,
                     "attestation_index" => attestation_data.index,
                 );
                 continue;
             }
 
             let mut attestation = Attestation {
-                aggregation_bits: BitList::with_capacity(committee_length as usize).unwrap(),
+                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
                 data: attestation_data.clone(),
                 signature: AggregateSignature::infinity(),
             };
@@ -394,8 +380,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             if self
                 .validator_store
                 .sign_attestation(
-                    duty.validator_pubkey(),
-                    validator_committee_position,
+                    &duty.pubkey,
+                    duty.validator_committee_index as usize,
                     &mut attestation,
                     current_epoch,
                 )
@@ -417,6 +403,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         match self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_POST],
+                );
                 beacon_node
                     .post_beacon_pool_attestations(attestations_slice)
                     .await
@@ -469,6 +459,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let aggregated_attestation = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::AGGREGATES_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_aggregate_attestation(
                         attestation_data_ref.slot,
@@ -485,6 +479,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let mut signed_aggregate_and_proofs = Vec::new();
 
         for duty_and_proof in validator_duties {
+            let duty = &duty_and_proof.duty;
+
             let selection_proof = if let Some(proof) = duty_and_proof.selection_proof.as_ref() {
                 proof
             } else {
@@ -492,26 +488,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 // subscribed aggregators.
                 continue;
             };
-            let (duty_slot, duty_committee_index, _, validator_index, _, _) =
-                if let Some(tuple) = duty_and_proof.attestation_duties() {
-                    tuple
-                } else {
-                    crit!(log, "Missing duties when signing aggregate");
-                    continue;
-                };
 
-            let pubkey = &duty_and_proof.duty.validator_pubkey;
             let slot = attestation_data.slot;
             let committee_index = attestation_data.index;
 
-            if duty_slot != slot || duty_committee_index != committee_index {
+            if duty.slot != slot || duty.committee_index != committee_index {
                 crit!(log, "Inconsistent validator duties during signing");
                 continue;
             }
 
             if let Some(aggregate) = self.validator_store.produce_signed_aggregate_and_proof(
-                pubkey,
-                validator_index,
+                &duty.pubkey,
+                duty.validator_index,
                 aggregated_attestation.clone(),
                 selection_proof.clone(),
             ) {
@@ -527,6 +515,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             match self
                 .beacon_nodes
                 .first_success(RequireSynced::No, |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::AGGREGATES_HTTP_POST],
+                    );
                     beacon_node
                         .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
                         .await
@@ -565,6 +557,32 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         }
 
         Ok(())
+    }
+
+    /// Spawn a blocking task to run the slashing protection pruning process.
+    ///
+    /// Start the task at `pruning_instant` to avoid interference with other tasks.
+    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
+        let attestation_service = self.clone();
+        let executor = self.inner.context.executor.clone();
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+
+        // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
+        self.inner.context.executor.spawn(
+            async move {
+                sleep_until(pruning_instant).await;
+
+                executor.spawn_blocking(
+                    move || {
+                        attestation_service
+                            .validator_store
+                            .prune_slashing_protection_db(current_epoch, false)
+                    },
+                    "slashing_protection_pruning",
+                )
+            },
+            "slashing_protection_pre_pruning",
+        );
     }
 }
 

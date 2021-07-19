@@ -12,12 +12,13 @@ pub mod test_utils;
 pub use crate::signed_attestation::{InvalidAttestation, SignedAttestation};
 pub use crate::signed_block::{InvalidBlock, SignedBlock};
 pub use crate::slashing_database::{
-    InterchangeImportOutcome, SlashingDatabase, SUPPORTED_INTERCHANGE_FORMAT_VERSION,
+    InterchangeError, InterchangeImportOutcome, SlashingDatabase,
+    SUPPORTED_INTERCHANGE_FORMAT_VERSION,
 };
 use rusqlite::Error as SQLError;
 use std::io::{Error as IOError, ErrorKind};
 use std::string::ToString;
-use types::{Hash256, PublicKey};
+use types::{Hash256, PublicKeyBytes};
 
 /// The filename within the `validators` directory that contains the slashing protection DB.
 pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
@@ -27,9 +28,10 @@ pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 /// This could be because it's slashable, or because an error occurred.
 #[derive(PartialEq, Debug)]
 pub enum NotSafe {
-    UnregisteredValidator(PublicKey),
+    UnregisteredValidator(PublicKeyBytes),
     InvalidBlock(InvalidBlock),
     InvalidAttestation(InvalidAttestation),
+    PermissionsError,
     IOError(ErrorKind),
     SQLError(String),
     SQLPoolError(String),
@@ -104,7 +106,8 @@ impl From<SQLError> for NotSafe {
 
 impl From<r2d2::Error> for NotSafe {
     fn from(error: r2d2::Error) -> Self {
-        NotSafe::SQLPoolError(format!("{:?}", error))
+        // Use `Display` impl to print "timed out waiting for connection"
+        NotSafe::SQLPoolError(format!("{}", error))
     }
 }
 
@@ -119,6 +122,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[allow(clippy::eq_op)]
     fn signing_root_partial_eq() {
         let h0 = SigningRoot(Hash256::zero());
         let h1 = SigningRoot(Hash256::repeat_byte(1));

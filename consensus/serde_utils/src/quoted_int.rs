@@ -70,6 +70,17 @@ macro_rules! define_mod {
             pub value: T,
         }
 
+        /// Compositional wrapper type that allows quotes or no quotes.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+        #[serde(transparent)]
+        pub struct MaybeQuoted<T>
+        where
+            T: From<$int> + Into<$int> + Copy + TryFrom<u64>,
+        {
+            #[serde(with = "self")]
+            pub value: T,
+        }
+
         /// Serialize with quotes.
         pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
         where

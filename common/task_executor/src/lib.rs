@@ -5,7 +5,24 @@ use futures::prelude::*;
 use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tokio_compat_02::FutureExt;
+
+/// Provides a reason when Lighthouse is shut down.
+#[derive(Copy, Clone, Debug)]
+pub enum ShutdownReason {
+    /// The node shut down successfully.
+    Success(&'static str),
+    /// The node shut down due to an error condition.
+    Failure(&'static str),
+}
+
+impl ShutdownReason {
+    pub fn message(&self) -> &'static str {
+        match self {
+            ShutdownReason::Success(msg) => msg,
+            ShutdownReason::Failure(msg) => msg,
+        }
+    }
+}
 
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
@@ -18,7 +35,7 @@ pub struct TaskExecutor {
     /// continue they can request that everything shuts down.
     ///
     /// The task must provide a reason for shutting down.
-    signal_tx: Sender<&'static str>,
+    signal_tx: Sender<ShutdownReason>,
 
     log: slog::Logger,
 }
@@ -32,7 +49,7 @@ impl TaskExecutor {
         runtime: Weak<Runtime>,
         exit: exit_future::Exit,
         log: slog::Logger,
-        signal_tx: Sender<&'static str>,
+        signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
             runtime,
@@ -52,6 +69,20 @@ impl TaskExecutor {
         }
     }
 
+    /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
+    /// are of type `()`.
+    ///
+    /// The purpose of this function is to create a compile error if some function which previously
+    /// returned `()` starts returning something else. Such a case may otherwise result in
+    /// accidental error suppression.
+    pub fn spawn_ignoring_error(
+        &self,
+        task: impl Future<Output = Result<(), ()>> + Send + 'static,
+        name: &'static str,
+    ) {
+        self.spawn(task.map(|_| ()), name)
+    }
+
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
     /// when the corresponding exit_future `Signal` is fired/dropped.
     ///
@@ -63,7 +94,7 @@ impl TaskExecutor {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
             let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task.compat()), exit).then(move |either| {
+            let future = future::select(Box::pin(task), exit).then(move |either| {
                 match either {
                     future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
                     future::Either::Right(_) => {
@@ -99,12 +130,10 @@ impl TaskExecutor {
     ) {
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             let int_gauge_1 = int_gauge.clone();
-            let future = task
-                .then(move |_| {
-                    int_gauge_1.dec();
-                    futures::future::ready(())
-                })
-                .compat();
+            let future = task.then(move |_| {
+                int_gauge_1.dec();
+                futures::future::ready(())
+            });
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
@@ -186,7 +215,7 @@ impl TaskExecutor {
 
             int_gauge.inc();
             if let Some(runtime) = self.runtime.upgrade() {
-                Some(runtime.spawn(future.compat()))
+                Some(runtime.spawn(future))
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
                 None
@@ -258,7 +287,7 @@ impl TaskExecutor {
     }
 
     /// Get a channel to request shutting down.
-    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+    pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
     }
 

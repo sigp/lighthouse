@@ -40,7 +40,7 @@ fn random_test(seed: u64, test_config: TestConfig) {
 
     let tempdir = tempdir().unwrap();
 
-    let mut config = Config::new(tempdir.path().into());
+    let mut config = Config::new(tempdir.path().into()).for_testing();
     config.validator_chunk_size = 1 << rng.gen_range(1, 4);
 
     let chunk_size_exponent = rng.gen_range(1, 4);
@@ -62,7 +62,7 @@ fn random_test(seed: u64, test_config: TestConfig) {
             .choose_multiple(&mut rng, num_attesters)
             .copied()
             .collect::<Vec<u64>>();
-        attesting_indices.sort();
+        attesting_indices.sort_unstable();
 
         // If checking slashings, generate valid attestations in range.
         let (source, target) = if check_slashings {

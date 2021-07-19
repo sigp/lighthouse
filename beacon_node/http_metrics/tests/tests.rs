@@ -5,7 +5,6 @@ use reqwest::StatusCode;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio_compat_02::FutureExt;
 use types::MainnetEthSpec;
 
 type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
@@ -21,6 +20,7 @@ async fn returns_200_ok() {
                 listen_addr: Ipv4Addr::new(127, 0, 0, 1),
                 listen_port: 0,
                 allow_origin: None,
+                allocator_metrics_enabled: true,
             },
             chain: None,
             db_path: None,
@@ -46,6 +46,5 @@ async fn returns_200_ok() {
 
         assert_eq!(reqwest::get(&url).await.unwrap().status(), StatusCode::OK);
     }
-    .compat()
     .await
 }

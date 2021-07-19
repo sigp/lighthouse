@@ -1,6 +1,5 @@
-use crate::rpc::{Protocol, RPCRequest};
+use crate::rpc::{InboundRequest, Protocol};
 use fnv::FnvHashMap;
-use futures::StreamExt;
 use libp2p::PeerId;
 use std::convert::TryInto;
 use std::future::Future;
@@ -186,7 +185,7 @@ impl RPCRateLimiter {
     pub fn allows<T: EthSpec>(
         &mut self,
         peer_id: &PeerId,
-        request: &RPCRequest<T>,
+        request: &InboundRequest<T>,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
         let mut tokens = request.expected_responses().max(1);
@@ -208,7 +207,7 @@ impl RPCRateLimiter {
         //     9     |   4
         //     10    |   5
 
-        if let RPCRequest::BlocksByRange(bbr_req) = request {
+        if let InboundRequest::BlocksByRange(bbr_req) = request {
             let penalty_factor = (bbr_req.step as f64 / 5.0).powi(2) as u64 + 1;
             tokens *= penalty_factor;
         }
@@ -241,7 +240,7 @@ impl Future for RPCRateLimiter {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        while let Poll::Ready(Some(_)) = self.prune_interval.poll_next_unpin(cx) {
+        while self.prune_interval.poll_tick(cx).is_ready() {
             self.prune();
         }
 

@@ -2,15 +2,13 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
-use futures::future::FutureExt;
-use futures::StreamExt;
 use parking_lot::RwLock;
-use slog::Logger;
 use slog::{debug, trace};
+use slog::{error, Logger};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::time::{sleep, Duration};
 use types::{EthSpec, Fork};
 
 /// Delay this period of time after the slot starts. This allows the node to process the new slot.
@@ -85,10 +83,11 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
             std::time::Duration::from_secs(42),
         );
         let candidates = vec![CandidateBeaconNode::new(eth2::BeaconNodeHttpClient::new(
-            eth2::Url::parse("http://127.0.0.1").unwrap(),
+            sensitive_url::SensitiveUrl::parse("http://127.0.0.1").unwrap(),
+            eth2::Timeouts::set_all(Duration::from_secs(12)),
         ))];
         let mut beacon_nodes = BeaconNodeFallback::new(candidates, spec, log.clone());
-        beacon_nodes.set_slot_clock(slot_clock.clone());
+        beacon_nodes.set_slot_clock(slot_clock);
 
         Self {
             fork: Some(types::Fork::default()),
@@ -140,32 +139,31 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
 
     /// Starts the service that periodically polls for the `Fork`.
     pub fn start_update_service(self, context: &RuntimeContext<E>) -> Result<(), String> {
-        let spec = &context.eth2_config.spec;
-
-        let duration_to_next_epoch = self
-            .slot_clock
-            .duration_to_next_epoch(E::slots_per_epoch())
-            .ok_or("Unable to determine duration to next epoch")?;
-
-        let mut interval = {
-            let slot_duration = Duration::from_secs(spec.seconds_per_slot);
-            // Note: interval_at panics if `slot_duration * E::slots_per_epoch()` = 0
-            interval_at(
-                Instant::now() + duration_to_next_epoch + TIME_DELAY_FROM_SLOT,
-                slot_duration * E::slots_per_epoch() as u32,
-            )
-        };
-
         // Run an immediate update before starting the updater service.
         context
             .executor
-            .spawn(self.clone().do_update().map(|_| ()), "fork service update");
+            .spawn_ignoring_error(self.clone().do_update(), "fork service update");
 
         let executor = context.executor.clone();
+        let log = context.log().clone();
+        let spec = E::default_spec();
 
         let interval_fut = async move {
-            while interval.next().await.is_some() {
+            loop {
+                // Run this poll before the wait, this should hopefully download the fork before the
+                // other services need them.
                 self.clone().do_update().await.ok();
+
+                if let Some(duration_to_next_epoch) =
+                    self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
+                {
+                    sleep(duration_to_next_epoch + TIME_DELAY_FROM_SLOT).await;
+                } else {
+                    error!(log, "Failed to read slot clock");
+                    // If we can't read the slot clock, just wait another slot.
+                    sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+                    continue;
+                }
             }
         };
 

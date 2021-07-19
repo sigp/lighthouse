@@ -135,7 +135,7 @@ pub mod tests_commons {
     pub fn assert_backend_new_error(matches: &ArgMatches, error_msg: &str) {
         match Backend::new(matches, &get_null_logger()) {
             Ok(_) => panic!("This invocation to Backend::new() should return error"),
-            Err(e) => assert_eq!(e.to_string(), error_msg),
+            Err(e) => assert_eq!(e, error_msg),
         }
     }
 }
@@ -163,7 +163,14 @@ pub mod backend_new {
 
     #[test]
     fn given_path_is_not_a_dir() {
-        let matches = set_matches(vec!["this_test", "--storage-raw-dir", "/dev/null"]);
+        let matches = set_matches(vec![
+            "this_test",
+            "--storage-raw-dir",
+            match cfg!(windows) {
+                true => "C:\\Windows\\system.ini",
+                false => "/dev/null",
+            },
+        ]);
 
         assert_backend_new_error(&matches, "Storage Raw Dir: Path is not a directory.");
     }
@@ -171,7 +178,7 @@ pub mod backend_new {
     #[test]
     fn given_inaccessible() {
         let tmp_dir = tempdir().unwrap();
-        set_permissions(tmp_dir.path(), 0o40311);
+        restrict_permissions(tmp_dir.path());
 
         let matches = set_matches(vec![
             "this_test",
@@ -184,11 +191,11 @@ pub mod backend_new {
         // A `d-wx--x--x` directory is innaccesible but not unwrittable.
         // By switching back to `drwxr-xr-x` we can get rid of the
         // temporal directory once we leave this scope.
-        set_permissions(tmp_dir.path(), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
 
         match result {
             Ok(_) => panic!("This invocation to Backend::new() should return error"),
-            Err(e) => assert_eq!(e.to_string(), "Storage Raw Dir: PermissionDenied",),
+            Err(e) => assert_eq!(e, "Storage Raw Dir: PermissionDenied",),
         }
     }
 
@@ -263,16 +270,16 @@ pub mod backend_raw_dir_sign_message {
     fn storage_error() {
         let (backend, tmp_dir) = new_backend_for_signing();
 
-        set_permissions(tmp_dir.path(), 0o40311);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40311);
+        restrict_permissions(tmp_dir.path());
+        restrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         let result = backend.sign_message(
             PUBLIC_KEY_1,
             Hash256::from_slice(&hex::decode(SIGNING_ROOT).unwrap()),
         );
 
-        set_permissions(tmp_dir.path(), 0o40755);
-        set_permissions(&tmp_dir.path().join(PUBLIC_KEY_1), 0o40755);
+        unrestrict_permissions(tmp_dir.path());
+        unrestrict_permissions(&tmp_dir.path().join(PUBLIC_KEY_1));
 
         assert_eq!(
             result.unwrap_err().to_string(),

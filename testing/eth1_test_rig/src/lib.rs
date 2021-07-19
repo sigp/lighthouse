@@ -104,7 +104,7 @@ impl DepositContract {
         })?;
         Contract::from_json(web3.clone().eth(), address, ABI)
             .map_err(|e| format!("Failed to init contract: {:?}", e))
-            .map(move |contract| Self { contract, web3 })
+            .map(move |contract| Self { web3, contract })
     }
 
     /// The deposit contract's address in `0x00ab...` format.
@@ -206,6 +206,8 @@ impl DepositContract {
             data: encode_eth1_tx_data(&deposit_data).map(Into::into).ok(),
             nonce: None,
             condition: None,
+            transaction_type: None,
+            access_list: None,
         };
 
         self.web3

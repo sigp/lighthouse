@@ -306,7 +306,7 @@ fn invalid_surrounding_from_first_source() {
     let second = attestation_data_builder(3, 4);
     StreamTest {
         cases: vec![
-            Test::single(first.clone()),
+            Test::single(first),
             Test::single(second.clone()),
             Test::single(attestation_data_builder(2, 5)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {
@@ -326,8 +326,8 @@ fn invalid_surrounding_multiple_votes() {
     let third = attestation_data_builder(2, 3);
     StreamTest {
         cases: vec![
-            Test::single(first.clone()),
-            Test::single(second.clone()),
+            Test::single(first),
+            Test::single(second),
             Test::single(third.clone()),
             Test::single(attestation_data_builder(0, 4)).expect_invalid_att(
                 InvalidAttestation::NewSurroundsPrev {

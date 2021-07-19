@@ -3,7 +3,7 @@ name: test-suite
 on:
   push:
     branches:
-      - master
+      - stable
       - staging
       - trying
       - 'pr/*'
@@ -11,7 +11,16 @@ on:
 env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
+  # The Nightly version used for cargo-udeps, might need updating from time to time.
+  PINNED_NIGHTLY: nightly-2021-06-09
 jobs:
+  target-branch-check:
+    name: target-branch-check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+        - name: Check that pull request is targeting unstable branch
+          run: test ${{ github.base_ref }} = "unstable"
   cargo-fmt:
     name: cargo-fmt
     runs-on: ubuntu-latest
@@ -33,6 +42,32 @@ jobs:
       run: sudo npm install -g ganache-cli
     - name: Run tests in release
       run: make test-release
+  release-tests-windows:
+    name: release-tests-windows
+    runs-on: windows-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install ganache-cli
+      run: npm install -g ganache-cli
+    - name: Install make
+      run: choco install -y make
+    - name: Run tests in release
+      run: make test-release
+  beacon-chain-tests:
+    name: beacon-chain-tests
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Run beacon_chain tests for base hard fork
+      run: make test-beacon-chain-base
+    - name: Run beacon_chain tests for Altair hard fork
+      run: make test-beacon-chain-altair
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     runs-on: ubuntu-latest
@@ -71,6 +106,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Build the root Dockerfile
       run: docker build .
   eth1-simulator-ubuntu:
@@ -79,6 +116,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim that starts from an eth1 contract
@@ -89,6 +128,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Install ganache-cli
       run: sudo npm install -g ganache-cli
     - name: Run the beacon chain sim without an eth1 connection
@@ -99,6 +140,8 @@ jobs:
     needs: cargo-fmt
     steps:
       - uses: actions/checkout@v1
+      - name: Get latest version of stable Rust
+        run: rustup update stable
       - name: Install ganache-cli
         run: sudo npm install -g ganache-cli
       - name: Run the syncing simulator
@@ -109,6 +152,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Typecheck benchmark code without running it
       run: make check-benches
   check-consensus:
@@ -117,6 +162,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Typecheck consensus code in strict mode
       run: make check-consensus
   clippy:
@@ -125,6 +172,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
@@ -135,6 +184,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Validate state_processing feature arbitrary-fuzz
       run:  make arbitrary-fuzz
   cargo-audit:
@@ -143,6 +194,8 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
       run:  make audit
   cargo-udeps:
@@ -151,10 +204,14 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
-    - name: Install a nightly compiler with rustfmt, as a kind of quality control
-      run: rustup toolchain install --component=rustfmt nightly
+    - name: Install Rust (${{ env.PINNED_NIGHTLY }})
+      run: rustup toolchain install $PINNED_NIGHTLY
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked
+    - name: Create Cargo config dir
+      run: mkdir -p .cargo
+    - name: Install custom Cargo config
+      run: cp -f .github/custom/config.toml .cargo/config.toml
     - name: Run cargo udeps to identify unused crates in the dependency graph
       run: make udeps
     env:

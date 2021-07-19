@@ -83,7 +83,7 @@ where
 
     for index in &attesting_indices_1 & &attesting_indices_2 {
         let validator = state
-            .validators
+            .validators()
             .get(index as usize)
             .ok_or_else(|| error(Invalid::UnknownValidator(index)))?;
 

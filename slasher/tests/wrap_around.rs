@@ -8,7 +8,7 @@ use types::Epoch;
 #[test]
 fn attestation_pruning_empty_wrap_around() {
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into());
+    let mut config = Config::new(tempdir.path().into()).for_testing();
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 16;
@@ -30,7 +30,7 @@ fn attestation_pruning_empty_wrap_around() {
 
     // Add an attestation that would be surrounded with the modulo considered
     slasher.accept_attestation(indexed_att(
-        v.clone(),
+        v,
         2 * history_length - 3,
         2 * history_length - 2,
         1,
@@ -42,13 +42,13 @@ fn attestation_pruning_empty_wrap_around() {
 #[test]
 fn pruning_with_map_full() {
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into());
+    let mut config = Config::new(tempdir.path().into()).for_testing();
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 1024;
     config.max_db_size_mbs = 1;
 
-    let slasher = Slasher::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::open(config, logger()).unwrap();
 
     let v = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 

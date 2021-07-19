@@ -1,35 +1,15 @@
 use crate::*;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 
 pub mod beacon_state;
-pub mod partial_beacon_state;
 
-impl<T: EthSpec> StoreItem for SignedBeaconBlock<T> {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconBlock
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        let timer = metrics::start_timer(&metrics::BEACON_BLOCK_WRITE_TIMES);
-        let bytes = self.as_ssz_bytes();
-
-        metrics::stop_timer(timer);
-        metrics::inc_counter(&metrics::BEACON_BLOCK_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::BEACON_BLOCK_WRITE_BYTES, bytes.len() as u64);
-
-        bytes
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let timer = metrics::start_timer(&metrics::BEACON_BLOCK_READ_TIMES);
-
-        let len = bytes.len();
-        let result = Self::from_ssz_bytes(bytes).map_err(Into::into);
-
-        metrics::stop_timer(timer);
-        metrics::inc_counter(&metrics::BEACON_BLOCK_READ_COUNT);
-        metrics::inc_counter_by(&metrics::BEACON_BLOCK_READ_BYTES, len as u64);
-
-        result
-    }
+/// Prepare a signed beacon block for storage in the database.
+#[must_use]
+pub fn beacon_block_as_kv_store_op<T: EthSpec>(
+    key: &Hash256,
+    block: &SignedBeaconBlock<T>,
+) -> KeyValueStoreOp {
+    // FIXME(altair): re-add block write/overhead metrics, or remove them
+    let db_key = get_key_for_col(DBColumn::BeaconBlock.into(), key.as_bytes());
+    KeyValueStoreOp::PutKeyValue(db_key, block.as_ssz_bytes())
 }
