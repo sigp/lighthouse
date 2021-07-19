@@ -8,7 +8,6 @@ use eth2_libp2p::NetworkConfig;
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use lazy_static::lazy_static;
-use matches::assert_matches;
 use slog::Logger;
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
@@ -21,7 +20,7 @@ use types::{
     SyncSubnetId, ValidatorSubscription,
 };
 
-const SLOT_DURATION_MILLIS: u64 = 400;
+const SLOT_DURATION_MILLIS: u64 = 200;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -216,7 +215,7 @@ mod attestation_service {
 
         // Wait for 1 slot duration to get the unsubscription event
         let events = get_events(&mut attestation_service, None, 1).await;
-        assert_matches!(
+        matches::assert_matches!(
             events[..3],
             [
                 SubnetServiceMessage::DiscoverPeers(_),
@@ -298,7 +297,7 @@ mod attestation_service {
         // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
         // Get all events for 1 slot duration (unsubscription event should happen after 2 slot durations).
         let events = get_events(&mut attestation_service, None, 1).await;
-        assert_matches!(
+        matches::assert_matches!(
             events[..3],
             [
                 SubnetServiceMessage::DiscoverPeers(_),
@@ -456,7 +455,7 @@ mod sync_committee_service {
     async fn subscribe_and_unsubscribe() {
         // subscription config
         let validator_index = 1;
-        let until_epoch = Epoch::new(0);
+        let until_epoch = Epoch::new(1);
         let sync_committee_indices = vec![1];
 
         // create the attestation service and subscriptions
@@ -483,7 +482,7 @@ mod sync_committee_service {
         let events = get_events(
             &mut sync_committee_service,
             Some(5),
-            MinimalEthSpec::slots_per_epoch() as u32,
+            (MinimalEthSpec::slots_per_epoch() * 3) as u32,
         )
         .await;
         assert_eq!(
@@ -493,7 +492,7 @@ mod sync_committee_service {
                 SubnetServiceMessage::EnrAdd(Subnet::SyncCommittee(*subnet_id))
             ]
         );
-        assert_matches!(
+        matches::assert_matches!(
             events[2..],
             [
                 SubnetServiceMessage::DiscoverPeers(_),
@@ -529,7 +528,7 @@ mod sync_committee_service {
 
         // Get all immediate events (won't include unsubscriptions)
         let events = get_events(&mut sync_committee_service, None, 1).await;
-        assert_matches!(
+        matches::assert_matches!(
             events[..],
             [
                 SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(_)),
@@ -561,7 +560,7 @@ mod sync_committee_service {
 
         // Get all immediate events (won't include unsubscriptions)
         let events = get_events(&mut sync_committee_service, None, 1).await;
-        assert_matches!(events[..], [SubnetServiceMessage::DiscoverPeers(_),]);
+        matches::assert_matches!(events[..], [SubnetServiceMessage::DiscoverPeers(_),]);
 
         // Should be unsubscribed at the end.
         assert_eq!(sync_committee_service.subscription_count(), 1);
