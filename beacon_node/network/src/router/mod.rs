@@ -248,7 +248,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     .on_attester_slashing_gossip(id, peer_id, attester_slashing);
             }
             PubsubMessage::SignedContributionAndProof(contribution_and_proof) => {
-                debug!(
+                trace!(
                     self.log,
                     "Received sync committee aggregate";
                     "peer_id" => %peer_id
@@ -260,7 +260,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             PubsubMessage::SyncCommitteeMessage(sync_committtee_msg) => {
-                debug!(
+                trace!(
                     self.log,
                     "Received sync committee signature";
                     "peer_id" => %peer_id

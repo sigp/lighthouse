@@ -20,7 +20,7 @@ use types::{
     SyncSubnetId, ValidatorSubscription,
 };
 
-const SLOT_DURATION_MILLIS: u64 = 200;
+const SLOT_DURATION_MILLIS: u64 = 400;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -478,11 +478,11 @@ mod sync_committee_service {
         .unwrap();
         let subnet_id = subnet_ids.iter().next().unwrap();
 
-        // Note: the unsubscription event takes a full epoch (8 * 0.2 secs = 1.6 secs)
+        // Note: the unsubscription event takes 2 epochs (8 * 2 * 0.4 secs = 3.2 secs)
         let events = get_events(
             &mut sync_committee_service,
             Some(5),
-            (MinimalEthSpec::slots_per_epoch() * 3) as u32,
+            (MinimalEthSpec::slots_per_epoch() * 3) as u32, // Have some buffer time before getting 5 events
         )
         .await;
         assert_eq!(

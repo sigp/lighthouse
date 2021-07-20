@@ -1,11 +1,12 @@
 //! Implementation of Lighthouse's peer management system.
 
 pub use self::peerdb::*;
+use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
-use crate::Subnet;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkConfig, NetworkGlobals, PeerId};
+use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use futures::prelude::*;
 use futures::Stream;
@@ -20,7 +21,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::EthSpec;
+use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -35,7 +36,7 @@ pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionSta
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
 
 /// The time in seconds between re-status's peers.
@@ -79,6 +80,11 @@ pub struct PeerManager<TSpec: EthSpec> {
     target_peers: usize,
     /// The maximum number of peers we allow (exceptions for subnet peers)
     max_peers: usize,
+    /// A collection of sync committee subnets that we need to stay subscribed to.
+    /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
+    /// discovery queries for subnet peers if we disconnect from existing sync
+    /// committee subnet peers.
+    sync_committee_subnets: HashMap<SyncSubnetId, Instant>,
     /// The heartbeat interval to perform routine maintenance.
     heartbeat: tokio::time::Interval,
     /// Keeps track of whether the discovery service is enabled or not.
@@ -109,6 +115,8 @@ pub enum PeerManagerEvent {
     UnBanned(PeerId, Vec<IpAddr>),
     /// Request the behaviour to discover more peers.
     DiscoverPeers,
+    /// Request the behaviour to discover peers on subnets.
+    DiscoverSubnetPeers(Vec<SubnetDiscovery>),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -128,6 +136,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_OUTBOUND)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             target_peers: config.target_peers,
+            sync_committee_subnets: Default::default(),
             max_peers: (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize,
             heartbeat,
             discovery_enabled: !config.disable_discovery,
@@ -282,6 +291,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn remove_all_subscriptions(&self, peer_id: &PeerId) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             info.subnets = Default::default();
+        }
+    }
+
+    /// Insert the sync subnet into list of long lived sync committee subnets that we need to
+    /// maintain adequate number of peers for.
+    pub fn add_sync_subnet(&mut self, subnet_id: SyncSubnetId, min_ttl: Instant) {
+        match self.sync_committee_subnets.entry(subnet_id) {
+            Entry::Vacant(_) => {
+                self.sync_committee_subnets.insert(subnet_id, min_ttl);
+            }
+            Entry::Occupied(old) => {
+                if *old.get() < min_ttl {
+                    self.sync_committee_subnets.insert(subnet_id, min_ttl);
+                }
+            }
         }
     }
 
@@ -966,6 +990,46 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         Ok(())
     }
 
+    /// Run discovery query for additional sync committee peers if we fall below `TARGET_PEERS`.
+    fn maintain_sync_committee_peers(&mut self) {
+        // Remove expired entries
+        self.sync_committee_subnets
+            .retain(|_, v| *v > Instant::now());
+
+        let subnets_to_discover: Vec<SubnetDiscovery> = self
+            .sync_committee_subnets
+            .iter()
+            .filter_map(|(k, v)| {
+                if self
+                    .network_globals
+                    .peers
+                    .read()
+                    .good_peers_on_subnet(Subnet::SyncCommittee(*k))
+                    .count()
+                    < TARGET_SUBNET_PEERS
+                {
+                    Some(SubnetDiscovery {
+                        subnet: Subnet::SyncCommittee(*k),
+                        min_ttl: Some(*v),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // request the subnet query from discovery
+        if !subnets_to_discover.is_empty() {
+            debug!(
+                self.log,
+                "Making subnet queries for maintaining sync committee peers";
+                "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
+            );
+            self.events
+                .push(PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover));
+        }
+    }
+
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
     ///
     /// It will request discovery queries if the peer count has not reached the desired number of
@@ -989,6 +1053,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Updates peer's scores.
         self.update_peer_scores();
+
+        // Maintain minimum count for sync committee peers.
+        self.maintain_sync_committee_peers();
 
         // Keep a list of peers we are disconnecting
         let mut disconnecting_peers = Vec::new();

@@ -571,6 +571,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         .peers
                         .write()
                         .extend_peers_on_subnet(&s.subnet, min_ttl);
+                    if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
+                        self.peer_manager_mut()
+                            .add_sync_subnet(sync_subnet, min_ttl);
+                    }
                 }
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
@@ -1089,6 +1093,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     PeerManagerEvent::DiscoverPeers => {
                         // Peer manager has requested a discovery query for more peers.
                         self.discovery.discover_peers();
+                    }
+                    PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover) => {
+                        // Peer manager has requested a subnet discovery query for more peers.
+                        self.discover_subnet_peers(subnets_to_discover);
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer
