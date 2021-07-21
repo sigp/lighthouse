@@ -8,7 +8,7 @@ use crate::serde_utils::quoted_u64_var_list::deserialize_max;
 use crate::FixedVector;
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serializer};
-use serde_utils::quoted_u64_vec::QuotedIntWrapper;
+use eth2_serde_utils::quoted_u64_vec::QuotedIntWrapper;
 use std::marker::PhantomData;
 use typenum::Unsigned;
 

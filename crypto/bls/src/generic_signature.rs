@@ -4,7 +4,7 @@ use crate::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-use serde_utils::hex::encode as hex_encode;
+use eth2_serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::marker::PhantomData;
