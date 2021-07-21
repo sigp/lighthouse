@@ -9,8 +9,8 @@ on:
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    IMAGE_NAME: sigp/lighthouse
-    LCLI_IMAGE_NAME: sigp/lcli
+    IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
+    LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
 
 jobs:
     extract-branch-name:
