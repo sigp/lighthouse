@@ -2749,6 +2749,7 @@ dependencies = [
  "fork_choice",
  "futures",
  "hex",
+ "itertools 0.10.1",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",

@@ -8,6 +8,7 @@
 mod attester_duties;
 mod block_id;
 mod metrics;
+mod performance_report;
 mod proposer_duties;
 mod state_id;
 mod sync_committees;
@@ -2399,6 +2400,21 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/attestation_performance/{epoch}
+    let post_lighthouse_attestation_performance = warp::path("lighthouse")
+        .and(warp::path("attestation_performance"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |epoch: Epoch, indices: Vec<u64>, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    performance_report::validator_performance_report(epoch, &indices, &chain)
+                })
+            },
+        );
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2526,7 +2542,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_contribution_and_proofs.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
-                .or(post_lighthouse_liveness.boxed()),
+                .or(post_lighthouse_liveness.boxed())
+                .or(post_lighthouse_attestation_performance.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
