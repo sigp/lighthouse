@@ -1,132 +1,56 @@
 use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::{
-    lighthouse::{GlobalValidatorInclusionData, ValidatorInclusionData},
-    types::ValidatorId,
-};
 use serde::Serialize;
-use state_processing::{common::get_indexed_attestation, per_epoch_processing::ValidatorStatuses};
-use std::collections::HashMap;
+use state_processing::common::get_indexed_attestation;
+use std::collections::{HashMap, HashSet};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-/// Returns information about *all validators* (i.e., global) and how they performed during a given
-/// epoch.
-pub fn global_validator_inclusion_data<T: BeaconChainTypes>(
-    epoch: Epoch,
-    chain: &BeaconChain<T>,
-) -> Result<GlobalValidatorInclusionData, warp::Rejection> {
-    let target_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
+type InclusionsByValidator = HashMap<u64, Vec<AttestationInclusion>>;
+type VotesPerRoot = HashMap<Slot, HashMap<Hash256, HashSet<u64>>>;
 
-    let state = StateId::slot(target_slot).state(chain)?;
-
-    let mut validator_statuses = ValidatorStatuses::new(&state, &chain.spec)
-        .map_err(warp_utils::reject::beacon_state_error)?;
-    validator_statuses
-        .process_attestations(&state)
-        .map_err(warp_utils::reject::beacon_state_error)?;
-
-    let totals = validator_statuses.total_balances;
-
-    Ok(GlobalValidatorInclusionData {
-        current_epoch_active_gwei: totals.current_epoch(),
-        previous_epoch_active_gwei: totals.previous_epoch(),
-        current_epoch_attesting_gwei: totals.current_epoch_attesters(),
-        current_epoch_target_attesting_gwei: totals.current_epoch_target_attesters(),
-        previous_epoch_attesting_gwei: totals.previous_epoch_attesters(),
-        previous_epoch_target_attesting_gwei: totals.previous_epoch_target_attesters(),
-        previous_epoch_head_attesting_gwei: totals.previous_epoch_head_attesters(),
-    })
-}
-
-struct BlockAndParent<T: EthSpec> {
-    block: SignedBeaconBlock<T>,
-    block_root: Hash256,
-    parent: SignedBeaconBlock<T>,
-    parent_root: Hash256,
-}
-
-type BlocksByRoot<T> = HashMap<Hash256, BlockAndParent<T>>;
-
-fn blocks_between_slots<T: BeaconChainTypes>(
-    lowest_slot: Slot,
-    highest_slot: Slot,
-    state: &BeaconState<T::EthSpec>,
-    chain: &BeaconChain<T>,
-) -> Result<BlocksByRoot<T::EthSpec>, warp::reject::Rejection> {
-    let mut blocks_by_root = HashMap::new();
-    let mut block_root = *state
-        .get_block_root(highest_slot)
-        .map_err(warp_utils::reject::beacon_state_error)?;
-
-    loop {
-        let block = chain
-            .get_block(&block_root)
-            .map_err(warp_utils::reject::beacon_chain_error)?
-            .ok_or_else(|| {
-                warp_utils::reject::custom_server_error(format!(
-                    "missing block with root {:?}",
-                    block_root
-                ))
-            })?;
-
-        let parent_root = block.parent_root();
-        let parent_block = chain
-            .get_block(&parent_root)
-            .map_err(warp_utils::reject::beacon_chain_error)?
-            .ok_or_else(|| {
-                warp_utils::reject::custom_server_error(format!(
-                    "missing parent block with root {:?}",
-                    parent_root
-                ))
-            })?;
-        let parent_slot = parent_block.slot();
-
-        blocks_by_root.insert(
-            block_root,
-            BlockAndParent {
-                block,
-                block_root,
-                parent: parent_block,
-                parent_root,
-            },
-        );
-
-        if parent_slot < lowest_slot {
-            break;
-        }
-
-        block_root = parent_root;
-    }
-
-    Ok(blocks_by_root)
+#[derive(Serialize)]
+enum VoteCategory {
+    Matched,
+    UnknownBlock,
+    Late { distance: u64 },
 }
 
 #[derive(Serialize)]
-enum BlockVote {
-    Matched {
-        vote_root: Hash256,
-    },
-    UnknownBlock {
-        canonical_root: Hash256,
-        vote_root: Hash256,
-    },
-    Late {
-        canonical_root: Hash256,
-        vote_root: Hash256,
-        distance: usize,
-    },
+struct BlockVote {
+    canonical_root: Hash256,
+    vote_root: Hash256,
+    total_votes_agreeing: u64,
+    total_votes_disagreeing: u64,
+    category: VoteCategory,
 }
 
 impl BlockVote {
     pub fn new<T: EthSpec>(
         vote_slot: Slot,
         vote_root: Hash256,
+        votes_per_root: &VotesPerRoot,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, warp::reject::Rejection> {
         let canonical_root = *state
             .get_block_root(vote_slot)
             .map_err(warp_utils::reject::beacon_state_error)?;
+
+        let total_votes_agreeing = votes_per_root
+            .get(&vote_slot)
+            .and_then(|votes_per_slot| votes_per_slot.get(&vote_root))
+            .map(|validator_set: &HashSet<_>| validator_set.len() as u64)
+            .unwrap_or(0);
+        let total_votes_disagreeing = votes_per_root
+            .get(&vote_slot)
+            .map(|votes_per_slot| {
+                votes_per_slot
+                    .iter()
+                    .filter(|(root, _)| **root != vote_root)
+                    .map(|(_, votes)| votes.len() as u64)
+                    .sum()
+            })
+            .unwrap_or(0);
 
         let mut prev_root = None;
         let mut num_intermediate_blocks = None;
@@ -137,13 +61,21 @@ impl BlockVote {
                 continue;
             } else if root == vote_root {
                 if let Some(distance) = num_intermediate_blocks {
-                    return Ok(BlockVote::Late {
+                    return Ok(BlockVote {
                         canonical_root,
                         vote_root,
-                        distance,
+                        total_votes_agreeing,
+                        total_votes_disagreeing,
+                        category: VoteCategory::Late { distance },
                     });
                 } else {
-                    return Ok(BlockVote::Matched { vote_root });
+                    return Ok(BlockVote {
+                        canonical_root,
+                        vote_root,
+                        total_votes_agreeing,
+                        total_votes_disagreeing,
+                        category: VoteCategory::Matched,
+                    });
                 }
             } else if prev_root.map_or(true, |prev_root| prev_root != root) {
                 num_intermediate_blocks = Some(num_intermediate_blocks.unwrap_or(0) + 1);
@@ -151,9 +83,12 @@ impl BlockVote {
             }
         }
 
-        Ok(BlockVote::UnknownBlock {
+        Ok(BlockVote {
             canonical_root,
             vote_root,
+            total_votes_agreeing,
+            total_votes_disagreeing,
+            category: VoteCategory::UnknownBlock,
         })
     }
 }
@@ -167,8 +102,6 @@ struct AttestationInclusion {
     head_vote: BlockVote,
     target_vote: BlockVote,
 }
-
-pub type InclusionsByValidator = HashMap<u64, Vec<AttestationInclusion>>;
 
 #[derive(Serialize)]
 pub struct AttestationPerformanceReport {
@@ -186,22 +119,63 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
     let next_epoch = request_epoch + 1;
     let target_slot = next_epoch.end_slot(slots_per_epoch);
 
-    let mut state = StateId::slot(target_slot).state(chain)?;
+    let state = StateId::slot(target_slot).state(chain)?;
 
-    let mut inclusions_by_validator: InclusionsByValidator = <_>::default();
-    for val_index in validator_indices {
-        inclusions_by_validator.entry(*val_index).or_default();
-    }
-
-    let blocks_by_root = {
+    let blocks = {
         let lowest_slot = request_epoch.start_slot(slots_per_epoch);
         let highest_slot =
             next_epoch.start_slot(slots_per_epoch) + chain.spec.min_attestation_inclusion_delay;
         blocks_between_slots(lowest_slot, highest_slot, &state, chain)?
     };
 
-    for (block_root, block_and_parent) in &blocks_by_root {
-        let block = block_and_parent.block.message();
+    let mut inclusions_by_validator: InclusionsByValidator = <_>::default();
+    for val_index in validator_indices {
+        inclusions_by_validator.entry(*val_index).or_default();
+    }
+    let mut head_votes: VotesPerRoot = <_>::default();
+    let mut target_votes: VotesPerRoot = <_>::default();
+
+    let mut indexed_attestations = vec![];
+    for signed_block in &blocks {
+        let block = signed_block.message();
+        for attestation in block.body().attestations() {
+            if attestation.data.target.epoch != request_epoch {
+                continue;
+            }
+
+            let committee = state
+                .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                .map_err(warp_utils::reject::beacon_state_error)?;
+            let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
+                .map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "error converting to indexed attestation: {:?}",
+                        e
+                    ))
+                })?;
+            let data = &indexed_attestation.data;
+
+            for val_index in &indexed_attestation.attesting_indices {
+                head_votes
+                    .entry(data.slot)
+                    .or_default()
+                    .entry(data.beacon_block_root)
+                    .or_default()
+                    .insert(*val_index);
+                target_votes
+                    .entry(data.target.epoch.start_slot(slots_per_epoch))
+                    .or_default()
+                    .entry(data.target.root)
+                    .or_default()
+                    .insert(*val_index);
+            }
+
+            indexed_attestations.push((block.slot(), indexed_attestation))
+        }
+    }
+
+    for signed_block in &blocks {
+        let block = signed_block.message();
         for attestation in block.body().attestations() {
             if attestation.data.target.epoch != request_epoch {
                 continue;
@@ -221,11 +195,21 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
 
             for val_index in &indexed_attestation.attesting_indices {
                 if let Some(inclusions) = inclusions_by_validator.get_mut(val_index) {
-                    let head_vote =
-                        BlockVote::new(data.slot, data.beacon_block_root, &state, &chain.spec)?;
+                    let head_vote = BlockVote::new(
+                        data.slot,
+                        data.beacon_block_root,
+                        &head_votes,
+                        &state,
+                        &chain.spec,
+                    )?;
                     let target_slot = data.target.epoch.start_slot(slots_per_epoch);
-                    let target_vote =
-                        BlockVote::new(target_slot, data.target.root, &state, &chain.spec)?;
+                    let target_vote = BlockVote::new(
+                        target_slot,
+                        data.target.root,
+                        &target_votes,
+                        &state,
+                        &chain.spec,
+                    )?;
 
                     inclusions.push(AttestationInclusion {
                         attestation_index: data.index,
@@ -251,4 +235,36 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
         .collect();
 
     Ok(reports)
+}
+
+fn blocks_between_slots<T: BeaconChainTypes>(
+    lowest_slot: Slot,
+    highest_slot: Slot,
+    state: &BeaconState<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<SignedBeaconBlock<T::EthSpec>>, warp::reject::Rejection> {
+    let mut roots: Vec<(Slot, Hash256)> =
+        itertools::process_results(state.rev_iter_block_roots(&chain.spec), |iter| {
+            iter.skip_while(|(slot, _)| *slot > highest_slot)
+                .take_while(|(slot, _)| *slot >= lowest_slot)
+                .collect()
+        })
+        .map_err(warp_utils::reject::beacon_state_error)?;
+
+    roots.dedup();
+
+    roots
+        .into_iter()
+        .map(|(_, root)| {
+            chain
+                .get_block(&root)
+                .map_err(warp_utils::reject::beacon_chain_error)?
+                .ok_or_else(|| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "missing block with root {:?}",
+                        root
+                    ))
+                })
+        })
+        .collect()
 }
