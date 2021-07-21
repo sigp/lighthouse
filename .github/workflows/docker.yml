@@ -112,6 +112,6 @@ jobs:
               run: |
                   docker build \
                       --build-arg PORTABLE=true \
-                      --tag ${LCLI_IMAGE_NAME}:latest-{TAG_SUFFIX} \
+                      --tag ${LCLI_IMAGE_NAME}:latest{TAG_SUFFIX} \
                       --file ./lcli/Dockerfile .
-                  docker push ${LCLI_IMAGE_NAME}:latest-{TAG_SUFFIX}
+                  docker push ${LCLI_IMAGE_NAME}:latest{TAG_SUFFIX}
