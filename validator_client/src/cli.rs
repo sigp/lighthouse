@@ -125,23 +125,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         /*
-         * Note: there is purposefully no `--http-address` flag provided.
+         * Note: The HTTP server is **not** encrypted (i.e., not HTTPS) and therefore it is
+         * unsafe to publish on a public network.
          *
-         * The HTTP server is **not** encrypted (i.e., not HTTPS) and therefore it is unsafe to
-         * publish on a public network.
-         *
-         * We restrict the user to `127.0.0.1` and they must provide some other transport-layer
-         * encryption (e.g., SSH tunnels).
+         * If the `--http-address` flag is used, the `--unencrypted-http-transport` flag
+         * must also be used in order to make it clear to the user that this is unsafe.
          */
+         .arg(
+             Arg::with_name("http-address")
+                 .long("http-address")
+                 .value_name("ADDRESS")
+                 .help("Set the address for the HTTP address. The HTTP server is not encrypted \
+                        and therefore it is unsafe to publish on a public network. When this \
+                        flag is used, it additionally requires the explicit use of the \
+                        `--unencrypted-http-transport` flag to ensure the user is aware of the \
+                        risks involved. For access via the Internet, users should apply \
+                        transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.")
+                .requires("unencrypted-http-transport"),
+         )
+         .arg(
+             Arg::with_name("unencrypted-http-transport")
+                 .long("unencrypted-http-transport")
+                 .help("This is a safety flag to ensure that the user is aware that the http \
+                        transport is unencrypted and using a custom HTTP address is unsafe.")
+                 .requires("http-address"),
+         )
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
                 .value_name("PORT")
-                .help("Set the listen TCP port for the RESTful HTTP API server. This server does **not** \
-                provide encryption and is completely unsuitable to expose to a public network. \
-                We do not provide a --http-address flag and restrict the user to listening on \
-                127.0.0.1. For access via the Internet, apply a transport-layer security like \
-                a HTTPS reverse-proxy or SSH tunnelling.")
+                .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value("5062")
                 .takes_value(true),
         )
