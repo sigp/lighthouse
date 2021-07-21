@@ -249,11 +249,22 @@ mod attestation_service {
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
-        let current_slot = attestation_service
+        let mut current_slot = attestation_service
             .beacon_chain
             .slot_clock
             .now()
             .expect("Could not get current slot");
+
+        // This is to ensure subnet_id's aren't unequal at epoch boundaries
+        if (current_slot + 1)
+            % attestation_service
+                .beacon_chain
+                .spec
+                .attestation_subnet_count
+            == 0
+        {
+            current_slot += 1;
+        }
 
         let sub1 = get_subscription(
             validator_index,
