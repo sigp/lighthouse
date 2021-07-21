@@ -101,6 +101,7 @@ jobs:
         runs-on: ubuntu-18.04
         needs: [extract-branch-name]
         steps:
+            - uses: actions/checkout@v2
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
