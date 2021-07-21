@@ -8,6 +8,29 @@ use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, 
 type VotesPerRoot = HashMap<Slot, HashMap<Hash256, HashSet<u64>>>;
 
 #[derive(Serialize)]
+struct AttestationInclusion {
+    attestation_index: u64,
+    attestation_slot: Slot,
+    attestation_epoch: Epoch,
+    attestation_inclusion_slot: Slot,
+    head_vote: BlockVote,
+    target_vote: BlockVote,
+}
+
+#[derive(Serialize)]
+pub struct AttestationPerformanceReport {
+    validator_index: u64,
+    is_optimal: bool,
+    eligible_to_attest: bool,
+    recieved_head_reward: bool,
+    recieved_target_reward: bool,
+    recieved_source_reward: bool,
+    best_inclusion: Option<AttestationInclusion>,
+    total_inclusions: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
 enum VoteCategory {
     Matched,
     UnknownBlock,
@@ -97,27 +120,6 @@ impl BlockVote {
     }
 }
 
-#[derive(Serialize)]
-struct AttestationInclusion {
-    attestation_index: u64,
-    attestation_slot: Slot,
-    attestation_epoch: Epoch,
-    attestation_inclusion_slot: Slot,
-    head_vote: BlockVote,
-    target_vote: BlockVote,
-}
-
-#[derive(Serialize)]
-pub struct AttestationPerformanceReport {
-    validator_index: u64,
-    eligible_to_attest: bool,
-    recieved_head_reward: bool,
-    recieved_target_reward: bool,
-    recieved_source_reward: bool,
-    best_inclusion: Option<AttestationInclusion>,
-    total_inclusions: u64,
-}
-
 /// Returns information about a single validator and how it performed during a given epoch.
 pub fn validator_performance_report<T: BeaconChainTypes>(
     request_epoch: Epoch,
@@ -141,6 +143,7 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
         .iter()
         .map(|i| AttestationPerformanceReport {
             validator_index: *i,
+            is_optimal: false,
             eligible_to_attest: false,
             recieved_head_reward: false,
             recieved_target_reward: false,
@@ -267,6 +270,11 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
         report.recieved_source_reward = summary
             .is_previous_epoch_source_attester(val_index as usize)
             .unwrap_or(false);
+
+        report.is_optimal = !report.eligible_to_attest
+            || (report.recieved_head_reward
+                && report.recieved_target_reward
+                && report.recieved_source_reward)
     }
 
     Ok(reports.into_iter().map(|(_, report)| report).collect())
