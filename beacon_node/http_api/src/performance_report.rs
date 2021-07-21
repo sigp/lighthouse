@@ -1,7 +1,7 @@
 use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use serde::Serialize;
-use state_processing::common::get_indexed_attestation;
+use state_processing::{common::get_indexed_attestation, per_epoch_processing::process_epoch};
 use std::collections::{HashMap, HashSet};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -110,6 +110,10 @@ struct AttestationInclusion {
 #[derive(Serialize)]
 pub struct AttestationPerformanceReport {
     validator_index: u64,
+    eligible_to_attest: bool,
+    recieved_head_reward: bool,
+    recieved_target_reward: bool,
+    recieved_source_reward: bool,
     best_inclusion: Option<AttestationInclusion>,
     total_inclusions: u64,
 }
@@ -124,7 +128,7 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
     let next_epoch = request_epoch + 1;
     let target_slot = next_epoch.end_slot(slots_per_epoch);
 
-    let state = StateId::slot(target_slot).state(chain)?;
+    let mut state = StateId::slot(target_slot).state(chain)?;
 
     let blocks = {
         let lowest_slot = request_epoch.start_slot(slots_per_epoch);
@@ -137,6 +141,10 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
         .iter()
         .map(|i| AttestationPerformanceReport {
             validator_index: *i,
+            eligible_to_attest: false,
+            recieved_head_reward: false,
+            recieved_target_reward: false,
+            recieved_source_reward: false,
             best_inclusion: None,
             total_inclusions: 0,
         })
@@ -241,6 +249,24 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
                 }
             }
         }
+    }
+
+    let summary = process_epoch(&mut state, &chain.spec).map_err(|e| {
+        warp_utils::reject::custom_server_error(format!("epoch processing failed: {:?}", e))
+    })?;
+
+    for (&val_index, report) in &mut reports {
+        report.eligible_to_attest =
+            summary.is_active_unslashed_in_previous_epoch(val_index as usize);
+        report.recieved_head_reward = summary
+            .is_previous_epoch_head_attester(val_index as usize)
+            .unwrap_or(false);
+        report.recieved_target_reward = summary
+            .is_previous_epoch_target_attester(val_index as usize)
+            .unwrap_or(false);
+        report.recieved_source_reward = summary
+            .is_previous_epoch_source_attester(val_index as usize)
+            .unwrap_or(false);
     }
 
     Ok(reports.into_iter().map(|(_, report)| report).collect())
