@@ -31,6 +31,7 @@ eth2_ssz = { path = "../../consensus/ssz" }
 bs58 = "0.4.0"
 futures = "0.3.8"
 itertools = "0.10.0"
+serde_utils = { path = "../../consensus/serde_utils" }
 
 [dev-dependencies]
 store = { path = "../store" }

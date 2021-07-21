@@ -2757,6 +2757,7 @@ dependencies = [
  "parking_lot",
  "sensitive_url",
  "serde",
+ "serde_utils",
  "slog",
  "slot_clock",
  "state_processing",

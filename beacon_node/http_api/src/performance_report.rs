@@ -5,21 +5,25 @@ use state_processing::common::get_indexed_attestation;
 use std::collections::{HashMap, HashSet};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-type InclusionsByValidator = HashMap<u64, Vec<AttestationInclusion>>;
 type VotesPerRoot = HashMap<Slot, HashMap<Hash256, HashSet<u64>>>;
 
 #[derive(Serialize)]
 enum VoteCategory {
     Matched,
     UnknownBlock,
-    Late { distance: u64 },
+    Late {
+        #[serde(with = "serde_utils::quoted_u64")]
+        distance: u64,
+    },
 }
 
 #[derive(Serialize)]
 struct BlockVote {
     canonical_root: Hash256,
     vote_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
     total_votes_agreeing: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
     total_votes_disagreeing: u64,
     category: VoteCategory,
 }
@@ -106,7 +110,8 @@ struct AttestationInclusion {
 #[derive(Serialize)]
 pub struct AttestationPerformanceReport {
     validator_index: u64,
-    attestation_inclusions: Vec<AttestationInclusion>,
+    best_inclusion: Option<AttestationInclusion>,
+    total_inclusions: u64,
 }
 
 /// Returns information about a single validator and how it performed during a given epoch.
@@ -128,10 +133,16 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
         blocks_between_slots(lowest_slot, highest_slot, &state, chain)?
     };
 
-    let mut inclusions_by_validator: InclusionsByValidator = <_>::default();
-    for val_index in validator_indices {
-        inclusions_by_validator.entry(*val_index).or_default();
-    }
+    let mut reports = validator_indices
+        .iter()
+        .map(|i| AttestationPerformanceReport {
+            validator_index: *i,
+            best_inclusion: None,
+            total_inclusions: 0,
+        })
+        .map(|report| (report.validator_index, report))
+        .collect::<HashMap<_, _>>();
+
     let mut head_votes: VotesPerRoot = <_>::default();
     let mut target_votes: VotesPerRoot = <_>::default();
 
@@ -194,47 +205,45 @@ pub fn validator_performance_report<T: BeaconChainTypes>(
             let data = &indexed_attestation.data;
 
             for val_index in &indexed_attestation.attesting_indices {
-                if let Some(inclusions) = inclusions_by_validator.get_mut(val_index) {
-                    let head_vote = BlockVote::new(
-                        data.slot,
-                        data.beacon_block_root,
-                        &head_votes,
-                        &state,
-                        &chain.spec,
-                    )?;
-                    let target_slot = data.target.epoch.start_slot(slots_per_epoch);
-                    let target_vote = BlockVote::new(
-                        target_slot,
-                        data.target.root,
-                        &target_votes,
-                        &state,
-                        &chain.spec,
-                    )?;
+                if let Some(report) = reports.get_mut(val_index) {
+                    report.total_inclusions += 1;
 
-                    inclusions.push(AttestationInclusion {
-                        attestation_index: data.index,
-                        attestation_slot: data.slot,
-                        attestation_epoch: data.slot.epoch(slots_per_epoch),
-                        attestation_inclusion_slot: block.slot(),
-                        head_vote,
-                        target_vote,
-                    })
+                    if report
+                        .best_inclusion
+                        .as_ref()
+                        .map_or(true, |best| best.attestation_inclusion_slot >= block.slot())
+                    {
+                        let head_vote = BlockVote::new(
+                            data.slot,
+                            data.beacon_block_root,
+                            &head_votes,
+                            &state,
+                            &chain.spec,
+                        )?;
+                        let target_slot = data.target.epoch.start_slot(slots_per_epoch);
+                        let target_vote = BlockVote::new(
+                            target_slot,
+                            data.target.root,
+                            &target_votes,
+                            &state,
+                            &chain.spec,
+                        )?;
+
+                        report.best_inclusion = Some(AttestationInclusion {
+                            attestation_index: data.index,
+                            attestation_slot: data.slot,
+                            attestation_epoch: data.slot.epoch(slots_per_epoch),
+                            attestation_inclusion_slot: block.slot(),
+                            head_vote,
+                            target_vote,
+                        });
+                    }
                 }
             }
         }
     }
 
-    let reports = inclusions_by_validator
-        .into_iter()
-        .map(
-            |(validator_index, attestation_inclusions)| AttestationPerformanceReport {
-                validator_index,
-                attestation_inclusions,
-            },
-        )
-        .collect();
-
-    Ok(reports)
+    Ok(reports.into_iter().map(|(_, report)| report).collect())
 }
 
 fn blocks_between_slots<T: BeaconChainTypes>(
