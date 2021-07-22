@@ -577,16 +577,16 @@ lazy_static! {
         "The delay between when the validator should send the sync committee message and when it was received.",
         &["src", "validator"]
     );
-    // pub static ref VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
-    //     "validator_monitor_sync_contributions_total",
-    //     "Number of sync contributions seen",
-    //     &["src", "validator"]
-    // );
-    // pub static ref VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
-    //     "validator_monitor_sync_contribtions_delay_seconds",
-    //     "The delay between when the aggregator should send the sync contribution and when it was received.",
-    //     &["src", "validator"]
-    // );
+    pub static ref VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_sync_contributions_total",
+        "Number of sync contributions seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_sync_contribtions_delay_seconds",
+        "The delay between when the aggregator should send the sync contribution and when it was received.",
+        &["src", "validator"]
+    );
     pub static ref VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_aggregated_attestation_total",
         "Number of aggregated attestations seen",

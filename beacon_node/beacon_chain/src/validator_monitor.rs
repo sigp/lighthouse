@@ -77,12 +77,12 @@ struct EpochSummary {
 
     /*
      * SyncContributions in the current epoch
-       TODO(pawan)
+     */
     /// The number of SyncContributions observed in the current epoch.
     sync_contributions: usize,
     /// The delay between when the sync committee_message should have been produced and when it was observed.
     sync_contribution_min_delay: Option<Duration>,
-     */
+
     /*
      * Others pertaining to this epoch.
      */
@@ -124,12 +124,10 @@ impl EpochSummary {
         Self::update_if_lt(&mut self.aggregate_min_delay, delay);
     }
 
-    /*
     pub fn register_sync_committee_contribtion(&mut self, delay: Duration) {
         self.sync_contributions += 1;
         Self::update_if_lt(&mut self.sync_contribution_min_delay, delay);
     }
-    */
 
     pub fn register_aggregate_attestation_inclusion(&mut self) {
         self.attestation_aggregate_inclusions += 1;
@@ -1016,7 +1014,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             info!(
                 self.log,
                 "Sync committee message";
-                "head" => ?sync_committee_message.beacon_block_root,
+                "head" => %sync_committee_message.beacon_block_root,
                 "delay_ms" => %delay.as_millis(),
                 "epoch" => %epoch,
                 "slot" => %sync_committee_message.slot,
@@ -1031,7 +1029,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Register a sync committee contribution.
-    /// TODO(pawan): register aggregator stats.
     fn register_sync_committee_aggregate<S: SlotClock>(
         &self,
         src: &str,
@@ -1045,6 +1042,37 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let beacon_block_root = sync_contribution.message.contribution.beacon_block_root;
         let delay =
             Self::get_sync_contribution_delay_ms(seen_timestamp, sync_contribution, slot_clock);
+
+        let aggregator_index = sync_contribution.message.aggregator_index;
+        if let Some(validator) = self.get_validator(aggregator_index) {
+            let id = &validator.id;
+
+            metrics::inc_counter_vec(
+                &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL,
+                &[src, id],
+            );
+            metrics::observe_timer_vec(
+                &metrics::VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS,
+                &[src, id],
+                delay,
+            );
+
+            info!(
+                self.log,
+                "Sync contribution";
+                "head" => %beacon_block_root,
+                "delay_ms" => %delay.as_millis(),
+                "epoch" => %epoch,
+                "slot" => %slot,
+                "src" => src,
+                "validator" => %id,
+            );
+
+            validator.with_epoch_summary(epoch, |summary| {
+                summary.register_sync_committee_contribtion(delay)
+            });
+        }
+
         for validator_pubkey in participant_pubkeys.iter() {
             if let Some(validator) = self.validators.get(validator_pubkey) {
                 let id = &validator.id;
@@ -1056,8 +1084,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
                 info!(
                     self.log,
-                    "Sync committee message included in contribution";
-                    "head" => ?beacon_block_root,
+                    "Sync signature included in contribution";
+                    "head" => %beacon_block_root,
                     "delay_ms" => %delay.as_millis(),
                     "epoch" => %epoch,
                     "slot" => %slot,
@@ -1070,12 +1098,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 });
             }
         }
-        // TODO(pawan): register contribtution on aggregator.
-        /*
-        validator.with_epoch_summary(epoch, |summary| {
-            summary.register_sync_committee_contribtion(delay)
-        });
-        */
     }
 
     /// Register an exit from the gossip network.
