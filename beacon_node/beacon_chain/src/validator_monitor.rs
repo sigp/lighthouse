@@ -1296,8 +1296,46 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     }
                     /*
-                     * TODO(pawan): Sync committee messages
+                     * Sync committee messages
                      */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL,
+                        &[id],
+                        summary.sync_committee_messages as i64,
+                    );
+                    if let Some(delay) = summary.sync_committee_message_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS,
+                        &[id],
+                        summary.sync_signature_contribution_inclusions as i64,
+                    );
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS,
+                        &[id],
+                        summary.sync_signature_block_inclusions as i64,
+                    );
+
+                    /*
+                     * Sync contributions
+                     */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL,
+                        &[id],
+                        summary.sync_contributions as i64,
+                    );
+                    if let Some(delay) = summary.sync_contribution_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
 
                     /*
                      * Blocks

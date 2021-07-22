@@ -549,6 +549,42 @@ lazy_static! {
             "The number of attester slashings seen in the previous epoch.",
             &["validator"]
         );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_committee_messages_total",
+            "The number of sync committee messages seen in the previous epoch.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS: Result<HistogramVec> =
+        try_create_histogram_vec(
+            "validator_monitor_prev_epoch_sync_committee_messages_min_delay_seconds",
+            "The min delay between when the validator should send the sync committee message and when it was received.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_contribtution_inclusions",
+            "The count of times a sync signature was seen inside a sync contribution.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_signature_block_inclusions",
+            "The count of times a sync signature was seen inside a block.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_contributions_total",
+            "The number of sync contributions seen in the previous epoch.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS: Result<HistogramVec> =
+        try_create_histogram_vec(
+            "validator_monitor_prev_epoch_sync_contribution_min_delay_seconds",
+            "The min delay between when the validator should send the sync contribution and when it was received.",
+            &["validator"]
+        );
 
     /*
      * Validator Monitor Metrics (real-time)
