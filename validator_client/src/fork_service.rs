@@ -132,11 +132,6 @@ impl<T, E: EthSpec> Deref for ForkService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
-    /// Returns the last fork downloaded from the beacon node, if any.
-    pub fn fork(&self) -> Fork {
-        *self.fork.read()
-    }
-
     /// Starts the service that periodically polls for the `Fork`.
     pub fn start_update_service(self, context: &RuntimeContext<E>) -> Result<(), String> {
         // Run an immediate update before starting the updater service.

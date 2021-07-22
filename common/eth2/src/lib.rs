@@ -12,7 +12,7 @@ pub mod lighthouse;
 pub mod lighthouse_vc;
 pub mod types;
 
-use self::types::*;
+use self::types::{Error as ResponseError, *};
 use eth2_libp2p::PeerId;
 use futures::Stream;
 use futures_util::StreamExt;
@@ -85,6 +85,7 @@ pub struct Timeouts {
     pub attester_duties: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
+    pub sync_duties: Duration,
 }
 
 impl Timeouts {
@@ -94,6 +95,7 @@ impl Timeouts {
             attester_duties: timeout,
             proposal: timeout,
             proposer_duties: timeout,
+            sync_duties: timeout,
         }
     }
 }
@@ -663,15 +665,8 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        let response = self
-            .client
-            .post(path)
-            .timeout(self.timeouts.attestation)
-            .json(attestations)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_indexed_error(response).await?;
+        self.post_with_timeout(path, &attestations, self.timeouts.attestation)
+            .await?;
 
         Ok(())
     }
@@ -800,6 +795,41 @@ impl BeaconNodeHttpClient {
             .push("voluntary_exits");
 
         self.get(path).await
+    }
+
+    /// `POST beacon/pool/sync_committees`
+    pub async fn post_beacon_pool_sync_committee_signatures(
+        &self,
+        signatures: &[SyncCommitteeMessage],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("sync_committees");
+
+        self.post(path, &signatures).await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/contribution_and_proofs`
+    pub async fn post_validator_contribution_and_proofs<T: EthSpec>(
+        &self,
+        signed_contributions: &[SignedContributionAndProof<T>],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("contribution_and_proofs");
+
+        self.post(path, &signed_contributions).await?;
+
+        Ok(())
     }
 
     /// `GET config/fork_schedule`
@@ -1103,6 +1133,32 @@ impl BeaconNodeHttpClient {
             .await
     }
 
+    /// `GET validator/sync_committee_contribution`
+    pub async fn get_validator_sync_committee_contribution<T: EthSpec>(
+        &self,
+        sync_committee_data: &SyncContributionData,
+    ) -> Result<Option<GenericResponse<SyncCommitteeContribution<T>>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("sync_committee_contribution");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &sync_committee_data.slot.to_string())
+            .append_pair(
+                "beacon_block_root",
+                &format!("{:?}", sync_committee_data.beacon_block_root),
+            )
+            .append_pair(
+                "subcommittee_index",
+                &sync_committee_data.subcommittee_index.to_string(),
+            );
+
+        self.get_opt(path).await
+    }
+
     /// `POST validator/duties/attester/{epoch}`
     pub async fn post_validator_duties_attester(
         &self,
@@ -1134,15 +1190,8 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("aggregate_and_proofs");
 
-        let response = self
-            .client
-            .post(path)
-            .timeout(self.timeouts.attestation)
-            .json(aggregates)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_indexed_error(response).await?;
+        self.post_with_timeout(path, &aggregates, self.timeouts.attestation)
+            .await?;
 
         Ok(())
     }
@@ -1158,6 +1207,23 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("beacon_committee_subscriptions");
+
+        self.post(path, &subscriptions).await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/sync_committee_subscriptions`
+    pub async fn post_validator_sync_committee_subscriptions(
+        &self,
+        subscriptions: &[SyncCommitteeSubscription],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("sync_committee_subscriptions");
 
         self.post(path, &subscriptions).await?;
 
@@ -1193,6 +1259,25 @@ impl BeaconNodeHttpClient {
                 Err(e) => Err(Error::Reqwest(e)),
             }))
     }
+
+    /// `POST validator/duties/sync/{epoch}`
+    pub async fn post_validator_duties_sync(
+        &self,
+        epoch: Epoch,
+        indices: &[u64],
+    ) -> Result<GenericResponse<Vec<SyncDuty>>, Error> {
+        let mut path = self.eth_path()?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("sync")
+            .push(&epoch.to_string());
+
+        self.post_with_timeout_and_response(path, &indices, self.timeouts.sync_duties)
+            .await
+    }
 }
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
@@ -1203,21 +1288,10 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
     if status == StatusCode::OK {
         Ok(response)
     } else if let Ok(message) = response.json().await {
-        Err(Error::ServerMessage(message))
-    } else {
-        Err(Error::StatusCode(status))
-    }
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
-/// appropriate indexed error message.
-async fn ok_or_indexed_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status == StatusCode::OK {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        Err(Error::ServerIndexedMessage(message))
+        match message {
+            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
+            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
+        }
     } else {
         Err(Error::StatusCode(status))
     }

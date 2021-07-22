@@ -10,6 +10,7 @@ mod block_id;
 mod metrics;
 mod proposer_duties;
 mod state_id;
+mod sync_committees;
 mod validator_inclusion;
 
 use beacon_chain::{
@@ -39,7 +40,8 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
     ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedVoluntaryExit, Slot,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -1251,6 +1253,28 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // POST beacon/pool/sync_committees
+    let post_beacon_pool_sync_committees = beacon_pool_path
+        .clone()
+        .and(warp::path("sync_committees"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             signatures: Vec<SyncCommitteeMessage>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    sync_committees::process_sync_committee_signatures(
+                        signatures, network_tx, &chain, log,
+                    )?;
+                    Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
     /*
      * config/fork_schedule
      */
@@ -1773,12 +1797,57 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST validator/duties/sync
+    let post_validator_duties_sync = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("duties"))
+        .and(warp::path("sync"))
+        .and(warp::path::param::<Epoch>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid epoch".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |epoch: Epoch, indices: api_types::ValidatorIndexData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    sync_committees::sync_committee_duties(epoch, &indices.0, &chain)
+                })
+            },
+        );
+
+    // GET validator/sync_committee_contribution
+    let get_validator_sync_committee_contribution = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("sync_committee_contribution"))
+        .and(warp::path::end())
+        .and(warp::query::<SyncContributionData>())
+        .and(not_while_syncing_filter.clone())
+        .and(chain_filter.clone())
+        .and_then(
+            |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    chain
+                        .get_aggregated_sync_committee_contribution(&sync_committee_data)
+                        .map(api_types::GenericResponse::from)
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "no matching sync contribution found".to_string(),
+                            )
+                        })
+                })
+            },
+        );
+
     // POST validator/aggregate_and_proofs
     let post_validator_aggregate_and_proofs = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("aggregate_and_proofs"))
         .and(warp::path::end())
-        .and(not_while_syncing_filter)
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
@@ -1874,13 +1943,39 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    let post_validator_contribution_and_proofs = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("contribution_and_proofs"))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter)
+        .and(chain_filter.clone())
+        .and(warp::body::json())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             contributions: Vec<SignedContributionAndProof<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    sync_committees::process_signed_contribution_and_proofs(
+                        contributions,
+                        network_tx,
+                        &chain,
+                        log,
+                    )?;
+                    Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
     // POST validator/beacon_committee_subscriptions
     let post_validator_beacon_committee_subscriptions = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("beacon_committee_subscriptions"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(network_tx_filter)
+        .and(network_tx_filter.clone())
         .and(chain_filter.clone())
         .and_then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
@@ -1904,6 +1999,38 @@ pub fn serve<T: BeaconChainTypes>(
                         publish_network_message(
                             &network_tx,
                             NetworkMessage::AttestationSubscribe {
+                                subscriptions: vec![subscription],
+                            },
+                        )?;
+                    }
+
+                    Ok(())
+                })
+            },
+        );
+
+    // POST validator/sync_committee_subscriptions
+    let post_validator_sync_committee_subscriptions = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("sync_committee_subscriptions"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(network_tx_filter)
+        .and(chain_filter.clone())
+        .and_then(
+            |subscriptions: Vec<types::SyncCommitteeSubscription>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    for subscription in subscriptions {
+                        chain
+                            .validator_monitor
+                            .write()
+                            .auto_register_local_validator(subscription.validator_index);
+
+                        publish_network_message(
+                            &network_tx,
+                            NetworkMessage::SyncCommitteeSubscribe {
                                 subscriptions: vec![subscription],
                             },
                         )?;
@@ -2233,6 +2360,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_blocks.boxed())
                 .or(get_validator_attestation_data.boxed())
                 .or(get_validator_aggregate_attestation.boxed())
+                .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_peers.boxed())
@@ -2254,9 +2382,13 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_attester_slashings.boxed())
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
+                .or(post_beacon_pool_sync_committees.boxed())
                 .or(post_validator_duties_attester.boxed())
+                .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
-                .or(post_validator_beacon_committee_subscriptions.boxed()),
+                .or(post_validator_contribution_and_proofs.boxed())
+                .or(post_validator_beacon_committee_subscriptions.boxed())
+                .or(post_validator_sync_committee_subscriptions.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

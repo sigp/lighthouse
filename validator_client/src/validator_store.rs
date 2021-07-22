@@ -12,7 +12,8 @@ use tempfile::TempDir;
 use types::{
     graffiti::GraffitiString, Attestation, BeaconBlock, ChainSpec, Domain, Epoch, EthSpec, Fork,
     Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedRoot, Slot,
+    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -132,8 +133,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().num_enabled()
     }
 
-    fn fork(&self) -> Fork {
-        self.fork_service.fork()
+    fn fork(&self, epoch: Epoch) -> Fork {
+        self.spec.fork_at_epoch(epoch)
     }
 
     pub fn randao_reveal(
@@ -148,7 +149,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let domain = self.spec.get_domain(
                     epoch,
                     Domain::Randao,
-                    &self.fork(),
+                    &self.fork(epoch),
                     self.genesis_validators_root,
                 );
                 let message = epoch.signing_root(domain);
@@ -179,7 +180,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Check for slashing conditions.
-        let fork = self.fork();
+        let fork = self.fork(block.epoch());
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
@@ -251,7 +252,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let fork = self.fork();
+        let fork = self.fork(attestation.data.target.epoch);
 
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
@@ -345,6 +346,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ) -> Option<SignedAggregateAndProof<E>> {
         let validators = self.validators.read();
         let voting_keypair = &validators.voting_keypair(validator_pubkey)?;
+        let fork = self.fork(aggregate.data.target.epoch);
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
@@ -353,7 +355,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             aggregate,
             Some(selection_proof),
             &voting_keypair.sk,
-            &self.fork(),
+            &fork,
             self.genesis_validators_root,
             &self.spec,
         ))
@@ -374,7 +376,85 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Some(SelectionProof::new::<E>(
             slot,
             &voting_keypair.sk,
-            &self.fork(),
+            &self.fork(slot.epoch(E::slots_per_epoch())),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
+    pub fn produce_sync_selection_proof(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        slot: Slot,
+        subnet_id: SyncSubnetId,
+    ) -> Option<SyncSelectionProof> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.voting_keypair(validator_pubkey)?;
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Some(SyncSelectionProof::new::<E>(
+            slot,
+            subnet_id.into(),
+            &voting_keypair.sk,
+            &self.fork(slot.epoch(E::slots_per_epoch())),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    pub fn produce_sync_committee_signature(
+        &self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        validator_index: u64,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Option<SyncCommitteeMessage> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.voting_keypair(validator_pubkey)?;
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Some(SyncCommitteeMessage::new::<E>(
+            slot,
+            beacon_block_root,
+            validator_index,
+            &voting_keypair.sk,
+            &self.fork(slot.epoch(E::slots_per_epoch())),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    pub fn produce_signed_contribution_and_proof(
+        &self,
+        aggregator_index: u64,
+        aggregator_pubkey: &PublicKeyBytes,
+        contribution: SyncCommitteeContribution<E>,
+        selection_proof: SyncSelectionProof,
+    ) -> Option<SignedContributionAndProof<E>> {
+        let validators = self.validators.read();
+        let voting_keypair = validators.voting_keypair(aggregator_pubkey)?;
+        let fork = self.fork(contribution.slot.epoch(E::slots_per_epoch()));
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Some(SignedContributionAndProof::from_aggregate(
+            aggregator_index,
+            contribution,
+            Some(selection_proof),
+            &voting_keypair.sk,
+            &fork,
             self.genesis_validators_root,
             &self.spec,
         ))
