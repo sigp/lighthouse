@@ -42,7 +42,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead};
+use eth2::types::{EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SyncDuty};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -1211,6 +1211,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_by_slot_and_root(slot, attestation_data_root)
     }
 
+    /// Return an aggregated `SyncCommitteeContribution` matching the given `root`.
+    pub fn get_aggregated_sync_committee_contribution(
+        &self,
+        sync_contribution_data: &SyncContributionData,
+    ) -> Option<SyncCommitteeContribution<T::EthSpec>> {
+        self.naive_sync_aggregation_pool
+            .read()
+            .get(sync_contribution_data)
+    }
+
     /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
     ///
     /// The produced `Attestation` will not be valid until it has been signed by exactly one
@@ -1747,6 +1757,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_attester_slashing(attester_slashing, self.head_info()?.fork)
         }
         Ok(())
+    }
+
+    /// Attempt to obtain sync committee duties from the head.
+    pub fn sync_committee_duties_from_head(
+        &self,
+        epoch: Epoch,
+        validator_indices: &[u64],
+    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+        self.with_head(move |head| {
+            head.beacon_state
+                .get_sync_committee_duties(epoch, validator_indices, &self.spec)
+                .map_err(Error::SyncDutiesError)
+        })
     }
 
     /// Attempt to verify and import a chain of blocks to `self`.
@@ -2480,6 +2503,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
         let voluntary_exits = self.op_pool.get_voluntary_exits(&state, &self.spec).into();
 
+        // Closure to fetch a sync aggregate in cases where it is required.
+        let get_sync_aggregate = || -> Result<SyncAggregate<_>, BlockProductionError> {
+            Ok(self
+                .op_pool
+                .get_sync_aggregate(&state)
+                .map_err(BlockProductionError::OpPoolError)?
+                .unwrap_or_else(|| {
+                    warn!(
+                        self.log,
+                        "Producing block with no sync contributions";
+                        "slot" => state.slot(),
+                    );
+                    SyncAggregate::new()
+                }))
+        };
+
         let inner_block = match state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
                 slot,
@@ -2497,24 +2536,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits,
                 },
             }),
-            BeaconState::Altair(_) => BeaconBlock::Altair(BeaconBlockAltair {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BeaconBlockBodyAltair {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    // FIXME(altair): put a sync aggregate from the pool here (once implemented)
-                    sync_aggregate: SyncAggregate::new(),
-                },
-            }),
+            BeaconState::Altair(_) => {
+                let sync_aggregate = get_sync_aggregate()?;
+                BeaconBlock::Altair(BeaconBlockAltair {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyAltair {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations,
+                        deposits,
+                        voluntary_exits,
+                        sync_aggregate,
+                    },
+                })
+            }
         };
 
         let block = SignedBeaconBlock::from_block(
