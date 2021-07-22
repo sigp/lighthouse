@@ -71,8 +71,9 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
-    InconsistentFork, PublicKey, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, CloneConfig, Epoch,
+    EthSpec, Hash256, InconsistentFork, PublicKey, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -1295,6 +1296,17 @@ fn load_parent<T: BeaconChainTypes>(
                 BlockError::from(BeaconChainError::MissingBeaconBlock(block.parent_root()))
             })?;
 
+        // Check to see if the parent block is earlier than the finalized checkpoint. Any block with
+        // a finalized parent is invalid since it would revert a finalized checkpoint. This check
+        // avoids wasting time on loading the `BeaconState` in such a case.
+        let finalized_checkpoint = chain.head_info()?.finalized_checkpoint;
+        check_parent_against_finalized_slot(
+            block.parent_root(),
+            parent_block.slot(),
+            finalized_checkpoint,
+            &chain.spec,
+        )?;
+
         // Load the parent blocks state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
         let parent_state_root = parent_block.state_root();
@@ -1318,6 +1330,36 @@ fn load_parent<T: BeaconChainTypes>(
     metrics::stop_timer(db_read_timer);
 
     result
+}
+
+/// Returns `Err` if building a block atop this parent block would cause a finality
+/// reversion.
+///
+/// ## Reasoning
+///
+/// Any block which builds a block *earlier* than the finalized
+fn check_parent_against_finalized_slot<T: EthSpec>(
+    parent_root: Hash256,
+    parent_slot: Slot,
+    finalized_checkpoint: Checkpoint,
+    spec: &ChainSpec,
+) -> Result<(), BlockError<T>> {
+    let finalized_slot = finalized_checkpoint.epoch.start_slot(T::slots_per_epoch());
+    let genesis_epoch = spec.genesis_slot.epoch(T::slots_per_epoch());
+    // There is no need to perform this check in the genesis epoch.
+    if finalized_checkpoint.epoch > genesis_epoch
+        // Always allow building atop the finalized checkpoint.
+        && parent_root != finalized_checkpoint.root
+        // Permit any block which is equal to or later than the finalized slot.
+        && parent_slot <= finalized_slot
+    {
+        Err(BlockError::WouldRevertFinalizedSlot {
+            block_slot: parent_slot,
+            finalized_slot,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 /// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
