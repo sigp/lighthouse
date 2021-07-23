@@ -124,13 +124,11 @@ const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
-/// TODO(pawan): check ideal queue length.
-const MAX_SYNC_MESSAGE_QUEUE_LEN: usize = 1_024;
+const MAX_SYNC_MESSAGE_QUEUE_LEN: usize = 2048;
 
 /// The maximum number of queued `SignedContributionAndProof` objects that will be stored before we
 /// start dropping them.
-/// TODO(pawan): check ideal queue length.
-const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1_024;
+const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
 /// will be stored before we start dropping them.
@@ -921,7 +919,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        // TODO(pawan): verify preference
                         // Check sync committee messages before attestations as they are good for only
                         // a single slot.
                         } else if let Some(item) = sync_contribution_queue.pop() {
@@ -1277,7 +1274,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         *attester_slashing,
                     ),
                     /*
-                     * Unaggregated attestation verification.
+                     * Sync committee message verification.
                      */
                     Work::GossipSyncSignature {
                         message_id,
@@ -1293,7 +1290,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         seen_timestamp,
                     ),
                     /*
-                     * Aggregated attestation verification.
+                     * Syn contribution verification.
                      */
                     Work::GossipSyncContribution {
                         message_id,

@@ -30,7 +30,6 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
-use std::fmt::Display;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -75,23 +74,23 @@ pub enum DiscoveryEvent {
     SocketUpdated(SocketAddr),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct SubnetQuery {
     subnet: Subnet,
     min_ttl: Option<Instant>,
     retries: usize,
 }
 
-impl Display for SubnetQuery {
+impl std::fmt::Debug for SubnetQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let min_ttl_secs = self
             .min_ttl
             .map(|ttl| ttl.saturating_duration_since(Instant::now()).as_secs());
-        write!(
-            f,
-            "Subnet: {:?}, ttl_seconds: {:?}, attempt: {}",
-            self.subnet, min_ttl_secs, self.retries
-        )
+        f.debug_struct("SubnetQuery")
+            .field("subnet", &self.subnet)
+            .field("min_ttl_secs", &min_ttl_secs)
+            .field("retries", &self.retries)
+            .finish()
     }
 }
 
@@ -734,7 +733,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                 let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
                 trace!(self.log, "Discovery query started for subnet";
-                    "subnet_query" => %subnet_query,
+                    "subnet_query" => ?subnet_query,
                     "connected_peers_on_subnet" => peers_on_subnet,
                     "peers_to_find" => target_peers,
                 );
@@ -752,7 +751,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             debug!(
                 self.log,
                 "Starting grouped subnet query";
-                "subnets" => ?filtered_subnet_queries.iter().map(|q| q.to_string()).collect::<Vec<_>>(),
+                "subnets" => ?filtered_subnet_queries,
             );
             self.start_query(
                 GroupedQueryType::Subnet(filtered_subnet_queries),

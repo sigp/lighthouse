@@ -9,7 +9,7 @@ use crate::peer_manager::{
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
-    subnet_id_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
+    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
@@ -821,12 +821,12 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
+                if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.peer_manager.add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
-                if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
+                if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.peer_manager.remove_subscription(&peer_id, subnet_id);
                 }
             }

@@ -253,7 +253,7 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
                 write!(f, "Signed Contribution and Proof")
             }
             PubsubMessage::SyncCommitteeMessage(data) => {
-                write!(f, "Sync committee signature: subnet_id: {}", *data.0)
+                write!(f, "Sync committee message: subnet_id: {}", *data.0)
             }
         }
     }

@@ -174,7 +174,7 @@ impl Default for Config {
     }
 }
 
-/// Return a Lighthouse specifi `GossipsubConfig` where the `message_id_fn` depends on the current fork.
+/// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
 pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
     // The function used to generate a gossipsub message id
     // We use the first 8 bytes of SHA256(data) for content addressing
@@ -190,10 +190,10 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
             ForkName::Altair => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
-                    prefix.len() + topic_bytes.len() + topic_len_bytes.len() + message.data.len(),
+                    prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
                 );
                 vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&topic_bytes.len().to_le_bytes());
+                vec.extend_from_slice(&topic_len_bytes);
                 vec.extend_from_slice(topic_bytes);
                 vec.extend_from_slice(&message.data);
                 vec

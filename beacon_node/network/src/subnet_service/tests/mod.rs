@@ -16,7 +16,7 @@ use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use types::{
-    CommitteeIndex, Epoch, EthSpec, MinimalEthSpec, Slot, SubnetId, SyncCommitteeSubscription,
+    CommitteeIndex, Epoch, EthSpec, MainnetEthSpec, Slot, SubnetId, SyncCommitteeSubscription,
     SyncSubnetId, ValidatorSubscription,
 };
 
@@ -24,10 +24,10 @@ const SLOT_DURATION_MILLIS: u64 = 400;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
-    CachingEth1Backend<MinimalEthSpec>,
-    MinimalEthSpec,
-    MemoryStore<MinimalEthSpec>,
-    MemoryStore<MinimalEthSpec>,
+    CachingEth1Backend<MainnetEthSpec>,
+    MainnetEthSpec,
+    MemoryStore<MainnetEthSpec>,
+    MemoryStore<MainnetEthSpec>,
 >;
 
 pub struct TestBeaconChain {
@@ -36,7 +36,7 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let spec = MinimalEthSpec::default_spec();
+        let spec = MainnetEthSpec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(1);
 
@@ -47,12 +47,12 @@ impl TestBeaconChain {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let chain = Arc::new(
-            BeaconChainBuilder::new(MinimalEthSpec)
+            BeaconChainBuilder::new(MainnetEthSpec)
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
                 .genesis_state(
-                    interop_genesis_state::<MinimalEthSpec>(&keypairs, 0, &spec)
+                    interop_genesis_state::<MainnetEthSpec>(&keypairs, 0, &spec)
                         .expect("should generate interop state"),
                 )
                 .expect("should build state using recent genesis")
@@ -201,7 +201,7 @@ mod attestation_service {
             .unwrap();
 
         // not enough time for peer discovery, just subscribe, unsubscribe
-        let subnet_id = SubnetId::compute_subnet::<MinimalEthSpec>(
+        let subnet_id = SubnetId::compute_subnet::<MainnetEthSpec>(
             current_slot + Slot::new(subscription_slot),
             committee_index,
             committee_count,
@@ -249,16 +249,11 @@ mod attestation_service {
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service();
-        let mut current_slot = attestation_service
+        let current_slot = attestation_service
             .beacon_chain
             .slot_clock
             .now()
             .expect("Could not get current slot");
-
-        // This is to ensure subnet_id's aren't unequal at epoch boundaries
-        if (current_slot + 1) % MinimalEthSpec::slots_per_epoch() == 0 {
-            current_slot += 1;
-        }
 
         let sub1 = get_subscription(
             validator_index,
@@ -274,7 +269,7 @@ mod attestation_service {
             committee_count,
         );
 
-        let subnet_id1 = SubnetId::compute_subnet::<MinimalEthSpec>(
+        let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
             current_slot + Slot::new(subscription_slot1),
             com1,
             committee_count,
@@ -282,7 +277,7 @@ mod attestation_service {
         )
         .unwrap();
 
-        let subnet_id2 = SubnetId::compute_subnet::<MinimalEthSpec>(
+        let subnet_id2 = SubnetId::compute_subnet::<MainnetEthSpec>(
             current_slot + Slot::new(subscription_slot2),
             com2,
             committee_count,
@@ -340,7 +335,7 @@ mod attestation_service {
 
     #[tokio::test]
     async fn subscribe_all_random_subnets() {
-        let attestation_subnet_count = MinimalEthSpec::default_spec().attestation_subnet_count;
+        let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
         let subscription_slot = 10;
         let subscription_count = attestation_subnet_count;
         let committee_count = 1;
@@ -397,7 +392,7 @@ mod attestation_service {
 
     #[tokio::test]
     async fn subscribe_all_random_subnets_plus_one() {
-        let attestation_subnet_count = MinimalEthSpec::default_spec().attestation_subnet_count;
+        let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
         let subscription_slot = 10;
         // the 65th subscription should result in no more messages than the previous scenario
         let subscription_count = attestation_subnet_count + 1;
@@ -477,7 +472,7 @@ mod sync_committee_service {
             .validator_subscriptions(subscriptions)
             .unwrap();
 
-        let subnet_ids = SyncSubnetId::compute_subnets_for_sync_committee::<MinimalEthSpec>(
+        let subnet_ids = SyncSubnetId::compute_subnets_for_sync_committee::<MainnetEthSpec>(
             &sync_committee_indices,
         )
         .unwrap();
@@ -487,7 +482,7 @@ mod sync_committee_service {
         let events = get_events(
             &mut sync_committee_service,
             Some(5),
-            (MinimalEthSpec::slots_per_epoch() * 3) as u32, // Have some buffer time before getting 5 events
+            (MainnetEthSpec::slots_per_epoch() * 3) as u32, // Have some buffer time before getting 5 events
         )
         .await;
         assert_eq!(

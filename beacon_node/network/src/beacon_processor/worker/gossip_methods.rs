@@ -1305,8 +1305,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            // TODO(pawan): verify this should be dealt with similar severity
             SyncCommitteeError::UnknownValidatorPubkey(_) => {
+                debug!(
+                    self.log,
+                    "Validator pubkey is unknown";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
