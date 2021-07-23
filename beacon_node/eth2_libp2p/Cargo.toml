@@ -45,9 +45,10 @@ superstruct = "0.2.0"
 [dependencies.libp2p]
 #version = "0.39.1"
 #default-features = false
-# TODO: Update once https://github.com/libp2p/rust-libp2p/pull/2103 is merged.
-git = "https://github.com/pawanjay176/rust-libp2p"
-branch = "total-connection-limit"
+# TODO: Update once https://github.com/libp2p/rust-libp2p/pull/2103 and 
+# https://github.com/libp2p/rust-libp2p/pull/2137 are merged upstream.
+git = "https://github.com/sigp/rust-libp2p"
+rev = "75fd53ec5407a58ae1ff600fd1c68ea49079364a"
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]

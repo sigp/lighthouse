@@ -256,13 +256,7 @@ mod attestation_service {
             .expect("Could not get current slot");
 
         // This is to ensure subnet_id's aren't unequal at epoch boundaries
-        if (current_slot + 1)
-            % attestation_service
-                .beacon_chain
-                .spec
-                .attestation_subnet_count
-            == 0
-        {
+        if (current_slot + 1) % MinimalEthSpec::slots_per_epoch() == 0 {
             current_slot += 1;
         }
 
