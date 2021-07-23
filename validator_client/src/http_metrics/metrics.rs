@@ -87,11 +87,6 @@ lazy_static::lazy_static! {
         "Duration to perform duties service tasks",
         &["task"]
     );
-    pub static ref FORK_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
-        "vc_fork_service_task_times_seconds",
-        "Duration to perform fork service tasks",
-        &["task"]
-    );
     pub static ref ATTESTATION_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "vc_attestation_service_task_times_seconds",
         "Duration to perform attestation service tasks",

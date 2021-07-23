@@ -1,11 +1,9 @@
-use crate::{
-    fork_service::ForkService, http_metrics::metrics, initialized_validators::InitializedValidators,
-};
+use crate::{http_metrics::metrics, initialized_validators::InitializedValidators};
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
-use slot_clock::SlotClock;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -48,7 +46,7 @@ impl PartialEq for LocalValidator {
 }
 
 #[derive(Clone)]
-pub struct ValidatorStore<T, E: EthSpec> {
+pub struct ValidatorStore<E: EthSpec> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
@@ -56,16 +54,15 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     temp_dir: Option<Arc<TempDir>>,
-    fork_service: ForkService<T, E>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
+impl<E: EthSpec> ValidatorStore<E> {
     pub fn new(
         validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
-        fork_service: ForkService<T, E>,
         log: Logger,
     ) -> Self {
         Self {
@@ -76,7 +73,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             spec: Arc::new(spec),
             log,
             temp_dir: None,
-            fork_service,
+            _phantom: PhantomData,
         }
     }
 

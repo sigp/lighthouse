@@ -20,7 +20,7 @@ use types::{
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
-    validator_store: Option<ValidatorStore<T, E>>,
+    validator_store: Option<ValidatorStore<E>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
@@ -42,7 +42,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
+    pub fn validator_store(mut self, store: ValidatorStore<E>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -88,7 +88,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: ValidatorStore<T, E>,
+    validator_store: ValidatorStore<E>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,

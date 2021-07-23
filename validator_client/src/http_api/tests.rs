@@ -3,7 +3,7 @@
 
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
-    Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
+    Config, InitializedValidators, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
@@ -16,7 +16,6 @@ use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
-use slot_clock::TestingSlotClock;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -72,25 +71,20 @@ impl ApiTester {
 
         let spec = E::default_spec();
 
-        let fork_service = ForkServiceBuilder::testing_only(spec.clone(), log.clone())
-            .build()
-            .unwrap();
-
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
+        let validator_store = ValidatorStore::<E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
             spec,
-            fork_service.clone(),
             log.clone(),
         );
 
         let initialized_validators = validator_store.initialized_validators();
 
-        let context: Arc<Context<TestingSlotClock, E>> = Arc::new(Context {
+        let context = Arc::new(Context {
             runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
