@@ -15,7 +15,7 @@ use types::{EthSpec, PublicKeyBytes, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
-    validator_store: Option<ValidatorStore<T, E>>,
+    validator_store: Option<ValidatorStore<E>>,
     slot_clock: Option<Arc<T>>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
@@ -35,7 +35,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
+    pub fn validator_store(mut self, store: ValidatorStore<E>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -89,7 +89,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    validator_store: ValidatorStore<T, E>,
+    validator_store: ValidatorStore<E>,
     slot_clock: Arc<T>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,

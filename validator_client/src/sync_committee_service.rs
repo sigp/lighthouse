@@ -39,7 +39,7 @@ impl<T: SlotClock + 'static, E: EthSpec> Deref for SyncCommitteeService<T, E> {
 
 pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: ValidatorStore<T, E>,
+    validator_store: ValidatorStore<E>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
@@ -52,7 +52,7 @@ pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     pub fn new(
         duties_service: Arc<DutiesService<T, E>>,
-        validator_store: ValidatorStore<T, E>,
+        validator_store: ValidatorStore<E>,
         slot_clock: T,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
         context: RuntimeContext<E>,

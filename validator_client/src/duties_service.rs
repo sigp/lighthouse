@@ -62,9 +62,9 @@ pub struct DutyAndProof {
 
 impl DutyAndProof {
     /// Instantiate `Self`, computing the selection proof as well.
-    pub fn new<T: SlotClock + 'static, E: EthSpec>(
+    pub fn new<E: EthSpec>(
         duty: AttesterData,
-        validator_store: &ValidatorStore<T, E>,
+        validator_store: &ValidatorStore<E>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
@@ -110,7 +110,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// up-to-date.
     pub indices: RwLock<IndicesMap>,
     /// Provides the canonical list of locally-managed validators.
-    pub validator_store: ValidatorStore<T, E>,
+    pub validator_store: ValidatorStore<E>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.

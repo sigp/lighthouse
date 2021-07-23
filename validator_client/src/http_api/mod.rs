@@ -9,7 +9,6 @@ use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
-use slot_clock::SlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -50,10 +49,10 @@ impl From<String> for Error {
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: Clone, E: EthSpec> {
+pub struct Context<E: EthSpec> {
     pub runtime: Weak<Runtime>,
     pub api_secret: ApiSecret,
-    pub validator_store: Option<ValidatorStore<T, E>>,
+    pub validator_store: Option<ValidatorStore<E>>,
     pub validator_dir: Option<PathBuf>,
     pub spec: ChainSpec,
     pub config: Config,
@@ -96,8 +95,8 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
-    ctx: Arc<Context<T, E>>,
+pub fn serve<E: EthSpec>(
+    ctx: Arc<Context<E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -203,7 +202,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(|validator_store: ValidatorStore<T, E>, signer| {
+        .and_then(|validator_store: ValidatorStore<E>, signer| {
             blocking_signed_json_task(signer, move || {
                 let validators = validator_store
                     .initialized_validators()
@@ -229,7 +228,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and_then(
-            |validator_pubkey: PublicKey, validator_store: ValidatorStore<T, E>, signer| {
+            |validator_pubkey: PublicKey, validator_store: ValidatorStore<E>, signer| {
                 blocking_signed_json_task(signer, move || {
                     let validator = validator_store
                         .initialized_validators()
@@ -267,7 +266,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: ValidatorStore<E>,
              spec: Arc<ChainSpec>,
              signer,
              runtime: Weak<Runtime>| {
@@ -309,7 +308,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: ValidatorStore<E>,
              spec: Arc<ChainSpec>,
              signer,
              runtime: Weak<Runtime>| {
@@ -353,7 +352,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: ValidatorStore<E>,
              signer,
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
@@ -428,7 +427,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: ValidatorStore<E>,
              signer,
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
