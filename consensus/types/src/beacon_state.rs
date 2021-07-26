@@ -22,7 +22,10 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-pub use self::committee_cache::CommitteeCache;
+pub use self::committee_cache::{
+    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
+    CommitteeCache,
+};
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;

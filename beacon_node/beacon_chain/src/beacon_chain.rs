@@ -1382,10 +1382,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (justified_checkpoint, committee_len) = if head_state_epoch == request_epoch {
             (head_state_justified_checkpoint, head_state_committee_len)
-        } else if let Some(tuple) =
-            self.attester_cache
-                .get(&attester_cache_key, request_slot, request_index)?
-        {
+        } else if let Some(tuple) = self.attester_cache.get::<T::EthSpec>(
+            &attester_cache_key,
+            request_slot,
+            request_index,
+            &self.spec,
+        )? {
             tuple
         } else {
             let mut state: BeaconState<T::EthSpec> = self
@@ -1406,8 +1408,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
             }
 
-            self.attester_cache
-                .cache_state_and_return_value(&state, request_slot, request_index)?
+            self.attester_cache.cache_state_and_return_value(
+                &state,
+                request_slot,
+                request_index,
+                &self.spec,
+            )?
         };
 
         self.produce_unaggregated_attestation_parameterized(

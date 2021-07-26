@@ -11,8 +11,13 @@
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::ops::Range;
 use types::{
-    BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
+    beacon_state::{
+        compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
+    },
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch,
+    Slot,
 };
 
 type JustifiedCheckpoint = Checkpoint;
@@ -25,18 +30,11 @@ const MAX_CACHE_LEN: usize = 64;
 #[derive(Debug)]
 pub enum Error {
     BeaconState(BeaconStateError),
-    SlotTooLow {
-        slot: Slot,
-        first_slot: Slot,
-    },
-    SlotTooHigh {
-        slot: Slot,
-        first_slot: Slot,
-    },
-    InvalidCommitteeIndex {
-        slot_offset: usize,
-        committee_index: u64,
-    },
+    WrongEpoch { request_epoch: Epoch, epoch: Epoch },
+    SlotTooLow { slot: Slot, first_slot: Slot },
+    SlotTooHigh { slot: Slot, first_slot: Slot },
+    InvalidCommitteeIndex { committee_index: u64 },
+    InverseRange { range: Range<usize> },
 }
 
 impl From<BeaconStateError> for Error {
@@ -46,56 +44,56 @@ impl From<BeaconStateError> for Error {
 }
 
 struct CommitteeLengths {
-    first_slot: Slot,
-    lengths: Vec<CommitteeLength>,
-    slot_offsets: Vec<usize>,
+    epoch: Epoch,
+    active_validator_indices_len: usize,
 }
 
 impl CommitteeLengths {
     fn new<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, Error> {
-        let slots_per_epoch = T::slots_per_epoch();
-        let current_epoch = state.current_epoch();
         let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
-        let committees_per_slot = committee_cache.committees_per_slot();
-
-        let mut lengths = Vec::with_capacity((committees_per_slot * slots_per_epoch) as usize);
-        let mut slot_offsets = Vec::with_capacity(slots_per_epoch as usize);
-
-        for slot in current_epoch.slot_iter(slots_per_epoch) {
-            slot_offsets.push(lengths.len());
-            for index in 0..committees_per_slot {
-                let length = state
-                    .get_beacon_committee(slot, index as u64)?
-                    .committee
-                    .len();
-                lengths.push(length);
-            }
-        }
+        let active_validator_indices_len = committee_cache.active_validator_indices().len();
 
         Ok(Self {
-            first_slot: current_epoch.start_slot(slots_per_epoch),
-            lengths,
-            slot_offsets,
+            epoch: state.current_epoch(),
+            active_validator_indices_len,
         })
     }
 
-    fn get(&self, slot: Slot, committee_index: CommitteeIndex) -> Result<CommitteeLength, Error> {
-        let first_slot = self.first_slot;
-        let relative_slot = slot
-            .as_usize()
-            .checked_sub(first_slot.as_usize())
-            .ok_or(Error::SlotTooLow { slot, first_slot })?;
-        let slot_offset = *self
-            .slot_offsets
-            .get(relative_slot)
-            .ok_or(Error::SlotTooHigh { slot, first_slot })?;
-        slot_offset
-            .checked_add(committee_index as usize)
-            .and_then(|lengths_index| self.lengths.get(lengths_index).copied())
-            .ok_or(Error::InvalidCommitteeIndex {
-                slot_offset,
-                committee_index,
-            })
+    fn get<T: EthSpec>(
+        &self,
+        slot: Slot,
+        committee_index: CommitteeIndex,
+        spec: &ChainSpec,
+    ) -> Result<CommitteeLength, Error> {
+        let slots_per_epoch = T::slots_per_epoch();
+        let request_epoch = slot.epoch(slots_per_epoch);
+        if request_epoch != self.epoch {
+            return Err(Error::WrongEpoch {
+                request_epoch,
+                epoch: self.epoch,
+            });
+        }
+
+        let slots_per_epoch = slots_per_epoch as usize;
+        let committees_per_slot =
+            T::get_committee_count_per_slot(self.active_validator_indices_len, spec)?;
+        let index_in_epoch = compute_committee_index_in_epoch(
+            slot,
+            slots_per_epoch,
+            committees_per_slot,
+            committee_index as usize,
+        );
+        let range = compute_committee_range_in_epoch(
+            epoch_committee_count(committees_per_slot, slots_per_epoch),
+            index_in_epoch,
+            self.active_validator_indices_len,
+        )
+        .ok_or(Error::InvalidCommitteeIndex { committee_index })?;
+
+        range
+            .end
+            .checked_sub(range.start)
+            .ok_or(Error::InverseRange { range })
     }
 }
 
@@ -114,13 +112,14 @@ impl AttesterCacheValue {
         })
     }
 
-    fn get(
+    fn get<T: EthSpec>(
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
+        spec: &ChainSpec,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
         self.committee_lengths
-            .get(slot, committee_index)
+            .get::<T>(slot, committee_index, spec)
             .map(|committee_length| (self.current_justified_checkpoint, committee_length))
     }
 }
@@ -164,16 +163,17 @@ pub struct AttesterCache {
 }
 
 impl AttesterCache {
-    pub fn get(
+    pub fn get<T: EthSpec>(
         &self,
         key: &AttesterCacheKey,
         slot: Slot,
         committee_index: CommitteeIndex,
+        spec: &ChainSpec,
     ) -> Result<Option<(JustifiedCheckpoint, CommitteeLength)>, Error> {
         self.cache
             .read()
             .get(key)
-            .map(|cache_item| cache_item.get(slot, committee_index))
+            .map(|cache_item| cache_item.get::<T>(slot, committee_index, spec))
             .transpose()
     }
 
@@ -192,10 +192,11 @@ impl AttesterCache {
         state: &BeaconState<T>,
         slot: Slot,
         index: CommitteeIndex,
+        spec: &ChainSpec,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
         let key = AttesterCacheKey::new(state.current_epoch(), state)?;
         let cache_item = AttesterCacheValue::new(state)?;
-        let value = cache_item.get(slot, index)?;
+        let value = cache_item.get::<T>(slot, index, spec)?;
         self.insert_respecting_max_len(key, cache_item);
         Ok(value)
     }
