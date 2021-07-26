@@ -81,11 +81,9 @@ impl EpochProcessingSummary {
     /// Always returns `false` for an unknown `val_index`.
     pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
         match self {
-            EpochProcessingSummary::Base { statuses, .. } => {
-                statuses.get(val_index).map_or(false, |s| {
-                    s.is_current_epoch_target_attester && !s.is_slashed
-                })
-            }
+            EpochProcessingSummary::Base { statuses, .. } => statuses
+                .get(val_index)
+                .map_or(false, |s| s.is_active_in_current_epoch && !s.is_slashed),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
@@ -178,7 +176,7 @@ impl EpochProcessingSummary {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_active_in_previous_epoch && s.is_slashed),
+                .map_or(false, |s| s.is_active_in_previous_epoch && !s.is_slashed),
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
