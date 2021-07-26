@@ -436,7 +436,8 @@ fn roundtrip_operation_pool() {
         .get_item::<PersistedOperationPool<MinimalEthSpec>>(&OP_POOL_DB_KEY)
         .expect("should read db")
         .expect("should find op pool")
-        .into_operation_pool();
+        .into_operation_pool()
+        .unwrap();
 
     assert_eq!(harness.chain.op_pool, restored_op_pool);
 }
@@ -537,7 +538,7 @@ fn attestations_with_increasing_slots() {
 
         if expected_attestation_slot < expected_earliest_permissible_slot {
             assert!(matches!(
-                res.err().unwrap(),
+                res.err().unwrap().0,
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,

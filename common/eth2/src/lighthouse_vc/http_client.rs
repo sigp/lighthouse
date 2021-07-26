@@ -2,12 +2,12 @@ use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
 use account_utils::ZeroizeString;
 use bytes::Bytes;
+use libsecp256k1::{Message, PublicKey, Signature};
 use reqwest::{
     header::{HeaderMap, HeaderValue},
     IntoUrl,
 };
 use ring::digest::{digest, SHA256};
-use secp256k1::{Message, PublicKey, Signature};
 use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -94,7 +94,7 @@ impl ValidatorClientHttpClient {
             .ok()
             .and_then(|bytes| {
                 let sig = Signature::parse_der(&bytes).ok()?;
-                Some(secp256k1::verify(&message, &sig, &self.server_pubkey))
+                Some(libsecp256k1::verify(&message, &sig, &self.server_pubkey))
             })
             .filter(|is_valid| *is_valid)
             .ok_or(Error::InvalidSignatureHeader)?;

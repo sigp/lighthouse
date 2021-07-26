@@ -284,6 +284,24 @@ fn http_flag() {
         .with_config(|config| assert!(config.http_api.enabled));
 }
 #[test]
+fn http_address_flag() {
+    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("127.0.0.99"))
+        .flag("unencrypted-http-transport", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
+#[should_panic]
+fn missing_unencrypted_http_transport_flag() {
+    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("127.0.0.99"))
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
 fn http_port_flag() {
     CommandLineTest::new()
         .flag("http-port", Some("9090"))

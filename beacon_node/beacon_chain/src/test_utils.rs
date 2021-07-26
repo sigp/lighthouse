@@ -31,16 +31,17 @@ use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, Mem
 use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
+use types::sync_selection_proof::SyncSelectionProof;
+pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
     typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
     BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
     Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
     PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId, VariableList,
+    SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
+    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeMessage, VariableList,
     VoluntaryExit,
 };
-
-pub use types::test_utils::generate_deterministic_keypairs;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -85,6 +86,14 @@ pub enum AttestationStrategy {
     AllValidators,
     /// Only the given validators should attest. All others should fail to produce attestations.
     SomeValidators(Vec<usize>),
+}
+
+/// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
+/// `state.next_sync_committee` when creating sync messages or contributions.
+#[derive(Clone, Debug)]
+pub enum RelativeSyncCommittee {
+    Current,
+    Next,
 }
 
 fn make_rng() -> Mutex<StdRng> {
@@ -153,6 +162,11 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 pub type HarnessAttestations<E> = Vec<(
     Vec<(Attestation<E>, SubnetId)>,
     Option<SignedAggregateAndProof<E>>,
+)>;
+
+pub type HarnessSyncContributions<E> = Vec<(
+    Vec<(SyncCommitteeMessage, usize)>,
+    Option<SignedContributionAndProof<E>>,
 )>;
 
 impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -596,6 +610,57 @@ where
             .collect()
     }
 
+    /// A list of sync messages for the given state.
+    pub fn make_sync_committee_messages(
+        &self,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        message_slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
+    ) -> Vec<Vec<(SyncCommitteeMessage, usize)>> {
+        let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
+            RelativeSyncCommittee::Current => state
+                .current_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+            RelativeSyncCommittee::Next => state
+                .next_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+        };
+
+        sync_committee
+            .pubkeys
+            .as_ref()
+            .chunks(E::sync_subcommittee_size())
+            .map(|subcommittee| {
+                subcommittee
+                    .iter()
+                    .enumerate()
+                    .map(|(subcommittee_position, pubkey)| {
+                        let validator_index = self
+                            .chain
+                            .validator_index(pubkey)
+                            .expect("should find validator index")
+                            .expect("pubkey should exist in the beacon chain");
+
+                        let sync_message = SyncCommitteeMessage::new::<E>(
+                            message_slot,
+                            head_block_root,
+                            validator_index as u64,
+                            &self.validator_keypairs[validator_index].sk,
+                            &state.fork(),
+                            state.genesis_validators_root(),
+                            &self.spec,
+                        );
+
+                        (sync_message, subcommittee_position)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Deprecated: Use make_unaggregated_attestations() instead.
     ///
     /// A list of attestations for each committee for the given slot.
@@ -710,6 +775,94 @@ where
             .into_iter()
             .zip(aggregated_attestations)
             .collect()
+    }
+
+    pub fn make_sync_contributions(
+        &self,
+        state: &BeaconState<E>,
+        block_hash: Hash256,
+        slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
+    ) -> HarnessSyncContributions<E> {
+        let sync_messages =
+            self.make_sync_committee_messages(&state, block_hash, slot, relative_sync_committee);
+
+        let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_messages
+            .iter()
+            .enumerate()
+            .map(|(subnet_id, committee_messages)| {
+                // If there are any sync messages in this committee, create an aggregate.
+                if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
+                    let sync_committee: Arc<SyncCommittee<E>> = state
+                        .current_sync_committee()
+                        .expect("should be called on altair beacon state")
+                        .clone();
+
+                    let aggregator_index = sync_committee
+                        .get_subcommittee_pubkeys(subnet_id)
+                        .unwrap()
+                        .iter()
+                        .find_map(|pubkey| {
+                            let validator_index = self
+                                .chain
+                                .validator_index(pubkey)
+                                .expect("should find validator index")
+                                .expect("pubkey should exist in the beacon chain");
+
+                            let selection_proof = SyncSelectionProof::new::<E>(
+                                slot,
+                                subnet_id as u64,
+                                &self.validator_keypairs[validator_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            );
+
+                            selection_proof
+                                .is_aggregator::<E>()
+                                .expect("should determine aggregator")
+                                .then(|| validator_index)
+                        })?;
+
+                    let default = SyncCommitteeContribution::from_message(
+                        &sync_message,
+                        subnet_id as u64,
+                        *subcommittee_position,
+                    )
+                    .expect("should derive sync contribution");
+
+                    let aggregate = committee_messages.iter().skip(1).fold(
+                        default,
+                        |mut agg, (sig, position)| {
+                            let contribution = SyncCommitteeContribution::from_message(
+                                sig,
+                                subnet_id as u64,
+                                *position,
+                            )
+                            .expect("should derive sync contribution");
+                            agg.aggregate(&contribution);
+                            agg
+                        },
+                    );
+
+                    let signed_aggregate = SignedContributionAndProof::from_aggregate(
+                        aggregator_index as u64,
+                        aggregate,
+                        None,
+                        &self.validator_keypairs[aggregator_index].sk,
+                        &state.fork(),
+                        state.genesis_validators_root(),
+                        &self.spec,
+                    );
+
+                    Some(signed_aggregate)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        sync_messages.into_iter().zip(sync_contributions).collect()
     }
 
     pub fn make_attester_slashing(&self, validator_indices: Vec<u64>) -> AttesterSlashing<E> {

@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.1.0", features = ["macros","sync"] }
+tokio = { version = "1.7.1", features = ["macros","sync"] }
 tokio-stream = { version = "0.1.3", features = ["sync"] }
 tokio-util = "0.6.3"
 parking_lot = "0.11.0"
@@ -34,5 +34,4 @@ futures = "0.3.8"
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
-discv5 = { version = "0.1.0-beta.5", features = ["libp2p"] }
 sensitive_url = { path = "../../common/sensitive_url" }

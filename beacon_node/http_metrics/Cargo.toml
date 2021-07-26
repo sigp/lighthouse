@@ -23,7 +23,7 @@ warp_utils = { path = "../../common/warp_utils" }
 malloc_utils = { path = "../../common/malloc_utils" }
 
 [dev-dependencies]
-tokio = { version = "1.1.0", features = ["sync"] }
+tokio = { version = "1.7.1", features = ["sync"] }
 reqwest = { version = "0.11.0", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 types = { path = "../../consensus/types" }

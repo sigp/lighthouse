@@ -26,7 +26,7 @@ slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_tr
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 ctrlc = { version = "3.1.6", features = ["termination"] }
-tokio = { version = "1.1.0", features = ["time"] }
+tokio = { version = "1.7.1", features = ["time"] }
 exit-future = "0.2.0"
 dirs = "3.0.1"
 logging = { path = "../common/logging" }

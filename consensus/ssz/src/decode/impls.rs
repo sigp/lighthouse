@@ -2,6 +2,7 @@ use super::*;
 use core::num::NonZeroUsize;
 use ethereum_types::{H256, U128, U256};
 use smallvec::SmallVec;
+use std::sync::Arc;
 
 macro_rules! impl_decodable_for_uint {
     ($type: ident, $bit_size: expr) => {
@@ -268,6 +269,20 @@ impl<T: Decode> Decode for Option<T> {
                 index
             )))
         }
+    }
+}
+
+impl<T: Decode> Decode for Arc<T> {
+    fn is_ssz_fixed_len() -> bool {
+        T::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        T::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        T::from_ssz_bytes(bytes).map(Arc::new)
     }
 }
 

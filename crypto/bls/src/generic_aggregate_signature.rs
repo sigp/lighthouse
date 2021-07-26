@@ -219,6 +219,20 @@ where
     }
 }
 
+/// Allow aggregate signatures to be created from single signatures.
+impl<Pub, AggPub, Sig, AggSig> From<&GenericSignature<Pub, Sig>>
+    for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
+where
+    Sig: TSignature<Pub>,
+    AggSig: TAggregateSignature<Pub, AggPub, Sig>,
+{
+    fn from(sig: &GenericSignature<Pub, Sig>) -> Self {
+        let mut agg = Self::infinity();
+        agg.add_assign(&sig);
+        agg
+    }
+}
+
 impl<Pub, AggPub, Sig, AggSig> Encode for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,

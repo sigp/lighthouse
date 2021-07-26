@@ -144,6 +144,7 @@ pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
 pub type AttesterSlashingValidationError = BlockOperationError<AttesterSlashingInvalid>;
 pub type ProposerSlashingValidationError = BlockOperationError<ProposerSlashingInvalid>;
 pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
+pub type SyncCommitteeMessageValidationError = BlockOperationError<SyncAggregateInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
 

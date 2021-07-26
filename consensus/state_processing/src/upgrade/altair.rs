@@ -1,5 +1,6 @@
 use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
 use std::mem;
+use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
     ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
@@ -52,6 +53,8 @@ pub fn upgrade_to_altair<E: EthSpec>(
         VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
     let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
 
+    let temp_sync_committee = Arc::new(SyncCommittee::temporary()?);
+
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -94,8 +97,8 @@ pub fn upgrade_to_altair<E: EthSpec>(
         // Inactivity
         inactivity_scores,
         // Sync committees
-        current_sync_committee: SyncCommittee::temporary()?, // not read
-        next_sync_committee: SyncCommittee::temporary()?,    // not read
+        current_sync_committee: temp_sync_committee.clone(), // not read
+        next_sync_committee: temp_sync_committee,            // not read
         // Caches
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
@@ -109,9 +112,9 @@ pub fn upgrade_to_altair<E: EthSpec>(
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork
     // boundary
-    let sync_committee = post.get_next_sync_committee(spec)?;
-    post.as_altair_mut()?.current_sync_committee = sync_committee.clone();
-    post.as_altair_mut()?.next_sync_committee = sync_committee;
+    let sync_committee = Arc::new(post.get_next_sync_committee(spec)?);
+    *post.current_sync_committee_mut()? = sync_committee.clone();
+    *post.next_sync_committee_mut()? = sync_committee;
 
     *pre_state = post;
 

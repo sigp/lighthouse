@@ -14,13 +14,15 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// The maximum transmit size of gossip messages in bytes.
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+/// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
+pub const MESH_N_LOW: usize = 6;
 
 // We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
 // specification. We leave it here for posterity.
 // const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
-pub const MESH_N_LOW: usize = 6;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -138,8 +140,8 @@ impl Default for Config {
             .mesh_n_high(12)
             .gossip_lazy(6)
             .fanout_ttl(Duration::from_secs(60))
-            .history_length(6)
-            .max_messages_per_rpc(Some(10))
+            .history_length(12)
+            .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
             .history_gossip(3)
             .validate_messages() // require validation before propagation
             .validation_mode(ValidationMode::Anonymous)
@@ -151,10 +153,20 @@ impl Default for Config {
             .build()
             .expect("valid gossipsub configuration");
 
+        // Discv5 Unsolicited Packet Rate Limiter
+        let filter_rate_limiter = Some(
+            discv5::RateLimiterBuilder::new()
+                .total_n_every(10, Duration::from_secs(1)) // Allow bursts, average 10 per second
+                .ip_n_every(9, Duration::from_secs(1)) // Allow bursts, average 9 per second
+                .node_n_every(8, Duration::from_secs(1)) // Allow bursts, average 8 per second
+                .build()
+                .expect("The total rate limit has been specified"),
+        );
+
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new()
             .enable_packet_filter()
-            .session_cache_capacity(1000)
+            .session_cache_capacity(5000)
             .request_timeout(Duration::from_secs(1))
             .query_peer_timeout(Duration::from_secs(2))
             .query_timeout(Duration::from_secs(30))
@@ -163,6 +175,11 @@ impl Default for Config {
             .query_parallelism(5)
             .disable_report_discovered_peers()
             .ip_limit() // limits /24 IP's in buckets.
+            .incoming_bucket_limit(8) // half the bucket size
+            .filter_rate_limiter(filter_rate_limiter)
+            .filter_max_bans_per_ip(Some(5))
+            .filter_max_nodes_per_ip(Some(10))
+            .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
 
