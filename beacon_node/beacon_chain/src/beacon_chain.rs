@@ -1263,6 +1263,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
+            // This function will eventually fail when trying to access a slot which is
+            // out-of-bounds of `state.block_roots`. This explicit error is intended to provide a
+            // clearer message to the user an ambiguous `SlotOutOfBounds` error.
+            let slots_per_historical_root = T::EthSpec::slots_per_historical_root() as u64;
+            let lowest_permissible_slot =
+                head_state.slot().saturating_sub(slots_per_historical_root);
+            if head_state.slot() < lowest_permissible_slot {
+                return Err(Error::AttestingToAncientSlot {
+                    head_state_slot: head_state.slot(),
+                    lowest_permissible_slot,
+                });
+            }
+
             if request_slot >= head_state.slot() {
                 // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;

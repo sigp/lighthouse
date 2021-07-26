@@ -109,6 +109,10 @@ pub enum BeaconChainError {
         finalized_slot: Slot,
         request_slot: Slot,
     },
+    AttestingToAncientSlot {
+        head_state_slot: Slot,
+        lowest_permissible_slot: Slot,
+    },
     BadPreState {
         parent_root: Hash256,
         parent_slot: Slot,
