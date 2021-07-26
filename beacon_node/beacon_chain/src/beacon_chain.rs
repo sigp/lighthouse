@@ -1214,6 +1214,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_by_slot_and_root(slot, attestation_data_root)
     }
 
+    /*
     /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
     ///
     /// The produced `Attestation` will not be valid until it has been signed by exactly one
@@ -1259,6 +1260,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
         }
     }
+    */
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
     /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
@@ -1318,30 +1320,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn produce_unaggregated_attestation_new(
+    pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
         request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        let request_epoch = request_slot.epoch(T::EthSpec::slots_per_epoch());
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let request_epoch = request_slot.epoch(slots_per_epoch);
 
-        enum HeadOutcome {
-            SameEpoch {
-                current_justified_checkpoint: Checkpoint,
-                committee_len: usize,
-            },
-            DifferentEpoch {
-                state_root: Hash256,
-            },
-        }
-
-        let (beacon_block_root, target, head_outcome) = self.with_head(|head| {
+        let beacon_block_root;
+        let beacon_state_root;
+        let target;
+        let head_state_epoch;
+        let head_state_justified_checkpoint;
+        let head_state_committee_len;
+        if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
             let head_state = &head.beacon_state;
 
-            let beacon_block_root = if request_slot >= head_state.slot() {
-                head.beacon_block_root
+            let finalized_slot = head_state
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(slots_per_epoch);
+            if request_slot < finalized_slot {
+                return Err(Error::AttestingToFinalizedSlot {
+                    finalized_slot,
+                    request_slot,
+                });
+            }
+
+            if request_slot >= head_state.slot() {
+                beacon_block_root = head.beacon_block_root;
+                beacon_state_root = head.beacon_state_root();
             } else {
-                *head_state.get_block_root(request_slot)?
+                beacon_block_root = *head_state.get_block_root(request_slot)?;
+                beacon_state_root = *head_state.get_state_root(request_slot)?;
             };
 
             let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -1350,69 +1362,54 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 *head_state.get_block_root(target_slot)?
             };
-            let target = Checkpoint {
+            target = Checkpoint {
                 epoch: request_epoch,
                 root: target_root,
             };
 
-            // TODO: check for finalization.
+            head_state_epoch = head_state.current_epoch();
+            head_state_justified_checkpoint = head_state.current_justified_checkpoint();
+            head_state_committee_len = head_state
+                .get_beacon_committee(request_slot, request_index)?
+                .committee
+                .len();
+        } else {
+            return Err(Error::CanonicalHeadLockTimeout);
+        }
 
-            let head_outcome = if request_epoch == head_state.current_epoch() {
-                let current_justified_checkpoint = head_state.current_justified_checkpoint();
-                let committee_len = head_state
-                    .get_beacon_committee(request_slot, request_index)?
-                    .committee
-                    .len();
-                HeadOutcome::SameEpoch {
-                    current_justified_checkpoint,
-                    committee_len,
-                }
+        let (justified_checkpoint, committee_len) = if head_state_epoch == request_epoch {
+            (head_state_justified_checkpoint, head_state_committee_len)
+        } else {
+            if let Some(tuple) = self
+                .attester_cache
+                .get(&target, request_slot, request_index)?
+            {
+                tuple
             } else {
-                HeadOutcome::DifferentEpoch {
-                    state_root: *head_state.get_state_root(request_slot)?,
+                let mut state: BeaconState<T::EthSpec> = self
+                    .get_state(&beacon_state_root, None)?
+                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+
+                if state.slot() > request_slot {
+                    return Err(Error::CannotAttestToFutureState);
+                } else if state.current_epoch() < request_epoch {
+                    // Only perform a "partial" state advance since we do not require the state roots to be
+                    // accurate.
+                    partial_state_advance(
+                        &mut state,
+                        Some(beacon_state_root),
+                        request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                        &self.spec,
+                    )?;
+                    state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
                 }
-            };
 
-            Ok::<_, BeaconChainError>((beacon_block_root, target, head_outcome))
-        })?;
-
-        let (justified_checkpoint, committee_len) = match head_outcome {
-            HeadOutcome::SameEpoch {
-                current_justified_checkpoint,
-                committee_len,
-            } => (current_justified_checkpoint, committee_len),
-            HeadOutcome::DifferentEpoch { state_root } => {
-                if let Some(tuple) =
-                    self.attester_cache
-                        .get(&target, request_slot, request_index)?
-                {
-                    tuple
-                } else {
-                    let mut state: BeaconState<T::EthSpec> = self
-                        .get_state(&state_root, None)?
-                        .ok_or(Error::MissingBeaconState(state_root))?;
-
-                    if state.slot() > request_slot {
-                        return Err(Error::CannotAttestToFutureState);
-                    } else if state.current_epoch() < request_epoch {
-                        // Only perform a "partial" state advance since we do not require the state roots to be
-                        // accurate.
-                        partial_state_advance(
-                            &mut state,
-                            Some(state_root),
-                            request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                            &self.spec,
-                        )?;
-                        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-                    }
-
-                    self.attester_cache.cache_state_and_return_value(
-                        &state,
-                        beacon_block_root,
-                        request_slot,
-                        request_index,
-                    )?
-                }
+                self.attester_cache.cache_state_and_return_value(
+                    &state,
+                    beacon_block_root,
+                    request_slot,
+                    request_index,
+                )?
             }
         };
 
