@@ -31,8 +31,6 @@ const MAX_CACHE_LEN: usize = 64;
 pub enum Error {
     BeaconState(BeaconStateError),
     WrongEpoch { request_epoch: Epoch, epoch: Epoch },
-    SlotTooLow { slot: Slot, first_slot: Slot },
-    SlotTooHigh { slot: Slot, first_slot: Slot },
     InvalidCommitteeIndex { committee_index: u64 },
     InverseRange { range: Range<usize> },
 }
@@ -43,12 +41,16 @@ impl From<BeaconStateError> for Error {
     }
 }
 
+/// Provides the length for each committee in a given `Epoch`.
 struct CommitteeLengths {
+    /// The `epoch` to which the lengths pertain.
     epoch: Epoch,
+    /// The length of the shuffling in `self.epoch`.
     active_validator_indices_len: usize,
 }
 
 impl CommitteeLengths {
+    /// Instantate `Self` using `state.current_epoch()`.
     fn new<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, Error> {
         let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
         let active_validator_indices_len = committee_cache.active_validator_indices().len();
@@ -59,6 +61,7 @@ impl CommitteeLengths {
         })
     }
 
+    /// Get the length of the committee at the given `slot` and `committee_index`.
     fn get<T: EthSpec>(
         &self,
         slot: Slot,
@@ -67,6 +70,8 @@ impl CommitteeLengths {
     ) -> Result<CommitteeLength, Error> {
         let slots_per_epoch = T::slots_per_epoch();
         let request_epoch = slot.epoch(slots_per_epoch);
+
+        // Sanity check.
         if request_epoch != self.epoch {
             return Err(Error::WrongEpoch {
                 request_epoch,
@@ -97,12 +102,14 @@ impl CommitteeLengths {
     }
 }
 
+/// Provides information relevant to producing an attestation.
 pub struct AttesterCacheValue {
     current_justified_checkpoint: Checkpoint,
     committee_lengths: CommitteeLengths,
 }
 
 impl AttesterCacheValue {
+    /// Instantiate `Self` using `state.current_epoch()`.
     pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, Error> {
         let current_justified_checkpoint = state.current_justified_checkpoint();
         let committee_lengths = CommitteeLengths::new(state)?;
@@ -112,6 +119,7 @@ impl AttesterCacheValue {
         })
     }
 
+    /// Get the justified checkpoint and committee length for some `slot` and `committee_index`.
     fn get<T: EthSpec>(
         &self,
         slot: Slot,
@@ -134,8 +142,8 @@ impl AttesterCacheValue {
 /// is determined by the root of the latest block in epoch `n - 1`. Notably, this is identical to
 /// how the proposer shuffling is keyed in `BeaconProposerCache`.
 ///
-/// It is also safe, but not maximally efficient, to key the attester shuffling by the same block
-/// root. For better shuffling keying strategies, see the `ShufflingCache`.
+/// It is also safe, but not maximally efficient, to key the attester shuffling with the same
+/// strategy. For better shuffling keying strategies, see the `ShufflingCache`.
 #[derive(PartialEq, Hash, Clone, Copy)]
 pub struct AttesterCacheKey {
     /// The epoch from which the justified checkpoint should be observed.
@@ -145,9 +153,25 @@ pub struct AttesterCacheKey {
 }
 
 impl AttesterCacheKey {
-    pub fn new<T: EthSpec>(epoch: Epoch, state: &BeaconState<T>) -> Result<Self, Error> {
-        let decision_slot = epoch.start_slot(T::slots_per_epoch()).saturating_sub(1_u64);
-        let decision_root = *state.get_block_root(decision_slot)?;
+    /// Instantiate `Self` to key `state.current_epoch()`.
+    pub fn new<T: EthSpec>(
+        epoch: Epoch,
+        state: &BeaconState<T>,
+        latest_block_root: Hash256,
+    ) -> Result<Self, Error> {
+        let slots_per_epoch = T::slots_per_epoch();
+        let decision_slot = epoch.start_slot(slots_per_epoch).saturating_sub(1_u64);
+
+        let decision_root = if decision_slot.epoch(slots_per_epoch) == epoch {
+            // This scenario is only possible during the genesis epoch. In this scenario, all-zeros
+            // is used as an alias to the genesis block.
+            Hash256::zero()
+        } else if epoch > state.current_epoch() {
+            latest_block_root
+        } else {
+            *state.get_block_root(decision_slot)?
+        };
+
         Ok(Self {
             epoch,
             decision_root,
@@ -157,6 +181,10 @@ impl AttesterCacheKey {
 
 impl Eq for AttesterCacheKey {}
 
+/// Provides a cache for the justified checkpoint and committee length when producing an
+/// attestation.
+///
+/// See the module-level documentation for more information.
 #[derive(Default)]
 pub struct AttesterCache {
     cache: RwLock<HashMap<AttesterCacheKey, AttesterCacheValue>>,
@@ -177,8 +205,12 @@ impl AttesterCache {
             .transpose()
     }
 
-    pub fn maybe_cache_state<T: EthSpec>(&self, state: &BeaconState<T>) -> Result<(), Error> {
-        let key = AttesterCacheKey::new(state.current_epoch(), state)?;
+    pub fn maybe_cache_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+        latest_block_root: Hash256,
+    ) -> Result<(), Error> {
+        let key = AttesterCacheKey::new(state.current_epoch(), state, latest_block_root)?;
         let key_exists = self.cache.read().contains_key(&key);
         if !key_exists {
             let cache_item = AttesterCacheValue::new(state)?;
@@ -190,11 +222,12 @@ impl AttesterCache {
     pub fn cache_state_and_return_value<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
+        latest_block_root: Hash256,
         slot: Slot,
         index: CommitteeIndex,
         spec: &ChainSpec,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
-        let key = AttesterCacheKey::new(state.current_epoch(), state)?;
+        let key = AttesterCacheKey::new(state.current_epoch(), state, latest_block_root)?;
         let cache_item = AttesterCacheValue::new(state)?;
         let value = cache_item.get::<T>(slot, index, spec)?;
         self.insert_respecting_max_len(key, cache_item);
