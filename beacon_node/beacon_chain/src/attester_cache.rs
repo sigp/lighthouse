@@ -23,6 +23,7 @@ use types::{
 type JustifiedCheckpoint = Checkpoint;
 type CommitteeLength = usize;
 type CommitteeIndex = u64;
+type CacheHashMap = HashMap<AttesterCacheKey, AttesterCacheValue>;
 
 /// The maximum number of `AttesterCacheValues` to be kept in memory.
 const MAX_CACHE_LEN: usize = 64;
@@ -50,10 +51,17 @@ struct CommitteeLengths {
 }
 
 impl CommitteeLengths {
-    /// Instantate `Self` using `state.current_epoch()`.
-    fn new<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, Error> {
-        let committee_cache = state.committee_cache(RelativeEpoch::Current)?;
-        let active_validator_indices_len = committee_cache.active_validator_indices().len();
+    /// Instantiate `Self` using `state.current_epoch()`.
+    fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Result<Self, Error> {
+        let active_validator_indices_len = if let Ok(committee_cache) =
+            state.committee_cache(RelativeEpoch::Current)
+        {
+            committee_cache.active_validator_indices().len()
+        } else {
+            // Building the cache like this avoids taking a mutable reference to `BeaconState`.
+            let committee_cache = state.initialize_committee_cache(state.current_epoch(), spec)?;
+            committee_cache.active_validator_indices().len()
+        };
 
         Ok(Self {
             epoch: state.current_epoch(),
@@ -110,9 +118,9 @@ pub struct AttesterCacheValue {
 
 impl AttesterCacheValue {
     /// Instantiate `Self` using `state.current_epoch()`.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, Error> {
+    pub fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Result<Self, Error> {
         let current_justified_checkpoint = state.current_justified_checkpoint();
-        let committee_lengths = CommitteeLengths::new(state)?;
+        let committee_lengths = CommitteeLengths::new(state, spec)?;
         Ok(Self {
             current_justified_checkpoint,
             committee_lengths,
@@ -154,6 +162,14 @@ pub struct AttesterCacheKey {
 
 impl AttesterCacheKey {
     /// Instantiate `Self` to key `state.current_epoch()`.
+    ///
+    /// The `latest_block_root` should be the latest block that has been applied to `state`. This
+    /// parameter is required since the state does not store the block root for any block with the
+    /// same slot as `slot.slot()`.
+    ///
+    /// ## Errors
+    ///
+    /// May error if `epoch` is out of the range of `state.block_roots`.
     pub fn new<T: EthSpec>(
         epoch: Epoch,
         state: &BeaconState<T>,
@@ -167,6 +183,8 @@ impl AttesterCacheKey {
             // is used as an alias to the genesis block.
             Hash256::zero()
         } else if epoch > state.current_epoch() {
+            // If the requested epoch is higher than the current epoch, the latest block will always
+            // be the decision root.
             latest_block_root
         } else {
             *state.get_block_root(decision_slot)?
@@ -187,10 +205,12 @@ impl Eq for AttesterCacheKey {}
 /// See the module-level documentation for more information.
 #[derive(Default)]
 pub struct AttesterCache {
-    cache: RwLock<HashMap<AttesterCacheKey, AttesterCacheValue>>,
+    cache: RwLock<CacheHashMap>,
 }
 
 impl AttesterCache {
+    /// Get the justified checkpoint and committee length for the `slot` and `committee_index` in
+    /// the state identified by the cache `key`.
     pub fn get<T: EthSpec>(
         &self,
         key: &AttesterCacheKey,
@@ -205,20 +225,23 @@ impl AttesterCache {
             .transpose()
     }
 
+    /// Cache the `state.current_epoch()` values if they are not already present in the state.
     pub fn maybe_cache_state<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
         latest_block_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let key = AttesterCacheKey::new(state.current_epoch(), state, latest_block_root)?;
-        let key_exists = self.cache.read().contains_key(&key);
-        if !key_exists {
-            let cache_item = AttesterCacheValue::new(state)?;
-            self.insert_respecting_max_len(key, cache_item);
+        let mut cache = self.cache.write();
+        if !cache.contains_key(&key) {
+            let cache_item = AttesterCacheValue::new(state, spec)?;
+            Self::insert_respecting_max_len(&mut cache, key, cache_item);
         }
         Ok(())
     }
 
+    ///
     pub fn cache_state_and_return_value<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
@@ -228,15 +251,17 @@ impl AttesterCache {
         spec: &ChainSpec,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
         let key = AttesterCacheKey::new(state.current_epoch(), state, latest_block_root)?;
-        let cache_item = AttesterCacheValue::new(state)?;
+        let cache_item = AttesterCacheValue::new(state, spec)?;
         let value = cache_item.get::<T>(slot, index, spec)?;
-        self.insert_respecting_max_len(key, cache_item);
+        Self::insert_respecting_max_len(&mut self.cache.write(), key, cache_item);
         Ok(value)
     }
 
-    fn insert_respecting_max_len(&self, key: AttesterCacheKey, value: AttesterCacheValue) {
-        let mut cache = self.cache.write();
-
+    fn insert_respecting_max_len(
+        cache: &mut CacheHashMap,
+        key: AttesterCacheKey,
+        value: AttesterCacheValue,
+    ) {
         if cache.len() >= MAX_CACHE_LEN {
             while let Some(oldest) = cache
                 .iter()

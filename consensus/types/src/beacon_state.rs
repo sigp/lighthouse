@@ -1311,8 +1311,17 @@ impl<T: EthSpec> BeaconState<T> {
         let epoch = relative_epoch.into_epoch(self.current_epoch());
         let i = Self::committee_cache_index(relative_epoch);
 
-        *self.committee_cache_at_index_mut(i)? = CommitteeCache::initialized(&self, epoch, spec)?;
+        *self.committee_cache_at_index_mut(i)? = self.initialize_committee_cache(epoch, spec)?;
         Ok(())
+    }
+
+    /// Returns a committee cache initialized for the given `epoch`.
+    pub fn initialize_committee_cache(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<CommitteeCache, Error> {
+        CommitteeCache::initialized(&self, epoch, spec)
     }
 
     /// Advances the cache for this state into the next epoch.

@@ -2241,7 +2241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // a previous slot.
         if state.current_epoch().saturating_add(2_u64) >= current_epoch {
             self.attester_cache
-                .maybe_cache_state(&state, block_root)
+                .maybe_cache_state(&state, block_root, &self.spec)
                 .map_err(BeaconChainError::from)?;
         }
 
