@@ -9,6 +9,8 @@ type JustifiedCheckpoint = Checkpoint;
 type CommitteeLength = usize;
 type CommitteeIndex = u64;
 
+const MAX_CACHE_LEN: usize = 64;
+
 #[derive(Debug)]
 pub enum Error {
     BeaconState(BeaconStateError),
@@ -140,7 +142,7 @@ impl AttesterCache {
         let key_exists = self.cache.read().contains_key(&target);
         if !key_exists {
             let cache_item = CacheItem::new(state)?;
-            self.cache.write().insert(target, cache_item);
+            self.insert_respecting_max_len(target, cache_item);
         }
         Ok(())
     }
@@ -155,8 +157,26 @@ impl AttesterCache {
         let target = get_state_target(state, latest_beacon_block_root)?;
         let cache_item = CacheItem::new(state)?;
         let value = cache_item.get(slot, index)?;
-        self.cache.write().insert(target, cache_item);
+        self.insert_respecting_max_len(target, cache_item);
         Ok(value)
+    }
+
+    fn insert_respecting_max_len(&self, target: TargetCheckpoint, cache_item: CacheItem) {
+        let mut cache = self.cache.write();
+
+        if cache.len() >= MAX_CACHE_LEN {
+            while let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(target, _)| target.epoch)
+                .map(|(target, _)| target)
+                .filter(|_| cache.len() >= MAX_CACHE_LEN)
+                .copied()
+            {
+                cache.remove(&oldest);
+            }
+        }
+
+        cache.insert(target, cache_item);
     }
 
     pub fn prune_below(&self, epoch: Epoch) {
