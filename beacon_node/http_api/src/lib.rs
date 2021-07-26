@@ -1699,15 +1699,30 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
+                    let slots_per_epoch = T::EthSpec::slots_per_epoch();
                     let current_slot = chain
                         .slot()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch = current_slot.epoch(slots_per_epoch);
+                    let query_epoch = query.slot.epoch(slots_per_epoch);
 
                     // allow a tolerance of one slot to account for clock skew
                     if query.slot > current_slot + 1 {
                         return Err(warp_utils::reject::custom_bad_request(format!(
                             "request slot {} is more than one slot past the current slot {}",
                             query.slot, current_slot
+                        )));
+                    } else if query_epoch + 1 < current_epoch {
+                        // Restrict attestations that are earlier than the previous epoch. This is
+                        // an artificial restriction employed for two purposes:
+                        //
+                        // 1. To avoid presenting 500 errors to the user by requesting an epoch too
+                        //    low for the beacon chain to handle.
+                        // 2. Because producing an attestation for a slot earlier than the previous
+                        //    epoch will not be helpful to the network.
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is  prior to the current epoch",
+                            query_epoch
                         )));
                     }
 
