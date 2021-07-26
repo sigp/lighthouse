@@ -1220,6 +1220,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// validator that is in the committee for `slot` and `index` in the canonical chain.
     ///
     /// Always attests to the canonical chain.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if the `request_slot` is too far behind the head state.
     pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
@@ -1228,16 +1232,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let request_epoch = request_slot.epoch(slots_per_epoch);
 
+        /*
+         * Phase 1/2:
+         *
+         * Take a short-lived read-lock on the head and copy the necessary information from it.
+         *
+         * It is important that this first phase is as quick as possible; creating contention for
+         * the head-lock is not desirable.
+         */
+
         let beacon_block_root;
         let beacon_state_root;
         let target;
-        let head_state_epoch;
-        let head_state_justified_checkpoint;
-        let head_state_committee_len_opt;
+        let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
         let attester_cache_key;
         if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
             let head_state = &head.beacon_state;
 
+            // There is no value in producing an attestation to a block that is pre-finalization and
+            // it is likely to cause expensive and pointless reads to the freezer database. Exit
+            // early if this is the case.
             let finalized_slot = head_state
                 .finalized_checkpoint()
                 .epoch
@@ -1250,15 +1264,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             if request_slot >= head_state.slot() {
+                // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;
                 beacon_state_root = head.beacon_state_root();
             } else {
+                // Permits attesting to slots *prior* to the current head. This is desirable when
+                // the VC and BN are out-of-sync due to time issues or overloading.
                 beacon_block_root = *head_state.get_block_root(request_slot)?;
                 beacon_state_root = *head_state.get_state_root(request_slot)?;
             };
 
             let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let target_root = if head_state.slot() <= target_slot {
+                // In the case of skip-slots it is possible that the beacon block root and target
+                // root are equal.
                 beacon_block_root
             } else {
                 *head_state.get_block_root(target_slot)?
@@ -1268,41 +1287,66 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 root: target_root,
             };
 
-            head_state_epoch = head_state.current_epoch();
-            head_state_justified_checkpoint = head_state.current_justified_checkpoint();
-            head_state_committee_len_opt = if head_state_epoch == request_epoch {
-                Some(
+            current_epoch_attesting_info = if head_state.current_epoch() == request_epoch {
+                // When the head state is in the same epoch as the request, all the information
+                // required to attest is available on the head state.
+                Some((
+                    head_state.current_justified_checkpoint(),
                     head_state
                         .get_beacon_committee(request_slot, request_index)?
                         .committee
                         .len(),
-                )
+                ))
             } else {
+                // If the head state is in a *different* epoch to the request, more work is required
+                // to determine the justified checkpoint and committee length.
                 None
             };
 
+            // Determine the key for `self.attester_cache`, in case it is required later in this
+            // routine.
             attester_cache_key =
                 AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         } else {
             return Err(Error::CanonicalHeadLockTimeout);
         }
 
+        /*
+         *  Phase 2/2:
+         *
+         *  Determine if the justified checkpoint and committee length copied from the head is
+         *  suitable for this attestation. If not, try the attester cache. If it also fails, load
+         *  a state from disk and prime the attester cache.
+         *
+         *  Note: developers should endeavour to remember that whilst it is possible to know the
+         *  committee lengths for epoch `n` in epoch `n - 1`, it is *not* possible to do so for the
+         *  justified checkpoint.
+         */
+
         let (justified_checkpoint, committee_len) =
-            if let Some(head_state_committee_len) = head_state_committee_len_opt {
-                (head_state_justified_checkpoint, head_state_committee_len)
-            } else if let Some(tuple) = self.attester_cache.get::<T::EthSpec>(
+            if let Some((justified_checkpoint, committee_len)) = current_epoch_attesting_info {
+                // The head state is in the same epoch as the attestation, so there is no more
+                // required information.
+                (justified_checkpoint, committee_len)
+            } else if let Some(cached_values) = self.attester_cache.get::<T::EthSpec>(
                 &attester_cache_key,
                 request_slot,
                 request_index,
                 &self.spec,
             )? {
-                tuple
+                // The head state was not suitable to produce an attestation in this epoch, but the
+                // suitable values were already cached. Return them.
+                cached_values
             } else {
+                // Neither the head state, nor the attester cache was able to produce the required
+                // information to attest in this epoch. Load a `BeaconState` from disk and use it to
+                // fulfil the request (and prime the cache to avoid this next time).
                 let mut state: BeaconState<T::EthSpec> = self
                     .get_state(&beacon_state_root, None)?
                     .ok_or(Error::MissingBeaconState(beacon_state_root))?;
 
                 if state.slot() > request_slot {
+                    // This indicates an internal inconsistency.
                     return Err(Error::CannotAttestToFutureState);
                 } else if state.current_epoch() < request_epoch {
                     // Only perform a "partial" state advance since we do not require the state roots to be
@@ -1316,6 +1360,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
                 }
 
+                // Compute the required values, add them to the cache and also return them.
                 self.attester_cache.cache_state_and_return_value(
                     &state,
                     beacon_block_root,
