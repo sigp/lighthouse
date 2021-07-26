@@ -1721,7 +1721,7 @@ pub fn serve<T: BeaconChainTypes>(
                         // 2. Because producing an attestation for a slot earlier than the previous
                         //    epoch will not be helpful to the network.
                         return Err(warp_utils::reject::custom_bad_request(format!(
-                            "request epoch {} is  prior to the current epoch",
+                            "request epoch {} is prior to the previous epoch",
                             query_epoch
                         )));
                     }
