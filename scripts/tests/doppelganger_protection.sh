@@ -10,6 +10,7 @@ if [[ "$BEHAVIOR" != "success" ]] && [[ "$BEHAVIOR" != "failure" ]]; then
 fi
 
 cp ./vars_$BEHAVIOR.env ./vars.env
+source ./vars.env
 
 ../local_testnet/clean.sh
 
@@ -41,9 +42,9 @@ echo "Starting local beacon nodes"
 ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000 &> /dev/null &
 BEACON_PID=$!
 ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 &> /dev/null &
-BEACON2_PID=$!
+BEACON_PID2=$!
 ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 &> /dev/null &
-BEACON3_PID=$!
+BEACON_PID3=$!
 
 echo "Starting local validator clients"
 
@@ -55,9 +56,7 @@ VALIDATOR_2_PID=$!
 VALIDATOR_3_PID=$!
 
 echo "Waiting an epoch before starting the next validator client"
-BANANA=$(( $SECONDS_PER_SLOT * 32 ))
-echo "banana: $BANANA"
-sleep 64
+sleep $(( $SECONDS_PER_SLOT * 32 ))
 
 if [[ "$BEHAVIOR" == "failure" ]]; then
 
@@ -65,7 +64,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
 
     # Use same keys as keys from VC1, but connect to BN2
     # This process should not last longer than 2 epochs
-    timeout 128 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+    timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
     DOPPELGANGER_EXIT=$?
 
     echo "Shutting down"
@@ -93,7 +92,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     # Sleep two epochs, then make sure all validators were NOT active in epoch 2.
     echo "Waiting two epochs..."
-    sleep 128
+    sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
 
     PREVIOUS_DIR=$(pwd)
     cd $HOME/.lighthouse/local-testnet/node_4/validators
@@ -111,7 +110,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     # Sleep two epochs, then make sure all validators were active in epoch 4.
     echo "Waiting two more epochs..."
-    sleep 128
+    sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
         curl -s localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep -q '"is_current_epoch_attester": true'
@@ -124,11 +123,10 @@ if [[ "$BEHAVIOR" == "success" ]]; then
         fi
     done
 
-    cd $PREVIOUS_DIR
-
     echo "Shutting down"
 
     # Cleanup
+    cd $PREVIOUS_DIR
     kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
     rm ./vars.env
 
