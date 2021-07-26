@@ -1,3 +1,14 @@
+//! This module provides the `AttesterCache`, a cache designed for reducing state-reads when
+//! validators produce `AttestationData`.
+//!
+//! This cache is required *as well as* the `ShufflingCache` since the `ShufflingCache` does not
+//! provide any information about the `state.current_justified_checkpoint`. It is not trivial to add
+//! the justified checkpoint to the `ShufflingCache` since that cache keyed by shuffling decision
+//! root, which is not suitable for the justified checkpoint. Whilst we can know the shuffling for
+//! epoch `n` during `n - 1`, we *cannot* know the justified checkpoint. Instead, we *must* perform
+//! `per_epoch_processing` to transform the state from epoch `n - 1` to epoch `n` so that rewards
+//! and penalties can be computed and the `state.current_justified_checkpoint` can be updated.
+
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use types::{
@@ -9,6 +20,7 @@ type JustifiedCheckpoint = Checkpoint;
 type CommitteeLength = usize;
 type CommitteeIndex = u64;
 
+/// The maximum number of `CacheItems` to be kept in memory.
 const MAX_CACHE_LEN: usize = 64;
 
 #[derive(Debug)]
