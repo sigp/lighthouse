@@ -1,6 +1,5 @@
 #![deny(clippy::wildcard_imports)]
 
-// FIXME(altair): refactor to remove phase0/base structs, including `EpochProcessingSummary`
 pub use epoch_processing_summary::EpochProcessingSummary;
 use errors::EpochProcessingError as Error;
 pub use registry_updates::process_registry_updates;

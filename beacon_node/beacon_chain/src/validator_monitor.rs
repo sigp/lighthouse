@@ -381,11 +381,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     info!(
                         self.log,
                         "Previous epoch attestation success";
+                        "matched_source" => previous_epoch_matched_source,
                         "matched_target" => previous_epoch_matched_target,
                         "matched_head" => previous_epoch_matched_head,
                         "epoch" => prev_epoch,
                         "validator" => id,
-
                     )
                 } else {
                     metrics::inc_counter_vec(
@@ -413,7 +413,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                     warn!(
                         self.log,
-                        "Attested to an incorrect head";
+                        "Attested failed to match head";
                         "epoch" => prev_epoch,
                         "validator" => id,
                     );
@@ -432,7 +432,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                     warn!(
                         self.log,
-                        "Attested to an incorrect target";
+                        "Attested failed to match target";
                         "epoch" => prev_epoch,
                         "validator" => id,
                     );

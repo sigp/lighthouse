@@ -49,6 +49,9 @@ pub enum Error {
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
+    ValidatorIsInactive {
+        val_index: usize,
+    },
     UnableToShuffle,
     ShuffleIndexOutOfBounds(usize),
     IsAggregatorOutOfBounds,

@@ -68,7 +68,7 @@ struct SingleEpochParticipationCache {
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
     ///
-    /// A flag balance is only incremented if a validator is that flag set.
+    /// A flag balance is only incremented if a validator is in that flag set.
     total_flag_balances: [Balance; NUM_FLAG_INDICES],
     /// Stores the sum of all balances of all validators in `self.unslashed_participating_indices`
     /// (regardless of which flags are set).
@@ -120,10 +120,8 @@ impl SingleEpochParticipationCache {
     /// ## Errors
     ///
     /// - The provided `state` **must** be Altair. An error will be returned otherwise.
-    ///
-    /// ## Warning
-    ///
-    /// - It is a logic error to provide an inactive validator to this function.
+    /// - An error will be returned if the `val_index` validator is inactive at the given
+    ///     `relative_epoch`.
     fn process_active_validator<T: EthSpec>(
         &mut self,
         val_index: usize,
@@ -131,6 +129,13 @@ impl SingleEpochParticipationCache {
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
         let val_balance = state.get_effective_balance(val_index)?;
+        let validator = state.get_validator(val_index)?;
+
+        // Sanity check to ensure the validator is active.
+        let epoch = relative_epoch.into_epoch(state.current_epoch());
+        if !validator.is_active_at(epoch) {
+            return Err(BeaconStateError::ValidatorIsInactive { val_index });
+        }
 
         let epoch_participation = match relative_epoch {
             RelativeEpoch::Current => state.current_epoch_participation(),
@@ -144,7 +149,7 @@ impl SingleEpochParticipationCache {
         self.total_active_balance.safe_add_assign(val_balance)?;
 
         // Only unslashed validators may proceed.
-        if state.get_validator(val_index)?.slashed {
+        if validator.slashed {
             return Ok(());
         }
 
