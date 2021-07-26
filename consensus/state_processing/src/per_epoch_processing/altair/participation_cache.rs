@@ -86,11 +86,6 @@ impl SingleEpochParticipationCache {
         }
     }
 
-    /// Shrink any allocations to the smallest necessary size.
-    fn shrink_to_fit(&mut self) {
-        self.unslashed_participating_indices.shrink_to_fit()
-    }
-
     /// Returns the total balance of attesters who have `flag_index` set.
     fn total_flag_balance(&self, flag_index: usize) -> Result<u64, Error> {
         self.total_flag_balances
@@ -247,10 +242,6 @@ impl ParticipationCache {
                 eligible_indices.push(val_index)
             }
         }
-
-        eligible_indices.shrink_to_fit();
-        current_epoch_participation.shrink_to_fit();
-        previous_epoch_participation.shrink_to_fit();
 
         Ok(Self {
             current_epoch,
