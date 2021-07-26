@@ -20,4 +20,5 @@ exec lighthouse \
 	--enr-udp-port $2 \
 	--enr-tcp-port $2 \
 	--port $2 \
-	--http-port $3
+	--http-port $3 \
+	--target-peers $((NODE_COUNT - 1))
