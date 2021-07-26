@@ -1214,112 +1214,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_by_slot_and_root(slot, attestation_data_root)
     }
 
-    /*
     /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
     ///
     /// The produced `Attestation` will not be valid until it has been signed by exactly one
     /// validator that is in the committee for `slot` and `index` in the canonical chain.
     ///
     /// Always attests to the canonical chain.
-    pub fn produce_unaggregated_attestation(
-        &self,
-        slot: Slot,
-        index: CommitteeIndex,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        // Note: we're taking a lock on the head. The work involved here should be trivial enough
-        // that the lock should not be held for long.
-        let head = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or(Error::CanonicalHeadLockTimeout)?;
-
-        if slot >= head.beacon_block.slot() {
-            self.produce_unaggregated_attestation_for_block(
-                slot,
-                index,
-                head.beacon_block_root,
-                Cow::Borrowed(&head.beacon_state),
-                head.beacon_state_root(),
-            )
-        } else {
-            // We disallow producing attestations *prior* to the current head since such an
-            // attestation would require loading a `BeaconState` from disk. Loading `BeaconState`
-            // from disk is very resource intensive and proposes a DoS risk from validator clients.
-            //
-            // Although we generally allow validator clients to do things that might harm us (i.e.,
-            // we trust them), sometimes we need to protect the BN from accidental errors which
-            // could cause it significant harm.
-            //
-            // This case is particularity harmful since the HTTP API can effectively call this
-            // function an unlimited amount of times. If `n` validators all happen to call it at
-            // the same time, we're going to load `n` states (and tree hash caches) into memory all
-            // at once. With `n >= 10` we're looking at hundreds of MB or GBs of RAM.
-            Err(Error::AttestingPriorToHead {
-                head_slot: head.beacon_block.slot(),
-                request_slot: slot,
-            })
-        }
-    }
-    */
-
-    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
-    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
-    /// `block` identified by `beacon_block_root`.
-    ///
-    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
-    /// however this function is only required in the context of forming an unaggregated
-    /// attestation. It would be an (undetectable) violation of the protocol to create a
-    /// `SignedAggregateAndProof` based upon the output of this function.
-    pub fn produce_unaggregated_attestation_for_block(
-        &self,
-        slot: Slot,
-        index: CommitteeIndex,
-        beacon_block_root: Hash256,
-        mut state: Cow<BeaconState<T::EthSpec>>,
-        state_root: Hash256,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-
-        if state.slot() > slot {
-            return Err(Error::CannotAttestToFutureState);
-        } else if state.current_epoch() < epoch {
-            let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
-                mut_state,
-                Some(state_root),
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                &self.spec,
-            )?;
-            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-        }
-
-        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
-
-        let target_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let target_root = if state.slot() <= target_slot {
-            beacon_block_root
-        } else {
-            *state.get_block_root(target_slot)?
-        };
-
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot,
-                index,
-                beacon_block_root,
-                source: state.current_justified_checkpoint(),
-                target: Checkpoint {
-                    epoch,
-                    root: target_root,
-                },
-            },
-            signature: AggregateSignature::empty(),
-        })
-    }
-
     pub fn produce_unaggregated_attestation(
         &self,
         request_slot: Slot,
@@ -1425,26 +1325,60 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )?
             };
 
-        self.produce_unaggregated_attestation_parameterized(
-            request_slot,
-            request_index,
-            beacon_block_root,
-            justified_checkpoint,
-            target.root,
-            committee_len,
-        )
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot: request_slot,
+                index: request_index,
+                beacon_block_root,
+                source: justified_checkpoint,
+                target,
+            },
+            signature: AggregateSignature::empty(),
+        })
     }
 
-    fn produce_unaggregated_attestation_parameterized(
+    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
+    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
+    /// `block` identified by `beacon_block_root`.
+    ///
+    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
+    /// however this function is only required in the context of forming an unaggregated
+    /// attestation. It would be an (undetectable) violation of the protocol to create a
+    /// `SignedAggregateAndProof` based upon the output of this function.
+    pub fn produce_unaggregated_attestation_for_block(
         &self,
         slot: Slot,
         index: CommitteeIndex,
         beacon_block_root: Hash256,
-        current_justified_checkpoint: Checkpoint,
-        target_root: Hash256,
-        committee_len: usize,
+        mut state: Cow<BeaconState<T::EthSpec>>,
+        state_root: Hash256,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+
+        if state.slot() > slot {
+            return Err(Error::CannotAttestToFutureState);
+        } else if state.current_epoch() < epoch {
+            let mut_state = state.to_mut();
+            // Only perform a "partial" state advance since we do not require the state roots to be
+            // accurate.
+            partial_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                &self.spec,
+            )?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        let target_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let target_root = if state.slot() <= target_slot {
+            beacon_block_root
+        } else {
+            *state.get_block_root(target_slot)?
+        };
 
         Ok(Attestation {
             aggregation_bits: BitList::with_capacity(committee_len)?,
@@ -1452,7 +1386,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot,
                 index,
                 beacon_block_root,
-                source: current_justified_checkpoint,
+                source: state.current_justified_checkpoint(),
                 target: Checkpoint {
                     epoch,
                     root: target_root,
