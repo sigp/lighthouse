@@ -125,9 +125,23 @@ impl AttesterCacheValue {
     }
 }
 
+/// The `AttesterCacheKey` is fundamentally the same thing as the shuffling decision roots, however
+/// it provides a unique key for both of the following values:
+///
+/// 1. The `state.current_justified_checkpoint`.
+/// 2. The attester shuffling.
+///
+/// This struct relies upon the premise that the `state.current_justified_checkpoint` in epoch `n`
+/// is determined by the root of the latest block in epoch `n - 1`. Notably, this is identical to
+/// how the proposer shuffling is keyed in `BeaconProposerCache`.
+///
+/// It is also safe, but not maximally efficient, to key the attester shuffling by the same block
+/// root. For better shuffling keying strategies, see the `ShufflingCache`.
 #[derive(PartialEq, Hash, Clone, Copy)]
 pub struct AttesterCacheKey {
+    /// The epoch from which the justified checkpoint should be observed.
     epoch: Epoch,
+    /// The root of the block at the last slot of `self.epoch - 1`.
     decision_root: Hash256,
 }
 
