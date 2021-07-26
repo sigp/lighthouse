@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# Requires `lighthouse`, ``lcli`, `ganache-cli`, `curl`, `jq`
+
 BEHAVIOR=$1
 
 if [[ "$BEHAVIOR" != "success" ]] && [[ "$BEHAVIOR" != "failure" ]]; then
@@ -53,9 +55,11 @@ VALIDATOR_2_PID=$!
 VALIDATOR_3_PID=$!
 
 echo "Waiting an epoch before starting the next validator client"
+BANANA=$(( $SECONDS_PER_SLOT * 32 ))
+echo "banana: $BANANA"
 sleep 64
 
-if [ "$BEHAVIOR" == "failure" ]; then
+if [[ "$BEHAVIOR" == "failure" ]]; then
 
     echo "Starting the doppelganger validator client"
 
@@ -72,29 +76,65 @@ if [ "$BEHAVIOR" == "failure" ]; then
 
     echo "Done"
 
-    if [ $DOPPELGANGER_EXIT -eq 124 ]; then
+    if [[ $DOPPELGANGER_EXIT -eq 124 ]]; then
         exit 1
     fi
 fi
 
-if [ "$BEHAVIOR" == "success" ]; then
+if [[ "$BEHAVIOR" == "success" ]]; then
 
     echo "Starting the last validator client"
 
     # This process should last longer than 3 epochs
-    timeout 192 ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100
+    # start in epoch 1, last till end of epoch 3
+    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100 &
+    VALIDATOR_4_PID=$!
+    DOPPELGANGER_FAILURE=0
 
-    DOPPELGANGER_EXIT=$?
+    # Sleep two epochs, then make sure all validators were NOT active in epoch 2.
+    echo "Waiting two epochs..."
+    sleep 128
+
+    PREVIOUS_DIR=$(pwd)
+    cd $HOME/.lighthouse/local-testnet/node_4/validators
+    for val in 0x*; do
+        [[ -e $val ]] || continue
+        curl -s localhost:8100/lighthouse/validator_inclusion/2/$val | jq | grep -q '"is_current_epoch_attester": false'
+        IS_ATTESTER=$?
+        if [[ $IS_ATTESTER -eq 0 ]]; then
+            echo "$val did not attest in epoch 2."
+        else
+            echo "ERROR! $val did attest in epoch 2."
+            DOPPELGANGER_FAILURE=1
+        fi
+    done
+
+    # Sleep two epochs, then make sure all validators were active in epoch 4.
+    echo "Waiting two more epochs..."
+    sleep 128
+    for val in 0x*; do
+        [[ -e $val ]] || continue
+        curl -s localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep -q '"is_current_epoch_attester": true'
+        IS_ATTESTER=$?
+        if [[ $IS_ATTESTER -eq 0 ]]; then
+            echo "$val attested in epoch 4."
+        else
+            echo "ERROR! $val did not attest in epoch 4."
+            DOPPELGANGER_FAILURE=1
+        fi
+    done
+
+    cd $PREVIOUS_DIR
 
     echo "Shutting down"
 
     # Cleanup
-    kill $BOOT_PID $BEACON_PID $BEACON2_PID $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $BEACON3_PID
+    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
     rm ./vars.env
 
     echo "Done"
 
-    if [ $DOPPELGANGER_EXIT -ne 124 ]; then
+    if [[ $DOPPELGANGER_FAILURE -eq 1 ]]; then
         exit 1
     fi
 fi
