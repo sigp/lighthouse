@@ -31,9 +31,18 @@ const MAX_CACHE_LEN: usize = 64;
 #[derive(Debug)]
 pub enum Error {
     BeaconState(BeaconStateError),
-    WrongEpoch { request_epoch: Epoch, epoch: Epoch },
-    InvalidCommitteeIndex { committee_index: u64 },
-    InverseRange { range: Range<usize> },
+    /// Indicates a cache inconsistency.
+    WrongEpoch {
+        request_epoch: Epoch,
+        epoch: Epoch,
+    },
+    InvalidCommitteeIndex {
+        committee_index: u64,
+    },
+    /// Indicates an inconsistency with the beacon state committees.
+    InverseRange {
+        range: Range<usize>,
+    },
 }
 
 impl From<BeaconStateError> for Error {
@@ -241,7 +250,11 @@ impl AttesterCache {
         Ok(())
     }
 
+    /// Cache the `state.current_epoch()` values, even if they are already present in `self`. Also,
+    /// return the value for the given `slot` and `index`.
     ///
+    /// This is roughly equivalent to using `Self::get` and then `Self::maybe_cache_state`, but the
+    /// main advantage is that it is atomic.
     pub fn cache_state_and_return_value<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
@@ -257,6 +270,9 @@ impl AttesterCache {
         Ok(value)
     }
 
+    /// Insert a value to `cache`, ensuring it does not exceed the maximum length.
+    ///
+    /// If the cache is already full, the item with the lowest epoch will be removed.
     fn insert_respecting_max_len(
         cache: &mut CacheHashMap,
         key: AttesterCacheKey,
@@ -267,6 +283,7 @@ impl AttesterCache {
                 .iter()
                 .map(|(key, _)| key)
                 .min_by_key(|key| key.epoch)
+                // Only return values whilst the cache is full.
                 .filter(|_| cache.len() >= MAX_CACHE_LEN)
                 .copied()
             {
@@ -277,6 +294,9 @@ impl AttesterCache {
         cache.insert(key, value);
     }
 
+    /// Remove all entries where the `key.epoch` is lower than the given `epoch`.
+    ///
+    /// Generally, the provided `epoch` should be the finalized epoch.
     pub fn prune_below(&self, epoch: Epoch) {
         self.cache.write().retain(|target, _| target.epoch >= epoch);
     }

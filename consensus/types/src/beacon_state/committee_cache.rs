@@ -262,6 +262,8 @@ impl CommitteeCache {
     }
 }
 
+/// Computes the position of the given `committee_index` with respect to all committees in the
+/// epoch. Generally used to provide input to the `compute_committee_range_in_epoch` function.
 pub fn compute_committee_index_in_epoch(
     slot: Slot,
     slots_per_epoch: usize,
@@ -271,6 +273,9 @@ pub fn compute_committee_index_in_epoch(
     (slot.as_usize() % slots_per_epoch) * committees_per_slot + committee_index
 }
 
+/// Computes the range for slicing the shuffled indices to determine the members of a committee.
+///
+/// The `index_in_epoch` is generally computed using `compute_committee_index_in_epoch`.
 pub fn compute_committee_range_in_epoch(
     epoch_committee_count: usize,
     index_in_epoch: usize,
@@ -287,6 +292,7 @@ pub fn compute_committee_range_in_epoch(
     Some(start..end)
 }
 
+/// Returns the total number of committees in an epoch.
 pub fn epoch_committee_count(committees_per_slot: usize, slots_per_epoch: usize) -> usize {
     committees_per_slot * slots_per_epoch
 }
