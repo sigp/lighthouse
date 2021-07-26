@@ -2,6 +2,7 @@ use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
+use crate::attester_cache::AttesterCache;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -289,6 +290,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
+    /// A cache used when producing attestations.
+    pub(crate) attester_cache: Arc<AttesterCache>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -1306,6 +1309,141 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 index,
                 beacon_block_root,
                 source: state.current_justified_checkpoint(),
+                target: Checkpoint {
+                    epoch,
+                    root: target_root,
+                },
+            },
+            signature: AggregateSignature::empty(),
+        })
+    }
+
+    pub fn produce_unaggregated_attestation_new(
+        &self,
+        request_slot: Slot,
+        request_index: CommitteeIndex,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let request_epoch = request_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        enum HeadOutcome {
+            SameEpoch {
+                current_justified_checkpoint: Checkpoint,
+                committee_len: usize,
+            },
+            DifferentEpoch {
+                state_root: Hash256,
+            },
+        }
+
+        let (beacon_block_root, target, head_outcome) = self.with_head(|head| {
+            let head_state = &head.beacon_state;
+
+            let beacon_block_root = if request_slot >= head_state.slot() {
+                head.beacon_block_root
+            } else {
+                *head_state.get_block_root(request_slot)?
+            };
+
+            let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if head_state.slot() <= target_slot {
+                beacon_block_root
+            } else {
+                *head_state.get_block_root(target_slot)?
+            };
+            let target = Checkpoint {
+                epoch: request_epoch,
+                root: target_root,
+            };
+
+            // TODO: check for finalization.
+
+            let head_outcome = if request_epoch == head_state.current_epoch() {
+                let current_justified_checkpoint = head_state.current_justified_checkpoint();
+                let committee_len = head_state
+                    .get_beacon_committee(request_slot, request_index)?
+                    .committee
+                    .len();
+                HeadOutcome::SameEpoch {
+                    current_justified_checkpoint,
+                    committee_len,
+                }
+            } else {
+                HeadOutcome::DifferentEpoch {
+                    state_root: *head_state.get_state_root(request_slot)?,
+                }
+            };
+
+            Ok::<_, BeaconChainError>((beacon_block_root, target, head_outcome))
+        })?;
+
+        let (justified_checkpoint, committee_len) = match head_outcome {
+            HeadOutcome::SameEpoch {
+                current_justified_checkpoint,
+                committee_len,
+            } => (current_justified_checkpoint, committee_len),
+            HeadOutcome::DifferentEpoch { state_root } => {
+                if let Some(tuple) =
+                    self.attester_cache
+                        .get(&target, request_slot, request_index)?
+                {
+                    tuple
+                } else {
+                    let mut state: BeaconState<T::EthSpec> = self
+                        .get_state(&state_root, None)?
+                        .ok_or(Error::MissingBeaconState(state_root))?;
+
+                    if state.slot() > request_slot {
+                        return Err(Error::CannotAttestToFutureState);
+                    } else if state.current_epoch() < request_epoch {
+                        // Only perform a "partial" state advance since we do not require the state roots to be
+                        // accurate.
+                        partial_state_advance(
+                            &mut state,
+                            Some(state_root),
+                            request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                            &self.spec,
+                        )?;
+                        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+                    }
+
+                    self.attester_cache.cache_state_and_return_value(
+                        &state,
+                        beacon_block_root,
+                        request_slot,
+                        request_index,
+                    )?
+                }
+            }
+        };
+
+        self.produce_unaggregated_attestation_parameterized(
+            request_slot,
+            request_index,
+            beacon_block_root,
+            justified_checkpoint,
+            target.root,
+            committee_len,
+        )
+    }
+
+    fn produce_unaggregated_attestation_parameterized(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        beacon_block_root: Hash256,
+        current_justified_checkpoint: Checkpoint,
+        target_root: Hash256,
+        committee_len: usize,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot,
+                index,
+                beacon_block_root,
+                source: current_justified_checkpoint,
                 target: Checkpoint {
                     epoch,
                     root: target_root,
@@ -2935,6 +3073,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        self.attester_cache
+            .prune_below(new_finalized_checkpoint.epoch);
 
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_finalized_subscribers() {
