@@ -1315,7 +1315,10 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    /// Returns a committee cache initialized for the given `epoch`.
+    /// Initializes a new committee cache for the given `epoch`, regardless of whether one already
+    /// exists. Returns the committee cache without attaching it to `self`.
+    ///
+    /// To build a cache and store it on `self`, use `Self::build_committee_cache`.
     pub fn initialize_committee_cache(
         &self,
         epoch: Epoch,
