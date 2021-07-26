@@ -15,12 +15,11 @@ use types::{
     BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
 };
 
-type TargetCheckpoint = Checkpoint;
 type JustifiedCheckpoint = Checkpoint;
 type CommitteeLength = usize;
 type CommitteeIndex = u64;
 
-/// The maximum number of `CacheItems` to be kept in memory.
+/// The maximum number of `AttesterCacheValues` to be kept in memory.
 const MAX_CACHE_LEN: usize = 64;
 
 #[derive(Debug)]
@@ -100,12 +99,12 @@ impl CommitteeLengths {
     }
 }
 
-pub struct CacheItem {
+pub struct AttesterCacheValue {
     current_justified_checkpoint: Checkpoint,
     committee_lengths: CommitteeLengths,
 }
 
-impl CacheItem {
+impl AttesterCacheValue {
     pub fn new<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, Error> {
         let current_justified_checkpoint = state.current_justified_checkpoint();
         let committee_lengths = CommitteeLengths::new(state)?;
@@ -126,35 +125,50 @@ impl CacheItem {
     }
 }
 
+#[derive(PartialEq, Hash, Clone, Copy)]
+pub struct AttesterCacheKey {
+    epoch: Epoch,
+    decision_root: Hash256,
+}
+
+impl AttesterCacheKey {
+    pub fn new<T: EthSpec>(epoch: Epoch, state: &BeaconState<T>) -> Result<Self, Error> {
+        let decision_slot = epoch.start_slot(T::slots_per_epoch()).saturating_sub(1_u64);
+        let decision_root = *state.get_block_root(decision_slot)?;
+        Ok(Self {
+            epoch,
+            decision_root,
+        })
+    }
+}
+
+impl Eq for AttesterCacheKey {}
+
 #[derive(Default)]
 pub struct AttesterCache {
-    cache: RwLock<HashMap<TargetCheckpoint, CacheItem>>,
+    cache: RwLock<HashMap<AttesterCacheKey, AttesterCacheValue>>,
 }
 
 impl AttesterCache {
     pub fn get(
         &self,
-        target: &TargetCheckpoint,
+        key: &AttesterCacheKey,
         slot: Slot,
         committee_index: CommitteeIndex,
     ) -> Result<Option<(JustifiedCheckpoint, CommitteeLength)>, Error> {
         self.cache
             .read()
-            .get(target)
+            .get(key)
             .map(|cache_item| cache_item.get(slot, committee_index))
             .transpose()
     }
 
-    pub fn maybe_cache_state<T: EthSpec>(
-        &self,
-        state: &BeaconState<T>,
-        latest_beacon_block_root: Hash256,
-    ) -> Result<(), Error> {
-        let target = get_state_target(state, latest_beacon_block_root)?;
-        let key_exists = self.cache.read().contains_key(&target);
+    pub fn maybe_cache_state<T: EthSpec>(&self, state: &BeaconState<T>) -> Result<(), Error> {
+        let key = AttesterCacheKey::new(state.current_epoch(), state)?;
+        let key_exists = self.cache.read().contains_key(&key);
         if !key_exists {
-            let cache_item = CacheItem::new(state)?;
-            self.insert_respecting_max_len(target, cache_item);
+            let cache_item = AttesterCacheValue::new(state)?;
+            self.insert_respecting_max_len(key, cache_item);
         }
         Ok(())
     }
@@ -162,25 +176,24 @@ impl AttesterCache {
     pub fn cache_state_and_return_value<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
-        latest_beacon_block_root: Hash256,
         slot: Slot,
         index: CommitteeIndex,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
-        let target = get_state_target(state, latest_beacon_block_root)?;
-        let cache_item = CacheItem::new(state)?;
+        let key = AttesterCacheKey::new(state.current_epoch(), state)?;
+        let cache_item = AttesterCacheValue::new(state)?;
         let value = cache_item.get(slot, index)?;
-        self.insert_respecting_max_len(target, cache_item);
+        self.insert_respecting_max_len(key, cache_item);
         Ok(value)
     }
 
-    fn insert_respecting_max_len(&self, target: TargetCheckpoint, cache_item: CacheItem) {
+    fn insert_respecting_max_len(&self, key: AttesterCacheKey, value: AttesterCacheValue) {
         let mut cache = self.cache.write();
 
         if cache.len() >= MAX_CACHE_LEN {
             while let Some(oldest) = cache
                 .iter()
-                .min_by_key(|(target, _)| target.epoch)
-                .map(|(target, _)| target)
+                .map(|(key, _)| key)
+                .min_by_key(|key| key.epoch)
                 .filter(|_| cache.len() >= MAX_CACHE_LEN)
                 .copied()
             {
@@ -188,28 +201,10 @@ impl AttesterCache {
             }
         }
 
-        cache.insert(target, cache_item);
+        cache.insert(key, value);
     }
 
     pub fn prune_below(&self, epoch: Epoch) {
         self.cache.write().retain(|target, _| target.epoch >= epoch);
     }
-}
-
-fn get_state_target<T: EthSpec>(
-    state: &BeaconState<T>,
-    latest_beacon_block_root: Hash256,
-) -> Result<Checkpoint, BeaconStateError> {
-    let target_epoch = state.current_epoch();
-    let target_slot = target_epoch.start_slot(T::slots_per_epoch());
-    let target_root = if state.slot() <= target_slot {
-        latest_beacon_block_root
-    } else {
-        *state.get_block_root(target_slot)?
-    };
-
-    Ok(Checkpoint {
-        epoch: target_epoch,
-        root: target_root,
-    })
 }

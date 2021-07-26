@@ -2,7 +2,7 @@ use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
-use crate::attester_cache::AttesterCache;
+use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -1334,6 +1334,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_state_epoch;
         let head_state_justified_checkpoint;
         let head_state_committee_len;
+        let attester_cache_key;
         if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
             let head_state = &head.beacon_state;
 
@@ -1373,15 +1374,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_beacon_committee(request_slot, request_index)?
                 .committee
                 .len();
+
+            attester_cache_key = AttesterCacheKey::new(request_epoch, head_state)?;
         } else {
             return Err(Error::CanonicalHeadLockTimeout);
         }
 
         let (justified_checkpoint, committee_len) = if head_state_epoch == request_epoch {
             (head_state_justified_checkpoint, head_state_committee_len)
-        } else if let Some(tuple) = self
-            .attester_cache
-            .get(&target, request_slot, request_index)?
+        } else if let Some(tuple) =
+            self.attester_cache
+                .get(&attester_cache_key, request_slot, request_index)?
         {
             tuple
         } else {
@@ -1403,12 +1406,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
             }
 
-            self.attester_cache.cache_state_and_return_value(
-                &state,
-                beacon_block_root,
-                request_slot,
-                request_index,
-            )?
+            self.attester_cache
+                .cache_state_and_return_value(&state, request_slot, request_index)?
         };
 
         self.produce_unaggregated_attestation_parameterized(
@@ -2227,7 +2226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // a previous slot.
         if state.current_epoch().saturating_add(2_u64) >= current_epoch {
             self.attester_cache
-                .maybe_cache_state(&state, block_root)
+                .maybe_cache_state(&state)
                 .map_err(BeaconChainError::from)?;
         }
 
