@@ -4,7 +4,6 @@ use types::{
     BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch, Slot,
 };
 
-type TargetRoot = Hash256;
 type TargetCheckpoint = Checkpoint;
 type JustifiedCheckpoint = Checkpoint;
 type CommitteeLength = usize;
@@ -132,14 +131,17 @@ impl AttesterCache {
             .transpose()
     }
 
-    pub fn cache_state<T: EthSpec>(
+    pub fn maybe_cache_state<T: EthSpec>(
         &self,
         state: &BeaconState<T>,
         latest_beacon_block_root: Hash256,
     ) -> Result<(), Error> {
         let target = get_state_target(state, latest_beacon_block_root)?;
-        let cache_item = CacheItem::new(state)?;
-        self.cache.write().insert(target, cache_item);
+        let key_exists = self.cache.read().contains_key(&target);
+        if !key_exists {
+            let cache_item = CacheItem::new(state)?;
+            self.cache.write().insert(target, cache_item);
+        }
         Ok(())
     }
 

@@ -1379,38 +1379,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (justified_checkpoint, committee_len) = if head_state_epoch == request_epoch {
             (head_state_justified_checkpoint, head_state_committee_len)
+        } else if let Some(tuple) = self
+            .attester_cache
+            .get(&target, request_slot, request_index)?
+        {
+            tuple
         } else {
-            if let Some(tuple) = self
-                .attester_cache
-                .get(&target, request_slot, request_index)?
-            {
-                tuple
-            } else {
-                let mut state: BeaconState<T::EthSpec> = self
-                    .get_state(&beacon_state_root, None)?
-                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+            let mut state: BeaconState<T::EthSpec> = self
+                .get_state(&beacon_state_root, None)?
+                .ok_or(Error::MissingBeaconState(beacon_state_root))?;
 
-                if state.slot() > request_slot {
-                    return Err(Error::CannotAttestToFutureState);
-                } else if state.current_epoch() < request_epoch {
-                    // Only perform a "partial" state advance since we do not require the state roots to be
-                    // accurate.
-                    partial_state_advance(
-                        &mut state,
-                        Some(beacon_state_root),
-                        request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                        &self.spec,
-                    )?;
-                    state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-                }
-
-                self.attester_cache.cache_state_and_return_value(
-                    &state,
-                    beacon_block_root,
-                    request_slot,
-                    request_index,
-                )?
+            if state.slot() > request_slot {
+                return Err(Error::CannotAttestToFutureState);
+            } else if state.current_epoch() < request_epoch {
+                // Only perform a "partial" state advance since we do not require the state roots to be
+                // accurate.
+                partial_state_advance(
+                    &mut state,
+                    Some(beacon_state_root),
+                    request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    &self.spec,
+                )?;
+                state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
             }
+
+            self.attester_cache.cache_state_and_return_value(
+                &state,
+                beacon_block_root,
+                request_slot,
+                request_index,
+            )?
         };
 
         self.produce_unaggregated_attestation_parameterized(
@@ -2158,6 +2156,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = fully_verified_block.block_root;
         let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let mut ops = fully_verified_block.confirmation_db_batch;
 
         let attestation_observation_timer =
@@ -2219,6 +2218,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::AttestationCacheLockTimeout)?
                     .insert(shuffling_id, committee_cache);
             }
+        }
+
+        // Apply the state to the attester cache, only if it is from the previous epoch or earlier.
+        //
+        // In a perfect scenario there should be no need to add previous-epoch states to the cache.
+        // However, latency between the VC and the BN might cause the VC to produce attestations at
+        // a previous slot.
+        if state.current_epoch().saturating_add(2_u64) >= current_epoch {
+            self.attester_cache
+                .maybe_cache_state(&state, block_root)
+                .map_err(BeaconChainError::from)?;
         }
 
         let mut fork_choice = self.fork_choice.write();
