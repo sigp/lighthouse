@@ -28,7 +28,13 @@ type CommitteeIndex = u64;
 type CacheHashMap = HashMap<AttesterCacheKey, AttesterCacheValue>;
 
 /// The maximum number of `AttesterCacheValues` to be kept in memory.
-const MAX_CACHE_LEN: usize = 64;
+///
+/// Each `AttesterCacheValues` is very small (~16 bytes) and the cache will generally be kept small
+/// by pruning on finality.
+///
+/// The value provided here is much larger than will be used during ideal network conditions,
+/// however we make it large since the values are so small.
+const MAX_CACHE_LEN: usize = 1_024;
 
 #[derive(Debug)]
 pub enum Error {
