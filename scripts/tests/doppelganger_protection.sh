@@ -94,7 +94,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     cd $HOME/.lighthouse/local-testnet/node_4/validators
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s localhost:8100/lighthouse/validator_inclusion/2/$val | jq | grep -q '"is_current_epoch_attester": false'
+        curl localhost:8100/lighthouse/validator_inclusion/2/$val | jq | grep '"is_current_epoch_attester": false'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
@@ -109,7 +109,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep -q '"is_current_epoch_attester": true'
+        curl localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep '"is_current_epoch_attester": true'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val attested in epoch 4."
