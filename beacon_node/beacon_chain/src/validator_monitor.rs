@@ -413,7 +413,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                     warn!(
                         self.log,
-                        "Attested failed to match head";
+                        "Attestation failed to match head";
                         "epoch" => prev_epoch,
                         "validator" => id,
                     );
@@ -432,7 +432,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                     warn!(
                         self.log,
-                        "Attested failed to match target";
+                        "Attestation failed to match target";
                         "epoch" => prev_epoch,
                         "validator" => id,
                     );
