@@ -562,6 +562,16 @@ where
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
 
+        // Prime the attester cache with the head state.
+        beacon_chain
+            .attester_cache
+            .maybe_cache_state(
+                &head.beacon_state,
+                head.beacon_block_root,
+                &beacon_chain.spec,
+            )
+            .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
+
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
             if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(

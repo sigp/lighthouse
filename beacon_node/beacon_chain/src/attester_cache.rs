@@ -39,7 +39,7 @@ const MAX_CACHE_LEN: usize = 1_024;
 #[derive(Debug)]
 pub enum Error {
     BeaconState(BeaconStateError),
-    // Boxed to avoid an infinite size recursion issue.
+    // Boxed to avoid an infinite-size recursion issue.
     BeaconChain(Box<BeaconChainError>),
     MissingBeaconState(Hash256),
     FailedToTransitionState(StateAdvanceError),
@@ -73,7 +73,8 @@ impl From<BeaconChainError> for Error {
     }
 }
 
-/// Provides the length for each committee in a given `Epoch`.
+/// Stores the minimal amount of data required compute the committee length for any committee at any
+/// slot in a given `epoch`.
 struct CommitteeLengths {
     /// The `epoch` to which the lengths pertain.
     epoch: Epoch,
@@ -141,7 +142,12 @@ impl CommitteeLengths {
     }
 }
 
-/// Provides information relevant to producing an attestation.
+/// Provides the following information for some epoch:
+///
+/// - The `state.current_justified_checkpoint` value.
+/// - The committee lengths for all indices and slots.
+///
+/// These values are used during attestation production.
 pub struct AttesterCacheValue {
     current_justified_checkpoint: Checkpoint,
     committee_lengths: CommitteeLengths,
@@ -171,8 +177,8 @@ impl AttesterCacheValue {
     }
 }
 
-/// The `AttesterCacheKey` is fundamentally the same thing as the shuffling decision roots, however
-/// it provides a unique key for both of the following values:
+/// The `AttesterCacheKey` is fundamentally the same thing as the proposer shuffling decision root,
+/// however here we use it as an identity for both of the following values:
 ///
 /// 1. The `state.current_justified_checkpoint`.
 /// 2. The attester shuffling.
@@ -186,6 +192,8 @@ impl AttesterCacheValue {
 #[derive(PartialEq, Hash, Clone, Copy)]
 pub struct AttesterCacheKey {
     /// The epoch from which the justified checkpoint should be observed.
+    ///
+    /// Attestations which use `self.epoch` as `target.epoch` should use this key.
     epoch: Epoch,
     /// The root of the block at the last slot of `self.epoch - 1`.
     decision_root: Hash256,
@@ -278,9 +286,9 @@ impl AttesterCache {
     ///
     /// ## Notes
     ///
-    /// This function takes a write-lock on the internal cache. It is generally advise to try
-    /// getting the value using `Self::get` before running this function. `Self::get` only takes a
-    /// read-lock and is therefore less likely to create head contention.
+    /// This function takes a write-lock on the internal cache. Prefer attempting a `Self::get` call
+    /// before running this function as `Self::get` only takes a read-lock and is therefore less
+    /// likely to create head contention.
     pub fn load_and_cache_state<T: BeaconChainTypes>(
         &self,
         state_root: Hash256,
