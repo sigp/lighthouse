@@ -1455,16 +1455,11 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     pub fn is_eligible_validator(&self, val_index: usize) -> Result<bool, Error> {
-        match self {
-            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Altair(_) => {
-                let previous_epoch = self.previous_epoch();
-                self.get_validator(val_index).map(|val| {
-                    val.is_active_at(previous_epoch)
-                        || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
-                })
-            }
-        }
+        let previous_epoch = self.previous_epoch();
+        self.get_validator(val_index).map(|val| {
+            val.is_active_at(previous_epoch)
+                || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
+        })
     }
 
     pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
