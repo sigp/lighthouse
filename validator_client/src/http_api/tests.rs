@@ -1,7 +1,6 @@
 #![cfg(test)]
 #![cfg(not(debug_assertions))]
 
-use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
     Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
@@ -189,35 +188,6 @@ impl ApiTester {
 
         self
     }
-
-    pub async fn test_get_lighthouse_doppelganger(self) -> Self {
-        let result = self
-            .client
-            .get_lighthouse_validators_doppelganger()
-            .await
-            .unwrap()
-            .data;
-
-        let pubkeys = self
-            .initialized_validators
-            .read()
-            .iter_voting_pubkeys()
-            .cloned()
-            .collect::<Vec<_>>();
-
-        let enabled_keys = pubkeys
-            .into_iter()
-            .map(|pubkey| DoppelgangerData {
-                pubkey,
-                status: DoppelgangerStatus::SigningEnabled,
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(result, enabled_keys);
-
-        self
-    }
-
     pub fn vals_total(&self) -> usize {
         self.initialized_validators.read().num_total()
     }
@@ -496,8 +466,6 @@ fn simple_getters() {
             .test_get_lighthouse_health()
             .await
             .test_get_lighthouse_spec()
-            .await
-            .test_get_lighthouse_doppelganger()
             .await;
     });
 }

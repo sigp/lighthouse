@@ -32,7 +32,6 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
-use eth2::lighthouse_vc::types::{DoppelgangerData, DoppelgangerStatus as ApiDoppelgangerStatus};
 use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
 use slog::{crit, error, info, Logger};
@@ -102,25 +101,6 @@ impl DoppelgangerStatus {
             DoppelgangerStatus::SigningEnabled(_) => None,
             DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),
             DoppelgangerStatus::UnknownToDoppelganger(pubkey) => Some(pubkey),
-        }
-    }
-}
-
-impl Into<DoppelgangerData> for DoppelgangerStatus {
-    fn into(self) -> DoppelgangerData {
-        match self {
-            DoppelgangerStatus::SigningEnabled(pubkey) => DoppelgangerData {
-                pubkey,
-                status: ApiDoppelgangerStatus::SigningEnabled,
-            },
-            DoppelgangerStatus::SigningDisabled(pubkey) => DoppelgangerData {
-                pubkey,
-                status: ApiDoppelgangerStatus::SigningDisabled,
-            },
-            DoppelgangerStatus::UnknownToDoppelganger(pubkey) => DoppelgangerData {
-                pubkey,
-                status: ApiDoppelgangerStatus::Unknown,
-            },
         }
     }
 }
