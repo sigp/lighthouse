@@ -9,7 +9,9 @@
 //! `per_epoch_processing` to transform the state from epoch `n - 1` to epoch `n` so that rewards
 //! and penalties can be computed and the `state.current_justified_checkpoint` can be updated.
 
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use parking_lot::RwLock;
+use state_processing::state_advance::{partial_state_advance, Error as StateAdvanceError};
 use std::collections::HashMap;
 use std::ops::Range;
 use types::{
@@ -31,6 +33,14 @@ const MAX_CACHE_LEN: usize = 64;
 #[derive(Debug)]
 pub enum Error {
     BeaconState(BeaconStateError),
+    // Boxed to avoid an infinite size recursion issue.
+    BeaconChain(Box<BeaconChainError>),
+    MissingBeaconState(Hash256),
+    FailedToTransitionState(StateAdvanceError),
+    CannotAttestToFutureState {
+        state_slot: Slot,
+        request_slot: Slot,
+    },
     /// Indicates a cache inconsistency.
     WrongEpoch {
         request_epoch: Epoch,
@@ -48,6 +58,12 @@ pub enum Error {
 impl From<BeaconStateError> for Error {
     fn from(e: BeaconStateError) -> Self {
         Error::BeaconState(e)
+    }
+}
+
+impl From<BeaconChainError> for Error {
+    fn from(e: BeaconChainError) -> Self {
+        Error::BeaconChain(Box::new(e))
     }
 }
 
@@ -250,23 +266,70 @@ impl AttesterCache {
         Ok(())
     }
 
-    /// Cache the `state.current_epoch()` values, even if they are already present in `self`. Also,
-    /// return the value for the given `slot` and `index`.
+    /// Read the state identified by `state_root` from the database, advance it to the required
+    /// slot, use it to prime the cache and return the values for the provided `slot` and
+    /// `committee_index`.
     ///
-    /// This is roughly equivalent to using `Self::get` and then `Self::maybe_cache_state`, but the
-    /// main advantage is that it is atomic.
-    pub fn cache_state_and_return_value<T: EthSpec>(
+    /// ## Notes
+    ///
+    /// This function takes a write-lock on the internal cache. It is generally advise to try
+    /// getting the value using `Self::get` before running this function. `Self::get` only takes a
+    /// read-lock and is therefore less likely to create head contention.
+    pub fn load_and_cache_state<T: BeaconChainTypes>(
         &self,
-        state: &BeaconState<T>,
-        latest_block_root: Hash256,
+        state_root: Hash256,
+        key: AttesterCacheKey,
         slot: Slot,
-        index: CommitteeIndex,
-        spec: &ChainSpec,
+        committee_index: CommitteeIndex,
+        chain: &BeaconChain<T>,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
-        let key = AttesterCacheKey::new(state.current_epoch(), state, latest_block_root)?;
-        let cache_item = AttesterCacheValue::new(state, spec)?;
-        let value = cache_item.get::<T>(slot, index, spec)?;
-        Self::insert_respecting_max_len(&mut self.cache.write(), key, cache_item);
+        let spec = &chain.spec;
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let epoch = slot.epoch(slots_per_epoch);
+
+        // Take a write-lock on the cache before starting the state read.
+        //
+        // Whilst holding the write-lock during the state read will create contention, it prevents
+        // the scenario where multiple requests from separate threads cause duplicate state reads.
+        let mut cache = self.cache.write();
+
+        // Try the cache to see if someone has already primed it between the time the function was
+        // called and when the cache write-lock was obtained. This avoids performing duplicate state
+        // reads.
+        if let Some(value) = cache
+            .get(&key)
+            .map(|cache_item| cache_item.get::<T::EthSpec>(slot, committee_index, spec))
+            .transpose()?
+        {
+            return Ok(value);
+        }
+
+        let mut state: BeaconState<T::EthSpec> = chain
+            .get_state(&state_root, None)?
+            .ok_or(Error::MissingBeaconState(state_root))?;
+
+        if state.slot() > slot {
+            // This indicates an internal inconsistency.
+            return Err(Error::CannotAttestToFutureState {
+                state_slot: state.slot(),
+                request_slot: slot,
+            });
+        } else if state.current_epoch() < epoch {
+            // Only perform a "partial" state advance since we do not require the state roots to be
+            // accurate.
+            partial_state_advance(
+                &mut state,
+                Some(state_root),
+                epoch.start_slot(slots_per_epoch),
+                spec,
+            )
+            .map_err(Error::FailedToTransitionState)?;
+            state.build_committee_cache(RelativeEpoch::Current, spec)?;
+        }
+
+        let cache_item = AttesterCacheValue::new(&state, spec)?;
+        let value = cache_item.get::<T::EthSpec>(slot, committee_index, spec)?;
+        Self::insert_respecting_max_len(&mut cache, key, cache_item);
         Ok(value)
     }
 

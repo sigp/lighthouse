@@ -101,17 +101,13 @@ pub enum BeaconChainError {
     },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<ShutdownReason>),
-    AttestingPriorToHead {
-        head_slot: Slot,
-        request_slot: Slot,
-    },
     AttestingToFinalizedSlot {
         finalized_slot: Slot,
         request_slot: Slot,
     },
     AttestingToAncientSlot {
-        head_state_slot: Slot,
         lowest_permissible_slot: Slot,
+        request_slot: Slot,
     },
     BadPreState {
         parent_root: Hash256,
