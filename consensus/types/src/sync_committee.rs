@@ -101,4 +101,8 @@ impl<T: EthSpec> SyncCommittee<T> {
         }
         Ok(subnet_positions)
     }
+
+    pub fn contains(&self, pubkey: &PublicKeyBytes) -> bool {
+        self.pubkeys.contains(pubkey)
+    }
 }

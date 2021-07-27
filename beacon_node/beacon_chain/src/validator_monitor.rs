@@ -14,11 +14,12 @@ use std::convert::TryFrom;
 use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{
     AttestationData, AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec,
     Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    SignedContributionAndProof, Slot, SyncCommittee, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// The validator monitor collects per-epoch data about each monitored validator. Historical data
@@ -225,11 +226,13 @@ impl MonitoredValidator {
 ///
 /// The intention of this struct is to provide users with more logging and Prometheus metrics around
 /// validators that they are interested in.
-pub struct ValidatorMonitor<T> {
+pub struct ValidatorMonitor<T: EthSpec> {
     /// The validators that require additional monitoring.
     validators: HashMap<PublicKeyBytes, MonitoredValidator>,
     /// A map of validator index (state.validators) to a validator public key.
     indices: HashMap<u64, PublicKeyBytes>,
+    /// The current sync committee if it exists.
+    current_sync_committee: Option<Arc<SyncCommittee<T>>>,
     /// If true, allow the automatic registration of validators.
     auto_register: bool,
     log: Logger,
@@ -241,6 +244,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         let mut s = Self {
             validators: <_>::default(),
             indices: <_>::default(),
+            current_sync_committee: None,
             auto_register,
             log,
             _phantom: PhantomData,
@@ -273,6 +277,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
     /// imported).
     pub fn process_valid_state(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
+        if self.current_sync_committee.is_none() {
+            if let Ok(sync_committee) = state.current_sync_committee() {
+                self.current_sync_committee = Some(sync_committee.clone());
+            }
+        }
         // Add any new validator indices.
         state
             .validators()
@@ -380,6 +389,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(i) = monitored_validator.index {
                 let i = i as usize;
                 let id = &monitored_validator.id;
+                let pubkey = &monitored_validator.pubkey;
+
+                if let Some(sync_committee) = &self.current_sync_committee {
+                    if sync_committee.contains(pubkey) {
+                        let epoch_summary = monitored_validator.summaries.read();
+                        if let Some(summary) = epoch_summary.get(&prev_epoch) {
+                            let prev_epoch_included_in_block =
+                                summary.sync_signature_block_inclusions;
+                            info!(
+                                self.log,
+                                "Previous epoch sync signatures";
+                                "num_included" => prev_epoch_included_in_block,
+                                "total" => T::slots_per_epoch(),
+                            );
+                        }
+                    }
+                }
 
                 /*
                  * These metrics are reflected differently between Base and Altair.
