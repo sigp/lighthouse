@@ -1927,7 +1927,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     if request_data.epoch < prev_epoch || request_data.epoch > next_epoch {
                         return Err(warp_utils::reject::custom_bad_request(format!(
-                            "request epoch {} is more than one epoch from the current slot {}",
+                            "request epoch {} is more than one epoch from the current epoch {}",
                             request_data.epoch, current_epoch
                         )));
                     }

@@ -3299,7 +3299,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if attestations have been seen from the given `validator_index` at the
     /// given `epoch`.
-    pub fn validator_seen_at_epoch(&self, validator_index: usize, epoch: &Epoch) -> bool {
+    pub fn validator_seen_at_epoch(&self, validator_index: usize, epoch: Epoch) -> bool {
         // It's necessary to assign these checks to intermediate variables to avoid a deadlock.
         //
         // See: https://github.com/sigp/lighthouse/pull/2230#discussion_r620013993

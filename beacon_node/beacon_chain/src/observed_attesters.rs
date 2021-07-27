@@ -385,7 +385,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     /// Returns `true` if the given `index` has been stored in `self` at `epoch`.
     ///
     /// This is useful for doppelganger detection.
-    pub fn index_seen_at_epoch(&self, index: usize, epoch: &Epoch) -> bool {
+    pub fn index_seen_at_epoch(&self, index: usize, epoch: Epoch) -> bool {
         self.items
             .get(&epoch)
             .map(|item| item.contains(index))

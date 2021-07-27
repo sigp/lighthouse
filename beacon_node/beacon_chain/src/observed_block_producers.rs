@@ -118,9 +118,9 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     /// Returns `true` if the given `validator_index` has been stored in `self` at `epoch`.
     ///
     /// This is useful for doppelganger detection.
-    pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: &Epoch) -> bool {
+    pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: Epoch) -> bool {
         self.items.iter().any(|(slot, producers)| {
-            slot.epoch(E::slots_per_epoch()) == *epoch && producers.contains(&validator_index)
+            slot.epoch(E::slots_per_epoch()) == epoch && producers.contains(&validator_index)
         })
     }
 }

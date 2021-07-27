@@ -340,15 +340,15 @@ current, previous, or next epoch.
 
 
 ```bash
-curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":[0,1],"epoch":1}" -H  "accept: application/json" | jq
+curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":["0","1"],"epoch":"1"}' -H  "content-type: application/json" | jq
 ```
 
 ```json
 {
     "data": [
         {
-            "index": 0,
-            "epoch": 1,
+            "index": "0",
+            "epoch": "1",
             "is_live": true
         }
     ]
