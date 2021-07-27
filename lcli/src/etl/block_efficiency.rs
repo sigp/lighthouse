@@ -1,11 +1,12 @@
 use clap::ArgMatches;
 use eth2::types::*;
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use sensitive_url::SensitiveUrl;
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 
 type CommitteePosition = usize;
 type Committee = u64;
@@ -125,6 +126,8 @@ async fn get_epoch_committee_data<T: EthSpec>(
 }
 
 pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
+
+    const SECONDS_PER_SLOT: Duration = Duration::from_secs(12);
     let output_path: PathBuf = clap_utils::parse_required(matches, "output")?;
     let start_epoch: Epoch = clap_utils::parse_required(matches, "start-epoch")?;
 
@@ -167,6 +170,7 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
         .unwrap_or("http://localhost:5052/");
     let node = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(endpoint).map_err(|_| "Unable to parse endpoint.".to_string())?,
+        Timeouts::set_all(SECONDS_PER_SLOT)
     );
 
     // Loop over epochs.
