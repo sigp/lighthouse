@@ -1229,6 +1229,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         request_slot: Slot,
         request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
+        let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
+
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let request_epoch = request_slot.epoch(slots_per_epoch);
 
@@ -1247,6 +1249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let target;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
         let attester_cache_key;
+        let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
             let head_state = &head.beacon_state;
             head_state_slot = head_state.slot();
@@ -1325,6 +1328,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             return Err(Error::CanonicalHeadLockTimeout);
         }
+        drop(head_timer);
 
         /*
          *  Phase 2/2:
@@ -1334,6 +1338,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
          *  from disk and prime the cache with it.
          */
 
+        let cache_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS);
         let (justified_checkpoint, committee_len) =
             if let Some((justified_checkpoint, committee_len)) = current_epoch_attesting_info {
                 // The head state is in the same epoch as the attestation, so there is no more
@@ -1362,6 +1368,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Neither the head state, nor the attester cache was able to produce the required
                 // information to attest in this epoch. So, load a `BeaconState` from disk and use
                 // it to fulfil the request (and prime the cache to avoid this next time).
+                let _cache_build_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS);
                 self.attester_cache.load_and_cache_state(
                     beacon_state_root,
                     attester_cache_key,
@@ -1370,6 +1378,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self,
                 )?
             };
+        drop(cache_timer);
 
         Ok(Attestation {
             aggregation_bits: BitList::with_capacity(committee_len)?,
