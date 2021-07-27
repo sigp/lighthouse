@@ -2389,9 +2389,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // Register sync aggregate with validator monitor
         if let Some(sync_aggregate) = block.body().sync_aggregate() {
-            let sync_committee =
-                self.sync_committee_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()))?;
+            // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
+            let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
             let participant_pubkeys = sync_committee
                 .pubkeys
                 .into_iter()

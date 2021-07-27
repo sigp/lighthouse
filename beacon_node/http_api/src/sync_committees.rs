@@ -162,6 +162,14 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                 chain,
             ) {
                 Ok(verified) => {
+                    publish_pubsub_message(
+                        &network_tx,
+                        PubsubMessage::SyncCommitteeMessage(Box::new((
+                            subnet_id,
+                            verified.sync_message().clone(),
+                        ))),
+                    )?;
+
                     // Register with validator monitor
                     chain
                         .validator_monitor
@@ -171,13 +179,6 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                             &verified.sync_message(),
                             &chain.slot_clock,
                         );
-                    publish_pubsub_message(
-                        &network_tx,
-                        PubsubMessage::SyncCommitteeMessage(Box::new((
-                            subnet_id,
-                            verified.sync_message().clone(),
-                        ))),
-                    )?;
 
                     verified_for_pool = Some(verified);
                 }
@@ -263,7 +264,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
                 chain
                     .validator_monitor
                     .read()
-                    .register_gossip_sync_committee_aggregate(
+                    .register_api_sync_committee_contribution(
                         seen_timestamp,
                         verified_contribution.aggregate(),
                         verified_contribution.participant_pubkeys(),

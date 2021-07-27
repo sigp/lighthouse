@@ -4,7 +4,7 @@
 
 use crate::metrics;
 use parking_lot::RwLock;
-use slog::{crit, error, info, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::per_epoch_processing::{
     errors::EpochProcessingError, EpochProcessingSummary,
@@ -277,6 +277,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
     /// imported).
     pub fn process_valid_state(&mut self, current_epoch: Epoch, state: &BeaconState<T>) {
+        // Set the sync committee from the state
         if self.current_sync_committee.is_none() {
             if let Ok(sync_committee) = state.current_sync_committee() {
                 self.current_sync_committee = Some(sync_committee.clone());
@@ -519,6 +520,33 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &[id],
                         inclusion_info.delay as i64,
                     );
+                }
+
+                // Indicates the number of sync committee signatures that made it into
+                // a sync aggregate.
+                if let Some(sync_committee) = &self.current_sync_committee {
+                    if sync_committee.contains(pubkey) {
+                        let epoch_summary = monitored_validator.summaries.read();
+                        if let Some(summary) = epoch_summary.get(&prev_epoch) {
+                            let prev_epoch_included_in_block =
+                                summary.sync_signature_block_inclusions;
+                            info!(
+                                self.log,
+                                "Previous epoch sync signatures";
+                                "included" => prev_epoch_included_in_block,
+                                "expected" => T::slots_per_epoch(),
+                                "epoch" => prev_epoch,
+                                "validator" => id,
+                            );
+                        }
+                    } else {
+                        debug!(
+                            self.log,
+                            "Validator isn't part of the current sync committee";
+                            "epoch" => prev_epoch,
+                            "validator" => id,
+                        );
+                    }
                 }
             }
         }
@@ -879,40 +907,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         })
     }
 
-    /// Register that the `sync_aggregate` was included in a *valid* `BeaconBlock`.
-    pub fn register_sync_aggregate_in_block(
-        &self,
-        slot: Slot,
-        beacon_block_root: Hash256,
-        participant_pubkeys: Vec<&PublicKeyBytes>,
-    ) {
-        let epoch = slot.epoch(T::slots_per_epoch());
-
-        for validator_pubkey in participant_pubkeys {
-            if let Some(validator) = self.validators.get(validator_pubkey) {
-                let id = &validator.id;
-
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_BLOCK_TOTAL,
-                    &["block", id],
-                );
-
-                info!(
-                    self.log,
-                    "Sync signature included in block";
-                    "head" => ?beacon_block_root,
-                    "epoch" => %epoch,
-                    "slot" => %slot,
-                    "validator" => %id,
-                );
-
-                validator.with_epoch_summary(epoch, |summary| {
-                    summary.register_sync_signature_block_inclusions();
-                });
-            }
-        }
-    }
-
     /// Returns the duration between when the sync_committee message could be produced (1/3rd through
     /// the slot) and `seen_timestamp`.
     fn get_sync_committee_message_delay_ms<S: SlotClock>(
@@ -925,22 +919,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
             .and_then(|gross_delay| {
                 gross_delay.checked_sub(slot_clock.sync_committee_message_production_delay())
-            })
-            .unwrap_or_else(|| Duration::from_secs(0))
-    }
-
-    /// Returns the duration between when the sync_committee message could be produced (1/3rd through
-    /// the slot) and `seen_timestamp`.
-    fn get_sync_contribution_delay_ms<S: SlotClock>(
-        seen_timestamp: Duration,
-        data: &SignedContributionAndProof<T>,
-        slot_clock: &S,
-    ) -> Duration {
-        slot_clock
-            .start_of(data.message.contribution.slot)
-            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
-            .and_then(|gross_delay| {
-                gross_delay.checked_sub(slot_clock.sync_committee_contribution_production_delay())
             })
             .unwrap_or_else(|| Duration::from_secs(0))
     }
@@ -971,40 +949,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             "api",
             seen_timestamp,
             sync_committee_message,
-            slot_clock,
-        )
-    }
-
-    /// Register a sync committee contribution received over gossip.
-    pub fn register_gossip_sync_committee_aggregate<S: SlotClock>(
-        &self,
-        seen_timestamp: Duration,
-        sync_contribution: &SignedContributionAndProof<T>,
-        participant_pubkeys: &[PublicKeyBytes],
-        slot_clock: &S,
-    ) {
-        self.register_sync_committee_aggregate(
-            "gossip",
-            seen_timestamp,
-            sync_contribution,
-            participant_pubkeys,
-            slot_clock,
-        )
-    }
-
-    /// Register a sync committee contribution received over the http api.
-    pub fn register_api_sync_committee_aggregate<S: SlotClock>(
-        &self,
-        seen_timestamp: Duration,
-        sync_contribution: &SignedContributionAndProof<T>,
-        participant_pubkeys: &[PublicKeyBytes],
-        slot_clock: &S,
-    ) {
-        self.register_sync_committee_aggregate(
-            "api",
-            seen_timestamp,
-            sync_contribution,
-            participant_pubkeys,
             slot_clock,
         )
     }
@@ -1054,8 +998,58 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
+    /// Returns the duration between when the sync_committee message could be produced (1/3rd through
+    /// the slot) and `seen_timestamp`.
+    fn get_sync_contribution_delay_ms<S: SlotClock>(
+        seen_timestamp: Duration,
+        data: &SignedContributionAndProof<T>,
+        slot_clock: &S,
+    ) -> Duration {
+        slot_clock
+            .start_of(data.message.contribution.slot)
+            .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
+            .and_then(|gross_delay| {
+                gross_delay.checked_sub(slot_clock.sync_committee_contribution_production_delay())
+            })
+            .unwrap_or_else(|| Duration::from_secs(0))
+    }
+
+    /// Register a sync committee contribution received over gossip.
+    pub fn register_gossip_sync_committee_contribution<S: SlotClock>(
+        &self,
+        seen_timestamp: Duration,
+        sync_contribution: &SignedContributionAndProof<T>,
+        participant_pubkeys: &[PublicKeyBytes],
+        slot_clock: &S,
+    ) {
+        self.register_sync_committee_contribution(
+            "gossip",
+            seen_timestamp,
+            sync_contribution,
+            participant_pubkeys,
+            slot_clock,
+        )
+    }
+
+    /// Register a sync committee contribution received over the http api.
+    pub fn register_api_sync_committee_contribution<S: SlotClock>(
+        &self,
+        seen_timestamp: Duration,
+        sync_contribution: &SignedContributionAndProof<T>,
+        participant_pubkeys: &[PublicKeyBytes],
+        slot_clock: &S,
+    ) {
+        self.register_sync_committee_contribution(
+            "api",
+            seen_timestamp,
+            sync_contribution,
+            participant_pubkeys,
+            slot_clock,
+        )
+    }
+
     /// Register a sync committee contribution.
-    fn register_sync_committee_aggregate<S: SlotClock>(
+    fn register_sync_committee_contribution<S: SlotClock>(
         &self,
         src: &str,
         seen_timestamp: Duration,
@@ -1121,6 +1115,40 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
                 validator.with_epoch_summary(epoch, |summary| {
                     summary.register_sync_signature_contribution_inclusion()
+                });
+            }
+        }
+    }
+
+    /// Register that the `sync_aggregate` was included in a *valid* `BeaconBlock`.
+    pub fn register_sync_aggregate_in_block(
+        &self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        participant_pubkeys: Vec<&PublicKeyBytes>,
+    ) {
+        let epoch = slot.epoch(T::slots_per_epoch());
+
+        for validator_pubkey in participant_pubkeys {
+            if let Some(validator) = self.validators.get(validator_pubkey) {
+                let id = &validator.id;
+
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_BLOCK_TOTAL,
+                    &["block", id],
+                );
+
+                info!(
+                    self.log,
+                    "Sync signature included in block";
+                    "head" => %beacon_block_root,
+                    "epoch" => %epoch,
+                    "slot" => %slot,
+                    "validator" => %id,
+                );
+
+                validator.with_epoch_summary(epoch, |summary| {
+                    summary.register_sync_signature_block_inclusions();
                 });
             }
         }

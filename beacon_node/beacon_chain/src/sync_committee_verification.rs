@@ -402,11 +402,6 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         self.signed_aggregate.message.contribution
     }
 
-    /// Returns the underlying `contribution` for the `signed_aggregate`.
-    pub fn contribution_ref(&self) -> &SyncCommitteeContribution<T::EthSpec> {
-        &self.signed_aggregate.message.contribution
-    }
-
     /// Returns the underlying `signed_aggregate`.
     pub fn aggregate(&self) -> &SignedContributionAndProof<T::EthSpec> {
         &self.signed_aggregate

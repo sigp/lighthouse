@@ -734,6 +734,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
+        // Indicate to the `Network` service that this message is valid and can be
+        // propagated on the gossip network.
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
         // Register the sync signature with any monitored validators.
         self.chain
             .validator_monitor
@@ -743,10 +747,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 sync_signature.sync_message(),
                 &self.chain.slot_clock,
             );
-
-        // Indicate to the `Network` service that this message is valid and can be
-        // propagated on the gossip network.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL);
 
@@ -802,7 +802,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_sync_committee_aggregate(
+            .register_gossip_sync_committee_contribution(
                 seen_timestamp,
                 sync_contribution.aggregate(),
                 sync_contribution.participant_pubkeys(),
