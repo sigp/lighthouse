@@ -1,6 +1,7 @@
 #![cfg(test)]
 #![cfg(not(debug_assertions))]
 
+use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
     Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,

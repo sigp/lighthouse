@@ -1938,7 +1938,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .cloned()
                         .map(|index| {
                             let is_live =
-                                chain.validator_seen_at_epoch(index as usize, &request_data.epoch);
+                                chain.validator_seen_at_epoch(index as usize, request_data.epoch);
                             Ok::<_, warp::Rejection>(api_types::LivenessResponseData {
                                 index: index as u64,
                                 epoch: request_data.epoch,
