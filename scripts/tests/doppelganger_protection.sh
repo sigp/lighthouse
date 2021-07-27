@@ -9,7 +9,6 @@ if [[ "$BEHAVIOR" != "success" ]] && [[ "$BEHAVIOR" != "failure" ]]; then
     exit 1
 fi
 
-cp ./vars_$BEHAVIOR.env ./vars.env
 source ./vars.env
 
 ../local_testnet/clean.sh
@@ -19,7 +18,7 @@ echo "Starting ganache"
 ../local_testnet/ganache_test_node.sh &> /dev/null &
 GANACHE_PID=$!
 
-# wait for ganache to start
+# Wait for ganache to start
 sleep 5
 
 echo "Setting up local testnet"
@@ -71,7 +70,6 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
 
     # Cleanup
     kill $BOOT_PID $BEACON_PID $BEACON2_PID $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $BEACON3_PID
-    rm ./vars.env
 
     echo "Done"
 
@@ -84,8 +82,6 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     echo "Starting the last validator client"
 
-    # This process should last longer than 3 epochs
-    # start in epoch 1, last till end of epoch 3
     ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100 &
     VALIDATOR_4_PID=$!
     DOPPELGANGER_FAILURE=0
@@ -128,7 +124,6 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     # Cleanup
     cd $PREVIOUS_DIR
     kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
-    rm ./vars.env
 
     echo "Done"
 
