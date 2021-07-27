@@ -1241,6 +1241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
          * the head-lock is not desirable.
          */
 
+        let head_state_slot;
         let beacon_block_root;
         let beacon_state_root;
         let target;
@@ -1248,6 +1249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let attester_cache_key;
         if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
             let head_state = &head.beacon_state;
+            head_state_slot = head_state.slot();
 
             // There is no value in producing an attestation to a block that is pre-finalization and
             // it is likely to cause expensive and pointless reads to the freezer database. Exit
@@ -1346,6 +1348,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // The suitable values were already cached. Return them.
                 cached_values
             } else {
+                // This scenario is likely to happen occasionally. It is reasonable to drop this to
+                // a `debug!` if it turns out to be frequent and unavoidable. At least whilst the
+                // feature is new it is nice to see if the cache is getting a lot of misses.
+                warn!(
+                    self.log,
+                    "Attester cache miss";
+                    "beacon_block_root" => %beacon_block_root,
+                    "head_state_slot" => %head_state_slot,
+                    "request_slot" => %request_slot,
+                );
+
                 // Neither the head state, nor the attester cache was able to produce the required
                 // information to attest in this epoch. So, load a `BeaconState` from disk and use
                 // it to fulfil the request (and prime the cache to avoid this next time).
