@@ -1699,7 +1699,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let slots_per_epoch = T::EthSpec::slots_per_epoch();
                     let current_slot = chain
                         .slot()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
