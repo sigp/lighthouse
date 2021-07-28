@@ -278,13 +278,9 @@ impl AttesterCache {
         Ok(())
     }
 
-    /// Read the state identified by `state_root` from the database*, advance it to the required
+    /// Read the state identified by `state_root` from the database, advance it to the required
     /// slot, use it to prime the cache and return the values for the provided `slot` and
     /// `committee_index`.
-    ///
-    /// *: The database read is avoided if `state_opt.is_some()`.
-    ///
-    /// If `state_opt.is_some()`, the `state_root` *must* match that state.
     ///
     /// ## Notes
     ///
@@ -294,7 +290,6 @@ impl AttesterCache {
     pub fn load_and_cache_state<T: BeaconChainTypes>(
         &self,
         state_root: Hash256,
-        state_opt: Option<BeaconState<T::EthSpec>>,
         key: AttesterCacheKey,
         slot: Slot,
         committee_index: CommitteeIndex,
@@ -321,13 +316,9 @@ impl AttesterCache {
             return Ok(value);
         }
 
-        let mut state = if let Some(state) = state_opt {
-            state
-        } else {
-            chain
-                .get_state(&state_root, None)?
-                .ok_or(Error::MissingBeaconState(state_root))?
-        };
+        let mut state: BeaconState<T::EthSpec> = chain
+            .get_state(&state_root, None)?
+            .ok_or(Error::MissingBeaconState(state_root))?;
 
         if state.slot() > slot {
             // This indicates an internal inconsistency.

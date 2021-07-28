@@ -1248,7 +1248,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_state_root;
         let target;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
-        let head_state_clone: Option<Box<BeaconState<T::EthSpec>>>;
         let attester_cache_key;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
@@ -1306,41 +1305,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 root: target_root,
             };
 
-            match request_epoch.cmp(&head_state.current_epoch()) {
-                // The request is in the same epoch as the head state.
-                Ordering::Equal => {
-                    // When the head state is in the same epoch as the request, all the information
-                    // required to attest is available on the head state.
-                    current_epoch_attesting_info = Some((
-                        head_state.current_justified_checkpoint(),
-                        head_state
-                            .get_beacon_committee(request_slot, request_index)?
-                            .committee
-                            .len(),
-                    ));
-                    // There is no need to clone the head state, all required information has
-                    // already been obtained.
-                    head_state_clone = None;
-                }
-                // The request is in a *later* epoch than the head state.
-                Ordering::Greater => {
-                    // The justified checkpoint in the head state is not useful in this scenario.
-                    current_epoch_attesting_info = None;
-                    // The head state *is* useful in this this scenario because we can advance it
-                    // into the required epoch.
-                    head_state_clone = Some(Box::new(
-                        head_state.clone_with(CloneConfig::committee_caches_only()),
-                    ));
-                }
-                // The request is in a *earlier* epoch than the head state.
-                Ordering::Less => {
-                    // The justified checkpoint in the head state is not useful in this scenario.
-                    current_epoch_attesting_info = None;
-                    // The head state is not useful in this scenario, we must load an older one from
-                    // disk.
-                    head_state_clone = None;
-                }
-            }
+            current_epoch_attesting_info = if head_state.current_epoch() == request_epoch {
+                // When the head state is in the same epoch as the request, all the information
+                // required to attest is available on the head state.
+                Some((
+                    head_state.current_justified_checkpoint(),
+                    head_state
+                        .get_beacon_committee(request_slot, request_index)?
+                        .committee
+                        .len(),
+                ))
+            } else {
+                // If the head state is in a *different* epoch to the request, more work is required
+                // to determine the justified checkpoint and committee length.
+                None
+            };
 
             // Determine the key for `self.attester_cache`, in case it is required later in this
             // routine.
@@ -1390,7 +1369,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS);
                 self.attester_cache.load_and_cache_state(
                     beacon_state_root,
-                    head_state_clone.map(|boxed| *boxed),
                     attester_cache_key,
                     request_slot,
                     request_index,
