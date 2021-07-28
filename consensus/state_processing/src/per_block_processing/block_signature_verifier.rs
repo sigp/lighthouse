@@ -3,7 +3,7 @@
 use super::signature_sets::{Error as SignatureSetError, *};
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use bls::{verify_signature_sets, PublicKey, SignatureSet};
+use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
@@ -63,27 +63,36 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
 ///
 /// This allows for optimizations related to batch BLS operations (see the
 /// `Self::verify_entire_block(..)` function).
-pub struct BlockSignatureVerifier<'a, T, F>
+pub struct BlockSignatureVerifier<'a, T, F, D>
 where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 {
     get_pubkey: F,
+    decompressor: D,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
     sets: Vec<SignatureSet<'a>>,
 }
 
-impl<'a, T, F> BlockSignatureVerifier<'a, T, F>
+impl<'a, T, F, D> BlockSignatureVerifier<'a, T, F, D>
 where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 {
     /// Create a new verifier without any included signatures. See the `include...` functions to
     /// add signatures, and the `verify`
-    pub fn new(state: &'a BeaconState<T>, get_pubkey: F, spec: &'a ChainSpec) -> Self {
+    pub fn new(
+        state: &'a BeaconState<T>,
+        get_pubkey: F,
+        decompressor: D,
+        spec: &'a ChainSpec,
+    ) -> Self {
         Self {
             get_pubkey,
+            decompressor,
             state,
             spec,
             sets: vec![],
@@ -100,11 +109,12 @@ where
     pub fn verify_entire_block(
         state: &'a BeaconState<T>,
         get_pubkey: F,
+        decompressor: D,
         block: &'a SignedBeaconBlock<T>,
         block_root: Option<Hash256>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
-        let mut verifier = Self::new(state, get_pubkey, spec);
+        let mut verifier = Self::new(state, get_pubkey, decompressor, spec);
         verifier.include_all_signatures(block, block_root)?;
         verifier.verify()
     }
@@ -146,12 +156,7 @@ where
         block_root: Option<Hash256>,
     ) -> Result<()> {
         self.include_block_proposal(block, block_root)?;
-        self.include_randao_reveal(block)?;
-        self.include_proposer_slashings(block)?;
-        self.include_attester_slashings(block)?;
-        self.include_attestations(block)?;
-        // Deposits are not included because they can legally have invalid signatures.
-        self.include_exits(block)?;
+        self.include_all_signatures_except_proposal(block)?;
 
         Ok(())
     }
@@ -168,6 +173,7 @@ where
         self.include_attestations(block)?;
         // Deposits are not included because they can legally have invalid signatures.
         self.include_exits(block)?;
+        self.include_sync_aggregate(block)?;
 
         Ok(())
     }
@@ -307,5 +313,22 @@ where
 
                 Ok(())
             })
+    }
+
+    /// Include the signature of the block's sync aggregate (if it exists) for verification.
+    pub fn include_sync_aggregate(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
+        if let Some(sync_aggregate) = block.message().body().sync_aggregate() {
+            if let Some(signature_set) = sync_aggregate_signature_set(
+                &self.decompressor,
+                sync_aggregate,
+                block.slot(),
+                block.parent_root(),
+                &self.state,
+                &self.spec,
+            )? {
+                self.sets.push(signature_set);
+            }
+        }
+        Ok(())
     }
 }
