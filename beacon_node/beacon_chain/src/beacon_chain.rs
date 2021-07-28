@@ -1285,12 +1285,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if request_slot >= head_state.slot() {
                 // When attesting to the head slot or later, always use the head of the chain.
                 beacon_block_root = head.beacon_block_root;
-                beacon_state_root = head.beacon_state_root();
             } else {
                 // Permit attesting to slots *prior* to the current head. This is desirable when
                 // the VC and BN are out-of-sync due to time issues or overloading.
                 beacon_block_root = *head_state.get_block_root(request_slot)?;
-                beacon_state_root = *head_state.get_state_root(request_slot)?;
             };
 
             let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -1321,6 +1319,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // There is no need to clone the head state, all required information has
                     // already been obtained.
                     head_state_clone = None;
+                    // This value is not required, yet we set it to something sensible nonetheless.
+                    beacon_state_root = *head_state.get_state_root(request_slot)?;
                 }
                 // The request is in a *later* epoch than the head state.
                 Ordering::Greater => {
@@ -1331,6 +1331,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     head_state_clone = Some(Box::new(
                         head_state.clone_with(CloneConfig::committee_caches_only()),
                     ));
+                    // The beacon state being used is that of the head state.
+                    beacon_state_root = head.beacon_state_root();
                 }
                 // The request is in a *earlier* epoch than the head state.
                 Ordering::Less => {
@@ -1339,6 +1341,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // The head state is not useful in this scenario, we must load an older one from
                     // disk.
                     head_state_clone = None;
+                    // This state root will be loaded from the database.
+                    //
+                    // Use the `target_slot` here instead of the `slot` to avoid replaying blocks
+                    // during the database read.
+                    beacon_state_root = *head_state.get_state_root(target_slot)?;
                 }
             }
 
