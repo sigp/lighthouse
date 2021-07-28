@@ -1360,7 +1360,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warn!(
                     self.log,
                     "Attester cache miss";
-                    "beacon_block_root" => %beacon_block_root,
+                    "beacon_block_root" => ?beacon_block_root,
                     "head_state_slot" => %head_state_slot,
                     "request_slot" => %request_slot,
                 );

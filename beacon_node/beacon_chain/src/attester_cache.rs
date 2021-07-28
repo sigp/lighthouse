@@ -3,7 +3,7 @@
 //!
 //! This cache is required *as well as* the `ShufflingCache` since the `ShufflingCache` does not
 //! provide any information about the `state.current_justified_checkpoint`. It is not trivial to add
-//! the justified checkpoint to the `ShufflingCache` since that cache keyed by shuffling decision
+//! the justified checkpoint to the `ShufflingCache` since that cache is keyed by shuffling decision
 //! root, which is not suitable for the justified checkpoint. Whilst we can know the shuffling for
 //! epoch `n` during `n - 1`, we *cannot* know the justified checkpoint. Instead, we *must* perform
 //! `per_epoch_processing` to transform the state from epoch `n - 1` to epoch `n` so that rewards
@@ -73,7 +73,7 @@ impl From<BeaconChainError> for Error {
     }
 }
 
-/// Stores the minimal amount of data required compute the committee length for any committee at any
+/// Stores the minimal amount of data required to compute the committee length for any committee at any
 /// slot in a given `epoch`.
 struct CommitteeLengths {
     /// The `epoch` to which the lengths pertain.
@@ -204,7 +204,7 @@ impl AttesterCacheKey {
     ///
     /// The `latest_block_root` should be the latest block that has been applied to `state`. This
     /// parameter is required since the state does not store the block root for any block with the
-    /// same slot as `slot.slot()`.
+    /// same slot as `state.slot()`.
     ///
     /// ## Errors
     ///
@@ -288,7 +288,7 @@ impl AttesterCache {
     ///
     /// This function takes a write-lock on the internal cache. Prefer attempting a `Self::get` call
     /// before running this function as `Self::get` only takes a read-lock and is therefore less
-    /// likely to create head contention.
+    /// likely to create contention.
     pub fn load_and_cache_state<T: BeaconChainTypes>(
         &self,
         state_root: Hash256,
