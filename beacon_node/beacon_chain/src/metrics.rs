@@ -585,6 +585,12 @@ lazy_static! {
             "The min delay between when the validator should send the sync contribution and when it was received.",
             &["validator"]
         );
+    pub static ref VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_validator_in_current_sync_committee",
+            "Is the validator in the current sync committee (1 for true and 0 for false)",
+            &["validator"]
+        );
 
     /*
      * Validator Monitor Metrics (real-time)

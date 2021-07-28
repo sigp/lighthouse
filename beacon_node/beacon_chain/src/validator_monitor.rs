@@ -381,22 +381,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
-                if let Some(sync_committee) = &self.current_sync_committee {
-                    if sync_committee.contains(pubkey) {
-                        let epoch_summary = monitored_validator.summaries.read();
-                        if let Some(summary) = epoch_summary.get(&prev_epoch) {
-                            let prev_epoch_included_in_block =
-                                summary.sync_signature_block_inclusions;
-                            info!(
-                                self.log,
-                                "Previous epoch sync signatures";
-                                "num_included" => prev_epoch_included_in_block,
-                                "total" => T::slots_per_epoch(),
-                            );
-                        }
-                    }
-                }
-
                 /*
                  * These metrics are reflected differently between Base and Altair.
                  *
@@ -514,11 +498,16 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 // Indicates the number of sync committee signatures that made it into
                 // a sync aggregate in the current_epoch (state.epoch - 1).
                 // Note: Unlike attestations, sync committee signatures must be included in the
-                // immediate next slot. Hence, num_included sync aggregates for `state.epoch - 1`
+                // immediate next slot. Hence, num included sync aggregates for `state.epoch - 1`
                 // is available right after state transition to state.epoch.
                 let current_epoch = epoch - 1;
                 if let Some(sync_committee_indices) = summary.sync_committee_indices() {
                     if sync_committee_indices.contains(&i) {
+                        metrics::set_int_gauge(
+                            &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
+                            &[id],
+                            1,
+                        );
                         let epoch_summary = monitored_validator.summaries.read();
                         if let Some(summary) = epoch_summary.get(&current_epoch) {
                             info!(
@@ -531,6 +520,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             );
                         }
                     } else {
+                        metrics::set_int_gauge(
+                            &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
+                            &[id],
+                            0,
+                        );
                         debug!(
                             self.log,
                             "Validator isn't part of the current sync committee";
