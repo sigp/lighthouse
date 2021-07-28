@@ -13,6 +13,7 @@ pub enum EpochProcessingSummary {
     },
     Altair {
         participation_cache: ParticipationCache,
+        sync_committee_indices: Vec<usize>,
     },
 }
 
@@ -40,12 +41,24 @@ impl EpochProcessingSummary {
         Ok(())
     }
 
+    /// Returns the sync committee indices for the current epoch for altair.
+    pub fn sync_committee_indices(&self) -> Option<&[usize]> {
+        match self {
+            EpochProcessingSummary::Altair {
+                sync_committee_indices,
+                ..
+            } => Some(sync_committee_indices.as_slice()),
+            EpochProcessingSummary::Base { .. } => None,
+        }
+    }
+
     /// Returns the sum of the effective balance of all validators in the current epoch.
     pub fn current_epoch_total_active_balance(&self) -> u64 {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => total_balances.current_epoch(),
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.current_epoch_total_active_balance(),
         }
     }
@@ -59,6 +72,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.current_epoch_target_attesting_balance(),
         }
     }
@@ -69,6 +83,7 @@ impl EpochProcessingSummary {
             EpochProcessingSummary::Base { total_balances, .. } => total_balances.previous_epoch(),
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_total_active_balance(),
         }
     }
@@ -126,6 +141,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_target_attesting_balance(),
         }
     }
@@ -144,6 +160,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_head_attesting_balance(),
         }
     }
@@ -162,6 +179,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_source_attesting_balance(),
         }
     }

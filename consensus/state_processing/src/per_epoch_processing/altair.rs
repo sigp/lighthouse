@@ -30,6 +30,8 @@ pub fn process_epoch<T: EthSpec>(
 
     // Pre-compute participating indices and total balances.
     let participation_cache = ParticipationCache::new(state, spec)?;
+    let current_sync_committee = &state.current_sync_committee()?.clone();
+    let sync_committee_indices = state.get_sync_committee_indices(current_sync_committee)?;
 
     // Justification and finalization.
     process_justification_and_finalization(state, &participation_cache)?;
@@ -75,5 +77,6 @@ pub fn process_epoch<T: EthSpec>(
 
     Ok(EpochProcessingSummary::Altair {
         participation_cache,
+        sync_committee_indices,
     })
 }
