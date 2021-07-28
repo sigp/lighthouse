@@ -1354,10 +1354,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // The suitable values were already cached. Return them.
                 cached_values
             } else {
-                // This scenario is likely to happen occasionally. It is reasonable to drop this to
-                // a `debug!` if it turns out to be frequent and unavoidable. At least whilst the
-                // feature is new it is nice to see if the cache is getting a lot of misses.
-                warn!(
+                debug!(
                     self.log,
                     "Attester cache miss";
                     "beacon_block_root" => ?beacon_block_root,
@@ -2223,12 +2220,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Apply the state to the attester cache, only if it is from the previous epoch or earlier.
+        // Apply the state to the attester cache, only if it is from the previous epoch or later.
         //
         // In a perfect scenario there should be no need to add previous-epoch states to the cache.
         // However, latency between the VC and the BN might cause the VC to produce attestations at
         // a previous slot.
-        if state.current_epoch().saturating_add(2_u64) >= current_epoch {
+        if state.current_epoch().saturating_add(1_u64) >= current_epoch {
             self.attester_cache
                 .maybe_cache_state(&state, block_root, &self.spec)
                 .map_err(BeaconChainError::from)?;

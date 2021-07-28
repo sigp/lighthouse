@@ -189,7 +189,7 @@ impl AttesterCacheValue {
 ///
 /// It is also safe, but not maximally efficient, to key the attester shuffling with the same
 /// strategy. For better shuffling keying strategies, see the `ShufflingCache`.
-#[derive(PartialEq, Hash, Clone, Copy)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy)]
 pub struct AttesterCacheKey {
     /// The epoch from which the justified checkpoint should be observed.
     ///
@@ -235,8 +235,6 @@ impl AttesterCacheKey {
         })
     }
 }
-
-impl Eq for AttesterCacheKey {}
 
 /// Provides a cache for the justified checkpoint and committee length when producing an
 /// attestation.
@@ -355,16 +353,15 @@ impl AttesterCache {
         key: AttesterCacheKey,
         value: AttesterCacheValue,
     ) {
-        if cache.len() >= MAX_CACHE_LEN {
-            while let Some(oldest) = cache
+        while cache.len() >= MAX_CACHE_LEN {
+            if let Some(oldest) = cache
                 .iter()
-                .map(|(key, _)| key)
+                .map(|(key, _)| *key)
                 .min_by_key(|key| key.epoch)
-                // Only return values whilst the cache is full.
-                .filter(|_| cache.len() >= MAX_CACHE_LEN)
-                .copied()
             {
                 cache.remove(&oldest);
+            } else {
+                break;
             }
         }
 
