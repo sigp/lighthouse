@@ -34,7 +34,7 @@ echo "Starting bootnode"
 BOOT_PID=$!
 
 # wait for the bootnode to start
-sleep 5
+sleep 10
 
 echo "Starting local beacon nodes"
 
@@ -69,7 +69,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     echo "Shutting down"
 
     # Cleanup
-    kill $BOOT_PID $BEACON_PID $BEACON2_PID $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $BEACON3_PID
+    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID
 
     echo "Done"
 
@@ -94,7 +94,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     cd $HOME/.lighthouse/local-testnet/node_4/validators
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl localhost:8100/lighthouse/validator_inclusion/2/$val | jq | grep '"is_current_epoch_target_attester": false'
+        curl -s localhost:8100/lighthouse/validator_inclusion/2/$val | jq | grep -q '"is_current_epoch_target_attester": false'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
@@ -109,7 +109,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep '"is_current_epoch_target_attester": true'
+        curl -s localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep -q '"is_current_epoch_target_attester": true'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val attested in epoch 4."
