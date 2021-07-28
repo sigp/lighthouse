@@ -86,15 +86,18 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     VALIDATOR_4_PID=$!
     DOPPELGANGER_FAILURE=0
 
-    # Sleep two epochs, then make sure all validators were NOT active in epoch 2.
-    echo "Waiting two epochs..."
-    sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
+    # Sleep three epochs, then make sure all validators were active in epoch 2. Use
+    # `is_previous_epoch_target_attester` from epoch 3 for a complete view of epoch 2 inclusion.
+    #
+    # See: https://lighthouse-book.sigmaprime.io/validator-inclusion.html
+    echo "Waiting three epochs..."
+    sleep $(( $SECONDS_PER_SLOT * 32 * 3 ))
 
     PREVIOUS_DIR=$(pwd)
     cd $HOME/.lighthouse/local-testnet/node_4/validators
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s localhost:8100/lighthouse/validator_inclusion/2/$val | jq | grep -q '"is_current_epoch_target_attester": false'
+        curl -s localhost:8100/lighthouse/validator_inclusion/3/$val | jq | grep -q '"is_previous_epoch_target_attester": false'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val did not attest in epoch 2."
@@ -104,12 +107,15 @@ if [[ "$BEHAVIOR" == "success" ]]; then
         fi
     done
 
-    # Sleep two epochs, then make sure all validators were active in epoch 4.
+    # Sleep two epochs, then make sure all validators were active in epoch 4. Use
+    # `is_previous_epoch_target_attester` from epoch 5 for a complete view of epoch 4 inclusion.
+    #
+    # See: https://lighthouse-book.sigmaprime.io/validator-inclusion.html
     echo "Waiting two more epochs..."
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
-        curl -s localhost:8100/lighthouse/validator_inclusion/4/$val | jq | grep -q '"is_current_epoch_target_attester": true'
+        curl -s localhost:8100/lighthouse/validator_inclusion/5/$val | jq | grep -q '"is_previous_epoch_target_attester": true'
         IS_ATTESTER=$?
         if [[ $IS_ATTESTER -eq 0 ]]; then
             echo "$val attested in epoch 4."
