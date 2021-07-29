@@ -1,7 +1,7 @@
 use crate::*;
+use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;

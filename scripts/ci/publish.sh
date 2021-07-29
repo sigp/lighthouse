@@ -5,7 +5,7 @@
 set -e
 USAGE="Publish a new release of a lighthouse crate
 USAGE:
-    $(basename "$0") [OPTIONS] [CRATE_PATH] [CRATE] [VERSION]
+    $(basename "$0") [OPTIONS] [CRATE_PATH] [CRATE] [TAG]
 OPTIONS:
     -v, --verbose       Use verbose Cargo output
     -d, --dry-run       Perform a dry run (do not publish the release)
@@ -18,7 +18,16 @@ VERBOSE=""
 
 verify() {
     echo "Verifying if $CRATE v$VERSION can be released"
-    ACTUAL=$(cargo pkgid | sed -n 's/.*:\(.*\)/\1/p')
+
+    # `cargo pkgid` has different formats based on whether the `[lib]` name and `[package]` name
+    # are the same, necessitating the following logic.
+    #
+    # Try to match on `#`
+    ACTUAL=$(cargo pkgid | sed -n 's/.*#\([0-9]\)/\1/p' )
+    if [ -z "$ACTUAL" ]; then
+        # Match on the final `:`
+        ACTUAL=$(cargo pkgid | sed -n 's/.*:\(.*\)/\1/p')
+    fi
 
     if [ "$ACTUAL" != "$VERSION" ]; then
         echo "expected to release version $VERSION, but Cargo.toml contained $ACTUAL"
@@ -54,7 +63,7 @@ case "$1" in
     shift
     ;;
     -*)
-    err "unknown flag \"$1\""
+    echo "unknown flag \"$1\""
     echo "$USAGE"
     exit 1
     ;;
@@ -63,10 +72,11 @@ case "$1" in
         CRATE_PATH="$1"
     elif [ -z "$CRATE" ]; then
         CRATE="$1"
-    elif [ -z "$VERSION" ]; then
-        VERSION="$1"
+    elif [ -z "$TAG" ]; then
+        TAG="$1"
+        VERSION=$(sed -e 's#.*-v\([0-9]\)#\1#' <<< "$TAG")
     else
-        err "unknown positional argument \"$1\""
+        echo "unknown positional argument \"$1\""
         echo "$USAGE"
         exit 1
     fi
@@ -77,12 +87,12 @@ done
 # set -- "${POSITIONAL[@]}"
 
 if [ -z "$VERSION" ]; then
-    err "no version specified!"
+    echo "no version specified!"
     HELP=1
 fi
 
 if [ -z "$CRATE" ]; then
-    err "no crate specified!"
+    echo "no crate specified!"
     HELP=1
 fi
 
@@ -94,6 +104,6 @@ fi
 if [ -d "$CRATE_PATH" ]; then
     (cd "$CRATE_PATH" && verify && release )
 else
-    err "no such dir \"$CRATE_PATH\""
+    echo "no such dir \"$CRATE_PATH\""
     exit 1
 fi
