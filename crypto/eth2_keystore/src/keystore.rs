@@ -377,7 +377,7 @@ pub fn encrypt(
 
     password.retain(|c| !is_control_character(c));
 
-    let derived_key = derive_key(&password.as_ref(), &kdf)?;
+    let derived_key = derive_key(password.as_ref(), kdf)?;
 
     // Encrypt secret.
     let mut cipher_text = plain_text.to_vec();
@@ -389,7 +389,7 @@ pub fn encrypt(
             // AES Encrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = AesCtr::new(&key, &nonce);
+            let mut cipher = AesCtr::new(key, nonce);
             cipher.apply_keystream(&mut cipher_text);
         }
     };
@@ -435,7 +435,7 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
             // AES Decrypt
             let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
             let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = AesCtr::new(&key, &nonce);
+            let mut cipher = AesCtr::new(key, nonce);
             cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };

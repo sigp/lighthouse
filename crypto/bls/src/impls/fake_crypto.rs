@@ -146,7 +146,7 @@ impl TAggregateSignature<PublicKey, AggregatePublicKey, Signature> for Aggregate
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         let mut key = [0; SIGNATURE_BYTES_LEN];
 
-        key[..].copy_from_slice(&bytes);
+        key[..].copy_from_slice(bytes);
 
         Ok(Self(key))
     }

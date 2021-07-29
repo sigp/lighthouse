@@ -60,7 +60,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
         return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    let deltas = get_attestation_deltas(state, &validator_statuses, spec)?;
+    let deltas = get_attestation_deltas(state, validator_statuses, spec)?;
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).

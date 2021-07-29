@@ -51,7 +51,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(BEACON_SERVER_FLAG)
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to a beacon node HTTP API")
-                .default_value(&DEFAULT_BEACON_NODE)
+                .default_value(DEFAULT_BEACON_NODE)
                 .takes_value(true),
         )
         .arg(

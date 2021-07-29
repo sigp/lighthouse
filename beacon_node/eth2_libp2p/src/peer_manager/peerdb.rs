@@ -319,7 +319,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let mut by_status = self
             .peers
             .iter()
-            .filter(|(_, info)| is_status(&info))
+            .filter(|(_, info)| is_status(info))
             .collect::<Vec<_>>();
         by_status.sort_by_key(|(_, info)| info.score());
         by_status.into_iter().rev().collect()
@@ -332,7 +332,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     {
         self.peers
             .iter()
-            .filter(|(_, info)| is_status(&info))
+            .filter(|(_, info)| is_status(info))
             .max_by_key(|(_, info)| info.score())
             .map(|(id, _)| id)
     }
@@ -1066,7 +1066,7 @@ mod tests {
         let mut socker_addr = Multiaddr::from(ip2);
         socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
-            pdb.connect_ingoing(&p, socker_addr.clone(), None);
+            pdb.connect_ingoing(p, socker_addr.clone(), None);
             pdb.disconnect_and_ban(p);
             pdb.inject_disconnect(p);
             pdb.disconnect_and_ban(p);
@@ -1078,7 +1078,7 @@ mod tests {
 
         // unban all peers
         for p in &peers {
-            reset_score(&mut pdb, &p);
+            reset_score(&mut pdb, p);
             pdb.unban(p).unwrap();
         }
 

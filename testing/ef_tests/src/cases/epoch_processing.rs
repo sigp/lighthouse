@@ -129,8 +129,8 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => {
-                let mut validator_statuses = base::ValidatorStatuses::new(&state, spec)?;
-                validator_statuses.process_attestations(&state)?;
+                let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
+                validator_statuses.process_attestations(state)?;
                 process_slashings(
                     state,
                     validator_statuses.total_balances.current_epoch(),

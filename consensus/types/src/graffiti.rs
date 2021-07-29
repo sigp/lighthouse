@@ -84,7 +84,7 @@ impl Into<Graffiti> for GraffitiString {
         graffiti
             .get_mut(..graffiti_len)
             .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
-            .copy_from_slice(&graffiti_bytes);
+            .copy_from_slice(graffiti_bytes);
         graffiti.into()
     }
 }

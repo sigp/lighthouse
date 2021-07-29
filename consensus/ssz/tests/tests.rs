@@ -9,7 +9,7 @@ mod round_trip {
         for item in items {
             let encoded = &item.as_ssz_bytes();
             assert_eq!(item.ssz_bytes_len(), encoded.len());
-            assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
+            assert_eq!(T::from_ssz_bytes(encoded), Ok(item));
         }
     }
 

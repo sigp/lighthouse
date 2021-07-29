@@ -278,6 +278,7 @@ impl<T: EthSpec> From<DBError> for BlockError<T> {
 }
 
 /// Information about invalid blocks which might still be slashable despite being invalid.
+#[allow(clippy::enum_variant_names)]
 pub enum BlockSlashInfo<TErr> {
     /// The block is invalid, but its proposer signature wasn't checked.
     SignatureNotChecked(SignedBeaconBlockHeader, TErr),
@@ -837,7 +838,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        &self
+        self
     }
 }
 
@@ -996,7 +997,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 for (i, summary) in summaries.iter().enumerate() {
                     let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
                     if let Err(e) =
-                        validator_monitor.process_validator_statuses(epoch, &summary, &chain.spec)
+                        validator_monitor.process_validator_statuses(epoch, summary, &chain.spec)
                     {
                         error!(
                             chain.log,
@@ -1204,7 +1205,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     // Do not process a block from a finalized slot.
     check_block_against_finalized_slot(block, chain)?;
 
-    let block_root = block_root.unwrap_or_else(|| get_block_root(&signed_block));
+    let block_root = block_root.unwrap_or_else(|| get_block_root(signed_block));
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.

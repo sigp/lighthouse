@@ -114,7 +114,7 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
         Language::English,
     );
 
-    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)?;
+    let wallet = create_wallet_from_mnemonic(matches, wallet_base_dir.as_path(), &mnemonic)?;
 
     if let Some(path) = mnemonic_output_path {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
@@ -168,7 +168,7 @@ pub fn create_wallet_from_mnemonic(
             if !path.exists() {
                 // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
                 // create a file with that name, we require that the password has a .pass suffix.
-                if path.extension() != Some(&OsStr::new("pass")) {
+                if path.extension() != Some(OsStr::new("pass")) {
                     return Err(format!(
                         "Only creates a password file if that file ends in .pass: {:?}",
                         path
@@ -189,7 +189,7 @@ pub fn create_wallet_from_mnemonic(
         .create_wallet(
             wallet_name,
             wallet_type,
-            &mnemonic,
+            mnemonic,
             wallet_password.as_bytes(),
         )
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;

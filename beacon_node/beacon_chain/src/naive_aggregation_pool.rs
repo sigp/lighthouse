@@ -574,7 +574,7 @@ mod tests {
     }
 
     fn key_from_sync_contribution(a: &SyncCommitteeContribution<E>) -> SyncContributionData {
-        SyncContributionData::from_contribution(&a)
+        SyncContributionData::from_contribution(a)
     }
 
     macro_rules! test_suite {
