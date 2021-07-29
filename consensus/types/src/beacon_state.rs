@@ -21,7 +21,10 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-pub use self::committee_cache::CommitteeCache;
+pub use self::committee_cache::{
+    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
+    CommitteeCache,
+};
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -1310,8 +1313,20 @@ impl<T: EthSpec> BeaconState<T> {
         let epoch = relative_epoch.into_epoch(self.current_epoch());
         let i = Self::committee_cache_index(relative_epoch);
 
-        *self.committee_cache_at_index_mut(i)? = CommitteeCache::initialized(&self, epoch, spec)?;
+        *self.committee_cache_at_index_mut(i)? = self.initialize_committee_cache(epoch, spec)?;
         Ok(())
+    }
+
+    /// Initializes a new committee cache for the given `epoch`, regardless of whether one already
+    /// exists. Returns the committee cache without attaching it to `self`.
+    ///
+    /// To build a cache and store it on `self`, use `Self::build_committee_cache`.
+    pub fn initialize_committee_cache(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<CommitteeCache, Error> {
+        CommitteeCache::initialized(&self, epoch, spec)
     }
 
     /// Advances the cache for this state into the next epoch.

@@ -321,6 +321,12 @@ fn advance_head<T: BeaconChainTypes>(
         );
     }
 
+    // Apply the state to the attester cache, if the cache deems it interesting.
+    beacon_chain
+        .attester_cache
+        .maybe_cache_state(&state, head_root, &beacon_chain.spec)
+        .map_err(BeaconChainError::from)?;
+
     let final_slot = state.slot();
 
     // Insert the advanced state back into the snapshot cache.

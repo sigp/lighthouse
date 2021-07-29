@@ -2,6 +2,7 @@ use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
 };
+use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -289,6 +290,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
+    /// A cache used when producing attestations.
+    pub(crate) attester_cache: Arc<AttesterCache>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -1217,44 +1220,174 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// validator that is in the committee for `slot` and `index` in the canonical chain.
     ///
     /// Always attests to the canonical chain.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if the `request_slot` is too far behind the head state.
     pub fn produce_unaggregated_attestation(
         &self,
-        slot: Slot,
-        index: CommitteeIndex,
+        request_slot: Slot,
+        request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        // Note: we're taking a lock on the head. The work involved here should be trivial enough
-        // that the lock should not be held for long.
-        let head = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or(Error::CanonicalHeadLockTimeout)?;
+        let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
 
-        if slot >= head.beacon_block.slot() {
-            self.produce_unaggregated_attestation_for_block(
-                slot,
-                index,
-                head.beacon_block_root,
-                Cow::Borrowed(&head.beacon_state),
-                head.beacon_state_root(),
-            )
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let request_epoch = request_slot.epoch(slots_per_epoch);
+
+        /*
+         * Phase 1/2:
+         *
+         * Take a short-lived read-lock on the head and copy the necessary information from it.
+         *
+         * It is important that this first phase is as quick as possible; creating contention for
+         * the head-lock is not desirable.
+         */
+
+        let head_state_slot;
+        let beacon_block_root;
+        let beacon_state_root;
+        let target;
+        let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
+        let attester_cache_key;
+        let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
+        if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
+            let head_state = &head.beacon_state;
+            head_state_slot = head_state.slot();
+
+            // There is no value in producing an attestation to a block that is pre-finalization and
+            // it is likely to cause expensive and pointless reads to the freezer database. Exit
+            // early if this is the case.
+            let finalized_slot = head_state
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(slots_per_epoch);
+            if request_slot < finalized_slot {
+                return Err(Error::AttestingToFinalizedSlot {
+                    finalized_slot,
+                    request_slot,
+                });
+            }
+
+            // This function will eventually fail when trying to access a slot which is
+            // out-of-bounds of `state.block_roots`. This explicit error is intended to provide a
+            // clearer message to the user than an ambiguous `SlotOutOfBounds` error.
+            let slots_per_historical_root = T::EthSpec::slots_per_historical_root() as u64;
+            let lowest_permissible_slot =
+                head_state.slot().saturating_sub(slots_per_historical_root);
+            if request_slot < lowest_permissible_slot {
+                return Err(Error::AttestingToAncientSlot {
+                    lowest_permissible_slot,
+                    request_slot,
+                });
+            }
+
+            if request_slot >= head_state.slot() {
+                // When attesting to the head slot or later, always use the head of the chain.
+                beacon_block_root = head.beacon_block_root;
+                beacon_state_root = head.beacon_state_root();
+            } else {
+                // Permit attesting to slots *prior* to the current head. This is desirable when
+                // the VC and BN are out-of-sync due to time issues or overloading.
+                beacon_block_root = *head_state.get_block_root(request_slot)?;
+                beacon_state_root = *head_state.get_state_root(request_slot)?;
+            };
+
+            let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if head_state.slot() <= target_slot {
+                // If the state is earlier than the target slot then the target *must* be the head
+                // block root.
+                beacon_block_root
+            } else {
+                *head_state.get_block_root(target_slot)?
+            };
+            target = Checkpoint {
+                epoch: request_epoch,
+                root: target_root,
+            };
+
+            current_epoch_attesting_info = if head_state.current_epoch() == request_epoch {
+                // When the head state is in the same epoch as the request, all the information
+                // required to attest is available on the head state.
+                Some((
+                    head_state.current_justified_checkpoint(),
+                    head_state
+                        .get_beacon_committee(request_slot, request_index)?
+                        .committee
+                        .len(),
+                ))
+            } else {
+                // If the head state is in a *different* epoch to the request, more work is required
+                // to determine the justified checkpoint and committee length.
+                None
+            };
+
+            // Determine the key for `self.attester_cache`, in case it is required later in this
+            // routine.
+            attester_cache_key =
+                AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         } else {
-            // We disallow producing attestations *prior* to the current head since such an
-            // attestation would require loading a `BeaconState` from disk. Loading `BeaconState`
-            // from disk is very resource intensive and proposes a DoS risk from validator clients.
-            //
-            // Although we generally allow validator clients to do things that might harm us (i.e.,
-            // we trust them), sometimes we need to protect the BN from accidental errors which
-            // could cause it significant harm.
-            //
-            // This case is particularity harmful since the HTTP API can effectively call this
-            // function an unlimited amount of times. If `n` validators all happen to call it at
-            // the same time, we're going to load `n` states (and tree hash caches) into memory all
-            // at once. With `n >= 10` we're looking at hundreds of MB or GBs of RAM.
-            Err(Error::AttestingPriorToHead {
-                head_slot: head.beacon_block.slot(),
-                request_slot: slot,
-            })
+            return Err(Error::CanonicalHeadLockTimeout);
         }
+        drop(head_timer);
+
+        /*
+         *  Phase 2/2:
+         *
+         *  If the justified checkpoint and committee length from the head are suitable for this
+         *  attestation, use them. If not, try the attester cache. If the cache misses, load a state
+         *  from disk and prime the cache with it.
+         */
+
+        let cache_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS);
+        let (justified_checkpoint, committee_len) =
+            if let Some((justified_checkpoint, committee_len)) = current_epoch_attesting_info {
+                // The head state is in the same epoch as the attestation, so there is no more
+                // required information.
+                (justified_checkpoint, committee_len)
+            } else if let Some(cached_values) = self.attester_cache.get::<T::EthSpec>(
+                &attester_cache_key,
+                request_slot,
+                request_index,
+                &self.spec,
+            )? {
+                // The suitable values were already cached. Return them.
+                cached_values
+            } else {
+                debug!(
+                    self.log,
+                    "Attester cache miss";
+                    "beacon_block_root" => ?beacon_block_root,
+                    "head_state_slot" => %head_state_slot,
+                    "request_slot" => %request_slot,
+                );
+
+                // Neither the head state, nor the attester cache was able to produce the required
+                // information to attest in this epoch. So, load a `BeaconState` from disk and use
+                // it to fulfil the request (and prime the cache to avoid this next time).
+                let _cache_build_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS);
+                self.attester_cache.load_and_cache_state(
+                    beacon_state_root,
+                    attester_cache_key,
+                    request_slot,
+                    request_index,
+                    &self,
+                )?
+            };
+        drop(cache_timer);
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot: request_slot,
+                index: request_index,
+                beacon_block_root,
+                source: justified_checkpoint,
+                target,
+            },
+            signature: AggregateSignature::empty(),
+        })
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
@@ -2023,6 +2156,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = fully_verified_block.block_root;
         let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let mut ops = fully_verified_block.confirmation_db_batch;
 
         let attestation_observation_timer =
@@ -2084,6 +2218,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::AttestationCacheLockTimeout)?
                     .insert(shuffling_id, committee_cache);
             }
+        }
+
+        // Apply the state to the attester cache, only if it is from the previous epoch or later.
+        //
+        // In a perfect scenario there should be no need to add previous-epoch states to the cache.
+        // However, latency between the VC and the BN might cause the VC to produce attestations at
+        // a previous slot.
+        if state.current_epoch().saturating_add(1_u64) >= current_epoch {
+            self.attester_cache
+                .maybe_cache_state(&state, block_root, &self.spec)
+                .map_err(BeaconChainError::from)?;
         }
 
         let mut fork_choice = self.fork_choice.write();
@@ -2935,6 +3080,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        self.attester_cache
+            .prune_below(new_finalized_checkpoint.epoch);
 
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_finalized_subscribers() {
