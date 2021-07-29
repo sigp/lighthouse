@@ -14,6 +14,7 @@
 
 #[macro_use]
 mod macros;
+mod metrics;
 
 pub mod common;
 pub mod genesis;

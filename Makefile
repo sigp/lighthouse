@@ -95,7 +95,7 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches
 
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic
+# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
 check-consensus:
 	cargo check --manifest-path=consensus/state_processing/Cargo.toml --no-default-features
 

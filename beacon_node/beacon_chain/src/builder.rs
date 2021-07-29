@@ -547,6 +547,7 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             beacon_proposer_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            attester_cache: <_>::default(),
             disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender
@@ -560,6 +561,16 @@ where
         let head = beacon_chain
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
+        // Prime the attester cache with the head state.
+        beacon_chain
+            .attester_cache
+            .maybe_cache_state(
+                &head.beacon_state,
+                head.beacon_block_root,
+                &beacon_chain.spec,
+            )
+            .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {

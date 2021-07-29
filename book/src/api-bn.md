@@ -3,8 +3,6 @@
 Lighthouse implements the standard [Eth2 Beacon Node API
 specification][OpenAPI]. Please follow that link for a full description of each API endpoint.
 
-> **Warning:** the standard API specification is still in flux and the Lighthouse implementation is partially incomplete. You can track the status of each endpoint at [#1434](https://github.com/sigp/lighthouse/issues/1434).
-
 ## Starting the server
 
 A Lighthouse beacon node can be configured to expose a HTTP server by supplying the `--http` flag. The default listen address is `127.0.0.1:5052`.
@@ -14,7 +12,8 @@ The following CLI flags control the HTTP server:
 - `--http`: enable the HTTP server (required even if the following flags are
 	provided).
 - `--http-port`: specify the listen port of the server.
-- `--http-address`: specify the listen address of the server.
+- `--http-address`: specify the listen address of the server. It is _not_ recommended to listen
+     on `0.0.0.0`, please see [Security](#security) below.
 - `--http-allow-origin`: specify the value of the `Access-Control-Allow-Origin`
 		header. The default is to not supply a header.
 
@@ -22,7 +21,34 @@ The schema of the API aligns with the standard Eth2 Beacon Node API as defined
 at [github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs).
 An interactive specification is available [here][OpenAPI].
 
-### CLI Example
+## Security
+
+**Do not** expose the beacon node API to the public internet or you will open your node to
+denial-of-service (DoS) attacks.
+
+The API includes several endpoints which can be used to trigger heavy processing, and as
+such it is strongly recommended to restrict how it is accessed. Using `--http-address` to change
+the listening address from `localhost` should only be done with extreme care.
+
+To safely provide access to the API from a different machine you should use one of the following
+standard techniques:
+
+* Use an [SSH tunnel][ssh_tunnel], i.e. access `localhost` remotely. This is recommended, and
+  doesn't require setting `--http-address`.
+* Use a firewall to limit access to certain remote IPs, e.g. allow access only from one other
+  machine on the local network.
+* Shield Lighthouse behind an HTTP server with rate-limiting such as NGINX. This is only
+  recommended for advanced users, e.g. beacon node hosting providers.
+
+Additional risks to be aware of include:
+
+* The `node/identity` and `node/peers` endpoints expose information about your node's peer-to-peer
+  identity.
+* The `--http-allow-origin` flag changes the server's CORS policy, allowing cross-site requests
+  from browsers. You should only supply it if you understand the risks, e.g. malicious websites
+  accessing your beacon node if you use the same machine for staking and web browsing.
+
+## CLI Example
 
 Start the beacon node with the HTTP server listening on [http://localhost:5052](http://localhost:5052):
 
@@ -128,3 +154,4 @@ lighthouse bn --http --http-allow-origin "*"
 > Only use it in production if you understand the risks of a loose CORS policy.
 
 [OpenAPI]: https://ethereum.github.io/eth2.0-APIs/#/
+[ssh_tunnel]: https://www.ssh.com/academy/ssh/tunneling/example

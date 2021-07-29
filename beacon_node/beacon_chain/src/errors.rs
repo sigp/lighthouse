@@ -1,3 +1,4 @@
+use crate::attester_cache::Error as AttesterCacheError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::eth1_chain::Error as Eth1ChainError;
@@ -91,6 +92,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
+    AttesterCacheError(AttesterCacheError),
     PruningError(PruningError),
     ArithError(ArithError),
     InvalidShufflingId {
@@ -99,8 +101,12 @@ pub enum BeaconChainError {
     },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<ShutdownReason>),
-    AttestingPriorToHead {
-        head_slot: Slot,
+    AttestingToFinalizedSlot {
+        finalized_slot: Slot,
+        request_slot: Slot,
+    },
+    AttestingToAncientSlot {
+        lowest_permissible_slot: Slot,
         request_slot: Slot,
     },
     BadPreState {
@@ -137,6 +143,7 @@ easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
+easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
