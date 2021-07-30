@@ -3,7 +3,7 @@
 //!
 //! The mechanism works roughly like so: when the validator client starts or a new validator is
 //! added, that validator is assigned a number of "remaining epochs". The doppelganger service
-//! periodically poll the beacon node to if that validator has been observed to produce
+//! periodically polls the beacon node to see if that validator has been observed to produce
 //! blocks/attestations in each epoch. After the doppelganger service is confident that an epoch has
 //! passed without observing that validator, it will decrease the remaining epochs by one. Once the
 //! remaining epochs is zero, the doppelganger will consider that validator to be safe-enough to
