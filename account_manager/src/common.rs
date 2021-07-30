@@ -19,7 +19,7 @@ pub fn read_mnemonic_from_cli(
             .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))
             .and_then(|bytes| {
                 let bytes_no_newlines: PlainText = strip_off_newlines(bytes).into();
-                let phrase = from_utf8(&bytes_no_newlines.as_ref())
+                let phrase = from_utf8(bytes_no_newlines.as_ref())
                     .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
                 Mnemonic::from_phrase(phrase, Language::English).map_err(|e| {
                     format!(

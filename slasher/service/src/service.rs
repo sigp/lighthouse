@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             // Publish to the network if broadcast is enabled.
             if slasher.config().broadcast {
                 if let Err(e) =
-                    Self::publish_attester_slashing(&beacon_chain, &network_sender, slashing)
+                    Self::publish_attester_slashing(beacon_chain, network_sender, slashing)
                 {
                     debug!(
                         log,
@@ -267,7 +267,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
             if slasher.config().broadcast {
                 if let Err(e) =
-                    Self::publish_proposer_slashing(&beacon_chain, &network_sender, slashing)
+                    Self::publish_proposer_slashing(beacon_chain, network_sender, slashing)
                 {
                     debug!(
                         log,

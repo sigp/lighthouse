@@ -20,7 +20,7 @@ pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Resu
         loop {
             if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
                 sleep(duration_to_next_slot + slot_duration / 2).await;
-                notify(&duties_service, &log).await;
+                notify(&duties_service, log).await;
             } else {
                 error!(log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.

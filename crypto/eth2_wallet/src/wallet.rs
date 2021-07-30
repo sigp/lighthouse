@@ -138,7 +138,7 @@ impl Wallet {
         name: String,
         nextaccount: u32,
     ) -> Result<Self, Error> {
-        let (cipher_text, checksum) = encrypt(&seed, &password, &kdf, &cipher)?;
+        let (cipher_text, checksum) = encrypt(seed, password, &kdf, &cipher)?;
 
         Ok(Self {
             json: JsonWallet {
@@ -192,7 +192,7 @@ impl Wallet {
         // incrementing `nextaccount`.
         let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, Error> {
             let (secret, path) =
-                recover_validator_secret(&self, wallet_password, self.json.nextaccount, key_type)?;
+                recover_validator_secret(self, wallet_password, self.json.nextaccount, key_type)?;
 
             let keypair = keypair_from_secret(secret.as_bytes())?;
 

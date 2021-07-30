@@ -778,7 +778,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
-            if peerdb.is_banned(&peer_id) {
+            if peerdb.is_banned(peer_id) {
                 // don't connect if the peer is banned
                 slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }
@@ -952,7 +952,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// previous bans from discovery.
     fn unban_peer(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
         let mut peer_db = self.network_globals.peers.write();
-        peer_db.unban(&peer_id)?;
+        peer_db.unban(peer_id)?;
 
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)

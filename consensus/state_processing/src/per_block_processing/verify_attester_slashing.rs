@@ -33,9 +33,9 @@ pub fn verify_attester_slashing<T: EthSpec>(
         Invalid::NotSlashable
     );
 
-    is_valid_indexed_attestation(state, &attestation_1, verify_signatures, spec)
+    is_valid_indexed_attestation(state, attestation_1, verify_signatures, spec)
         .map_err(|e| error(Invalid::IndexedAttestation1Invalid(e)))?;
-    is_valid_indexed_attestation(state, &attestation_2, verify_signatures, spec)
+    is_valid_indexed_attestation(state, attestation_2, verify_signatures, spec)
         .map_err(|e| error(Invalid::IndexedAttestation2Invalid(e)))?;
 
     Ok(())

@@ -410,7 +410,7 @@ pub fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
             PubsubMessage::Attestation(subnet_id) => {
                 inc_counter_vec(
                     &ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT,
-                    &[&subnet_id.0.as_ref()],
+                    &[subnet_id.0.as_ref()],
                 );
                 inc_counter(&GOSSIP_UNAGGREGATED_ATTESTATIONS_TX)
             }
@@ -577,7 +577,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
 
     // mesh peers
     for topic_hash in gossipsub.topics() {
-        let peers = gossipsub.mesh_peers(&topic_hash).count();
+        let peers = gossipsub.mesh_peers(topic_hash).count();
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
@@ -633,7 +633,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             match topic.kind() {
                 GossipKind::BeaconBlock => {
-                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
                         if let Some(client) = peer_to_client.get(peer) {
                             if let Some(v) =
                                 get_int_gauge(&BEACON_BLOCK_MESH_PEERS_PER_CLIENT, &[client])
@@ -644,7 +644,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     }
                 }
                 GossipKind::BeaconAggregateAndProof => {
-                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
                         if let Some(client) = peer_to_client.get(peer) {
                             if let Some(v) = get_int_gauge(
                                 &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,

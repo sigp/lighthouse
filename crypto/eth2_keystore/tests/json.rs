@@ -41,7 +41,7 @@ fn scrypt_reference() {
         }
         "#;
 
-    assert!(Keystore::from_json_str(&vector).is_ok());
+    assert!(Keystore::from_json_str(vector).is_ok());
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn pbkdf2_reference() {
         }
         "#;
 
-    assert!(Keystore::from_json_str(&vector).is_ok());
+    assert!(Keystore::from_json_str(vector).is_ok());
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn additional_top_level_key() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -162,7 +162,7 @@ fn additional_cipher_key() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -205,7 +205,7 @@ fn additional_checksum_key() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -248,7 +248,7 @@ fn additional_kdf_key() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -291,7 +291,7 @@ fn additional_crypto_key() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -333,7 +333,7 @@ fn bad_version() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -377,7 +377,7 @@ fn json_bad_checksum() {
         "#;
 
     assert_eq!(
-        Keystore::from_json_str(&vector)
+        Keystore::from_json_str(vector)
             .unwrap()
             .decrypt_keypair("testpassword".as_bytes())
             .err()
@@ -422,7 +422,7 @@ fn kdf_function() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -463,7 +463,7 @@ fn missing_scrypt_param() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -506,7 +506,7 @@ fn additional_scrypt_param() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -548,7 +548,7 @@ fn checksum_function() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -592,7 +592,7 @@ fn checksum_params() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -634,7 +634,7 @@ fn kdf_message() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -676,7 +676,7 @@ fn cipher_function() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -719,7 +719,7 @@ fn additional_cipher_param() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -759,7 +759,7 @@ fn missing_cipher_param() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -800,7 +800,7 @@ fn missing_pubkey() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -841,7 +841,7 @@ fn missing_path() {
         }
         "#;
 
-    assert!(Keystore::from_json_str(&vector).is_ok());
+    assert!(Keystore::from_json_str(vector).is_ok());
 }
 
 #[test]
@@ -879,7 +879,7 @@ fn missing_version() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -920,7 +920,7 @@ fn pbkdf2_bad_hmac() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -962,7 +962,7 @@ fn pbkdf2_additional_parameter() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -1002,7 +1002,7 @@ fn pbkdf2_missing_parameter() {
         }
         "#;
 
-    match Keystore::from_json_str(&vector) {
+    match Keystore::from_json_str(vector) {
         Err(Error::InvalidJson(_)) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -1045,5 +1045,5 @@ fn name_field() {
         }
         "#;
 
-    assert!(Keystore::from_json_str(&vector).is_ok());
+    assert!(Keystore::from_json_str(vector).is_ok());
 }

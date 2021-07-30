@@ -183,7 +183,7 @@ impl Config {
                 // Copy the provided bytes over.
                 //
                 // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-                graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
+                graffiti[..graffiti_bytes.len()].copy_from_slice(graffiti_bytes);
 
                 config.graffiti = Some(graffiti.into());
             }

@@ -131,8 +131,8 @@ impl MonitoringHttpClient {
         let freezer_db_path = self.db_path.as_ref().ok_or_else(|| {
             Error::BeaconMetricsFailed("Beacon metrics require freezer db path".to_string())
         })?;
-        let metrics = gather_beacon_metrics(&db_path, &freezer_db_path)
-            .map_err(Error::BeaconMetricsFailed)?;
+        let metrics =
+            gather_beacon_metrics(db_path, freezer_db_path).map_err(Error::BeaconMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::BeaconNode),
             process_metrics: Process::Beacon(metrics),

@@ -489,7 +489,7 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<&[usize], Error> {
         let cache = self.committee_cache(relative_epoch)?;
 
-        Ok(&cache.active_validator_indices())
+        Ok(cache.active_validator_indices())
     }
 
     /// Returns the active validator indices for the given epoch.
@@ -770,7 +770,7 @@ impl<T: EthSpec> BeaconState<T> {
             .pubkeys
             .iter()
             .map(|pubkey| {
-                self.get_validator_index(&pubkey)?
+                self.get_validator_index(pubkey)?
                     .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
@@ -1326,7 +1326,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<CommitteeCache, Error> {
-        CommitteeCache::initialized(&self, epoch, spec)
+        CommitteeCache::initialized(self, epoch, spec)
     }
 
     /// Advances the cache for this state into the next epoch.
@@ -1438,7 +1438,7 @@ impl<T: EthSpec> BeaconState<T> {
         if let Some(mut cache) = cache {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_tree_hash_root(&self)?;
+            let root = cache.recalculate_tree_hash_root(self)?;
             self.tree_hash_cache_mut().restore(cache);
             Ok(root)
         } else {

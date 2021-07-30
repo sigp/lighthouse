@@ -84,7 +84,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         context: RuntimeContext<T>,
         cli_args: &ArgMatches<'_>,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(&cli_args, context.log())
+        let config = Config::from_cli(cli_args, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }

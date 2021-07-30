@@ -71,7 +71,7 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
-    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)
+    let wallet = create_wallet_from_mnemonic(matches, wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     println!("Your wallet has been successfully recovered.");

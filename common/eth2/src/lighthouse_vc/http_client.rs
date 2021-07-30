@@ -35,7 +35,7 @@ pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
         &secret[SECRET_PREFIX.len()..]
     };
 
-    eth2_serde_utils::hex::decode(&secret)
+    eth2_serde_utils::hex::decode(secret)
         .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
         .and_then(|bytes| {
             if bytes.len() != PK_LEN {

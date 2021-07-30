@@ -448,7 +448,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let head_block = verify_head_block_is_known(chain, &attestation, None)?;
+        let head_block = verify_head_block_is_known(chain, attestation, None)?;
 
         // Check the attestation target root is consistent with the head root.
         //
@@ -457,7 +457,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Whilst this attestation *technically* could be used to add value to a block, it is
         // invalid in the spirit of the protocol. Here we choose safety over profit.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
 
         // Ensure that the attestation has participants.
         if attestation.aggregation_bits.is_zero() {
@@ -628,7 +628,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, &attestation)?;
+        verify_propagation_slot_range(chain, attestation)?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -642,10 +642,10 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         //
         // Enforce a maximum skip distance for unaggregated attestations.
         let head_block =
-            verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
+            verify_head_block_is_known(chain, attestation, chain.config.import_max_skip_slots)?;
 
         // Check the attestation target root is consistent with the head root.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
 
         Ok(())
     }
@@ -927,7 +927,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
         &indexed_attestation.signature,
-        &indexed_attestation,
+        indexed_attestation,
         &fork,
         chain.genesis_validators_root,
         &chain.spec,
@@ -1031,7 +1031,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &signed_aggregate,
+            signed_aggregate,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -1039,7 +1039,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_aggregate_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &signed_aggregate,
+            signed_aggregate,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -1048,7 +1048,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         indexed_attestation_signature_set_from_pubkeys(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &indexed_attestation.signature,
-            &indexed_attestation,
+            indexed_attestation,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -1069,7 +1069,7 @@ fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
-        get_indexed_attestation(committee.committee, &attestation)
+        get_indexed_attestation(committee.committee, attestation)
             .map(|attestation| (attestation, committees_per_slot))
             .map_err(Error::Invalid)
     })

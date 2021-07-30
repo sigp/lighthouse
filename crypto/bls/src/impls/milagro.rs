@@ -82,7 +82,7 @@ impl TPublicKey for milagro::PublicKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        Self::from_bytes(bytes).map_err(Into::into)
     }
 }
 
@@ -189,6 +189,6 @@ impl TSecretKey<milagro::Signature, milagro::PublicKey> for milagro::SecretKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        Self::from_bytes(bytes).map_err(Into::into)
     }
 }

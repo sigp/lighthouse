@@ -221,7 +221,7 @@ mod test {
     use crate::ZERO_HASHES_MAX_INDEX;
 
     pub fn reference_root(bytes: &[u8]) -> Hash256 {
-        crate::merkleize_standard(&bytes)
+        crate::merkleize_standard(bytes)
     }
 
     macro_rules! common_tests {
@@ -322,7 +322,7 @@ mod test {
 
         assert_eq!(
             reference_root(&reference_input),
-            merkleize_padded(&input, min_nodes),
+            merkleize_padded(input, min_nodes),
             "input.len(): {:?}",
             input.len()
         );
