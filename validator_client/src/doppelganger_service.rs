@@ -49,7 +49,7 @@ use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 pub enum DoppelgangerStatus {
     /// Doppelganger protection has approved this for signing.
     ///
-    /// This is because the service is disabled, or the service has waited some period of time to
+    /// This is because the service has waited some period of time to
     /// detect other instances of this key on the network.
     SigningEnabled(PublicKeyBytes),
     /// Doppelganger protection is still waiting to detect other instances.
