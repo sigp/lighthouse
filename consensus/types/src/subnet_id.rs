@@ -24,7 +24,7 @@ pub struct SubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 pub fn subnet_id_to_string(i: u64) -> &'static str {
     if i < MAX_SUBNET_ID as u64 {
-        &SUBNET_ID_TO_STRING
+        SUBNET_ID_TO_STRING
             .get(i as usize)
             .expect("index below MAX_SUBNET_ID")
     } else {

@@ -9,6 +9,7 @@ use bls::PublicKeyBytes;
 use types::{graffiti::GraffitiString, Graffiti};
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum Error {
     InvalidFile(std::io::Error),
     InvalidLine(String),
@@ -91,7 +92,7 @@ fn read_line(line: &str) -> Result<(Option<PublicKeyBytes>, Graffiti), Error> {
         if key == "default" {
             Ok((None, graffiti))
         } else {
-            let pk = PublicKeyBytes::from_str(&key).map_err(Error::InvalidPublicKey)?;
+            let pk = PublicKeyBytes::from_str(key).map_err(Error::InvalidPublicKey)?;
             Ok((Some(pk), graffiti))
         }
     } else {

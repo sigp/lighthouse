@@ -30,7 +30,7 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 }
 
 fn decode_and_print<T: Decode + Serialize>(bytes: &[u8]) -> Result<(), String> {
-    let item = T::from_ssz_bytes(&bytes).map_err(|e| format!("SSZ decode failed: {:?}", e))?;
+    let item = T::from_ssz_bytes(bytes).map_err(|e| format!("SSZ decode failed: {:?}", e))?;
 
     println!(
         "{}",

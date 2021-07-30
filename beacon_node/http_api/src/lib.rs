@@ -1515,11 +1515,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
-                                direction: api_types::PeerDirection::from_connection_direction(
-                                    &dir,
-                                ),
+                                direction: api_types::PeerDirection::from_connection_direction(dir),
                                 state: api_types::PeerState::from_peer_connection_status(
-                                    &peer_info.connection_status(),
+                                    peer_info.connection_status(),
                                 ),
                             }));
                         }
@@ -1563,9 +1561,9 @@ pub fn serve<T: BeaconChainTypes>(
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
                             if let Some(dir) = peer_info.connection_direction.as_ref() {
                                 let direction =
-                                    api_types::PeerDirection::from_connection_direction(&dir);
+                                    api_types::PeerDirection::from_connection_direction(dir);
                                 let state = api_types::PeerState::from_peer_connection_status(
-                                    &peer_info.connection_status(),
+                                    peer_info.connection_status(),
                                 );
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
@@ -1616,7 +1614,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .peers()
                     .for_each(|(_, peer_info)| {
                         let state = api_types::PeerState::from_peer_connection_status(
-                            &peer_info.connection_status(),
+                            peer_info.connection_status(),
                         );
                         match state {
                             api_types::PeerState::Connected => connected += 1,

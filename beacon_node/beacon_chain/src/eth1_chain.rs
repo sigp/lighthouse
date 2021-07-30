@@ -762,7 +762,7 @@ mod test {
                 "test should not use dummy backend"
             );
 
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
             *state.eth1_deposit_index_mut() = 0;
             state.eth1_data_mut().deposit_count = 0;
 
@@ -815,7 +815,7 @@ mod test {
                 "cache should store all logs"
             );
 
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
             *state.eth1_deposit_index_mut() = 0;
             state.eth1_data_mut().deposit_count = 0;
 
@@ -877,10 +877,10 @@ mod test {
                 "test should not use dummy backend"
             );
 
-            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
             let a = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
+                .eth1_data_for_block_production(&state, spec)
                 .expect("should produce default eth1 data vote");
             assert_eq!(
                 a,
@@ -902,11 +902,11 @@ mod test {
                 "test should not use dummy backend"
             );
 
-            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), &spec);
+            let mut state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
             *state.slot_mut() = Slot::from(slots_per_eth1_voting_period * 10);
             let follow_distance_seconds = eth1_follow_distance * spec.seconds_per_eth1_block;
-            let voting_period_start = get_voting_period_start_seconds(&state, &spec);
+            let voting_period_start = get_voting_period_start_seconds(&state, spec);
             let start_eth1_block = voting_period_start - follow_distance_seconds * 2;
             let end_eth1_block = voting_period_start - follow_distance_seconds;
 
@@ -926,7 +926,7 @@ mod test {
             });
 
             let vote = eth1_chain
-                .eth1_data_for_block_production(&state, &spec)
+                .eth1_data_for_block_production(&state, spec)
                 .expect("should produce default eth1 data vote");
 
             assert_eq!(
@@ -956,7 +956,7 @@ mod test {
                 get_votes_to_consider(
                     blocks.iter(),
                     get_voting_period_start_seconds(&state, spec),
-                    &spec,
+                    spec,
                 ),
                 HashMap::new()
             );

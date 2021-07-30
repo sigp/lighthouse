@@ -148,8 +148,8 @@ impl ProtoArrayForkChoice {
         let deltas = compute_deltas(
             &self.proto_array.indices,
             &mut self.votes,
-            &old_balances,
-            &new_balances,
+            old_balances,
+            new_balances,
         )
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 

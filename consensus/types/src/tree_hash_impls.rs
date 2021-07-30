@@ -77,7 +77,7 @@ fn process_pubkey_bytes_field(
 
 fn process_slice_field(new_tree_hash: &[u8], leaf: &mut Hash256, force_update: bool) -> bool {
     if force_update || leaf.as_bytes() != new_tree_hash {
-        leaf.assign_from_slice(&new_tree_hash);
+        leaf.assign_from_slice(new_tree_hash);
         true
     } else {
         false

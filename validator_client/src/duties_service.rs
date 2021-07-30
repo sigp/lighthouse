@@ -434,7 +434,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 
     // Download the duties and update the duties for the current epoch.
     if let Err(e) = poll_beacon_attesters_for_epoch(
-        &duties_service,
+        duties_service,
         current_epoch,
         &local_indices,
         &local_pubkeys,
@@ -458,7 +458,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 
     // Download the duties and update the duties for the next epoch.
     if let Err(e) =
-        poll_beacon_attesters_for_epoch(&duties_service, next_epoch, &local_indices, &local_pubkeys)
+        poll_beacon_attesters_for_epoch(duties_service, next_epoch, &local_indices, &local_pubkeys)
             .await
     {
         error!(
@@ -487,7 +487,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             .attesters
             .read()
             .iter()
-            .filter_map(|(_, map)| map.get(&epoch))
+            .filter_map(|(_, map)| map.get(epoch))
             // The BN logs a warning if we try and subscribe to current or near-by slots. Give it a
             // buffer.
             .filter(|(_, duty_and_proof)| {
@@ -693,7 +693,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         &initial_block_proposers,
         block_service_tx,
         &duties_service.validator_store,
-        &log,
+        log,
     )
     .await;
 
@@ -783,7 +783,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 &additional_block_producers,
                 block_service_tx,
                 &duties_service.validator_store,
-                &log,
+                log,
             )
             .await;
             debug!(

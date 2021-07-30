@@ -60,7 +60,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<Hash256, N> {
         arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
-        cache.recalculate_merkle_root(arena, hash256_iter(&self))
+        cache.recalculate_merkle_root(arena, hash256_iter(self))
     }
 }
 
@@ -79,7 +79,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for FixedVector<u64, N> {
         arena: &mut CacheArena,
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
-        cache.recalculate_merkle_root(arena, u64_iter(&self))
+        cache.recalculate_merkle_root(arena, u64_iter(self))
     }
 }
 
@@ -98,7 +98,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<Hash256, N> {
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         Ok(mix_in_length(
-            &cache.recalculate_merkle_root(arena, hash256_iter(&self))?,
+            &cache.recalculate_merkle_root(arena, hash256_iter(self))?,
             self.len(),
         ))
     }
@@ -120,7 +120,7 @@ impl<N: Unsigned> CachedTreeHash<TreeHashCache> for VariableList<u64, N> {
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         Ok(mix_in_length(
-            &cache.recalculate_merkle_root(arena, u64_iter(&self))?,
+            &cache.recalculate_merkle_root(arena, u64_iter(self))?,
             self.len(),
         ))
     }

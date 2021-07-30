@@ -698,8 +698,8 @@ where
         slot: Slot,
     ) -> HarnessAttestations<E> {
         let unaggregated_attestations = self.make_unaggregated_attestations(
-            &attesting_validators,
-            &state,
+            attesting_validators,
+            state,
             state_root,
             block_hash,
             slot,
@@ -785,7 +785,7 @@ where
         relative_sync_committee: RelativeSyncCommittee,
     ) -> HarnessSyncContributions<E> {
         let sync_messages =
-            self.make_sync_committee_messages(&state, block_hash, slot, relative_sync_committee);
+            self.make_sync_committee_messages(state, block_hash, slot, relative_sync_committee);
 
         let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_messages
             .iter()
@@ -825,7 +825,7 @@ where
                         })?;
 
                     let default = SyncCommitteeContribution::from_message(
-                        &sync_message,
+                        sync_message,
                         subnet_id as u64,
                         *subcommittee_position,
                     )
@@ -989,7 +989,7 @@ where
         let mut signed_block_headers = vec![block_header_1, block_header_2]
             .into_iter()
             .map(|block_header| {
-                block_header.sign::<E>(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                block_header.sign::<E>(sk, &fork, genesis_validators_root, &self.chain.spec)
             })
             .collect::<Vec<_>>();
 
@@ -1199,7 +1199,7 @@ where
         validators: &[usize],
     ) {
         let attestations =
-            self.make_attestations(validators, &state, state_root, block_hash, block.slot());
+            self.make_attestations(validators, state, state_root, block_hash, block.slot());
         self.process_attestations(attestations);
     }
 

@@ -41,7 +41,7 @@ pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
         expected.drop_all_caches().unwrap();
     }
 
-    compare_result_detailed(&result, &expected)
+    compare_result_detailed(result, expected)
 }
 
 /// Same as `compare_result`, however utilizes the `CompareFields` trait to give a list of

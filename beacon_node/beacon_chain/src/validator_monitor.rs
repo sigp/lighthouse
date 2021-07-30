@@ -126,8 +126,6 @@ type SummaryMap = HashMap<Epoch, EpochSummary>;
 struct MonitoredValidator {
     /// A human-readable identifier for the validator.
     pub id: String,
-    /// The validator voting pubkey.
-    pub pubkey: PublicKeyBytes,
     /// The validator index in the state.
     pub index: Option<u64>,
     /// A history of the validator over time.
@@ -140,7 +138,6 @@ impl MonitoredValidator {
             id: index
                 .map(|i| i.to_string())
                 .unwrap_or_else(|| pubkey.to_string()),
-            pubkey,
             index,
             summaries: <_>::default(),
         }

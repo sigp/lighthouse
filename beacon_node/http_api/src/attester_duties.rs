@@ -63,7 +63,7 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let (duties, dependent_root) = chain
-        .validator_attestation_duties(&request_indices, request_epoch, head.block_root)
+        .validator_attestation_duties(request_indices, request_epoch, head.block_root)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(duties, request_indices, dependent_root, chain)
@@ -104,7 +104,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         )?;
         state
     } else {
-        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
+        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
     };
 
     // Sanity-check the state lookup.

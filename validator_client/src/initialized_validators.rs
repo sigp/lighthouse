@@ -33,7 +33,7 @@ const USE_STDIN: bool = false;
 pub enum Error {
     /// Refused to open a validator with an existing lockfile since that validator may be in-use by
     /// another process.
-    LockfileError(LockfileError),
+    Lockfile(LockfileError),
     /// The voting public key in the definition did not match the one in the keystore.
     VotingPublicKeyMismatch {
         definition: Box<PublicKey>,
@@ -70,7 +70,7 @@ pub enum Error {
 
 impl From<LockfileError> for Error {
     fn from(error: LockfileError) -> Self {
-        Self::LockfileError(error)
+        Self::Lockfile(error)
     }
 }
 
@@ -463,7 +463,7 @@ impl InitializedValidators {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
                     } else {
                         let keystore = open_keystore(voting_keystore_path)?;
-                        unlock_keystore_via_stdin_password(&keystore, &voting_keystore_path)?
+                        unlock_keystore_via_stdin_password(&keystore, voting_keystore_path)?
                             .0
                             .as_ref()
                             .to_vec()
