@@ -195,7 +195,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // attestation service
         let attestation_service =
-            AttestationService::new(beacon_chain.clone(), &config, &network_log);
+            AttestationService::new(beacon_chain.clone(), config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -251,7 +251,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             .map(|gauge| gauge.reset());
                     }
                     metrics::update_gossip_metrics::<T::EthSpec>(
-                        &service.libp2p.swarm.behaviour_mut().gs(),
+                        service.libp2p.swarm.behaviour_mut().gs(),
                         &service.network_globals,
                     );
                     // update sync metrics

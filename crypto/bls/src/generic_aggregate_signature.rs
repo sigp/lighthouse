@@ -221,7 +221,7 @@ where
 {
     fn from(sig: &GenericSignature<Pub, Sig>) -> Self {
         let mut agg = Self::infinity();
-        agg.add_assign(&sig);
+        agg.add_assign(sig);
         agg
     }
 }

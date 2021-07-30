@@ -11,7 +11,7 @@ pub fn assert_tests_pass(handler_name: &str, path: &Path, results: &[CaseResult]
             &failed,
             &skipped_bls,
             &skipped_known_failures,
-            &results,
+            results,
         );
         if !failed.is_empty() {
             panic!("Tests failed (see above)");

@@ -28,7 +28,7 @@ pub fn process_epoch<T: EthSpec>(
     //
     // E.g., attestation in the previous epoch, attested to the head, etc.
     let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-    validator_statuses.process_attestations(&state)?;
+    validator_statuses.process_attestations(state)?;
 
     // Justification and finalization.
     process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;

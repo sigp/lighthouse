@@ -257,7 +257,7 @@ where
     let domain = spec.get_domain(
         indexed_attestation.data.target.epoch,
         Domain::BeaconAttester,
-        &fork,
+        fork,
         genesis_validators_root,
     );
 
@@ -494,7 +494,7 @@ where
         pubkeys.push(get_pubkey(pubkey).ok_or_else(|| Error::ValidatorPubkeyUnknown(*pubkey))?);
     }
 
-    let domain = spec.get_domain(epoch, Domain::SyncCommittee, &fork, genesis_validators_root);
+    let domain = spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root);
 
     let message = beacon_block_root.signing_root(domain);
 
@@ -513,7 +513,7 @@ pub fn sync_committee_message_set_from_pubkeys<'a, T>(
 where
     T: EthSpec,
 {
-    let domain = spec.get_domain(epoch, Domain::SyncCommittee, &fork, genesis_validators_root);
+    let domain = spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root);
 
     let message = beacon_block_root.signing_root(domain);
 

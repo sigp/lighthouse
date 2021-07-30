@@ -244,7 +244,7 @@ impl<E: EthSpec> Slasher<E> {
             let slashing_status = self.db.check_and_update_attester_record(
                 txn,
                 validator_index,
-                &attestation,
+                attestation,
                 attester_record,
             )?;
 

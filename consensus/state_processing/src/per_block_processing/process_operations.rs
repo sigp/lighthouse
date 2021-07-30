@@ -177,7 +177,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
         .iter()
         .enumerate()
         .try_for_each(|(i, proposer_slashing)| {
-            verify_proposer_slashing(proposer_slashing, &state, verify_signatures, spec)
+            verify_proposer_slashing(proposer_slashing, state, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;
 
             slash_validator(
@@ -202,11 +202,11 @@ pub fn process_attester_slashings<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        verify_attester_slashing(&state, &attester_slashing, verify_signatures, spec)
+        verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         let slashable_indices =
-            get_slashable_indices(&state, &attester_slashing).map_err(|e| e.into_with_index(i))?;
+            get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, spec)?;
@@ -254,7 +254,7 @@ pub fn process_exits<T: EthSpec>(
     // Verify and apply each exit in series. We iterate in series because higher-index exits may
     // become invalid due to the application of lower-index ones.
     for (i, exit) in voluntary_exits.iter().enumerate() {
-        verify_exit(&state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
+        verify_exit(state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }

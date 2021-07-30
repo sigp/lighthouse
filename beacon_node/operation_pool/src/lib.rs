@@ -383,7 +383,7 @@ impl<T: EthSpec> OperationPool<T> {
 
         let relevant_attester_slashings = reader.iter().flat_map(|(slashing, fork)| {
             if *fork == state.fork().previous_version || *fork == state.fork().current_version {
-                AttesterSlashingMaxCover::new(&slashing, &to_be_slashed, state)
+                AttesterSlashingMaxCover::new(slashing, &to_be_slashed, state)
             } else {
                 None
             }

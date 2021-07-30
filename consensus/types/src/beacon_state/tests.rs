@@ -59,7 +59,7 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     // Get the i'th candidate proposer for the given state and slot
     let ith_candidate = |state: &BeaconState<T>, slot: Slot, i: usize, spec: &ChainSpec| {
         let epoch = slot.epoch(T::slots_per_epoch());
-        let seed = state.get_beacon_proposer_seed(slot, &spec).unwrap();
+        let seed = state.get_beacon_proposer_seed(slot, spec).unwrap();
         let active_validators = state.get_active_validator_indices(epoch, spec).unwrap();
         active_validators[compute_shuffled_index(
             i,
@@ -338,7 +338,7 @@ mod committees {
             new_head_state,
             cache_epoch,
             validator_count as usize,
-            &spec,
+            spec,
         );
     }
 

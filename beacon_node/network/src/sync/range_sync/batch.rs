@@ -126,7 +126,7 @@ impl<T: EthSpec> BatchInfo<T> {
             BatchState::Downloading(peer_id, _, _)
             | BatchState::AwaitingProcessing(peer_id, _)
             | BatchState::Processing(Attempt { peer_id, .. })
-            | BatchState::AwaitingValidation(Attempt { peer_id, .. }) => Some(&peer_id),
+            | BatchState::AwaitingValidation(Attempt { peer_id, .. }) => Some(peer_id),
             BatchState::Poisoned => unreachable!("Poisoned batch"),
         }
     }

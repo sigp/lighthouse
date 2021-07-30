@@ -1372,7 +1372,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attester_cache_key,
                     request_slot,
                     request_index,
-                    &self,
+                    self,
                 )?
             };
         drop(cache_timer);
@@ -1729,7 +1729,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.shuffling_is_compatible(
                     &att.data.beacon_block_root,
                     att.data.target.epoch,
-                    &state,
+                    state,
                 )
             })
     }
@@ -2182,9 +2182,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for attestation in signed_block.message().body().attestations() {
                 let committee =
                     state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                let indexed_attestation =
-                    get_indexed_attestation(&committee.committee, attestation)
-                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
+                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
                 slasher.accept_attestation(indexed_attestation);
             }
         }
@@ -3267,7 +3266,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(&committee_cache, shuffling_decision_block)
+            map_fn(committee_cache, shuffling_decision_block)
         }
     }
 

@@ -198,7 +198,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
         // convert the keypair into an ENR key
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&local_key)?;
+        let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
 
         let mut discv5 = Discv5::new(local_enr, enr_key, config.discv5_config.clone())
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
