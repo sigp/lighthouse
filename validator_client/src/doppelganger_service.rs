@@ -3,7 +3,7 @@
 //!
 //! The mechanism works roughly like so: when the validator client starts or a new validator is
 //! added, that validator is assigned a number of "remaining epochs". The doppelganger service
-//! periodically poll the beacon node to if that validator has been observed to produce
+//! periodically polls the beacon node to see if that validator has been observed to produce
 //! blocks/attestations in each epoch. After the doppelganger service is confident that an epoch has
 //! passed without observing that validator, it will decrease the remaining epochs by one. Once the
 //! remaining epochs is zero, the doppelganger will consider that validator to be safe-enough to
@@ -49,7 +49,7 @@ use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 pub enum DoppelgangerStatus {
     /// Doppelganger protection has approved this for signing.
     ///
-    /// This is because the service is disabled, or the service has waited some period of time to
+    /// This is because the service has waited some period of time to
     /// detect other instances of this key on the network.
     SigningEnabled(PublicKeyBytes),
     /// Doppelganger protection is still waiting to detect other instances.
@@ -84,7 +84,7 @@ impl DoppelgangerStatus {
     }
 
     /// Returns a key regardless of whether or not doppelganger has approved it. Such a key might be
-    /// used for signing, duties collection or other activities.
+    /// used for signing non-slashable messages, duties collection or other activities.
     ///
     /// If the validator is unknown to doppelganger then `None` will be returned.
     pub fn ignored(self) -> Option<PublicKeyBytes> {
