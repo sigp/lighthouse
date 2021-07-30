@@ -210,17 +210,21 @@ lazy_static! {
     /*
      * Attestation Production
      */
-    pub static ref ATTESTATION_PRODUCTION_REQUESTS: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_production_requests_total",
-        "Count of all attestation production requests"
-    );
-    pub static ref ATTESTATION_PRODUCTION_SUCCESSES: Result<IntCounter> = try_create_int_counter(
-        "beacon_attestation_production_successes_total",
-        "Count of attestations processed without error"
-    );
-    pub static ref ATTESTATION_PRODUCTION_TIMES: Result<Histogram> = try_create_histogram(
+    pub static ref ATTESTATION_PRODUCTION_SECONDS: Result<Histogram> = try_create_histogram(
         "beacon_attestation_production_seconds",
         "Full runtime of attestation production"
+    );
+    pub static ref ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS: Result<Histogram> = try_create_histogram(
+        "attestation_production_head_scrape_seconds",
+        "Time taken to read the head state"
+    );
+    pub static ref ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS: Result<Histogram> = try_create_histogram(
+        "attestation_production_cache_interaction_seconds",
+        "Time spent interacting with the attester cache"
+    );
+    pub static ref ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS: Result<Histogram> = try_create_histogram(
+        "attestation_production_cache_prime_seconds",
+        "Time spent loading a new state from the disk due to a cache miss"
     );
 }
 
@@ -330,21 +334,6 @@ lazy_static! {
     pub static ref OP_POOL_NUM_SYNC_CONTRIBUTIONS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_sync_contributions_total", "Count of sync contributions in the op pool");
 
-    /*
-     * Participation Metrics
-     */
-    pub static ref PARTICIPATION_PREV_EPOCH_ATTESTER: Result<Gauge> = try_create_float_gauge(
-        "beacon_participation_prev_epoch_attester",
-        "Ratio of attesting balances to total balances"
-    );
-    pub static ref PARTICIPATION_PREV_EPOCH_TARGET_ATTESTER: Result<Gauge> = try_create_float_gauge(
-        "beacon_participation_prev_epoch_target_attester",
-        "Ratio of target-attesting balances to total balances"
-    );
-    pub static ref PARTICIPATION_PREV_EPOCH_HEAD_ATTESTER: Result<Gauge> = try_create_float_gauge(
-        "beacon_participation_prev_epoch_head_attester",
-        "Ratio of head-attesting balances to total balances"
-    );
 
     /*
      * Attestation Observation Metrics

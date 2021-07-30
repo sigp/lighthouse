@@ -11,6 +11,7 @@ use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_
 pub fn process_operations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T>,
+    proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -26,7 +27,7 @@ pub fn process_operations<'a, T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_attestations(state, block_body, verify_signatures, spec)?;
+    process_attestations(state, block_body, proposer_index, verify_signatures, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
     Ok(())
@@ -85,6 +86,7 @@ pub mod altair {
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
         attestations: &[Attestation<T>],
+        proposer_index: u64,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -92,7 +94,14 @@ pub mod altair {
             .iter()
             .enumerate()
             .try_for_each(|(i, attestation)| {
-                process_attestation(state, attestation, i, verify_signatures, spec)
+                process_attestation(
+                    state,
+                    attestation,
+                    i,
+                    proposer_index,
+                    verify_signatures,
+                    spec,
+                )
             })
     }
 
@@ -100,6 +109,7 @@ pub mod altair {
         state: &mut BeaconState<T>,
         attestation: &Attestation<T>,
         att_index: usize,
+        proposer_index: u64,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -145,9 +155,7 @@ pub mod altair {
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
         let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
-        // FIXME(altair): optimise by passing in proposer_index
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)?;
-        increase_balance(state, proposer_index, proposer_reward)?;
+        increase_balance(state, proposer_index as usize, proposer_reward)?;
         Ok(())
     }
 }
@@ -169,7 +177,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
         .iter()
         .enumerate()
         .try_for_each(|(i, proposer_slashing)| {
-            verify_proposer_slashing(proposer_slashing, &state, verify_signatures, spec)
+            verify_proposer_slashing(proposer_slashing, state, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;
 
             slash_validator(
@@ -194,11 +202,11 @@ pub fn process_attester_slashings<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
-        verify_attester_slashing(&state, &attester_slashing, verify_signatures, spec)
+        verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         let slashable_indices =
-            get_slashable_indices(&state, &attester_slashing).map_err(|e| e.into_with_index(i))?;
+            get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, spec)?;
@@ -212,6 +220,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 pub fn process_attestations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T>,
+    proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -223,6 +232,7 @@ pub fn process_attestations<'a, T: EthSpec>(
             altair::process_attestations(
                 state,
                 block_body.attestations(),
+                proposer_index,
                 verify_signatures,
                 spec,
             )?;
@@ -244,7 +254,7 @@ pub fn process_exits<T: EthSpec>(
     // Verify and apply each exit in series. We iterate in series because higher-index exits may
     // become invalid due to the application of lower-index ones.
     for (i, exit) in voluntary_exits.iter().enumerate() {
-        verify_exit(&state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
+        verify_exit(state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }

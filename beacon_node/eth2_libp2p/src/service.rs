@@ -578,6 +578,6 @@ fn load_or_build_metadata<E: EthSpec>(
     };
 
     debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number);
-    save_metadata_to_disk(network_dir, meta_data.clone(), &log);
+    save_metadata_to_disk(network_dir, meta_data.clone(), log);
     meta_data
 }

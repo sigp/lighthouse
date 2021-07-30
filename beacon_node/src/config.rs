@@ -264,7 +264,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_network_config = get_eth2_network_config(&cli_args)?;
+    let eth2_network_config = get_eth2_network_config(cli_args)?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =

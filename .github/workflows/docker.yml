@@ -9,7 +9,8 @@ on:
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    IMAGE_NAME: sigp/lighthouse
+    IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
+    LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
 
 jobs:
     extract-branch-name:
@@ -96,3 +97,22 @@ jobs:
                       --amend ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX} \
                       --amend ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX};
                   docker manifest push ${IMAGE_NAME}:latest${TAG_SUFFIX}
+    build-docker-lcli:
+        runs-on: ubuntu-18.04
+        needs: [extract-branch-name]
+        steps:
+            - uses: actions/checkout@v2
+            - name: Dockerhub login
+              run: |
+                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+            - name: Set Env
+              if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
+              run: |
+                  echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
+            - name: Build lcli dockerfile (with push)
+              run: |
+                  docker build \
+                      --build-arg PORTABLE=true \
+                      --tag ${LCLI_IMAGE_NAME}:latest${TAG_SUFFIX} \
+                      --file ./lcli/Dockerfile .
+                  docker push ${LCLI_IMAGE_NAME}:latest${TAG_SUFFIX}

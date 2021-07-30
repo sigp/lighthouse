@@ -183,7 +183,7 @@ impl Config {
                 // Copy the provided bytes over.
                 //
                 // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-                graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
+                graffiti[..graffiti_bytes.len()].copy_from_slice(graffiti_bytes);
 
                 config.graffiti = Some(graffiti.into());
             }
@@ -195,6 +195,19 @@ impl Config {
 
         if cli_args.is_present("http") {
             config.http_api.enabled = true;
+        }
+
+        if let Some(address) = cli_args.value_of("http-address") {
+            if cli_args.is_present("unencrypted-http-transport") {
+                config.http_api.listen_addr = address
+                    .parse::<Ipv4Addr>()
+                    .map_err(|_| "http-address is not a valid IPv4 address.")?;
+            } else {
+                return Err(
+                    "While using `--http-address`, you must also use `--unencrypted-http-transport`."
+                        .to_string(),
+                );
+            }
         }
 
         if let Some(port) = cli_args.value_of("http-port") {

@@ -67,13 +67,13 @@ fn initializes_with_the_right_epoch() {
     let cache = CommitteeCache::default();
     assert!(!cache.is_initialized_at(state.current_epoch()));
 
-    let cache = CommitteeCache::initialized(&state, state.current_epoch(), &spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.current_epoch(), spec).unwrap();
     assert!(cache.is_initialized_at(state.current_epoch()));
 
-    let cache = CommitteeCache::initialized(&state, state.previous_epoch(), &spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.previous_epoch(), spec).unwrap();
     assert!(cache.is_initialized_at(state.previous_epoch()));
 
-    let cache = CommitteeCache::initialized(&state, state.next_epoch().unwrap(), &spec).unwrap();
+    let cache = CommitteeCache::initialized(&state, state.next_epoch().unwrap(), spec).unwrap();
     assert!(cache.is_initialized_at(state.next_epoch().unwrap()));
 }
 

@@ -47,7 +47,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let mut enr_file = File::create(output_dir.join(ENR_FILENAME))
         .map_err(|e| format!("Unable to create {}: {:?}", ENR_FILENAME, e))?;
     enr_file
-        .write_all(&enr.to_base64().as_bytes())
+        .write_all(enr.to_base64().as_bytes())
         .map_err(|e| format!("Unable to write ENR to {}: {:?}", ENR_FILENAME, e))?;
 
     let secret_bytes = match local_keypair {

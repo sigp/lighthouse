@@ -87,8 +87,8 @@ pub fn cli_run<T: EthSpec>(
 
     match matches.subcommand() {
         (IMPORT_CMD, Some(matches)) => {
-            let import_filename: PathBuf = clap_utils::parse_required(&matches, IMPORT_FILE_ARG)?;
-            let minify: bool = clap_utils::parse_required(&matches, MINIFY_FLAG)?;
+            let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
+            let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -199,8 +199,8 @@ pub fn cli_run<T: EthSpec>(
             Ok(())
         }
         (EXPORT_CMD, Some(matches)) => {
-            let export_filename: PathBuf = clap_utils::parse_required(&matches, EXPORT_FILE_ARG)?;
-            let minify: bool = clap_utils::parse_required(&matches, MINIFY_FLAG)?;
+            let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
+            let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
 
             if !slashing_protection_db_path.exists() {
                 return Err(format!(
