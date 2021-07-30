@@ -71,20 +71,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
-        let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
-        let object_fork = match self {
-            SignedBeaconBlock::Base { .. } => ForkName::Base,
-            SignedBeaconBlock::Altair { .. } => ForkName::Altair,
-        };
-
-        if fork_at_slot == object_fork {
-            Ok(object_fork)
-        } else {
-            Err(InconsistentFork {
-                fork_at_slot,
-                object_fork,
-            })
-        }
+        self.message().fork_name(spec)
     }
 
     /// SSZ decode.

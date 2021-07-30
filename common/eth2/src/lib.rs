@@ -26,6 +26,9 @@ use std::fmt;
 use std::iter::Iterator;
 use std::time::Duration;
 
+pub const V1: EndpointVersion = EndpointVersion(1);
+pub const V2: EndpointVersion = EndpointVersion(2);
+
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -142,14 +145,14 @@ impl BeaconNodeHttpClient {
         }
     }
 
-    /// Return the path with the standard `/eth1/v1` prefix applied.
-    fn eth_path(&self) -> Result<Url, Error> {
+    /// Return the path with the standard `/eth/vX` prefix applied.
+    fn eth_path(&self, version: EndpointVersion) -> Result<Url, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
-            .push("v1");
+            .push(&version.to_string());
 
         Ok(path)
     }
@@ -315,7 +318,7 @@ impl BeaconNodeHttpClient {
     ///
     /// May return a `404` if beacon chain genesis has not yet occurred.
     pub async fn get_beacon_genesis(&self) -> Result<GenericResponse<GenesisData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -332,7 +335,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
     ) -> Result<Option<GenericResponse<RootData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -351,7 +354,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
     ) -> Result<Option<GenericResponse<Fork>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -370,7 +373,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
     ) -> Result<Option<GenericResponse<FinalityCheckpointsData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -390,7 +393,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         ids: Option<&[ValidatorId]>,
     ) -> Result<Option<GenericResponse<Vec<ValidatorBalanceData>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -420,7 +423,7 @@ impl BeaconNodeHttpClient {
         ids: Option<&[ValidatorId]>,
         statuses: Option<&[ValidatorStatus]>,
     ) -> Result<Option<GenericResponse<Vec<ValidatorData>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -460,7 +463,7 @@ impl BeaconNodeHttpClient {
         index: Option<u64>,
         epoch: Option<Epoch>,
     ) -> Result<Option<GenericResponse<Vec<CommitteeData>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -495,7 +498,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         validator_id: &ValidatorId,
     ) -> Result<Option<GenericResponse<ValidatorData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -516,7 +519,7 @@ impl BeaconNodeHttpClient {
         slot: Option<Slot>,
         parent_root: Option<Hash256>,
     ) -> Result<Option<GenericResponse<Vec<BlockHeaderData>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -543,7 +546,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
     ) -> Result<Option<GenericResponse<BlockHeaderData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -561,7 +564,7 @@ impl BeaconNodeHttpClient {
         &self,
         block: &SignedBeaconBlock<T>,
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -574,14 +577,32 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `GET beacon/blocks`
+    /// `GET v2/beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_blocks<T: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<GenericResponse<SignedBeaconBlock<T>>>, Error> {
-        let mut path = self.eth_path()?;
+    ) -> Result<Option<ForkVersionedResponse<SignedBeaconBlock<T>>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks")
+            .push(&block_id.to_string());
+
+        self.get_opt(path).await
+    }
+
+    /// `GET v1/beacon/blocks` (LEGACY)
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_blocks_v1<T: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Option<ForkVersionedResponse<SignedBeaconBlock<T>>>, Error> {
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -600,7 +621,7 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
         spec: &ChainSpec,
     ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -621,7 +642,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
     ) -> Result<Option<GenericResponse<RootData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -640,7 +661,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
     ) -> Result<Option<GenericResponse<Vec<Attestation<T>>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -657,7 +678,7 @@ impl BeaconNodeHttpClient {
         &self,
         attestations: &[Attestation<T>],
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -677,7 +698,7 @@ impl BeaconNodeHttpClient {
         slot: Option<Slot>,
         committee_index: Option<u64>,
     ) -> Result<GenericResponse<Vec<Attestation<T>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -703,7 +724,7 @@ impl BeaconNodeHttpClient {
         &self,
         slashing: &AttesterSlashing<T>,
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -720,7 +741,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_pool_attester_slashings<T: EthSpec>(
         &self,
     ) -> Result<GenericResponse<Vec<AttesterSlashing<T>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -736,7 +757,7 @@ impl BeaconNodeHttpClient {
         &self,
         slashing: &ProposerSlashing,
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -753,7 +774,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_pool_proposer_slashings(
         &self,
     ) -> Result<GenericResponse<Vec<ProposerSlashing>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -769,7 +790,7 @@ impl BeaconNodeHttpClient {
         &self,
         exit: &SignedVoluntaryExit,
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -786,7 +807,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_pool_voluntary_exits(
         &self,
     ) -> Result<GenericResponse<Vec<SignedVoluntaryExit>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -802,7 +823,7 @@ impl BeaconNodeHttpClient {
         &self,
         signatures: &[SyncCommitteeMessage],
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -820,7 +841,7 @@ impl BeaconNodeHttpClient {
         &self,
         signed_contributions: &[SignedContributionAndProof<T>],
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -834,7 +855,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET config/fork_schedule`
     pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -846,7 +867,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET config/spec`
     pub async fn get_config_spec(&self) -> Result<GenericResponse<ConfigAndPreset>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -860,7 +881,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_config_deposit_contract(
         &self,
     ) -> Result<GenericResponse<DepositContractData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -872,7 +893,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET node/version`
     pub async fn get_node_version(&self) -> Result<GenericResponse<VersionData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -884,7 +905,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET node/identity`
     pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -896,7 +917,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET node/syncing`
     pub async fn get_node_syncing(&self) -> Result<GenericResponse<SyncingData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -908,7 +929,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET node/health`
     pub async fn get_node_health(&self) -> Result<StatusCode, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -934,7 +955,7 @@ impl BeaconNodeHttpClient {
         &self,
         peer_id: PeerId,
     ) -> Result<GenericResponse<PeerData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -951,7 +972,7 @@ impl BeaconNodeHttpClient {
         states: Option<&[PeerState]>,
         directions: Option<&[PeerDirection]>,
     ) -> Result<PeersData, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -981,7 +1002,7 @@ impl BeaconNodeHttpClient {
 
     /// `GET node/peer_count`
     pub async fn get_node_peer_count(&self) -> Result<GenericResponse<PeerCount>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -991,12 +1012,29 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET debug/beacon/states/{state_id}`
+    /// `GET v2/debug/beacon/states/{state_id}`
     pub async fn get_debug_beacon_states<T: EthSpec>(
         &self,
         state_id: StateId,
-    ) -> Result<Option<GenericResponse<BeaconState<T>>>, Error> {
-        let mut path = self.eth_path()?;
+    ) -> Result<Option<ForkVersionedResponse<BeaconState<T>>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("debug")
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string());
+
+        self.get_opt(path).await
+    }
+
+    /// `GET v1/debug/beacon/states/{state_id}` (LEGACY)
+    pub async fn get_debug_beacon_states_v1<T: EthSpec>(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ForkVersionedResponse<BeaconState<T>>>, Error> {
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1015,7 +1053,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         spec: &ChainSpec,
     ) -> Result<Option<BeaconState<T>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1034,7 +1072,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_heads(
         &self,
     ) -> Result<GenericResponse<Vec<ChainHeadData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1050,7 +1088,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
     ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1063,14 +1101,14 @@ impl BeaconNodeHttpClient {
             .await
     }
 
-    /// `GET validator/blocks/{slot}`
+    /// `GET v2/validator/blocks/{slot}`
     pub async fn get_validator_blocks<T: EthSpec>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<GenericResponse<BeaconBlock<T>>, Error> {
-        let mut path = self.eth_path()?;
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
+        let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1095,7 +1133,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         committee_index: CommitteeIndex,
     ) -> Result<GenericResponse<AttestationData>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1115,7 +1153,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         attestation_data_root: Hash256,
     ) -> Result<Option<GenericResponse<Attestation<T>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1138,7 +1176,7 @@ impl BeaconNodeHttpClient {
         &self,
         sync_committee_data: &SyncContributionData,
     ) -> Result<Option<GenericResponse<SyncCommitteeContribution<T>>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1165,7 +1203,7 @@ impl BeaconNodeHttpClient {
         epoch: Epoch,
         indices: &[u64],
     ) -> Result<DutiesResponse<Vec<AttesterData>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1183,7 +1221,7 @@ impl BeaconNodeHttpClient {
         &self,
         aggregates: &[SignedAggregateAndProof<T>],
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1201,7 +1239,7 @@ impl BeaconNodeHttpClient {
         &self,
         subscriptions: &[BeaconCommitteeSubscription],
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1218,7 +1256,7 @@ impl BeaconNodeHttpClient {
         &self,
         subscriptions: &[SyncCommitteeSubscription],
     ) -> Result<(), Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1235,7 +1273,7 @@ impl BeaconNodeHttpClient {
         &self,
         topic: &[EventTopic],
     ) -> Result<impl Stream<Item = Result<EventKind<T>, Error>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("events");
@@ -1266,7 +1304,7 @@ impl BeaconNodeHttpClient {
         epoch: Epoch,
         indices: &[u64],
     ) -> Result<GenericResponse<Vec<SyncDuty>>, Error> {
-        let mut path = self.eth_path()?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

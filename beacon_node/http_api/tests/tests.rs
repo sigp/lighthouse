@@ -921,13 +921,18 @@ impl ApiTester {
                 }
             }
 
-            let json_result = self
-                .client
-                .get_beacon_blocks(block_id)
-                .await
-                .unwrap()
-                .map(|res| res.data);
-            assert_eq!(json_result, expected, "{:?}", block_id);
+            let json_result = self.client.get_beacon_blocks(block_id).await.unwrap();
+
+            if let (Some(json), Some(expected)) = (&json_result, &expected) {
+                assert_eq!(json.data, *expected, "{:?}", block_id);
+                assert_eq!(
+                    json.version,
+                    Some(expected.fork_name(&self.chain.spec).unwrap())
+                );
+            } else {
+                assert_eq!(json_result, None);
+                assert_eq!(expected, None);
+            }
 
             let ssz_result = self
                 .client
@@ -935,6 +940,16 @@ impl ApiTester {
                 .await
                 .unwrap();
             assert_eq!(ssz_result, expected, "{:?}", block_id);
+
+            // Check that the legacy v1 API still works but doesn't return a version field.
+            let v1_result = self.client.get_beacon_blocks_v1(block_id).await.unwrap();
+            if let (Some(v1_result), Some(expected)) = (&v1_result, &expected) {
+                assert_eq!(v1_result.version, None);
+                assert_eq!(v1_result.data, *expected);
+            } else {
+                assert_eq!(v1_result, None);
+                assert_eq!(expected, None);
+            }
         }
 
         self
@@ -1353,23 +1368,44 @@ impl ApiTester {
 
     pub async fn test_get_debug_beacon_states(self) -> Self {
         for state_id in self.interesting_state_ids() {
+            let result_json = self.client.get_debug_beacon_states(state_id).await.unwrap();
+
+            let mut expected = self.get_state(state_id);
+            expected.as_mut().map(|state| state.drop_all_caches());
+
+            if let (Some(json), Some(expected)) = (&result_json, &expected) {
+                assert_eq!(json.data, *expected, "{:?}", state_id);
+                assert_eq!(
+                    json.version,
+                    Some(expected.fork_name(&self.chain.spec).unwrap())
+                );
+            } else {
+                assert_eq!(result_json, None);
+                assert_eq!(expected, None);
+            }
+
+            // Check SSZ API.
             let result_ssz = self
                 .client
                 .get_debug_beacon_states_ssz(state_id, &self.chain.spec)
                 .await
                 .unwrap();
-            let result_json = self
-                .client
-                .get_debug_beacon_states(state_id)
-                .await
-                .unwrap()
-                .map(|res| res.data);
-
-            let mut expected = self.get_state(state_id);
-            expected.as_mut().map(|state| state.drop_all_caches());
-
             assert_eq!(result_ssz, expected, "{:?}", state_id);
-            assert_eq!(result_json, expected, "{:?}", state_id);
+
+            // Check legacy v1 API.
+            let result_v1 = self
+                .client
+                .get_debug_beacon_states_v1(state_id)
+                .await
+                .unwrap();
+
+            if let (Some(json), Some(expected)) = (&result_v1, &expected) {
+                assert_eq!(json.version, None);
+                assert_eq!(json.data, *expected, "{:?}", state_id);
+            } else {
+                assert_eq!(result_v1, None);
+                assert_eq!(expected, None);
+            }
         }
 
         self

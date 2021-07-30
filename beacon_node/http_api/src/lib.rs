@@ -12,6 +12,7 @@ mod proposer_duties;
 mod state_id;
 mod sync_committees;
 mod validator_inclusion;
+mod version;
 
 use beacon_chain::{
     attestation_verification::SignatureVerifiedAttestation,
@@ -21,7 +22,7 @@ use beacon_chain::{
     WhenSlotSkipped,
 };
 use block_id::BlockId;
-use eth2::types::{self as api_types, ValidatorId};
+use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
 use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
@@ -43,6 +44,7 @@ use types::{
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
+use version::{fork_versioned_response, unsupported_version_rejection, V1};
 use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
@@ -50,7 +52,6 @@ use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
 
 const API_PREFIX: &str = "eth";
-const API_VERSION: &str = "v1";
 
 /// If the node is within this many epochs from the head, we declare it to be synced regardless of
 /// the network sync state.
@@ -154,7 +155,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
         // a block hash).
         let path = {
             let equals = |s: &'static str| -> Option<&'static str> {
-                if info.path() == format!("/{}/{}/{}", API_PREFIX, API_VERSION, s) {
+                if info.path() == format!("/{}/{}", API_PREFIX, s) {
                     Some(s)
                 } else {
                     None
@@ -162,30 +163,30 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
             };
 
             let starts_with = |s: &'static str| -> Option<&'static str> {
-                if info
-                    .path()
-                    .starts_with(&format!("/{}/{}/{}", API_PREFIX, API_VERSION, s))
-                {
+                if info.path().starts_with(&format!("/{}/{}", API_PREFIX, s)) {
                     Some(s)
                 } else {
                     None
                 }
             };
 
-            equals("beacon/blocks")
-                .or_else(|| starts_with("validator/duties/attester"))
-                .or_else(|| starts_with("validator/duties/proposer"))
-                .or_else(|| starts_with("validator/attestation_data"))
-                .or_else(|| starts_with("validator/blocks"))
-                .or_else(|| starts_with("validator/aggregate_attestation"))
-                .or_else(|| starts_with("validator/aggregate_and_proofs"))
-                .or_else(|| starts_with("validator/beacon_committee_subscriptions"))
-                .or_else(|| starts_with("beacon/"))
-                .or_else(|| starts_with("config/"))
-                .or_else(|| starts_with("debug/"))
-                .or_else(|| starts_with("events/"))
-                .or_else(|| starts_with("node/"))
-                .or_else(|| starts_with("validator/"))
+            // First line covers `POST /v1/beacon/blocks` only
+            equals("v1/beacon/blocks")
+                .or_else(|| starts_with("v1/validator/duties/attester"))
+                .or_else(|| starts_with("v1/validator/duties/proposer"))
+                .or_else(|| starts_with("v1/validator/attestation_data"))
+                .or_else(|| starts_with("v1/validator/blocks"))
+                .or_else(|| starts_with("v2/validator/blocks"))
+                .or_else(|| starts_with("v1/validator/aggregate_attestation"))
+                .or_else(|| starts_with("v1/validator/aggregate_and_proofs"))
+                .or_else(|| starts_with("v1/validator/beacon_committee_subscriptions"))
+                .or_else(|| starts_with("v1/beacon/"))
+                .or_else(|| starts_with("v2/beacon/"))
+                .or_else(|| starts_with("v1/config/"))
+                .or_else(|| starts_with("v1/debug/"))
+                .or_else(|| starts_with("v1/events/"))
+                .or_else(|| starts_with("v1/node/"))
+                .or_else(|| starts_with("v1/validator/"))
                 .unwrap_or("other")
         };
 
@@ -241,7 +242,30 @@ pub fn serve<T: BeaconChainTypes>(
         ));
     }
 
-    let eth1_v1 = warp::path(API_PREFIX).and(warp::path(API_VERSION));
+    // Create a filter that extracts the endpoint version.
+    let any_version = warp::path(API_PREFIX).and(warp::path::param::<EndpointVersion>().or_else(
+        |_| async move {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid version identifier".to_string(),
+            ))
+        },
+    ));
+
+    // Filter that enforces a single endpoint version and then discards the `EndpointVersion`.
+    let single_version = |reqd: EndpointVersion| {
+        any_version
+            .clone()
+            .and_then(move |version| async move {
+                if version == reqd {
+                    Ok(())
+                } else {
+                    Err(unsupported_version_rejection(version))
+                }
+            })
+            .untuple_one()
+    };
+
+    let eth1_v1 = single_version(V1);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -877,23 +901,32 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    let beacon_blocks_path = eth1_v1
+    let block_id_or_err = warp::path::param::<BlockId>().or_else(|_| async {
+        Err(warp_utils::reject::custom_bad_request(
+            "Invalid block ID".to_string(),
+        ))
+    });
+
+    let beacon_blocks_path_v1 = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
-        .and(warp::path::param::<BlockId>().or_else(|_| async {
-            Err(warp_utils::reject::custom_bad_request(
-                "Invalid block ID".to_string(),
-            ))
-        }))
+        .and(block_id_or_err.clone())
+        .and(chain_filter.clone());
+
+    let beacon_blocks_path_any = any_version
+        .and(warp::path("beacon"))
+        .and(warp::path("blocks"))
+        .and(block_id_or_err)
         .and(chain_filter.clone());
 
     // GET beacon/blocks/{block_id}
-    let get_beacon_block = beacon_blocks_path
+    let get_beacon_block = beacon_blocks_path_any
         .clone()
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and_then(
-            |block_id: BlockId,
+            |endpoint_version: EndpointVersion,
+             block_id: BlockId,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 blocking_task(move || {
@@ -909,17 +942,18 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(
-                            warp::reply::json(&api_types::GenericResponseRef::from(&block))
-                                .into_response(),
-                        ),
+                        _ => {
+                            let fork_name = block.fork_name(&chain.spec).ok();
+                            fork_versioned_response(endpoint_version, fork_name, block)
+                                .map(|res| warp::reply::json(&res).into_response())
+                        }
                     }
                 })
             },
         );
 
     // GET beacon/blocks/{block_id}/root
-    let get_beacon_block_root = beacon_blocks_path
+    let get_beacon_block_root = beacon_blocks_path_v1
         .clone()
         .and(warp::path("root"))
         .and(warp::path::end())
@@ -933,7 +967,7 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET beacon/blocks/{block_id}/attestations
-    let get_beacon_block_attestations = beacon_blocks_path
+    let get_beacon_block_attestations = beacon_blocks_path_v1
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
@@ -1331,7 +1365,8 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET debug/beacon/states/{state_id}
-    let get_debug_beacon_states = eth1_v1
+    let get_debug_beacon_states = any_version
+        .clone()
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("states"))
@@ -1344,7 +1379,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(chain_filter.clone())
         .and_then(
-            |state_id: StateId,
+            |endpoint_version: EndpointVersion,
+             state_id: StateId,
              accept_header: Option<api_types::Accept>,
              chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || match accept_header {
@@ -1362,10 +1398,9 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                     }
                     _ => state_id.map_state(&chain, |state| {
-                        Ok(
-                            warp::reply::json(&api_types::GenericResponseRef::from(&state))
-                                .into_response(),
-                        )
+                        let fork_name = state.fork_name(&chain.spec).ok();
+                        let res = fork_versioned_response(endpoint_version, fork_name, &state)?;
+                        Ok(warp::reply::json(&res).into_response())
                     }),
                 })
             },
@@ -1685,7 +1720,8 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET validator/blocks/{slot}
-    let get_validator_blocks = eth1_v1
+    let get_validator_blocks = any_version
+        .clone()
         .and(warp::path("validator"))
         .and(warp::path("blocks"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
@@ -1698,7 +1734,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
-            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
+            |endpoint_version: EndpointVersion,
+             slot: Slot,
+             query: api_types::ValidatorBlocksQuery,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
@@ -1707,11 +1746,11 @@ pub fn serve<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                    chain
+                    let (block, _) = chain
                         .produce_block(randao_reveal, slot, query.graffiti.map(Into::into))
-                        .map(|block_and_state| block_and_state.0)
-                        .map(api_types::GenericResponse::from)
-                        .map_err(warp_utils::reject::block_production_error)
+                        .map_err(warp_utils::reject::block_production_error)?;
+                    let fork_name = block.to_ref().fork_name(&chain.spec).ok();
+                    fork_versioned_response(endpoint_version, fork_name, block)
                 })
             },
         );

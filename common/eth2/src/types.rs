@@ -51,6 +51,30 @@ impl Failure {
     }
 }
 
+/// The version of a single API endpoint, e.g. the `v1` in `/eth/v1/beacon/blocks`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EndpointVersion(pub u64);
+
+impl FromStr for EndpointVersion {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(version_str) = s.strip_prefix("v") {
+            u64::from_str(version_str)
+                .map(EndpointVersion)
+                .map_err(|_| ())
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl std::fmt::Display for EndpointVersion {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(fmt, "v{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenesisData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -185,6 +209,14 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
     fn from(data: &'a T) -> Self {
         Self { data }
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+// #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct ForkVersionedResponse<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<ForkName>,
+    pub data: T,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
