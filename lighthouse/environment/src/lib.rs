@@ -9,22 +9,21 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use futures::channel::{
-    mpsc::{channel, Receiver, Sender},
-    oneshot,
-};
-use futures::{future, StreamExt};
+use futures::channel::mpsc::{channel, Receiver, Sender};
+use futures::{future, Future, StreamExt};
 
 use slog::{error, info, o, warn, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
-use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{task::Context, task::Poll};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -350,36 +349,55 @@ impl<E: EthSpec> Environment<E> {
             async move { rx.next().await.ok_or("Internal shutdown channel exhausted") };
         futures::pin_mut!(inner_shutdown);
 
-        // setup for handling a Ctrl-C
-        let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
-        let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
-        let log = self.log.clone();
-        ctrlc::set_handler(move || {
-            if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
-                if let Err(e) = ctrlc_send.send(()) {
-                    error!(
-                        log,
-                        "Error sending ctrl-c message";
-                        "error" => e
-                    );
-                }
-            }
-        })
-        .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
+        match self.runtime().block_on(async {
+            let mut handles = vec![];
 
-        // Block this thread until a shutdown signal is received.
-        match self
-            .runtime()
-            .block_on(future::select(inner_shutdown, ctrlc_oneshot))
-        {
+            // setup for handling SIGTERM
+            match signal(SignalKind::terminate()) {
+                Ok(terminate_stream) => {
+                    let terminate = SignalFuture::new(terminate_stream, "Received SIGTERM");
+                    handles.push(terminate);
+                }
+                Err(e) => error!(self.log, "Could not register SIGTERM handler"; "error" => e),
+            };
+
+            // setup for handling SIGINT
+            match signal(SignalKind::interrupt()) {
+                Ok(interrupt_stream) => {
+                    let interrupt = SignalFuture::new(interrupt_stream, "Received SIGINT");
+                    handles.push(interrupt);
+                }
+                Err(e) => error!(self.log, "Could not register SIGINT handler"; "error" => e),
+            }
+
+            // setup for handling a SIGHUP
+            match signal(SignalKind::hangup()) {
+                Ok(hup_stream) => {
+                    let hup = SignalFuture::new(hup_stream, "Received SIGHUP");
+                    handles.push(hup);
+                }
+                Err(e) => error!(self.log, "Could not register SIGHUP handler"; "error" => e),
+            }
+
+            // setup for handling a SIGPIPE
+            match signal(SignalKind::pipe()) {
+                Ok(pipe_stream) => {
+                    let pipe = SignalFuture::new(pipe_stream, "Received SIGPIPE");
+                    handles.push(pipe);
+                }
+                Err(e) => error!(self.log, "Could not register SIGPIPE handler"; "error" => e),
+            }
+
+            future::select(inner_shutdown, future::select_all(handles.into_iter())).await
+        }) {
             future::Either::Left((Ok(reason), _)) => {
                 info!(self.log, "Internal shutdown received"; "reason" => reason.message());
                 Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
-            future::Either::Right((x, _)) => x
-                .map(|()| ShutdownReason::Success("Received Ctrl+C"))
-                .map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
+            future::Either::Right(((res, _, _), _)) => {
+                res.ok_or("Handler channel closed".to_string())
+            }
         }
     }
 
@@ -418,4 +436,27 @@ pub fn null_logger() -> Result<Logger, String> {
     log_builder
         .build()
         .map_err(|e| format!("Failed to start null logger: {:?}", e))
+}
+
+struct SignalFuture {
+    signal: Signal,
+    message: &'static str,
+}
+
+impl SignalFuture {
+    pub fn new(signal: Signal, message: &'static str) -> SignalFuture {
+        SignalFuture { signal, message }
+    }
+}
+
+impl Future for SignalFuture {
+    type Output = Option<ShutdownReason>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.signal.poll_recv(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Some(_)) => Poll::Ready(Some(ShutdownReason::Success(self.message))),
+            Poll::Ready(None) => Poll::Ready(None),
+        }
+    }
 }
