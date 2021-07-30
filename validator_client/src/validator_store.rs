@@ -11,7 +11,6 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use tempfile::TempDir;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Attestation, BeaconBlock,
     ChainSpec, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
@@ -72,7 +71,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
     log: Logger,
-    temp_dir: Option<Arc<TempDir>>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
     _phantom: PhantomData<E>,
@@ -95,7 +93,6 @@ impl<T: SlotClock, E: EthSpec> ValidatorStore<T, E> {
             genesis_validators_root,
             spec: Arc::new(spec),
             log,
-            temp_dir: None,
             doppelganger_service,
             slot_clock,
             _phantom: PhantomData,
