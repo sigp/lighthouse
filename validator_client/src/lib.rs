@@ -332,6 +332,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 genesis_validators_root,
                 context.eth2_config.spec.clone(),
                 doppelganger_service.clone(),
+                slot_clock.clone(),
                 log.clone(),
             ));
 

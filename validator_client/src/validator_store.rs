@@ -1,22 +1,23 @@
 use crate::{
-    doppelganger_service::DoppelgangerService, fork_service::ForkService, http_metrics::metrics,
+    doppelganger_service::DoppelgangerService, http_metrics::metrics,
     initialized_validators::InitializedValidators,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
-use std::marker::PhantomData;
 use slot_clock::SlotClock;
 use std::iter::FromIterator;
->>>>>>> doppleganger-detection
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use tempfile::TempDir;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Attestation, BeaconBlock,
     ChainSpec, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -77,13 +78,14 @@ pub struct ValidatorStore<T, E: EthSpec> {
     _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> ValidatorStore<E> {
+impl<T: SlotClock, E: EthSpec> ValidatorStore<T, E> {
     pub fn new(
         validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
+        slot_clock: T,
         log: Logger,
     ) -> Self {
         Self {
@@ -95,7 +97,8 @@ impl<E: EthSpec> ValidatorStore<E> {
             log,
             temp_dir: None,
             doppelganger_service,
-            slot_clock: fork_service.slot_clock(),
+            slot_clock,
+            _phantom: PhantomData,
         }
     }
 
@@ -304,7 +307,7 @@ impl<E: EthSpec> ValidatorStore<E> {
         let domain = self.spec.get_domain(
             epoch,
             Domain::Randao,
-            &self.fork(),
+            &self.fork(epoch),
             self.genesis_validators_root,
         );
         let message = epoch.signing_root(domain);
@@ -336,8 +339,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             });
         }
 
-        // Check for slashing conditions.
-        let fork = self.fork(block.epoch());
+        let fork = self.fork(current_slot.epoch(E::slots_per_epoch()));
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
@@ -351,6 +353,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             domain,
         );
 
+        // Check for slashing conditions.
         match slashing_status {
             // We can safely sign this block without slashing.
             Ok(Safe::Valid) => {
@@ -405,8 +408,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             });
         }
 
-        // Checking for slashing conditions.
-        let fork = self.fork(attestation.data.target.epoch);
+        let fork = self.fork(attestation.data.slot.epoch(E::slots_per_epoch()));
 
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
@@ -420,6 +422,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             domain,
         );
 
+        // Checking for slashing conditions.
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
@@ -490,7 +493,7 @@ impl<E: EthSpec> ValidatorStore<E> {
         selection_proof: SelectionProof,
     ) -> Result<SignedAggregateAndProof<E>, Error> {
         // Take the fork early to avoid lock interleaving.
-        let fork = self.fork();
+        let fork = self.fork(aggregate.data.slot.epoch(E::slots_per_epoch()));
 
         let proof = self.with_validator_keypair(validator_pubkey, move |keypair| {
             SignedAggregateAndProof::from_aggregate(
@@ -517,7 +520,7 @@ impl<E: EthSpec> ValidatorStore<E> {
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
         // Take the fork early to avoid lock interleaving.
-        let fork = self.fork();
+        let fork = self.fork(slot.epoch(E::slots_per_epoch()));
 
         // Bypass the `with_validator_keypair` function.
         //
@@ -533,11 +536,15 @@ impl<E: EthSpec> ValidatorStore<E> {
 
         let proof = SelectionProof::new::<E>(
             slot,
-            &voting_keypair.sk,
-            &self.fork(slot.epoch(E::slots_per_epoch())),
+            &keypair.sk,
+            &fork,
             self.genesis_validators_root,
             &self.spec,
-        ))
+        );
+
+        metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
+
+        Ok(proof)
     }
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
@@ -615,11 +622,7 @@ impl<E: EthSpec> ValidatorStore<E> {
             &fork,
             self.genesis_validators_root,
             &self.spec,
-        );
-
-        metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
-
-        Ok(proof)
+        ))
     }
 
     /// Prune the slashing protection database so that it remains performant.

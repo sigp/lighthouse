@@ -9,6 +9,7 @@ use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
+use slot_clock::SlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -95,8 +96,8 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<E: EthSpec>(
-    ctx: Arc<Context<E>>,
+pub fn serve<T: 'static + SlotClock, E: EthSpec>(
+    ctx: Arc<Context<T, E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;

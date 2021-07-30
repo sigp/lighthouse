@@ -64,9 +64,9 @@ pub struct DutyAndProof {
 
 impl DutyAndProof {
     /// Instantiate `Self`, computing the selection proof as well.
-    pub fn new<E: EthSpec>(
+    pub fn new<T: SlotClock, E: EthSpec>(
         duty: AttesterData,
-        validator_store: &ValidatorStore<E>,
+        validator_store: &ValidatorStore<T, E>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
@@ -107,9 +107,6 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     pub sync_duties: SyncDutiesMap,
-    /// Maps a public key to a validator index. There is a task which ensures this map is kept
-    /// up-to-date.
-    pub indices: RwLock<IndicesMap>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
     /// Tracks the current slot.
@@ -218,20 +215,6 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
                     && signing_pubkeys.contains(&duty_and_proof.duty.pubkey)
             })
             .cloned()
-            .collect()
-    }
-
-    /// Returns public keys for all enabled validators managed by the VC.
-    pub fn local_pubkeys(&self) -> HashSet<PublicKeyBytes> {
-        self.validator_store.voting_pubkeys().into_iter().collect()
-    }
-
-    /// Returns the validator indices for all known validators in `local_pubkeys`.
-    pub fn local_indices(&self, local_pubkeys: &HashSet<PublicKeyBytes>) -> Vec<u64> {
-        let indices_map = self.indices.read();
-        local_pubkeys
-            .iter()
-            .filter_map(|pubkey| indices_map.get(pubkey).copied())
             .collect()
     }
 }
