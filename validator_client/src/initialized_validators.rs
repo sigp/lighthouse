@@ -65,7 +65,7 @@ pub enum Error {
     /// The public key does not exist in the set of initialized validators.
     ValidatorNotInitialized(PublicKey),
     /// Unable to read the slot clock.
-    SlotClockError,
+    SlotClock,
 }
 
 impl From<LockfileError> for Error {

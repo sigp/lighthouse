@@ -527,7 +527,7 @@ impl DoppelgangerService {
                 continue;
             };
 
-            let next_check_epoch = if let Some(state) = self.doppelganger_states.read().get(&pubkey)
+            let next_check_epoch = if let Some(state) = self.doppelganger_states.read().get(pubkey)
             {
                 state.next_check_epoch
             } else {
@@ -606,7 +606,7 @@ impl DoppelgangerService {
             // There is a write-lock being held, avoid interacting with locks until it is dropped.
             let mut doppelganger_states = self.doppelganger_states.write();
             let doppelganger_state = doppelganger_states
-                .get_mut(&pubkey)
+                .get_mut(pubkey)
                 // Abort the routine if inconsistency is detected.
                 .ok_or_else(|| format!("inconsistent states for validator pubkey {}", pubkey))?;
 

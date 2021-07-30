@@ -1937,13 +1937,13 @@ pub fn serve<T: BeaconChainTypes>(
                         .map(|index| {
                             let is_live =
                                 chain.validator_seen_at_epoch(index as usize, request_data.epoch);
-                            Ok::<_, warp::Rejection>(api_types::LivenessResponseData {
+                            api_types::LivenessResponseData {
                                 index: index as u64,
                                 epoch: request_data.epoch,
                                 is_live,
-                            })
+                            }
                         })
-                        .collect::<Result<_, _>>()?;
+                        .collect();
 
                     Ok(api_types::GenericResponse::from(liveness))
                 })
