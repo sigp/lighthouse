@@ -13,6 +13,7 @@ mod notifier;
 mod sync_committee_service;
 mod validator_store;
 
+mod doppelganger_service;
 pub mod http_api;
 
 pub use cli::cli_app;
@@ -23,6 +24,7 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
+use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
@@ -60,9 +62,12 @@ const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 /// This can help ensure that proper endpoint fallback occurs.
 const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+
+const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
@@ -71,7 +76,8 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, T>,
-    validator_store: ValidatorStore<T>,
+    doppelganger_service: Option<Arc<DoppelgangerService>>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
@@ -254,6 +260,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     Timeouts {
                         attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
                         attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                        liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
                         proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
                         proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
                         sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
@@ -307,13 +314,26 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
 
-        let validator_store = ValidatorStore::<T>::new(
-            validators,
-            slashing_protection,
-            genesis_validators_root,
-            context.eth2_config.spec.clone(),
-            log.clone(),
-        );
+        let doppelganger_service = if config.enable_doppelganger_protection {
+            Some(Arc::new(DoppelgangerService::new(
+                context
+                    .service_context(DOPPELGANGER_SERVICE_NAME.into())
+                    .log()
+                    .clone(),
+            )))
+        } else {
+            None
+        };
+
+        let validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>> =
+            Arc::new(ValidatorStore::new(
+                validators,
+                slashing_protection,
+                genesis_validators_root,
+                context.eth2_config.spec.clone(),
+                doppelganger_service.clone(),
+                log.clone(),
+            ));
 
         info!(
             log,
@@ -333,7 +353,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             attesters: <_>::default(),
             proposers: <_>::default(),
             sync_duties: <_>::default(),
-            indices: <_>::default(),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
@@ -383,12 +402,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
 
+        // Ensure all validators are registered in doppelganger protection.
+        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
+
         Ok(Self {
             context,
             duties_service,
             block_service,
             attestation_service,
             sync_committee_service,
+            doppelganger_service,
             validator_store,
             config,
             http_api_listen_addr: None,
@@ -420,6 +443,20 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
+
+        if let Some(doppelganger_service) = self.doppelganger_service.clone() {
+            DoppelgangerService::start_update_service(
+                doppelganger_service,
+                self.context
+                    .service_context(DOPPELGANGER_SERVICE_NAME.into()),
+                self.validator_store.clone(),
+                self.duties_service.beacon_nodes.clone(),
+                self.duties_service.slot_clock.clone(),
+            )
+            .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
+        } else {
+            info!(log, "Doppelganger protection disabled.")
+        }
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 

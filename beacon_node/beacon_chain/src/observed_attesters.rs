@@ -381,6 +381,16 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     pub(crate) fn get_lowest_permissible(&self) -> Epoch {
         self.lowest_permissible_epoch
     }
+
+    /// Returns `true` if the given `index` has been stored in `self` at `epoch`.
+    ///
+    /// This is useful for doppelganger detection.
+    pub fn index_seen_at_epoch(&self, index: usize, epoch: Epoch) -> bool {
+        self.items
+            .get(&epoch)
+            .map(|item| item.contains(index))
+            .unwrap_or(false)
+    }
 }
 
 /// A container that stores some number of `V` items.

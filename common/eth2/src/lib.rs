@@ -83,6 +83,7 @@ impl fmt::Display for Error {
 pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
+    pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
     pub sync_duties: Duration,
@@ -93,6 +94,7 @@ impl Timeouts {
         Timeouts {
             attestation: timeout,
             attester_duties: timeout,
+            liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
             sync_duties: timeout,
@@ -1157,6 +1159,30 @@ impl BeaconNodeHttpClient {
             );
 
         self.get_opt(path).await
+    }
+
+    /// `POST lighthouse/liveness`
+    pub async fn post_lighthouse_liveness(
+        &self,
+        ids: &[u64],
+        epoch: Epoch,
+    ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("liveness");
+
+        self.post_with_timeout_and_response(
+            path,
+            &LivenessRequestData {
+                indices: ids.to_vec(),
+                epoch,
+            },
+            self.timeouts.liveness,
+        )
+        .await
     }
 
     /// `POST validator/duties/attester/{epoch}`

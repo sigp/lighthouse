@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BeaconBlockRef, EthSpec, Slot, Unsigned};
+use types::{BeaconBlockRef, Epoch, EthSpec, Slot, Unsigned};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -113,6 +113,15 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
 
         self.finalized_slot = finalized_slot;
         self.items.retain(|slot, _set| *slot > finalized_slot);
+    }
+
+    /// Returns `true` if the given `validator_index` has been stored in `self` at `epoch`.
+    ///
+    /// This is useful for doppelganger detection.
+    pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: Epoch) -> bool {
+        self.items.iter().any(|(slot, producers)| {
+            slot.epoch(E::slots_per_epoch()) == epoch && producers.contains(&validator_index)
+        })
     }
 }
 

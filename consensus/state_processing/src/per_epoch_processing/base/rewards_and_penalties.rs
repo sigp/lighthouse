@@ -1,8 +1,8 @@
 use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
-use crate::per_epoch_processing::validator_statuses::{
-    TotalBalances, ValidatorStatus, ValidatorStatuses,
+use crate::per_epoch_processing::{
+    base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
+    Delta, Error,
 };
-use crate::per_epoch_processing::{Delta, Error};
 use safe_arith::SafeArith;
 use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
@@ -88,15 +88,15 @@ pub fn get_attestation_deltas<T: EthSpec>(
 
     let total_balances = &validator_statuses.total_balances;
 
-    // Filter out ineligible validators. All sub-functions of the spec do this except for
-    // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in the
-    // unslashed indices of the matching source attestations is active, and therefore eligible.
-    for (index, validator) in validator_statuses
-        .statuses
-        .iter()
-        .enumerate()
-        .filter(|(_, validator)| is_eligible_validator(validator))
-    {
+    for (index, validator) in validator_statuses.statuses.iter().enumerate() {
+        // Ignore ineligible validators. All sub-functions of the spec do this except for
+        // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
+        // the unslashed indices of the matching source attestations is active, and therefore
+        // eligible.
+        if !state.is_eligible_validator(index)? {
+            continue;
+        }
+
         let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
 
         let source_delta =
@@ -280,12 +280,4 @@ fn get_inactivity_penalty_delta(
 /// The `base_reward` param should be the `base_reward` of the attesting validator.
 fn get_proposer_reward(base_reward: u64, spec: &ChainSpec) -> Result<u64, Error> {
     Ok(base_reward.safe_div(spec.proposer_reward_quotient)?)
-}
-
-/// Is the validator eligible for penalties and rewards at the current epoch?
-///
-/// Spec: v0.12.1
-fn is_eligible_validator(validator: &ValidatorStatus) -> bool {
-    validator.is_active_in_previous_epoch
-        || (validator.is_slashed && !validator.is_withdrawable_in_current_epoch)
 }

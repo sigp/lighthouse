@@ -11,6 +11,7 @@ use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_
 pub fn process_operations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T>,
+    proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -26,7 +27,7 @@ pub fn process_operations<'a, T: EthSpec>(
         verify_signatures,
         spec,
     )?;
-    process_attestations(state, block_body, verify_signatures, spec)?;
+    process_attestations(state, block_body, proposer_index, verify_signatures, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
     Ok(())
@@ -85,6 +86,7 @@ pub mod altair {
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
         attestations: &[Attestation<T>],
+        proposer_index: u64,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -92,7 +94,14 @@ pub mod altair {
             .iter()
             .enumerate()
             .try_for_each(|(i, attestation)| {
-                process_attestation(state, attestation, i, verify_signatures, spec)
+                process_attestation(
+                    state,
+                    attestation,
+                    i,
+                    proposer_index,
+                    verify_signatures,
+                    spec,
+                )
             })
     }
 
@@ -100,6 +109,7 @@ pub mod altair {
         state: &mut BeaconState<T>,
         attestation: &Attestation<T>,
         att_index: usize,
+        proposer_index: u64,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
@@ -145,9 +155,7 @@ pub mod altair {
             .safe_mul(WEIGHT_DENOMINATOR)?
             .safe_div(PROPOSER_WEIGHT)?;
         let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
-        // FIXME(altair): optimise by passing in proposer_index
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)?;
-        increase_balance(state, proposer_index, proposer_reward)?;
+        increase_balance(state, proposer_index as usize, proposer_reward)?;
         Ok(())
     }
 }
@@ -212,6 +220,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 pub fn process_attestations<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T>,
+    proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -223,6 +232,7 @@ pub fn process_attestations<'a, T: EthSpec>(
             altair::process_attestations(
                 state,
                 block_body.attestations(),
+                proposer_index,
                 verify_signatures,
                 spec,
             )?;
