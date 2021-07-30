@@ -84,7 +84,7 @@ impl DoppelgangerStatus {
     }
 
     /// Returns a key regardless of whether or not doppelganger has approved it. Such a key might be
-    /// used for signing, duties collection or other activities.
+    /// used for signing non-slashable messages, duties collection or other activities.
     ///
     /// If the validator is unknown to doppelganger then `None` will be returned.
     pub fn ignored(self) -> Option<PublicKeyBytes> {
