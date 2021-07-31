@@ -2149,6 +2149,71 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_lighthouse_liveness(self) -> Self {
+        let epoch = self.chain.epoch().unwrap();
+        let head_state = self.chain.head_beacon_state().unwrap();
+        let indices = (0..head_state.validators().len())
+            .map(|i| i as u64)
+            .collect::<Vec<_>>();
+
+        // Construct the expected response
+        let expected: Vec<LivenessResponseData> = head_state
+            .validators()
+            .iter()
+            .enumerate()
+            .map(|(index, _)| LivenessResponseData {
+                index: index as u64,
+                is_live: false,
+                epoch,
+            })
+            .collect();
+
+        let result = self
+            .client
+            .post_lighthouse_liveness(indices.as_slice(), epoch)
+            .await
+            .unwrap()
+            .data;
+
+        assert_eq!(result, expected);
+
+        // Attest to the current slot
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let result = self
+            .client
+            .post_lighthouse_liveness(indices.as_slice(), epoch)
+            .await
+            .unwrap()
+            .data;
+
+        let committees = head_state
+            .get_beacon_committees_at_slot(self.chain.slot().unwrap())
+            .unwrap();
+        let attesting_validators: Vec<usize> = committees
+            .into_iter()
+            .map(|committee| committee.committee.iter().cloned())
+            .flatten()
+            .collect();
+        // All attesters should now be considered live
+        let expected = expected
+            .into_iter()
+            .map(|mut a| {
+                if attesting_validators.contains(&(a.index as usize)) {
+                    a.is_live = true;
+                }
+                a
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
@@ -2635,5 +2700,7 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_beacon_states_ssz()
         .await
         .test_get_lighthouse_staking()
+        .await
+        .test_post_lighthouse_liveness()
         .await;
 }

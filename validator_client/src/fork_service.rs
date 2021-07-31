@@ -137,6 +137,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         *self.fork.read()
     }
 
+    /// Returns the slot clock.
+    pub fn slot_clock(&self) -> T {
+        self.slot_clock.clone()
+    }
+
     /// Starts the service that periodically polls for the `Fork`.
     pub fn start_update_service(self, context: &RuntimeContext<E>) -> Result<(), String> {
         // Run an immediate update before starting the updater service.

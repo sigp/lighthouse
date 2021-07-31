@@ -1907,6 +1907,49 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/liveness
+    let post_lighthouse_liveness = warp::path("lighthouse")
+        .and(warp::path("liveness"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: api_types::LivenessRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    // Ensure the request is for either the current, previous or next epoch.
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
+
+                    if request_data.epoch < prev_epoch || request_data.epoch > next_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is more than one epoch from the current epoch {}",
+                            request_data.epoch, current_epoch
+                        )));
+                    }
+
+                    let liveness: Vec<api_types::LivenessResponseData> = request_data
+                        .indices
+                        .iter()
+                        .cloned()
+                        .map(|index| {
+                            let is_live =
+                                chain.validator_seen_at_epoch(index as usize, request_data.epoch);
+                            api_types::LivenessResponseData {
+                                index: index as u64,
+                                epoch: request_data.epoch,
+                                is_live,
+                            }
+                        })
+                        .collect();
+
+                    Ok(api_types::GenericResponse::from(liveness))
+                })
+            },
+        );
+
     // GET lighthouse/health
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
@@ -2249,6 +2292,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
+                .or(post_lighthouse_liveness.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)

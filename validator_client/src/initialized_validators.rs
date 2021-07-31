@@ -62,6 +62,10 @@ pub enum Error {
     TokioJoin(tokio::task::JoinError),
     /// Cannot initialize the same validator twice.
     DuplicatePublicKey,
+    /// The public key does not exist in the set of initialized validators.
+    ValidatorNotInitialized(PublicKey),
+    /// Unable to read the slot clock.
+    SlotClock,
 }
 
 impl From<LockfileError> for Error {
@@ -88,6 +92,8 @@ pub enum SigningMethod {
 pub struct InitializedValidator {
     signing_method: SigningMethod,
     graffiti: Option<Graffiti>,
+    /// The validators index in `state.validators`, to be updated by an external service.
+    index: Option<u64>,
 }
 
 impl InitializedValidator {
@@ -212,6 +218,7 @@ impl InitializedValidator {
                         voting_keypair,
                     },
                     graffiti: def.graffiti.map(Into::into),
+                    index: None,
                 })
             }
         }
@@ -313,7 +320,7 @@ impl InitializedValidators {
         self.definitions.as_slice().len()
     }
 
-    /// Iterate through all **enabled** voting public keys in `self`.
+    /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
@@ -621,5 +628,15 @@ impl InitializedValidators {
             self.num_total() as i64,
         );
         Ok(())
+    }
+
+    pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(pubkey).and_then(|val| val.index)
+    }
+
+    pub fn set_index(&mut self, pubkey: &PublicKeyBytes, index: u64) {
+        if let Some(val) = self.validators.get_mut(pubkey) {
+            val.index = Some(index);
+        }
     }
 }
