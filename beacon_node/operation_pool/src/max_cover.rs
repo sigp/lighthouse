@@ -121,7 +121,7 @@ mod test {
         }
 
         fn covering_set(&self) -> &Self {
-            &self
+            self
         }
 
         fn update_covering_set(&mut self, _: &Self, other: &Self) {

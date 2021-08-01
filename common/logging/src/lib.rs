@@ -140,9 +140,7 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
             write!(
                 self,
                 "{}",
-                std::iter::repeat(' ')
-                    .take(self.message_width - self.message_count)
-                    .collect::<String>()
+                " ".repeat(self.message_width - self.message_count)
             )?;
             self.message_active = false;
             self.message_count = 0;

@@ -12,7 +12,7 @@ pub enum Error {
     /// Logs have to be added with monotonically-increasing block numbers.
     NonConsecutive { log_index: u64, expected: usize },
     /// The eth1 event log data was unable to be parsed.
-    LogParseError(String),
+    LogParse(String),
     /// There are insufficient deposits in the cache to fulfil the request.
     InsufficientDeposits {
         known_deposits: usize,
@@ -26,9 +26,9 @@ pub enum Error {
     /// E.g., you cannot request deposit 10 when the deposit count is 9.
     DepositCountInvalid { deposit_count: u64, range_end: u64 },
     /// Error with the merkle tree for deposits.
-    DepositTreeError(merkle_proof::MerkleTreeError),
+    DepositTree(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
-    InternalError(String),
+    Internal(String),
 }
 
 #[derive(Encode, Decode, Clone)]
@@ -160,7 +160,7 @@ impl DepositCache {
                 self.logs.push(log);
                 self.deposit_tree
                     .push_leaf(deposit)
-                    .map_err(Error::DepositTreeError)?;
+                    .map_err(Error::DepositTree)?;
                 self.deposit_roots.push(self.deposit_tree.root());
                 Ok(DepositCacheInsertOutcome::Inserted)
             }
@@ -219,7 +219,7 @@ impl DepositCache {
             let leaves = self
                 .leaves
                 .get(0..deposit_count as usize)
-                .ok_or_else(|| Error::InternalError("Unable to get known leaves".into()))?;
+                .ok_or_else(|| Error::Internal("Unable to get known leaves".into()))?;
 
             // Note: there is likely a more optimal solution than recreating the `DepositDataTree`
             // each time this function is called.
@@ -233,7 +233,7 @@ impl DepositCache {
             let deposits = self
                 .logs
                 .get(start as usize..end as usize)
-                .ok_or_else(|| Error::InternalError("Unable to get known log".into()))?
+                .ok_or_else(|| Error::Internal("Unable to get known log".into()))?
                 .iter()
                 .map(|deposit_log| {
                     let (_leaf, proof) = tree.generate_proof(deposit_log.index as usize);

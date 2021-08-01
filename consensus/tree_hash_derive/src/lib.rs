@@ -23,14 +23,14 @@ fn get_hashable_fields_and_their_caches(
         .fields
         .iter()
         .filter_map(|f| {
-            if should_skip_hashing(&f) {
+            if should_skip_hashing(f) {
                 None
             } else {
                 let ident = f
                     .ident
                     .as_ref()
                     .expect("tree_hash_derive only supports named struct fields");
-                let opt_cache_field = get_cache_field_for(&f);
+                let opt_cache_field = get_cache_field_for(f);
                 Some((ident, f.ty.clone(), opt_cache_field))
             }
         })
@@ -94,7 +94,7 @@ fn tree_hash_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Toke
     let name = &item.ident;
     let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
 
-    let idents = get_hashable_fields(&struct_data);
+    let idents = get_hashable_fields(struct_data);
     let num_leaves = idents.len();
 
     let output = quote! {

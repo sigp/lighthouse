@@ -270,11 +270,11 @@ mod tests {
             return TestResult::discard();
         }
 
-        let leaves: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
+        let leaves_iter = int_leaves.into_iter().map(H256::from_low_u64_be);
 
         let mut merkle_tree = MerkleTree::create(&[], depth);
 
-        let proofs_ok = leaves.into_iter().enumerate().all(|(i, leaf)| {
+        let proofs_ok = leaves_iter.enumerate().all(|(i, leaf)| {
             assert_eq!(merkle_tree.push_leaf(leaf, depth), Ok(()));
             let (stored_leaf, branch) = merkle_tree.generate_proof(i, depth);
             stored_leaf == leaf && verify_merkle_proof(leaf, &branch, depth, i, merkle_tree.hash())

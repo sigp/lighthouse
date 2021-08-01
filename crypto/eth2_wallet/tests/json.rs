@@ -1,7 +1,7 @@
 use eth2_wallet::{Error, KeystoreError, Wallet};
 
 fn assert_bad_json(json: &str) {
-    match Wallet::from_json_str(&json) {
+    match Wallet::from_json_str(json) {
         Err(Error::KeystoreError(KeystoreError::InvalidJson(_))) => {}
         _ => panic!("expected invalid json error"),
     }
@@ -48,7 +48,7 @@ fn additional_top_level_param() {
 	}
         "#;
 
-    assert_bad_json(&vector);
+    assert_bad_json(vector);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn missing_top_level_param() {
 	}
         "#;
 
-    assert_bad_json(&vector);
+    assert_bad_json(vector);
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn bad_version() {
 	}
         "#;
 
-    assert_bad_json(&vector);
+    assert_bad_json(vector);
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn bad_uuid() {
 	}
         "#;
 
-    assert_bad_json(&vector);
+    assert_bad_json(vector);
 }
 
 #[test]
@@ -203,7 +203,7 @@ fn bad_type() {
 	}
         "#;
 
-    assert_bad_json(&vector);
+    assert_bad_json(vector);
 }
 
 #[test]
@@ -242,5 +242,5 @@ fn more_that_u32_nextaccount() {
 	}
         "#;
 
-    assert_bad_json(&vector);
+    assert_bad_json(vector);
 }

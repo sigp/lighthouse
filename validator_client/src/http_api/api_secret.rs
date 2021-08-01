@@ -1,7 +1,7 @@
 use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
+use libsecp256k1::{Message, PublicKey, SecretKey};
 use rand::thread_rng;
 use ring::digest::{digest, SHA256};
-use secp256k1::{Message, PublicKey, SecretKey};
 use std::fs;
 use std::path::Path;
 use warp::Filter;
@@ -173,11 +173,11 @@ impl ApiSecret {
     /// Returns a closure which produces a signature over some bytes using the secret key in
     /// `self`. The signature is a 32-byte hash formatted as a 0x-prefixed string.
     pub fn signer(&self) -> impl Fn(&[u8]) -> String + Clone {
-        let sk = self.sk.clone();
+        let sk = self.sk;
         move |input: &[u8]| -> String {
             let message =
                 Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
-            let (signature, _) = secp256k1::sign(&message, &sk);
+            let (signature, _) = libsecp256k1::sign(&message, &sk);
             serde_utils::hex::encode(signature.serialize_der().as_ref())
         }
     }

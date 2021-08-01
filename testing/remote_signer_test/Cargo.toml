@@ -15,7 +15,7 @@ reqwest = { version = "0.11.0", features = ["blocking", "json"] }
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"
 tempfile = "3.1.0"
-tokio = { version = "1.1.0", features = ["time"] }
+tokio = { version = "1.7.1", features = ["time"] }
 types = { path = "../../consensus/types" }
 sensitive_url = { path = "../../common/sensitive_url" }
 

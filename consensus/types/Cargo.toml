@@ -22,7 +22,7 @@ merkle_proof = { path = "../merkle_proof" }
 rayon = "1.4.1"
 rand = "0.7.3"
 safe_arith = { path = "../safe_arith" }
-serde = "1.0.116"
+serde = {version = "1.0.116" , features = ["rc"] }
 serde_derive = "1.0.116"
 slog = "2.5.2"
 eth2_ssz = "0.1.2"

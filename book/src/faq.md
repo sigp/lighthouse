@@ -161,7 +161,7 @@ See [here.](./installation-source.md#troubleshooting)
 ### What is "Syncing eth1 block cache"
 
 ```
-Nov 30 21:04:28.268 WARN Syncing eth1 block cache   est_blocks_remaining: initializing deposits, msg: sync can take longer when using remote eth1 nodes, service: slot_notifier
+Nov 30 21:04:28.268 WARN Syncing eth1 block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
 ```
 
 This log indicates that your beacon node is downloading blocks and deposits

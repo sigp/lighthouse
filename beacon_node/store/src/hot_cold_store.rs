@@ -305,7 +305,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         let mut ops: Vec<KeyValueStoreOp> = Vec::new();
         if state.slot() < self.get_split_slot() {
-            self.store_cold_state(state_root, &state, &mut ops)?;
+            self.store_cold_state(state_root, state, &mut ops)?;
             self.cold_db.do_atomically(ops)
         } else {
             self.store_hot_state(state_root, state, &mut ops)?;
@@ -563,7 +563,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "slot" => state.slot().as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
-            store_full_state(state_root, &state, ops)?;
+            store_full_state(state_root, state, ops)?;
         }
 
         // Store a summary of the state.
@@ -861,7 +861,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             per_block_processing(
                 &mut state,
-                &block,
+                block,
                 None,
                 BlockSignatureStrategy::NoVerification,
                 &self.spec,

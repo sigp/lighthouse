@@ -4,6 +4,7 @@ use crate::attestation_verification::{
     FullyVerifiedUnaggregatedAttestation, PartiallyVerifiedAggregatedAttestation,
     PartiallyVerifiedUnaggregatedAttestation, SignatureVerifiedAttestation,
 };
+use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -16,15 +17,25 @@ use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::BackgroundMigrator;
-use crate::naive_aggregation_pool::{Error as NaiveAggregationError, NaiveAggregationPool};
-use crate::observed_attestations::{Error as AttestationObservationError, ObservedAttestations};
-use crate::observed_attesters::{ObservedAggregators, ObservedAttesters};
+use crate::naive_aggregation_pool::{
+    AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
+    SyncContributionAggregateMap,
+};
+use crate::observed_aggregates::{
+    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncContributions,
+};
+use crate::observed_attesters::{
+    ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
+};
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
+use crate::sync_committee_verification::{
+    Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
+};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
     get_block_delay_ms, get_slot_delay_ms, timestamp_now, ValidatorMonitor,
@@ -41,6 +52,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -223,14 +235,28 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     ///
     /// This pool accepts `Attestation` objects that only have one aggregation bit set and provides
     /// a method to get an aggregated `Attestation` for some `AttestationData`.
-    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<T::EthSpec>>,
+    pub naive_aggregation_pool: RwLock<NaiveAggregationPool<AggregatedAttestationMap<T::EthSpec>>>,
+    /// A pool of `SyncCommitteeContribution` dedicated to the "naive aggregation strategy" defined in the eth2
+    /// specs.
+    ///
+    /// This pool accepts `SyncCommitteeContribution` objects that only have one aggregation bit set and provides
+    /// a method to get an aggregated `SyncCommitteeContribution` for some `SyncCommitteeContributionData`.
+    pub naive_sync_aggregation_pool:
+        RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
     /// Contains a store of attestations which have been observed by the beacon chain.
-    pub(crate) observed_attestations: RwLock<ObservedAttestations<T::EthSpec>>,
+    pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
+    /// Contains a store of sync contributions which have been observed by the beacon chain.
+    pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
     pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen sending sync messages in recent epochs.
+    pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
     pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
+    /// in recent epochs.
+    pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub(crate) observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -266,6 +292,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
+    /// A cache used when producing attestations.
+    pub(crate) attester_cache: Arc<AttesterCache>,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -825,6 +853,80 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Return the sync committee at `slot + 1` from the canonical chain.
+    ///
+    /// This is useful when dealing with sync committee messages, because messages are signed
+    /// and broadcast one slot prior to the slot of the sync committee (which is relevant at
+    /// sync committee period boundaries).
+    pub fn sync_committee_at_next_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        let epoch = slot.safe_add(1)?.epoch(T::EthSpec::slots_per_epoch());
+        self.sync_committee_at_epoch(epoch)
+    }
+
+    /// Return the sync committee at `epoch` from the canonical chain.
+    pub fn sync_committee_at_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Arc<SyncCommittee<T::EthSpec>>, Error> {
+        // Try to read a committee from the head. This will work most of the time, but will fail
+        // for faraway committees, or if there are skipped slots at the transition to Altair.
+        let spec = &self.spec;
+        let committee_from_head =
+            self.with_head(
+                |head| match head.beacon_state.get_built_sync_committee(epoch, spec) {
+                    Ok(committee) => Ok(Some(committee.clone())),
+                    Err(BeaconStateError::SyncCommitteeNotKnown { .. })
+                    | Err(BeaconStateError::IncorrectStateVariant) => Ok(None),
+                    Err(e) => Err(Error::from(e)),
+                },
+            )?;
+
+        if let Some(committee) = committee_from_head {
+            Ok(committee)
+        } else {
+            // Slow path: load a state (or advance the head).
+            let sync_committee_period = epoch.sync_committee_period(spec)?;
+            let committee = self
+                .state_for_sync_committee_period(sync_committee_period)?
+                .get_built_sync_committee(epoch, spec)?
+                .clone();
+            Ok(committee)
+        }
+    }
+
+    /// Load a state suitable for determining the sync committee for the given period.
+    ///
+    /// Specifically, the state at the start of the *previous* sync committee period.
+    ///
+    /// This is sufficient for historical duties, and efficient in the case where the head
+    /// is lagging the current period and we need duties for the next period (because we only
+    /// have to transition the head to start of the current period).
+    ///
+    /// We also need to ensure that the load slot is after the Altair fork.
+    ///
+    /// **WARNING**: the state returned will have dummy state roots. It should only be used
+    /// for its sync committees (determining duties, etc).
+    pub fn state_for_sync_committee_period(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<BeaconState<T::EthSpec>, Error> {
+        let altair_fork_epoch = self
+            .spec
+            .altair_fork_epoch
+            .ok_or(Error::AltairForkDisabled)?;
+
+        let load_slot = std::cmp::max(
+            self.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
+            altair_fork_epoch,
+        )
+        .start_slot(T::EthSpec::slots_per_epoch());
+
+        self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
+    }
+
     /// Returns info representing the head block and state.
     ///
     /// A summarized version of `Self::head` that involves less cloning.
@@ -1120,44 +1222,174 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// validator that is in the committee for `slot` and `index` in the canonical chain.
     ///
     /// Always attests to the canonical chain.
+    ///
+    /// ## Errors
+    ///
+    /// May return an error if the `request_slot` is too far behind the head state.
     pub fn produce_unaggregated_attestation(
         &self,
-        slot: Slot,
-        index: CommitteeIndex,
+        request_slot: Slot,
+        request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
-        // Note: we're taking a lock on the head. The work involved here should be trivial enough
-        // that the lock should not be held for long.
-        let head = self
-            .canonical_head
-            .try_read_for(HEAD_LOCK_TIMEOUT)
-            .ok_or(Error::CanonicalHeadLockTimeout)?;
+        let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
 
-        if slot >= head.beacon_block.slot() {
-            self.produce_unaggregated_attestation_for_block(
-                slot,
-                index,
-                head.beacon_block_root,
-                Cow::Borrowed(&head.beacon_state),
-                head.beacon_state_root(),
-            )
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let request_epoch = request_slot.epoch(slots_per_epoch);
+
+        /*
+         * Phase 1/2:
+         *
+         * Take a short-lived read-lock on the head and copy the necessary information from it.
+         *
+         * It is important that this first phase is as quick as possible; creating contention for
+         * the head-lock is not desirable.
+         */
+
+        let head_state_slot;
+        let beacon_block_root;
+        let beacon_state_root;
+        let target;
+        let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
+        let attester_cache_key;
+        let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
+        if let Some(head) = self.canonical_head.try_read_for(HEAD_LOCK_TIMEOUT) {
+            let head_state = &head.beacon_state;
+            head_state_slot = head_state.slot();
+
+            // There is no value in producing an attestation to a block that is pre-finalization and
+            // it is likely to cause expensive and pointless reads to the freezer database. Exit
+            // early if this is the case.
+            let finalized_slot = head_state
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(slots_per_epoch);
+            if request_slot < finalized_slot {
+                return Err(Error::AttestingToFinalizedSlot {
+                    finalized_slot,
+                    request_slot,
+                });
+            }
+
+            // This function will eventually fail when trying to access a slot which is
+            // out-of-bounds of `state.block_roots`. This explicit error is intended to provide a
+            // clearer message to the user than an ambiguous `SlotOutOfBounds` error.
+            let slots_per_historical_root = T::EthSpec::slots_per_historical_root() as u64;
+            let lowest_permissible_slot =
+                head_state.slot().saturating_sub(slots_per_historical_root);
+            if request_slot < lowest_permissible_slot {
+                return Err(Error::AttestingToAncientSlot {
+                    lowest_permissible_slot,
+                    request_slot,
+                });
+            }
+
+            if request_slot >= head_state.slot() {
+                // When attesting to the head slot or later, always use the head of the chain.
+                beacon_block_root = head.beacon_block_root;
+                beacon_state_root = head.beacon_state_root();
+            } else {
+                // Permit attesting to slots *prior* to the current head. This is desirable when
+                // the VC and BN are out-of-sync due to time issues or overloading.
+                beacon_block_root = *head_state.get_block_root(request_slot)?;
+                beacon_state_root = *head_state.get_state_root(request_slot)?;
+            };
+
+            let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if head_state.slot() <= target_slot {
+                // If the state is earlier than the target slot then the target *must* be the head
+                // block root.
+                beacon_block_root
+            } else {
+                *head_state.get_block_root(target_slot)?
+            };
+            target = Checkpoint {
+                epoch: request_epoch,
+                root: target_root,
+            };
+
+            current_epoch_attesting_info = if head_state.current_epoch() == request_epoch {
+                // When the head state is in the same epoch as the request, all the information
+                // required to attest is available on the head state.
+                Some((
+                    head_state.current_justified_checkpoint(),
+                    head_state
+                        .get_beacon_committee(request_slot, request_index)?
+                        .committee
+                        .len(),
+                ))
+            } else {
+                // If the head state is in a *different* epoch to the request, more work is required
+                // to determine the justified checkpoint and committee length.
+                None
+            };
+
+            // Determine the key for `self.attester_cache`, in case it is required later in this
+            // routine.
+            attester_cache_key =
+                AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         } else {
-            // We disallow producing attestations *prior* to the current head since such an
-            // attestation would require loading a `BeaconState` from disk. Loading `BeaconState`
-            // from disk is very resource intensive and proposes a DoS risk from validator clients.
-            //
-            // Although we generally allow validator clients to do things that might harm us (i.e.,
-            // we trust them), sometimes we need to protect the BN from accidental errors which
-            // could cause it significant harm.
-            //
-            // This case is particularity harmful since the HTTP API can effectively call this
-            // function an unlimited amount of times. If `n` validators all happen to call it at
-            // the same time, we're going to load `n` states (and tree hash caches) into memory all
-            // at once. With `n >= 10` we're looking at hundreds of MB or GBs of RAM.
-            Err(Error::AttestingPriorToHead {
-                head_slot: head.beacon_block.slot(),
-                request_slot: slot,
-            })
+            return Err(Error::CanonicalHeadLockTimeout);
         }
+        drop(head_timer);
+
+        /*
+         *  Phase 2/2:
+         *
+         *  If the justified checkpoint and committee length from the head are suitable for this
+         *  attestation, use them. If not, try the attester cache. If the cache misses, load a state
+         *  from disk and prime the cache with it.
+         */
+
+        let cache_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_INTERACTION_SECONDS);
+        let (justified_checkpoint, committee_len) =
+            if let Some((justified_checkpoint, committee_len)) = current_epoch_attesting_info {
+                // The head state is in the same epoch as the attestation, so there is no more
+                // required information.
+                (justified_checkpoint, committee_len)
+            } else if let Some(cached_values) = self.attester_cache.get::<T::EthSpec>(
+                &attester_cache_key,
+                request_slot,
+                request_index,
+                &self.spec,
+            )? {
+                // The suitable values were already cached. Return them.
+                cached_values
+            } else {
+                debug!(
+                    self.log,
+                    "Attester cache miss";
+                    "beacon_block_root" => ?beacon_block_root,
+                    "head_state_slot" => %head_state_slot,
+                    "request_slot" => %request_slot,
+                );
+
+                // Neither the head state, nor the attester cache was able to produce the required
+                // information to attest in this epoch. So, load a `BeaconState` from disk and use
+                // it to fulfil the request (and prime the cache to avoid this next time).
+                let _cache_build_timer =
+                    metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_CACHE_PRIME_SECONDS);
+                self.attester_cache.load_and_cache_state(
+                    beacon_state_root,
+                    attester_cache_key,
+                    request_slot,
+                    request_index,
+                    self,
+                )?
+            };
+        drop(cache_timer);
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot: request_slot,
+                index: request_index,
+                beacon_block_root,
+                source: justified_checkpoint,
+                target,
+            },
+            signature: AggregateSignature::empty(),
+        })
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
@@ -1305,6 +1537,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
+    /// it is valid to be (re)broadcast on the gossip network.
+    pub fn verify_sync_committee_message_for_gossip(
+        &self,
+        sync_message: SyncCommitteeMessage,
+        subnet_id: SyncSubnetId,
+    ) -> Result<VerifiedSyncCommitteeMessage, SyncCommitteeError> {
+        metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES);
+
+        VerifiedSyncCommitteeMessage::verify(sync_message, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
+    /// Accepts some `SignedContributionAndProof` from the network and attempts to verify it,
+    /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
+    pub fn verify_sync_contribution_for_gossip(
+        &self,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+    ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
+        metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_GOSSIP_VERIFICATION_TIMES);
+        VerifiedSyncContribution::verify(sync_contribution, self).map(|v| {
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
     ///
@@ -1374,6 +1636,70 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(unaggregated_attestation)
     }
 
+    /// Accepts a `VerifiedSyncCommitteeMessage` and attempts to apply it to the "naive
+    /// aggregation pool".
+    ///
+    /// The naive aggregation pool is used by local validators to produce
+    /// `SignedContributionAndProof`.
+    ///
+    /// If the sync message is too old (low slot) to be included in the pool it is simply dropped
+    /// and no error is returned.
+    pub fn add_to_naive_sync_aggregation_pool(
+        &self,
+        verified_sync_committee_message: VerifiedSyncCommitteeMessage,
+    ) -> Result<VerifiedSyncCommitteeMessage, SyncCommitteeError> {
+        let sync_message = verified_sync_committee_message.sync_message();
+        let positions_by_subnet_id: &HashMap<SyncSubnetId, Vec<usize>> =
+            verified_sync_committee_message.subnet_positions();
+        for (subnet_id, positions) in positions_by_subnet_id.iter() {
+            for position in positions {
+                let _timer =
+                    metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_AGG_POOL);
+                let contribution = SyncCommitteeContribution::from_message(
+                    sync_message,
+                    subnet_id.into(),
+                    *position,
+                )?;
+
+                match self
+                    .naive_sync_aggregation_pool
+                    .write()
+                    .insert(&contribution)
+                {
+                    Ok(outcome) => trace!(
+                        self.log,
+                        "Stored unaggregated sync committee message";
+                        "outcome" => ?outcome,
+                        "index" => sync_message.validator_index,
+                        "slot" => sync_message.slot.as_u64(),
+                    ),
+                    Err(NaiveAggregationError::SlotTooLow {
+                        slot,
+                        lowest_permissible_slot,
+                    }) => {
+                        trace!(
+                            self.log,
+                            "Refused to store unaggregated sync committee message";
+                            "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                            "slot" => slot.as_u64(),
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                                self.log,
+                                "Failed to store unaggregated sync committee message";
+                                "error" => ?e,
+                                "index" => sync_message.validator_index,
+                                "slot" => sync_message.slot.as_u64(),
+                        );
+                        return Err(Error::from(e).into());
+                    }
+                };
+            }
+        }
+        Ok(verified_sync_committee_message)
+    }
+
     /// Accepts a `FullyVerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
@@ -1403,6 +1729,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(signed_aggregate)
     }
 
+    /// Accepts a `VerifiedSyncContribution` and attempts to apply it to `self.op_pool`.
+    ///
+    /// The op pool is used by local block producers to pack blocks with operations.
+    pub fn add_contribution_to_block_inclusion_pool(
+        &self,
+        contribution: VerifiedSyncContribution<T>,
+    ) -> Result<(), SyncCommitteeError> {
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL);
+
+        // If there's no eth1 chain then it's impossible to produce blocks and therefore
+        // useless to put things in the op pool.
+        if self.eth1_chain.is_some() {
+            self.op_pool
+                .insert_sync_contribution(contribution.contribution())
+                .map_err(Error::from)?;
+        }
+
+        Ok(())
+    }
+
     /// Filter an attestation from the op pool for shuffling compatibility.
     ///
     /// Use the provided `filter_cache` map to memoize results.
@@ -1418,7 +1764,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.shuffling_is_compatible(
                     &att.data.beacon_block_root,
                     att.data.target.epoch,
-                    &state,
+                    state,
                 )
             })
     }
@@ -1845,6 +2191,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = fully_verified_block.block_root;
         let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let mut ops = fully_verified_block.confirmation_db_batch;
 
         let attestation_observation_timer =
@@ -1853,11 +2200,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Iterate through the attestations in the block and register them as an "observed
         // attestation". This will stop us from propagating them on the gossip network.
         for a in signed_block.message().body().attestations() {
-            match self
-                .observed_attestations
-                .write()
-                .observe_attestation(a, None)
-            {
+            match self.observed_attestations.write().observe_item(a, None) {
                 // If the observation was successful or if the slot for the attestation was too
                 // low, continue.
                 //
@@ -1874,9 +2217,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for attestation in signed_block.message().body().attestations() {
                 let committee =
                     state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                let indexed_attestation =
-                    get_indexed_attestation(&committee.committee, attestation)
-                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
+                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
                 slasher.accept_attestation(indexed_attestation);
             }
         }
@@ -1910,6 +2252,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::AttestationCacheLockTimeout)?
                     .insert(shuffling_id, committee_cache);
             }
+        }
+
+        // Apply the state to the attester cache, only if it is from the previous epoch or later.
+        //
+        // In a perfect scenario there should be no need to add previous-epoch states to the cache.
+        // However, latency between the VC and the BN might cause the VC to produce attestations at
+        // a previous slot.
+        if state.current_epoch().saturating_add(1_u64) >= current_epoch {
+            self.attester_cache
+                .maybe_cache_state(&state, block_root, &self.spec)
+                .map_err(BeaconChainError::from)?;
         }
 
         let mut fork_choice = self.fork_choice.write();
@@ -2762,6 +3115,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.head_tracker.clone(),
         )?;
 
+        self.attester_cache
+            .prune_below(new_finalized_checkpoint.epoch);
+
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_finalized_subscribers() {
                 event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
@@ -2945,7 +3301,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(&committee_cache, shuffling_decision_block)
+            map_fn(committee_cache, shuffling_decision_block)
         }
     }
 
@@ -3121,6 +3477,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn dump_dot_file(&self, file_name: &str) {
         let mut file = std::fs::File::create(file_name).unwrap();
         self.dump_as_dot(&mut file);
+    }
+
+    /// Checks if attestations have been seen from the given `validator_index` at the
+    /// given `epoch`.
+    pub fn validator_seen_at_epoch(&self, validator_index: usize, epoch: Epoch) -> bool {
+        // It's necessary to assign these checks to intermediate variables to avoid a deadlock.
+        //
+        // See: https://github.com/sigp/lighthouse/pull/2230#discussion_r620013993
+        let attested = self
+            .observed_attesters
+            .read()
+            .index_seen_at_epoch(validator_index, epoch);
+        let aggregated = self
+            .observed_aggregators
+            .read()
+            .index_seen_at_epoch(validator_index, epoch);
+        let produced_block = self
+            .observed_block_producers
+            .read()
+            .index_seen_at_epoch(validator_index as u64, epoch);
+
+        attested || aggregated || produced_block
     }
 }
 

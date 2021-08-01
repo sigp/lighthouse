@@ -378,7 +378,7 @@ pub async fn get_deposit_logs_in_range(
                 .ok_or("Data was not string")?;
 
             Ok(Log {
-                block_number: hex_to_u64_be(&block_number)?,
+                block_number: hex_to_u64_be(block_number)?,
                 data: hex_to_bytes(data)?,
             })
         })
@@ -446,7 +446,7 @@ pub async fn send_rpc_request(
 
 /// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value`.
 fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
-    let json = serde_json::from_str::<Value>(&response)
+    let json = serde_json::from_str::<Value>(response)
         .map_err(|e| RpcError::InvalidJson(e.to_string()))?;
 
     if let Some(error) = json.get("error").map(|e| e.get("message")).flatten() {

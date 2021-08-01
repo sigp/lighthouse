@@ -251,6 +251,13 @@ where
                 .get_item::<PersistedOperationPool<TEthSpec>>(&OP_POOL_DB_KEY)
                 .map_err(|e| format!("DB error whilst reading persisted op pool: {:?}", e))?
                 .map(PersistedOperationPool::into_operation_pool)
+                .transpose()
+                .map_err(|e| {
+                    format!(
+                        "Error while creating the op pool from the persisted op pool: {:?}",
+                        e
+                    )
+                })?
                 .unwrap_or_else(OperationPool::new),
         );
 
@@ -506,11 +513,19 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
+            naive_sync_aggregation_pool: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
             observed_attestations: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            observed_sync_contributions: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
+            observed_sync_contributors: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
             observed_aggregators: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
+            observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
@@ -532,6 +547,7 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             beacon_proposer_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            attester_cache: <_>::default(),
             disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender
@@ -545,6 +561,16 @@ where
         let head = beacon_chain
             .head()
             .map_err(|e| format!("Failed to get head: {:?}", e))?;
+
+        // Prime the attester cache with the head state.
+        beacon_chain
+            .attester_cache
+            .maybe_cache_state(
+                &head.beacon_state,
+                head.beacon_block_root,
+                &beacon_chain.spec,
+            )
+            .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
         if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
@@ -640,7 +666,7 @@ fn genesis_block<T: EthSpec>(
     genesis_state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<SignedBeaconBlock<T>, String> {
-    let mut genesis_block = BeaconBlock::empty(&spec);
+    let mut genesis_block = BeaconBlock::empty(spec);
     *genesis_block.state_root_mut() = genesis_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;

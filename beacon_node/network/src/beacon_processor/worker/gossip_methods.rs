@@ -10,7 +10,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
-use slog::{crit, debug, error, info, trace, warn};
+use slog::{debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

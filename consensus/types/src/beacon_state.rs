@@ -13,16 +13,18 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
-use std::collections::HashSet;
 use std::convert::TryInto;
-use std::{fmt, mem};
+use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-pub use self::committee_cache::CommitteeCache;
+pub use self::committee_cache::{
+    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
+    CommitteeCache,
+};
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -50,6 +52,9 @@ pub enum Error {
     UnableToDetermineProducer,
     InvalidBitfield,
     ValidatorIsWithdrawable,
+    ValidatorIsInactive {
+        val_index: usize,
+    },
     UnableToShuffle,
     ShuffleIndexOutOfBounds(usize),
     IsAggregatorOutOfBounds,
@@ -110,6 +115,10 @@ pub enum Error {
     ArithError(ArithError),
     MissingBeaconBlock(SignedBeaconBlockHash),
     MissingBeaconState(BeaconStateHash),
+    SyncCommitteeNotKnown {
+        current_epoch: Epoch,
+        epoch: Epoch,
+    },
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -255,9 +264,9 @@ where
 
     // Light-client sync committees
     #[superstruct(only(Altair))]
-    pub current_sync_committee: SyncCommittee<T>,
+    pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair))]
-    pub next_sync_committee: SyncCommittee<T>,
+    pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -480,7 +489,7 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<&[usize], Error> {
         let cache = self.committee_cache(relative_epoch)?;
 
-        Ok(&cache.active_validator_indices())
+        Ok(cache.active_validator_indices())
     }
 
     /// Returns the active validator indices for the given epoch.
@@ -730,6 +739,28 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(hash(&preimage))
     }
 
+    /// Get the already-built current or next sync committee from the state.
+    pub fn get_built_sync_committee(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<&Arc<SyncCommittee<T>>, Error> {
+        let sync_committee_period = epoch.sync_committee_period(spec)?;
+        let current_sync_committee_period = self.current_epoch().sync_committee_period(spec)?;
+        let next_sync_committee_period = current_sync_committee_period.safe_add(1)?;
+
+        if sync_committee_period == current_sync_committee_period {
+            self.current_sync_committee()
+        } else if sync_committee_period == next_sync_committee_period {
+            self.next_sync_committee()
+        } else {
+            Err(Error::SyncCommitteeNotKnown {
+                current_epoch: self.current_epoch(),
+                epoch,
+            })
+        }
+    }
+
     /// Get the validator indices of all validators from `sync_committee`.
     pub fn get_sync_committee_indices(
         &mut self,
@@ -739,7 +770,7 @@ impl<T: EthSpec> BeaconState<T> {
             .pubkeys
             .iter()
             .map(|pubkey| {
-                self.get_validator_index(&pubkey)?
+                self.get_validator_index(pubkey)?
                     .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
@@ -1282,8 +1313,20 @@ impl<T: EthSpec> BeaconState<T> {
         let epoch = relative_epoch.into_epoch(self.current_epoch());
         let i = Self::committee_cache_index(relative_epoch);
 
-        *self.committee_cache_at_index_mut(i)? = CommitteeCache::initialized(&self, epoch, spec)?;
+        *self.committee_cache_at_index_mut(i)? = self.initialize_committee_cache(epoch, spec)?;
         Ok(())
+    }
+
+    /// Initializes a new committee cache for the given `epoch`, regardless of whether one already
+    /// exists. Returns the committee cache without attaching it to `self`.
+    ///
+    /// To build a cache and store it on `self`, use `Self::build_committee_cache`.
+    pub fn initialize_committee_cache(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<CommitteeCache, Error> {
+        CommitteeCache::initialized(self, epoch, spec)
     }
 
     /// Advances the cache for this state into the next epoch.
@@ -1395,7 +1438,7 @@ impl<T: EthSpec> BeaconState<T> {
         if let Some(mut cache) = cache {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_tree_hash_root(&self)?;
+            let root = cache.recalculate_tree_hash_root(self)?;
             self.tree_hash_cache_mut().restore(cache);
             Ok(root)
         } else {
@@ -1452,67 +1495,39 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
-    /// Get the unslashed participating indices for a given `flag_index`.
-    ///
-    /// The `self` state must be Altair or later.
-    pub fn get_unslashed_participating_indices(
-        &self,
-        flag_index: usize,
-        epoch: Epoch,
-        spec: &ChainSpec,
-    ) -> Result<HashSet<usize>, Error> {
-        let epoch_participation = if epoch == self.current_epoch() {
-            self.current_epoch_participation()?
-        } else if epoch == self.previous_epoch() {
-            self.previous_epoch_participation()?
-        } else {
-            return Err(Error::EpochOutOfBounds);
-        };
-        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-        itertools::process_results(
-            active_validator_indices.into_iter().map(|val_index| {
-                let has_flag = epoch_participation
-                    .get(val_index)
-                    .ok_or(Error::ParticipationOutOfBounds(val_index))?
-                    .has_flag(flag_index)?;
-                let not_slashed = !self.get_validator(val_index)?.slashed;
-                Ok((val_index, has_flag && not_slashed))
-            }),
-            |iter| {
-                iter.filter(|(_, eligible)| *eligible)
-                    .map(|(validator_index, _)| validator_index)
-                    .collect()
-            },
-        )
-    }
-
-    pub fn get_eligible_validator_indices(&self) -> Result<Vec<usize>, Error> {
-        match self {
-            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Altair(_) => {
-                let previous_epoch = self.previous_epoch();
-                Ok(self
-                    .validators()
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, val)| {
-                        if val.is_active_at(previous_epoch)
-                            || (val.slashed
-                                && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
-                        {
-                            Some(i)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect())
-            }
-        }
+    pub fn is_eligible_validator(&self, val_index: usize) -> Result<bool, Error> {
+        let previous_epoch = self.previous_epoch();
+        self.get_validator(val_index).map(|val| {
+            val.is_active_at(previous_epoch)
+                || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
+        })
     }
 
     pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
         (self.previous_epoch() - self.finalized_checkpoint().epoch)
             > spec.min_epochs_to_inactivity_penalty
+    }
+
+    /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees
+    /// assigned to `slot` sign for `slot - 1`. This creates the exceptional logic below when
+    /// transitioning between sync committee periods.
+    pub fn get_sync_committee_for_next_slot(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Arc<SyncCommittee<T>>, Error> {
+        let next_slot_epoch = self
+            .slot()
+            .saturating_add(Slot::new(1))
+            .epoch(T::slots_per_epoch());
+
+        let sync_committee = if self.current_epoch().sync_committee_period(spec)
+            == next_slot_epoch.sync_committee_period(spec)
+        {
+            self.current_sync_committee()?.clone()
+        } else {
+            self.next_sync_committee()?.clone()
+        };
+        Ok(sync_committee)
     }
 }
 

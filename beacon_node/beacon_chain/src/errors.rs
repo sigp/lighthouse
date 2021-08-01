@@ -1,9 +1,10 @@
+use crate::attester_cache::Error as AttesterCacheError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::eth1_chain::Error as Eth1ChainError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
-use crate::observed_attestations::Error as ObservedAttestationsError;
+use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use futures::channel::mpsc::TrySendError;
@@ -14,7 +15,7 @@ use state_processing::{
     block_signature_verifier::Error as BlockSignatureVerifierError,
     per_block_processing::errors::{
         AttestationValidationError, AttesterSlashingValidationError, ExitValidationError,
-        ProposerSlashingValidationError,
+        ProposerSlashingValidationError, SyncCommitteeMessageValidationError,
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
@@ -60,6 +61,7 @@ pub enum BeaconChainError {
     },
     CannotAttestToFutureState,
     AttestationValidationError(AttestationValidationError),
+    SyncCommitteeMessageValidationError(SyncCommitteeMessageValidationError),
     ExitValidationError(ExitValidationError),
     ProposerSlashingValidationError(ProposerSlashingValidationError),
     AttesterSlashingValidationError(AttesterSlashingValidationError),
@@ -90,6 +92,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
+    AttesterCacheError(AttesterCacheError),
     PruningError(PruningError),
     ArithError(ArithError),
     InvalidShufflingId {
@@ -98,8 +101,12 @@ pub enum BeaconChainError {
     },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<ShutdownReason>),
-    AttestingPriorToHead {
-        head_slot: Slot,
+    AttestingToFinalizedSlot {
+        finalized_slot: Slot,
+        request_slot: Slot,
+    },
+    AttestingToAncientSlot {
+        lowest_permissible_slot: Slot,
         request_slot: Slot,
     },
     BadPreState {
@@ -121,10 +128,12 @@ pub enum BeaconChainError {
         old_slot: Slot,
         new_slot: Slot,
     },
+    AltairForkDisabled,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
 easy_from_to!(AttestationValidationError, BeaconChainError);
+easy_from_to!(SyncCommitteeMessageValidationError, BeaconChainError);
 easy_from_to!(ExitValidationError, BeaconChainError);
 easy_from_to!(ProposerSlashingValidationError, BeaconChainError);
 easy_from_to!(AttesterSlashingValidationError, BeaconChainError);
@@ -134,6 +143,7 @@ easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
+easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);

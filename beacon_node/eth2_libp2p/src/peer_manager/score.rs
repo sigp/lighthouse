@@ -5,7 +5,7 @@
 //! As the logic develops this documentation will advance.
 //!
 //! The scoring algorithms are currently experimental.
-use crate::behaviour::GOSSIPSUB_GREYLIST_THRESHOLD;
+use crate::behaviour::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
 use std::time::Instant;
 use strum::AsRefStr;
@@ -31,7 +31,7 @@ const MIN_SCORE: f64 = -100.0;
 /// The halflife of a peer's score. I.e the number of seconds it takes for the score to decay to half its value.
 const SCORE_HALFLIFE: f64 = 600.0;
 /// The number of seconds we ban a peer for before their score begins to decay.
-const BANNED_BEFORE_DECAY: Duration = Duration::from_secs(1800);
+const BANNED_BEFORE_DECAY: Duration = Duration::from_secs(12 * 3600); // 12 hours
 
 /// We weight negative gossipsub scores in such a way that they never result in a disconnect by
 /// themselves. This "solves" the problem of non-decaying gossipsub scores for disconnected peers.

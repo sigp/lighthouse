@@ -17,7 +17,7 @@ proto_array = { path = "../../consensus/proto_array", optional = true }
 serde_utils = { path = "../../consensus/serde_utils" }
 zeroize = { version = "1.1.1", features = ["zeroize_derive"] }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
-libsecp256k1 = "0.3.5"
+libsecp256k1 = "0.5.0"
 ring = "0.16.19"
 bytes = "1.0.1"
 account_utils = { path = "../../common/account_utils" }

@@ -16,8 +16,8 @@ pub enum Error {
     UnableToRemoveWallet(io::Error),
     UnableToCreateWallet(io::Error),
     UnableToReadWallet(io::Error),
-    JsonWriteError(WalletError),
-    JsonReadError(WalletError),
+    JsonWrite(WalletError),
+    JsonRead(WalletError),
 }
 
 /// Read a wallet with the given `uuid` from the `wallet_dir`.
@@ -32,7 +32,7 @@ pub fn read<P: AsRef<Path>>(wallet_dir: P, uuid: &Uuid) -> Result<Wallet, Error>
             .create(false)
             .open(json_path)
             .map_err(Error::UnableToReadWallet)
-            .and_then(|f| Wallet::from_json_reader(f).map_err(Error::JsonReadError))
+            .and_then(|f| Wallet::from_json_reader(f).map_err(Error::JsonRead))
     }
 }
 
@@ -84,7 +84,7 @@ pub fn create<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Erro
             .create_new(true)
             .open(json_path)
             .map_err(Error::UnableToCreateWallet)
-            .and_then(|f| wallet.to_json_writer(f).map_err(Error::JsonWriteError))
+            .and_then(|f| wallet.to_json_writer(f).map_err(Error::JsonWrite))
     }
 }
 

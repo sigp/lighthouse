@@ -17,6 +17,8 @@ pub enum Domain {
     SelectionProof,
     AggregateAndProof,
     SyncCommittee,
+    ContributionAndProof,
+    SyncCommitteeSelectionProof,
 }
 
 /// Lighthouse's internal configuration struct.
@@ -181,6 +183,37 @@ impl ChainSpec {
         }
     }
 
+    /// Returns the fork version for a named fork.
+    pub fn fork_version_for_name(&self, fork_name: ForkName) -> [u8; 4] {
+        match fork_name {
+            ForkName::Base => self.genesis_fork_version,
+            ForkName::Altair => self.altair_fork_version,
+        }
+    }
+
+    /// For a given fork name, return the epoch at which it activates.
+    pub fn fork_epoch(&self, fork_name: ForkName) -> Option<Epoch> {
+        match fork_name {
+            ForkName::Base => Some(Epoch::new(0)),
+            ForkName::Altair => self.altair_fork_epoch,
+        }
+    }
+
+    /// Returns a full `Fork` struct for a given epoch.
+    pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
+        let current_fork_name = self.fork_name_at_epoch(epoch);
+        let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
+        let epoch = self
+            .fork_epoch(current_fork_name)
+            .unwrap_or_else(|| Epoch::new(0));
+
+        Fork {
+            previous_version: self.fork_version_for_name(previous_fork_name),
+            current_version: self.fork_version_for_name(current_fork_name),
+            epoch,
+        }
+    }
+
     /// Get the domain number, unmodified by the fork.
     ///
     /// Spec v0.12.1
@@ -194,6 +227,8 @@ impl ChainSpec {
             Domain::SelectionProof => self.domain_selection_proof,
             Domain::AggregateAndProof => self.domain_aggregate_and_proof,
             Domain::SyncCommittee => self.domain_sync_committee,
+            Domain::ContributionAndProof => self.domain_contribution_and_proof,
+            Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
         }
     }
 
@@ -674,6 +709,18 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+    }
+
+    // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.
+    #[test]
+    fn fork_name_at_epoch_consistency() {
+        let spec = ChainSpec::mainnet();
+
+        for fork_name in ForkName::list_all() {
+            if let Some(fork_epoch) = spec.fork_epoch(fork_name) {
+                assert_eq!(spec.fork_name_at_epoch(fork_epoch), fork_name);
+            }
+        }
     }
 }
 

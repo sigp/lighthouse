@@ -144,19 +144,19 @@ impl GossipTopic {
     }
 }
 
-impl Into<Topic> for GossipTopic {
-    fn into(self) -> Topic {
-        Topic::new(self)
+impl From<GossipTopic> for Topic {
+    fn from(topic: GossipTopic) -> Topic {
+        Topic::new(topic)
     }
 }
 
-impl Into<String> for GossipTopic {
-    fn into(self) -> String {
-        let encoding = match self.encoding {
+impl From<GossipTopic> for String {
+    fn from(topic: GossipTopic) -> String {
+        let encoding = match topic.encoding {
             GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
         };
 
-        let kind = match self.kind {
+        let kind = match topic.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
@@ -167,7 +167,7 @@ impl Into<String> for GossipTopic {
         format!(
             "/{}/{}/{}/{}",
             TOPIC_PREFIX,
-            hex::encode(self.fork_digest),
+            hex::encode(topic.fork_digest),
             kind,
             encoding
         )

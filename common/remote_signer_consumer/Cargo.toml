@@ -11,6 +11,6 @@ remote_signer_test = { path = "../../testing/remote_signer_test" }
 [dependencies]
 reqwest = { version = "0.11.0", features = ["json"] }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.1.0", features = ["time"] }
+tokio = { version = "1.7.1", features = ["time"] }
 types = { path = "../../consensus/types" }
 sensitive_url = { path = "../sensitive_url" }

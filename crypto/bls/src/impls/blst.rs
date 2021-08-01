@@ -132,7 +132,7 @@ impl TPublicKey for blst_core::PublicKey {
                 expected: PUBLIC_KEY_BYTES_LEN,
             });
         }
-        Self::key_validate(&bytes).map_err(Into::into)
+        Self::key_validate(bytes).map_err(Into::into)
     }
 }
 
@@ -278,6 +278,6 @@ impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::Secre
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        Self::from_bytes(bytes).map_err(Into::into)
     }
 }

@@ -95,7 +95,7 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches
 
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic
+# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
 check-consensus:
 	cargo check --manifest-path=consensus/state_processing/Cargo.toml --no-default-features
 
@@ -151,7 +151,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2021-0073
+	cargo audit --ignore RUSTSEC-2021-0073 --ignore RUSTSEC-2021-0076
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
