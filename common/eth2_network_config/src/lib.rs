@@ -1,6 +1,7 @@
 use eth2_config::{predefined_networks_dir, *};
 
 use enr::{CombinedKey, Enr};
+use paste::paste;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -37,19 +38,17 @@ macro_rules! define_net {
 }
 
 macro_rules! define_nets {
-    ($(($name: ident, $mod: ident, $include_file: tt)),+) => {
-        $(
-        const $name: HardcodedNet = define_net!($mod, $include_file);
-        )+
+    ($($name: ident),+) => {
+        paste! {
+            $(
+            const $name: HardcodedNet = define_net!([<$name:lower>], [<include_ $name:lower _file>]);
+            )+
+        }
         const HARDCODED_NETS: &[HardcodedNet] = &[$($name,)+];
     };
 }
 
-define_nets!(
-    (MAINNET, mainnet, include_mainnet_file),
-    (PYRMONT, pyrmont, include_pyrmont_file),
-    (PRATER, prater, include_prater_file)
-);
+define_nets!(MAINNET, PYRMONT, PRATER);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
