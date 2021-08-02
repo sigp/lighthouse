@@ -27,7 +27,9 @@
 //! ```
 
 use crate::{
-    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
+    beacon_chain::{
+        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    },
     metrics,
     observed_aggregates::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
