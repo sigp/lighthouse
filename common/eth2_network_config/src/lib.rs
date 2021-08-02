@@ -36,11 +36,21 @@ macro_rules! define_net {
     }};
 }
 
-const PYRMONT: HardcodedNet = define_net!(pyrmont, include_pyrmont_file);
-const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
-const PRATER: HardcodedNet = define_net!(prater, include_prater_file);
+macro_rules! define_nets {
+    ($(($name: ident, $mod: ident, $include_file: tt)),+) => {
+        $(
+        const $name: HardcodedNet = define_net!($mod, $include_file);
+        )+
+        const HARDCODED_NETS: &[HardcodedNet] = &[$($name,)+];
+    };
+}
 
-const HARDCODED_NETS: &[HardcodedNet] = &[PYRMONT, MAINNET, PRATER];
+define_nets!(
+    (MAINNET, mainnet, include_mainnet_file),
+    (PYRMONT, pyrmont, include_pyrmont_file),
+    (PRATER, prater, include_prater_file)
+);
+
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
 /// Specifies an Eth2 network.
