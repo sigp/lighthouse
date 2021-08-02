@@ -247,7 +247,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         hasher.write(state.eth1_data().tree_hash_root().as_bytes())?;
         hasher.write(
             self.eth1_data_votes
-                .recalculate_tree_hash_root(&state)?
+                .recalculate_tree_hash_root(state)?
                 .as_bytes(),
         )?;
         hasher.write(state.eth1_deposit_index().tree_hash_root().as_bytes())?;

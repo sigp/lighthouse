@@ -48,7 +48,7 @@ fn eip2386_test_vector_scrypt() {
 	}
         "#;
 
-    let wallet = decode_and_check_seed(&vector);
+    let wallet = decode_and_check_seed(vector);
     assert_eq!(
         *wallet.uuid(),
         Uuid::parse_str("b74559b8-ed56-4841-b25c-dba1b7c9d9d5").unwrap(),

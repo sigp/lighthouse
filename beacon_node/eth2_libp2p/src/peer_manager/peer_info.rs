@@ -103,7 +103,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
-        self.subnets.contains(&subnet)
+        self.subnets.contains(subnet)
     }
 
     /// Returns the seen IP addresses of the peer.

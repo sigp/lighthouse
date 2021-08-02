@@ -48,7 +48,7 @@ impl Inner {
 
     /// Encode the eth1 block and deposit cache as bytes.
     pub fn as_bytes(&self) -> Vec<u8> {
-        let ssz_eth1_cache = SszEth1Cache::from_inner(&self);
+        let ssz_eth1_cache = SszEth1Cache::from_inner(self);
         ssz_eth1_cache.as_ssz_bytes()
     }
 

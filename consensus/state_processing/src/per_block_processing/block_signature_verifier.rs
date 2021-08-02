@@ -244,10 +244,10 @@ where
             .iter()
             .try_for_each(|attester_slashing| {
                 let (set_1, set_2) = attester_slashing_signature_sets(
-                    &self.state,
+                    self.state,
                     self.get_pubkey.clone(),
                     attester_slashing,
-                    &self.spec,
+                    self.spec,
                 )?;
 
                 self.sets.push(set_1);
@@ -280,11 +280,11 @@ where
                         get_indexed_attestation(committee.committee, attestation)?;
 
                     self.sets.push(indexed_attestation_signature_set(
-                        &self.state,
+                        self.state,
                         self.get_pubkey.clone(),
                         &attestation.signature,
                         &indexed_attestation,
-                        &self.spec,
+                        self.spec,
                     )?);
 
                     vec.push(indexed_attestation);
@@ -307,7 +307,7 @@ where
             .iter()
             .try_for_each(|exit| {
                 let exit =
-                    exit_signature_set(&self.state, self.get_pubkey.clone(), exit, &self.spec)?;
+                    exit_signature_set(self.state, self.get_pubkey.clone(), exit, self.spec)?;
 
                 self.sets.push(exit);
 
@@ -323,8 +323,8 @@ where
                 sync_aggregate,
                 block.slot(),
                 block.parent_root(),
-                &self.state,
-                &self.spec,
+                self.state,
+                self.spec,
             )? {
                 self.sets.push(signature_set);
             }

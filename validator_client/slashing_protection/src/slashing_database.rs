@@ -93,7 +93,7 @@ impl SlashingDatabase {
 
     /// Open an existing `SlashingDatabase` from disk.
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
-        let conn_pool = Self::open_conn_pool(&path)?;
+        let conn_pool = Self::open_conn_pool(path)?;
         Ok(Self { conn_pool })
     }
 
@@ -159,7 +159,7 @@ impl SlashingDatabase {
     ) -> Result<(), NotSafe> {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
-            if self.get_validator_id_opt(&txn, pubkey)?.is_none() {
+            if self.get_validator_id_opt(txn, pubkey)?.is_none() {
                 stmt.execute(&[pubkey.as_hex_string()])?;
             }
         }
@@ -481,10 +481,10 @@ impl SlashingDatabase {
         signing_root: SigningRoot,
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
-        let safe = self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
+        let safe = self.check_block_proposal(txn, validator_pubkey, slot, signing_root)?;
 
         if safe != Safe::SameData {
-            self.insert_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
+            self.insert_block_proposal(txn, validator_pubkey, slot, signing_root)?;
         }
         Ok(safe)
     }
@@ -541,7 +541,7 @@ impl SlashingDatabase {
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let safe = self.check_attestation(
-            &txn,
+            txn,
             validator_pubkey,
             att_source_epoch,
             att_target_epoch,
@@ -550,7 +550,7 @@ impl SlashingDatabase {
 
         if safe != Safe::SameData {
             self.insert_attestation(
-                &txn,
+                txn,
                 validator_pubkey,
                 att_source_epoch,
                 att_target_epoch,
@@ -695,7 +695,7 @@ impl SlashingDatabase {
         .query_and_then(params![], |row| {
             let validator_pubkey: String = row.get(0)?;
             let slot = row.get(1)?;
-            let signing_root = Some(hash256_from_row(2, &row)?);
+            let signing_root = Some(hash256_from_row(2, row)?);
             let signed_block = InterchangeBlock { slot, signing_root };
             data.entry(validator_pubkey)
                 .or_insert_with(|| (vec![], vec![]))
@@ -715,7 +715,7 @@ impl SlashingDatabase {
             let validator_pubkey: String = row.get(0)?;
             let source_epoch = row.get(1)?;
             let target_epoch = row.get(2)?;
-            let signing_root = Some(hash256_from_row(3, &row)?);
+            let signing_root = Some(hash256_from_row(3, row)?);
             let signed_attestation = InterchangeAttestation {
                 source_epoch,
                 target_epoch,

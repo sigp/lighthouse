@@ -127,7 +127,7 @@ fn mod_r(bytes: &[u8]) -> ZeroizeHash {
     debug_assert!(x_slice.len() <= HASH_SIZE);
 
     let mut output = ZeroizeHash::zero();
-    output.as_mut_bytes()[HASH_SIZE - x_slice.len()..].copy_from_slice(&x_slice);
+    output.as_mut_bytes()[HASH_SIZE - x_slice.len()..].copy_from_slice(x_slice);
     output
 }
 

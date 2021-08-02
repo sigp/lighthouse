@@ -1,6 +1,7 @@
 #![cfg(test)]
 #![cfg(not(debug_assertions))]
 
+use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
     Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
@@ -85,8 +86,13 @@ impl ApiTester {
             Hash256::repeat_byte(42),
             spec,
             fork_service.clone(),
+            Some(Arc::new(DoppelgangerService::new(log.clone()))),
             log.clone(),
         );
+
+        validator_store
+            .register_all_in_doppelganger_protection_if_enabled()
+            .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
 
@@ -94,7 +100,7 @@ impl ApiTester {
             runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
-            validator_store: Some(validator_store),
+            validator_store: Some(Arc::new(validator_store)),
             spec: E::default_spec(),
             config: HttpConfig {
                 enabled: true,

@@ -17,7 +17,7 @@ fn get_serializable_named_field_idents(struct_data: &syn::DataStruct) -> Vec<&sy
         .fields
         .iter()
         .filter_map(|f| {
-            if should_skip_serializing(&f) {
+            if should_skip_serializing(f) {
                 None
             } else {
                 Some(match &f.ident {
@@ -36,7 +36,7 @@ fn get_serializable_field_types(struct_data: &syn::DataStruct) -> Vec<&syn::Type
         .fields
         .iter()
         .filter_map(|f| {
-            if should_skip_serializing(&f) {
+            if should_skip_serializing(f) {
                 None
             } else {
                 Some(&f.ty)

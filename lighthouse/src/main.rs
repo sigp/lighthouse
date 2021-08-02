@@ -364,7 +364,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(&matches, context.log())
+            let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?

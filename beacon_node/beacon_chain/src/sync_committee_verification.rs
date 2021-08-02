@@ -573,7 +573,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     let signature_sets = vec![
         signed_sync_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &signed_aggregate,
+            signed_aggregate,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -581,7 +581,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_sync_aggregate_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &signed_aggregate,
+            signed_aggregate,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,

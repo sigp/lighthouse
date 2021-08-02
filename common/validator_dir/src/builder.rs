@@ -180,7 +180,7 @@ impl<'a> Builder<'a> {
                     signature: Signature::empty().into(),
                 };
 
-                deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, &spec);
+                deposit_data.signature = deposit_data.create_signature(&voting_keypair.sk, spec);
 
                 let deposit_data =
                     encode_eth1_tx_data(&deposit_data).map_err(Error::UnableToEncodeDeposit)?;

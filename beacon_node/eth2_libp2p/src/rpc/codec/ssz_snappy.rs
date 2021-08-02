@@ -261,7 +261,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             if src.len() >= 4 {
                 let context_bytes = src.split_to(4);
                 let mut result = [0; 4];
-                result.copy_from_slice(&context_bytes.as_ref());
+                result.copy_from_slice(context_bytes.as_ref());
                 self.fork_name = Some(context_bytes_to_fork_name(
                     result,
                     self.fork_context.clone(),
@@ -438,19 +438,19 @@ fn handle_v1_request<T: EthSpec>(
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match protocol {
         Protocol::Status => Ok(Some(InboundRequest::Status(StatusMessage::from_ssz_bytes(
-            &decoded_buffer,
+            decoded_buffer,
         )?))),
         Protocol::Goodbye => Ok(Some(InboundRequest::Goodbye(
-            GoodbyeReason::from_ssz_bytes(&decoded_buffer)?,
+            GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+            BlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
-            data: u64::from_ssz_bytes(&decoded_buffer)?,
+            data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
 
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
@@ -474,10 +474,10 @@ fn handle_v2_request<T: EthSpec>(
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match protocol {
         Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-            BlocksByRangeRequest::from_ssz_bytes(&decoded_buffer)?,
+            BlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from_ssz_bytes(&decoded_buffer)?,
+            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
@@ -504,21 +504,21 @@ fn handle_v1_response<T: EthSpec>(
 ) -> Result<Option<RPCResponse<T>>, RPCError> {
     match protocol {
         Protocol::Status => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
-            &decoded_buffer,
+            decoded_buffer,
         )?))),
         // This case should be unreachable as `Goodbye` has no response.
         Protocol::Goodbye => Err(RPCError::InvalidData),
         Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?),
+            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(&decoded_buffer)?),
+            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
-            data: u64::from_ssz_bytes(&decoded_buffer)?,
+            data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
         Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V1(
-            MetaDataV1::from_ssz_bytes(&decoded_buffer)?,
+            MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
     }
 }
@@ -537,7 +537,7 @@ fn handle_v2_response<T: EthSpec>(
     // MetaData does not contain context_bytes
     if let Protocol::MetaData = protocol {
         Ok(Some(RPCResponse::MetaData(MetaData::V2(
-            MetaDataV2::from_ssz_bytes(&decoded_buffer)?,
+            MetaDataV2::from_ssz_bytes(decoded_buffer)?,
         ))))
     } else {
         let fork_name = fork_name.take().ok_or_else(|| {
@@ -550,26 +550,22 @@ fn handle_v2_response<T: EthSpec>(
             Protocol::BlocksByRange => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                     SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
-                        &decoded_buffer,
+                        decoded_buffer,
                     )?),
                 )))),
 
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                        &decoded_buffer,
-                    )?),
+                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                     SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
-                        &decoded_buffer,
+                        decoded_buffer,
                     )?),
                 )))),
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(
-                        &decoded_buffer,
-                    )?),
+                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
             },
             _ => Err(RPCError::ErrorResponse(

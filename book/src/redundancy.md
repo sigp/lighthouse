@@ -61,7 +61,7 @@ following flags:
 	`5052`). This is only required if your backup node is on a different host.
 - `--subscribe-all-subnets`: ensures that the beacon node subscribes to *all*
 	subnets, not just on-demand requests from validators.
-- `--process-all-attestations`: ensures that the beacon node performs
+- `--import-all-attestations`: ensures that the beacon node performs
 	aggregation on all seen attestations.
 
 Subsequently, one could use the following command to provide a backup beacon
@@ -72,12 +72,12 @@ lighthouse bn \
   --staking \
   --http-address 0.0.0.0 \
   --subscribe-all-subnets \
-  --process-all-attestations
+  --import-all-attestations
 ```
 
 ### Resource usage of redundant Beacon Nodes
 
-The `--subscribe-all-subnets` and `--process-all-attestations` flags typically
+The `--subscribe-all-subnets` and `--import-all-attestations` flags typically
 cause a significant increase in resource consumption. A doubling in CPU
 utilization and RAM consumption is expected.
 

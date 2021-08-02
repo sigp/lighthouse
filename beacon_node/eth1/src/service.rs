@@ -705,7 +705,7 @@ impl Service {
                     }
                 }
             }
-            endpoints.fallback.map_format_error(|s| &s.endpoint, &e)
+            endpoints.fallback.map_format_error(|s| &s.endpoint, e)
         };
 
         let process_err = |e: Error| match &e {
@@ -716,7 +716,7 @@ impl Service {
         let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
             endpoints
                 .first_success(|e| async move {
-                    get_remote_head_and_new_block_ranges(e, &self, node_far_behind_seconds).await
+                    get_remote_head_and_new_block_ranges(e, self, node_far_behind_seconds).await
                 })
                 .await
                 .map_err(|e| {
@@ -881,7 +881,7 @@ impl Service {
                 Some(range) => range,
                 None => endpoints
                     .first_success(|e| async move {
-                        relevant_new_block_numbers_from_endpoint(e, &self, HeadType::Deposit).await
+                        relevant_new_block_numbers_from_endpoint(e, self, HeadType::Deposit).await
                     })
                     .await
                     .map_err(Error::FallbackError)?,
@@ -922,7 +922,7 @@ impl Service {
                 .first_success(|e| async move {
                     get_deposit_logs_in_range(
                         e,
-                        &deposit_contract_address_ref,
+                        deposit_contract_address_ref,
                         block_range_ref.clone(),
                         Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                     )
@@ -1034,7 +1034,7 @@ impl Service {
                 Some(range) => range,
                 None => endpoints
                     .first_success(|e| async move {
-                        relevant_new_block_numbers_from_endpoint(e, &self, HeadType::BlockCache)
+                        relevant_new_block_numbers_from_endpoint(e, self, HeadType::BlockCache)
                             .await
                     })
                     .await
