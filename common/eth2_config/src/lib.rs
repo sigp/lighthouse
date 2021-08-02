@@ -1,3 +1,4 @@
+use paste::paste;
 use std::env;
 use std::path::PathBuf;
 use types::{ChainSpec, EthSpecId};
@@ -73,40 +74,61 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
     }
 }
 
+const GENESIS_STATE_IS_KNOWN: bool = true;
+
 macro_rules! define_net {
-    ($title: ident, $macro_title: tt, $name: tt, $genesis_is_known: tt) => {
-        #[macro_use]
-        pub mod $title {
-            use super::*;
+    ($title: ident, $genesis_is_known: ident) => {
+        paste! {
+            #[macro_use]
+            pub mod $title {
+                use super::*;
 
-            pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
-                name: $name,
-                unique_id: $name,
-                genesis_is_known: $genesis_is_known,
-            };
-
-            // A wrapper around `std::include_bytes` which includes a file from a specific network
-            // directory. Used by upstream crates to import files at compile time.
-            #[macro_export]
-            macro_rules! $macro_title {
-                ($base_dir: tt, $filename: tt) => {
-                    include_bytes!(concat!(
-                        $base_dir,
-                        "/",
-                        predefined_networks_dir!(),
-                        "/",
-                        $name,
-                        "/",
-                        $filename
-                    ))
+                pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
+                    name: stringify!($title),
+                    unique_id: stringify!($title),
+                    genesis_is_known: $genesis_is_known,
                 };
+
+                // A wrapper around `std::include_bytes` which includes a file from a specific network
+                // directory. Used by upstream crates to import files at compile time.
+                #[macro_export]
+                macro_rules! [<include_ $title _file>] {
+                    ($base_dir: tt, $filename: tt) => {
+                        include_bytes!(concat!(
+                            $base_dir,
+                            "/",
+                            predefined_networks_dir!(),
+                            "/",
+                            stringify!($title),
+                            "/",
+                            $filename
+                        ))
+                    };
+                }
             }
         }
     };
 }
 
-define_net!(pyrmont, include_pyrmont_file, "pyrmont", true);
+macro_rules! define_nets {
+    ($(($name: ident, $genesis_is_known: ident)),+) => {
+        paste! {
+            $(
+            define_net!($name, $genesis_is_known);
+            )+
+            pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name::ETH2_NET_DIR,)+];
+        }
+    };
+}
 
-define_net!(mainnet, include_mainnet_file, "mainnet", true);
-
-define_net!(prater, include_prater_file, "prater", true);
+// Add a new "baked-in" network by adding it to the list below.
+//
+// ## Notes
+//
+// - The last entry must not end with a comma.
+// - The network must also be added in the `eth2_network_config` crate.
+define_nets!(
+    (mainnet, GENESIS_STATE_IS_KNOWN),
+    (pyrmont, GENESIS_STATE_IS_KNOWN),
+    (prater, GENESIS_STATE_IS_KNOWN)
+);

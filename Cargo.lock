@@ -1848,6 +1848,7 @@ dependencies = [
 name = "eth2_config"
 version = "0.2.0"
 dependencies = [
+ "paste",
  "serde",
  "serde_derive",
  "types",

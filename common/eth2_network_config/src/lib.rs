@@ -49,6 +49,12 @@ macro_rules! define_nets {
     };
 }
 
+// Add a new "baked-in" network by adding it to the list below.
+//
+// ## Notes
+//
+// - The last entry must not end with a comma.
+// - The network must also be added in the `eth2_config` crate.
 define_nets!(MAINNET, PYRMONT, PRATER);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
