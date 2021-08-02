@@ -1,10 +1,7 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::{
-    attestation_verification::{
-        Error as AttnError, FullyVerifiedAggregatedAttestation,
-        FullyVerifiedUnaggregatedAttestation, SignatureVerifiedAttestation,
-    },
+    attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
     observed_operations::ObservationOutcome,
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
@@ -16,8 +13,8 @@ use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 use super::{
@@ -26,6 +23,46 @@ use super::{
     },
     Worker,
 };
+
+struct VerifiedUnaggregate<T: BeaconChainTypes> {
+    attestation: Attestation<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedUnaggregate<T> {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.attestation
+    }
+
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+}
+
+struct RejectedUnaggregate<T: EthSpec> {
+    attestation: Attestation<T>,
+    error: AttnError,
+}
+
+struct VerifiedAggregate<T: BeaconChainTypes> {
+    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedAggregate<T> {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.signed_aggregate.message.aggregate
+    }
+
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+}
+
+struct RejectedAggregate<T: EthSpec> {
+    signed_aggregate: SignedAggregateAndProof<T>,
+    error: AttnError,
+}
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<T: EthSpec> {
@@ -168,18 +205,22 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
-        let beacon_block_root = attestation.data.beacon_block_root;
-
-        let result = self
+        let result = match self
             .chain
-            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
+        {
+            Ok(verified_attestation) => Ok(VerifiedUnaggregate {
+                indexed_attestation: verified_attestation.into_indexed_attestation(),
+                attestation,
+            }),
+            Err(error) => Err(RejectedUnaggregate { attestation, error }),
+        };
 
         self.process_gossip_attestation_result(
             result,
             message_id,
             peer_id,
             subnet_id,
-            attestation,
             reprocess_tx,
             should_import,
             seen_timestamp,
@@ -242,25 +283,26 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     fn process_gossip_attestation_result<'a>(
         &self,
-        result: Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttnError>,
+        result: Result<VerifiedUnaggregate<T>, RejectedUnaggregate<T::EthSpec>>,
         message_id: MessageId,
         peer_id: PeerId,
         subnet_id: SubnetId,
-        attestation: Attestation<T::EthSpec>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         should_import: bool,
         seen_timestamp: Duration,
     ) {
-        let beacon_block_root = attestation.data.beacon_block_root;
         match result {
-            Ok(attestation) => {
+            Ok(verified_attestation) => {
+                let indexed_attestation = &verified_attestation.indexed_attestation;
+                let beacon_block_root = indexed_attestation.data.beacon_block_root;
+
                 // Register the attestation with any monitored validators.
                 self.chain
                     .validator_monitor
                     .read()
                     .register_gossip_unaggregated_attestation(
                         seen_timestamp,
-                        attestation.indexed_attestation(),
+                        indexed_attestation,
                         &self.chain.slot_clock,
                     );
 
@@ -276,7 +318,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
 
-                if let Err(e) = self.chain.apply_attestation_to_fork_choice(&attestation) {
+                if let Err(e) = self
+                    .chain
+                    .apply_attestation_to_fork_choice(&verified_attestation)
+                {
                     match e {
                         BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
                             e,
@@ -299,7 +344,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
 
-                if let Err(e) = self.chain.add_to_naive_aggregation_pool(attestation) {
+                if let Err(e) = self
+                    .chain
+                    .add_to_naive_aggregation_pool(&verified_attestation)
+                {
                     debug!(
                         self.log,
                         "Attestation invalid for agg pool";
@@ -313,7 +361,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
                 );
             }
-            Err(e) => {
+            Err(RejectedUnaggregate { attestation, error }) => {
                 self.handle_attestation_verification_failure(
                     peer_id,
                     message_id,
@@ -324,7 +372,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         seen_timestamp,
                     },
                     reprocess_tx,
-                    e,
+                    error,
                 );
             }
         }
@@ -347,16 +395,25 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
 
-        let result = self
+        let result = match self
             .chain
-            .verify_aggregated_attestation_for_gossip(&aggregate);
+            .verify_aggregated_attestation_for_gossip(&aggregate)
+        {
+            Ok(verified_aggregate) => Ok(VerifiedAggregate {
+                indexed_attestation: verified_aggregate.into_indexed_attestation(),
+                signed_aggregate: aggregate,
+            }),
+            Err(error) => Err(RejectedAggregate {
+                signed_aggregate: aggregate,
+                error,
+            }),
+        };
 
         self.process_gossip_aggregate_result(
             result,
             beacon_block_root,
             message_id,
             peer_id,
-            aggregate,
             reprocess_tx,
             seen_timestamp,
         );
@@ -416,16 +473,18 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     fn process_gossip_aggregate_result<'a>(
         &self,
-        result: Result<FullyVerifiedAggregatedAttestation<'a, T>, AttnError>,
+        result: Result<VerifiedAggregate<T>, RejectedAggregate<T::EthSpec>>,
         beacon_block_root: Hash256,
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: SignedAggregateAndProof<T::EthSpec>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
         match result {
-            Ok(aggregate) => {
+            Ok(verified_aggregate) => {
+                let aggregate = &verified_aggregate.signed_aggregate;
+                let indexed_attestation = &verified_aggregate.indexed_attestation;
+
                 // Indicate to the `Network` service that this message is valid and can be
                 // propagated on the gossip network.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
@@ -436,8 +495,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     .read()
                     .register_gossip_aggregated_attestation(
                         seen_timestamp,
-                        aggregate.aggregate(),
-                        aggregate.indexed_attestation(),
+                        aggregate,
+                        indexed_attestation,
                         &self.chain.slot_clock,
                     );
 
@@ -445,7 +504,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
 
-                if let Err(e) = self.chain.apply_attestation_to_fork_choice(&aggregate) {
+                if let Err(e) = self
+                    .chain
+                    .apply_attestation_to_fork_choice(&verified_aggregate)
+                {
                     match e {
                         BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
                             e,
@@ -468,7 +530,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
 
-                if let Err(e) = self.chain.add_to_block_inclusion_pool(aggregate) {
+                if let Err(e) = self.chain.add_to_block_inclusion_pool(&verified_aggregate) {
                     debug!(
                         self.log,
                         "Attestation invalid for op pool";
@@ -482,17 +544,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                     &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL,
                 );
             }
-            Err(e) => {
+            Err(RejectedAggregate {
+                signed_aggregate,
+                error,
+            }) => {
                 // Report the failure to gossipsub
                 self.handle_attestation_verification_failure(
                     peer_id,
                     message_id,
                     FailedAtt::Aggregate {
-                        attestation: Box::new(attestation),
+                        attestation: Box::new(signed_aggregate),
                         seen_timestamp,
                     },
                     reprocess_tx,
-                    e,
+                    error,
                 );
             }
         }

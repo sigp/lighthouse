@@ -1594,10 +1594,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// If the attestation is too old (low slot) to be included in the pool it is simply dropped
     /// and no error is returned.
-    pub fn add_to_naive_aggregation_pool<'a>(
+    pub fn add_to_naive_aggregation_pool(
         &self,
-        unaggregated_attestation: FullyVerifiedUnaggregatedAttestation<'a, T>,
-    ) -> Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
+        unaggregated_attestation: &impl SignatureVerifiedAttestation<T>,
+    ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
 
         let attestation = unaggregated_attestation.attestation();
@@ -1633,7 +1633,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        Ok(unaggregated_attestation)
+        Ok(())
     }
 
     /// Accepts a `VerifiedSyncCommitteeMessage` and attempts to apply it to the "naive
@@ -1703,10 +1703,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accepts a `FullyVerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
-    pub fn add_to_block_inclusion_pool<'a>(
+    pub fn add_to_block_inclusion_pool(
         &self,
-        signed_aggregate: FullyVerifiedAggregatedAttestation<'a, T>,
-    ) -> Result<FullyVerifiedAggregatedAttestation<'a, T>, AttestationError> {
+        verified_attestation: &impl SignatureVerifiedAttestation<T>,
+    ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
@@ -1718,7 +1718,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool
                 .insert_attestation(
                     // TODO: address this clone.
-                    signed_aggregate.attestation().clone(),
+                    verified_attestation.attestation().clone(),
                     &fork,
                     self.genesis_validators_root,
                     &self.spec,
@@ -1726,7 +1726,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(Error::from)?;
         }
 
-        Ok(signed_aggregate)
+        Ok(())
     }
 
     /// Accepts a `VerifiedSyncContribution` and attempts to apply it to `self.op_pool`.

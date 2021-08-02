@@ -283,11 +283,23 @@ pub struct FullyVerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
+impl<'a, T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<'a, T> {
+    pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
+        self.indexed_attestation
+    }
+}
+
 /// Wraps an `Attestation` that has been verified for propagation on the gossip network.
 pub struct FullyVerifiedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     attestation: &'a Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     subnet_id: SubnetId,
+}
+
+impl<'a, T: BeaconChainTypes> FullyVerifiedUnaggregatedAttestation<'a, T> {
+    pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
+        self.indexed_attestation
+    }
 }
 
 /// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
@@ -306,12 +318,18 @@ impl<'a, T: BeaconChainTypes> Clone for PartiallyVerifiedUnaggregatedAttestation
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
 pub trait SignatureVerifiedAttestation<T: BeaconChainTypes> {
+    fn attestation(&self) -> &Attestation<T::EthSpec>;
+
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
 }
 
 impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T>
     for FullyVerifiedAggregatedAttestation<'a, T>
 {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        self.attestation()
+    }
+
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }
@@ -320,6 +338,10 @@ impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T>
 impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T>
     for FullyVerifiedUnaggregatedAttestation<'a, T>
 {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        self.attestation
+    }
+
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }

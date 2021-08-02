@@ -1148,7 +1148,7 @@ where
                     .chain
                     .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
                     .unwrap();
-                self.chain.add_to_naive_aggregation_pool(verified).unwrap();
+                self.chain.add_to_naive_aggregation_pool(&verified).unwrap();
             }
 
             if let Some(signed_aggregate) = maybe_signed_aggregate {
@@ -1159,7 +1159,7 @@ where
 
                 self.chain.apply_attestation_to_fork_choice(&attn).unwrap();
 
-                self.chain.add_to_block_inclusion_pool(attn).unwrap();
+                self.chain.add_to_block_inclusion_pool(&attn).unwrap();
             }
         }
     }
