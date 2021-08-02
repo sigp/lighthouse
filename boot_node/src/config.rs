@@ -29,7 +29,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let data_dir = get_data_dir(matches);
 
         // Try and grab network config from input CLI params
-        let eth2_network_config = get_eth2_network_config(&matches)?;
+        let eth2_network_config = get_eth2_network_config(matches)?;
 
         // Try and obtain bootnodes
 

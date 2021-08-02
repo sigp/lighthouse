@@ -345,7 +345,7 @@ mod test {
     fn round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(item: T) {
         let encoded = &item.as_ssz_bytes();
         assert_eq!(item.ssz_bytes_len(), encoded.len());
-        assert_eq!(T::from_ssz_bytes(&encoded), Ok(item));
+        assert_eq!(T::from_ssz_bytes(encoded), Ok(item));
     }
 
     #[test]

@@ -31,7 +31,7 @@ impl<'a, N: Unsigned> CachedTreeHash<TreeHashCache> for ParticipationList<'a, N>
         cache: &mut TreeHashCache,
     ) -> Result<Hash256, Error> {
         Ok(mix_in_length(
-            &cache.recalculate_merkle_root(arena, leaf_iter(&self.inner))?,
+            &cache.recalculate_merkle_root(arena, leaf_iter(self.inner))?,
             self.inner.len(),
         ))
     }

@@ -73,14 +73,14 @@ pub fn write_file_via_temporary(
     // If the file already exists, preserve its permissions by copying it.
     // Otherwise, create a new file with restricted permissions.
     if file_path.exists() {
-        fs::copy(&file_path, &temp_path).map_err(FsError::UnableToCopyFile)?;
-        fs::write(&temp_path, &bytes).map_err(FsError::UnableToWriteFile)?;
+        fs::copy(file_path, temp_path).map_err(FsError::UnableToCopyFile)?;
+        fs::write(temp_path, bytes).map_err(FsError::UnableToWriteFile)?;
     } else {
-        create_with_600_perms(&temp_path, &bytes)?;
+        create_with_600_perms(temp_path, bytes)?;
     }
 
     // With the temporary file created, perform an atomic rename.
-    fs::rename(&temp_path, &file_path).map_err(FsError::UnableToRenameFile)?;
+    fs::rename(temp_path, file_path).map_err(FsError::UnableToRenameFile)?;
 
     Ok(())
 }

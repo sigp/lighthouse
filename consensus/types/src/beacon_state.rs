@@ -21,7 +21,10 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-pub use self::committee_cache::CommitteeCache;
+pub use self::committee_cache::{
+    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
+    CommitteeCache,
+};
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -486,7 +489,7 @@ impl<T: EthSpec> BeaconState<T> {
     ) -> Result<&[usize], Error> {
         let cache = self.committee_cache(relative_epoch)?;
 
-        Ok(&cache.active_validator_indices())
+        Ok(cache.active_validator_indices())
     }
 
     /// Returns the active validator indices for the given epoch.
@@ -767,7 +770,7 @@ impl<T: EthSpec> BeaconState<T> {
             .pubkeys
             .iter()
             .map(|pubkey| {
-                self.get_validator_index(&pubkey)?
+                self.get_validator_index(pubkey)?
                     .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
@@ -1336,8 +1339,20 @@ impl<T: EthSpec> BeaconState<T> {
         let epoch = relative_epoch.into_epoch(self.current_epoch());
         let i = Self::committee_cache_index(relative_epoch);
 
-        *self.committee_cache_at_index_mut(i)? = CommitteeCache::initialized(&self, epoch, spec)?;
+        *self.committee_cache_at_index_mut(i)? = self.initialize_committee_cache(epoch, spec)?;
         Ok(())
+    }
+
+    /// Initializes a new committee cache for the given `epoch`, regardless of whether one already
+    /// exists. Returns the committee cache without attaching it to `self`.
+    ///
+    /// To build a cache and store it on `self`, use `Self::build_committee_cache`.
+    pub fn initialize_committee_cache(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<CommitteeCache, Error> {
+        CommitteeCache::initialized(self, epoch, spec)
     }
 
     /// Advances the cache for this state into the next epoch.
@@ -1449,7 +1464,7 @@ impl<T: EthSpec> BeaconState<T> {
         if let Some(mut cache) = cache {
             // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
             // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_tree_hash_root(&self)?;
+            let root = cache.recalculate_tree_hash_root(self)?;
             self.tree_hash_cache_mut().restore(cache);
             Ok(root)
         } else {

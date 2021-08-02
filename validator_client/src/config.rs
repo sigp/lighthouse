@@ -47,6 +47,9 @@ pub struct Config {
     pub http_metrics: http_metrics::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
+    /// If true, enable functionality that monitors the network for attestations or proposals from
+    /// any of the validators managed by this client before starting up.
+    pub enable_doppelganger_protection: bool,
 }
 
 impl Default for Config {
@@ -76,6 +79,7 @@ impl Default for Config {
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
+            enable_doppelganger_protection: false,
         }
     }
 }
@@ -183,7 +187,7 @@ impl Config {
                 // Copy the provided bytes over.
                 //
                 // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-                graffiti[..graffiti_bytes.len()].copy_from_slice(&graffiti_bytes);
+                graffiti[..graffiti_bytes.len()].copy_from_slice(graffiti_bytes);
 
                 config.graffiti = Some(graffiti.into());
             }
@@ -262,6 +266,10 @@ impl Config {
                 freezer_db_path: None,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
             });
+        }
+
+        if cli_args.is_present("enable-doppelganger-protection") {
+            config.enable_doppelganger_protection = true;
         }
 
         Ok(config)

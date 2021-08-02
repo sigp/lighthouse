@@ -1,9 +1,12 @@
-use crate::duties_service::{DutiesService, Error};
+use crate::{
+    doppelganger_service::DoppelgangerStatus,
+    duties_service::{DutiesService, Error},
+};
 use itertools::Itertools;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, info, warn};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use types::{
     ChainSpec, Epoch, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId,
@@ -287,8 +290,26 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
     let current_sync_committee_period = current_epoch.sync_committee_period(spec)?;
     let next_sync_committee_period = current_sync_committee_period + 1;
 
-    let local_pubkeys = duties_service.local_pubkeys();
-    let local_indices = duties_service.local_indices(&local_pubkeys);
+    // Collect *all* pubkeys, even those undergoing doppelganger protection.
+    //
+    // Sync committee messages are not slashable and are currently excluded from doppelganger
+    // protection.
+    let local_pubkeys: HashSet<_> = duties_service
+        .validator_store
+        .voting_pubkeys(DoppelgangerStatus::ignored);
+
+    let local_indices = {
+        let mut local_indices = Vec::with_capacity(local_pubkeys.len());
+
+        let vals_ref = duties_service.validator_store.initialized_validators();
+        let vals = vals_ref.read();
+        for &pubkey in &local_pubkeys {
+            if let Some(validator_index) = vals.get_index(&pubkey) {
+                local_indices.push(validator_index)
+            }
+        }
+        local_indices
+    };
 
     // If duties aren't known for the current period, poll for them.
     if !sync_duties.all_duties_known(current_sync_committee_period, &local_indices) {
@@ -496,15 +517,15 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                         let proof = duties_service
                             .validator_store
                             .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
-                            .or_else(|| {
+                            .map_err(|_| {
                                 warn!(
                                     log,
                                     "Pubkey missing when signing selection proof";
                                     "pubkey" => ?duty.pubkey,
                                     "slot" => slot,
                                 );
-                                None
-                            })?;
+                            })
+                            .ok()?;
 
                         let is_aggregator = proof
                             .is_aggregator::<E>()

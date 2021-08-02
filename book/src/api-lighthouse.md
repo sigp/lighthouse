@@ -329,3 +329,28 @@ curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
 ```
 
 *Example omitted for brevity, the body simply contains SSZ bytes.*
+
+### `/lighthouse/liveness`
+
+POST request that checks if any of the given validators have attested in the given epoch. Returns a list
+of objects, each including the validator index, epoch, and `is_live` status of a requested validator.
+
+This endpoint is used in doppelganger detection, and will only provide accurate information for the
+current, previous, or next epoch.
+
+
+```bash
+curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":["0","1"],"epoch":"1"}' -H  "content-type: application/json" | jq
+```
+
+```json
+{
+    "data": [
+        {
+            "index": "0",
+            "epoch": "1",
+            "is_live": true
+        }
+    ]
+}
+```

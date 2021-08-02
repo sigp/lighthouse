@@ -271,7 +271,7 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = LevelDB::open(&path).unwrap();
+        let store = LevelDB::open(path).unwrap();
 
         test_impl(store);
     }

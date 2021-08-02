@@ -53,7 +53,7 @@ type Accessor = fn(&AttestationDelta) -> &Delta;
 
 fn load_optional_deltas_file(path: &Path) -> Result<Option<Deltas>, Error> {
     let deltas = if path.is_file() {
-        Some(ssz_decode_file(&path)?)
+        Some(ssz_decode_file(path)?)
     } else {
         None
     };

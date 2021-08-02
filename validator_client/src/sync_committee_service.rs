@@ -39,7 +39,7 @@ impl<T: SlotClock + 'static, E: EthSpec> Deref for SyncCommitteeService<T, E> {
 
 pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: ValidatorStore<E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
@@ -52,7 +52,7 @@ pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     pub fn new(
         duties_service: Arc<DutiesService<T, E>>,
-        validator_store: ValidatorStore<E>,
+        validator_store: Arc<ValidatorStore<T, E>>,
         slot_clock: T,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
         context: RuntimeContext<E>,
@@ -224,15 +224,16 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         duty.validator_index,
                         &duty.pubkey,
                     )
-                    .or_else(|| {
+                    .map_err(|e| {
                         crit!(
                             log,
                             "Failed to sign sync committee signature";
                             "validator_index" => duty.validator_index,
                             "slot" => slot,
+                            "error" => ?e,
                         );
-                        None
                     })
+                    .ok()
             })
             .collect::<Vec<_>>();
 
@@ -345,14 +346,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         contribution.clone(),
                         selection_proof,
                     )
-                    .or_else(|| {
+                    .map_err(|e| {
                         crit!(
                             log,
                             "Unable to sign sync committee contribution";
                             "slot" => slot,
+                            "error" => ?e,
                         );
-                        None
                     })
+                    .ok()
             })
             .collect::<Vec<_>>();
 

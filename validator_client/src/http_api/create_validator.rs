@@ -4,6 +4,7 @@ use account_utils::{
     random_mnemonic, random_password, ZeroizeString,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
+use slot_clock::SlotClock;
 use std::path::Path;
 use types::ChainSpec;
 use types::EthSpec;
@@ -20,12 +21,12 @@ use validator_dir::Builder as ValidatorDirBuilder;
 ///
 /// If `key_derivation_path_offset` is supplied then the EIP-2334 validator index will start at
 /// this point.
-pub async fn create_validators<P: AsRef<Path>, E: EthSpec>(
+pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpec>(
     mnemonic_opt: Option<Mnemonic>,
     key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
-    validator_store: &ValidatorStore<E>,
+    validator_store: &ValidatorStore<T, E>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
     let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
@@ -96,7 +97,7 @@ pub async fn create_validators<P: AsRef<Path>, E: EthSpec>(
         let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
-            .create_eth1_tx_data(request.deposit_gwei, &spec)
+            .create_eth1_tx_data(request.deposit_gwei, spec)
             .store_withdrawal_keystore(false)
             .build()
             .map_err(|e| {

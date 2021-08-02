@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // attestation subnet service
         let attestation_service =
-            AttestationService::new(beacon_chain.clone(), &config, &network_log);
+            AttestationService::new(beacon_chain.clone(), config, &network_log);
 
         // sync committee subnet service
         let sync_committee_service =
@@ -309,7 +309,7 @@ fn spawn_service<T: BeaconChainTypes>(
                             .map(|gauge| gauge.reset());
                     }
                     metrics::update_gossip_metrics::<T::EthSpec>(
-                        &service.libp2p.swarm.behaviour_mut().gs(),
+                        service.libp2p.swarm.behaviour_mut().gs(),
                         &service.network_globals,
                     );
                     // update sync metrics

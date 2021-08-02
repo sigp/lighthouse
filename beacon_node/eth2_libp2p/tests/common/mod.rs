@@ -150,7 +150,7 @@ pub async fn build_full_mesh(
     }
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
-        .map(|x| get_enr(&x).multiaddr()[1].clone())
+        .map(|x| get_enr(x).multiaddr()[1].clone())
         .collect();
 
     for (i, node) in nodes.iter_mut().enumerate().take(n) {
@@ -224,7 +224,7 @@ pub async fn build_linear(rt: Weak<Runtime>, log: slog::Logger, n: usize) -> Vec
 
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
-        .map(|x| get_enr(&x).multiaddr()[1].clone())
+        .map(|x| get_enr(x).multiaddr()[1].clone())
         .collect();
     for i in 0..n - 1 {
         match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {

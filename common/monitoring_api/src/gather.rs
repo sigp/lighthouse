@@ -153,7 +153,7 @@ pub fn gather_metrics(metrics_map: &HashMap<String, JsonMetric>) -> Option<serde
     for mf in metric_families.iter() {
         let metric_name = mf.get_name();
         if metrics_map.contains_key(metric_name) {
-            let value = get_value(&mf).unwrap_or_default();
+            let value = get_value(mf).unwrap_or_default();
             let metric = metrics_map.get(metric_name)?;
             let value = metric.get_typed_value(value);
             let _ = res.insert(metric.json_output_key.to_string(), value);
