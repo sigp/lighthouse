@@ -183,7 +183,7 @@ jobs:
               run:  cargo install --path lighthouse --force --locked --features modern
 
             - name: Configure GPG and create artifacts
-              if: !startsWith(matrix.arch, 'x86_64-windows')
+              if: startsWith(matrix.arch, 'x86_64-windows') != true
               env:
                   GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
                   GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -203,20 +203,13 @@ jobs:
                   GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
                   GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
               run: |
-                  dir
-                  echo %GPG_SIGNING_KEY% | gpg --batch --import
+                  echo $env:GPG_SIGNING_KEY | gpg --batch --import
                   mkdir artifacts
-                  dir
-                  move ~/.cargo/bin/lighthouse ./artifacts
-                  dir
+                  move $env:USERPROFILE/.cargo/bin/lighthouse.exe ./artifacts
                   cd artifacts
-                  dir
-                  7z -ttar lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar lighthouse -so | 7z -si -tgzip lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
-                  dir
-                  echo %$GPG_PASSPHRASE% | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
-                  dir
+                  tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse.exe
+                  gpg --passphrase "$env:GPG_PASSPHRASE" --batch --pinentry-mode loopback -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   move *tar.gz* ..
-                  dir
 
             # =======================================================================
             # Upload artifacts
