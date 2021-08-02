@@ -540,7 +540,7 @@ impl DoppelgangerService {
                 continue;
             };
 
-            if response.is_live && next_check_epoch >= response.epoch {
+            if response.is_live && next_check_epoch <= response.epoch {
                 violators.push(response.index);
             }
         }
