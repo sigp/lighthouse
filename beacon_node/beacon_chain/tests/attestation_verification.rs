@@ -218,7 +218,7 @@ fn aggregated_gossip_verification() {
                 matches!(
                     harness
                         .chain
-                        .verify_aggregated_attestation_for_gossip($attn_getter)
+                        .verify_aggregated_attestation_for_gossip(&$attn_getter)
                         .err()
                         .expect(&format!(
                             "{} should error during verify_aggregated_attestation_for_gossip",
@@ -520,7 +520,7 @@ fn aggregated_gossip_verification() {
     assert!(
         harness
             .chain
-            .verify_aggregated_attestation_for_gossip(valid_aggregate.clone())
+            .verify_aggregated_attestation_for_gossip(&valid_aggregate)
             .is_ok(),
         "valid aggregate should be verified"
     );
@@ -601,7 +601,7 @@ fn unaggregated_gossip_verification() {
                 matches!(
                     harness
                         .chain
-                        .verify_unaggregated_attestation_for_gossip($attn_getter, Some($subnet_getter))
+                        .verify_unaggregated_attestation_for_gossip(&$attn_getter, Some($subnet_getter))
                         .err()
                         .expect(&format!(
                             "{} should error during verify_unaggregated_attestation_for_gossip",
@@ -868,7 +868,7 @@ fn unaggregated_gossip_verification() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id))
+        .verify_unaggregated_attestation_for_gossip(&valid_attestation, Some(subnet_id))
         .expect("valid attestation should be verified");
 
     /*
@@ -960,6 +960,6 @@ fn attestation_that_skips_epochs() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
         .expect("should gossip verify attestation that skips slots");
 }
