@@ -867,8 +867,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 /*
                  * The aggregate had no signatures and is therefore worthless.
                  *
-                 * Whilst we don't gossip this attestation, this act is **not** a clear
-                 * violation of the spec nor indication of fault.
+                 * This is forbidden by the p2p spec. Reject the message.
                  *
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
@@ -1244,8 +1243,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 /*
                  * The aggregate had no signatures and is therefore worthless.
                  *
-                 * Whilst we don't gossip this message, this act is **not** a clear
-                 * violation of the spec nor indication of fault.
+                 * This is forbidden by the p2p spec. Reject the message.
                  *
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
