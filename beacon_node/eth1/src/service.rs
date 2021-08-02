@@ -160,6 +160,12 @@ impl EndpointsCache {
                 }
             })
             .await
+            .map(|(res, num_errors)| {
+                if num_errors > 0 {
+                    info!(self.log, "Fetched data from fallback"; "fallback_number" => num_errors);
+                }
+                res
+            })
     }
 
     pub async fn reset_errorred_endpoints(&self) {
