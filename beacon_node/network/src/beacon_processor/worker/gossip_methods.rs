@@ -132,7 +132,7 @@ impl<E: EthSpec> GossipAttestationPackage<E> {
 pub struct GossipAggregatePackage<E: EthSpec> {
     message_id: MessageId,
     peer_id: PeerId,
-    aggregate: Option<Box<SignedAggregateAndProof<E>>>,
+    aggregate: Box<SignedAggregateAndProof<E>>,
     beacon_block_root: Hash256,
     seen_timestamp: Duration,
 }
@@ -148,7 +148,7 @@ impl<E: EthSpec> GossipAggregatePackage<E> {
             message_id,
             peer_id,
             beacon_block_root: aggregate.message.aggregate.data.beacon_block_root,
-            aggregate: Some(aggregate),
+            aggregate,
             seen_timestamp,
         }
     }
@@ -437,11 +437,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
     ) {
-        /*
-        let aggregates = packages
-            .iter()
-            .filter_map(|package| package.aggregate.as_ref().take())
-            .map(|boxed| boxed.as_ref());
+        let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
         let results = match self
             .chain
@@ -470,18 +466,34 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
 
-        for (result, package) in results.into_iter().zip(packages.iter()) {
+        // Map the results into a new `Vec` so that `results` no longer holds a reference to
+        // `packages`.
+        let results = results
+            .into_iter()
+            .map(|result| result.map(|verified| verified.into_indexed_attestation()))
+            .collect::<Vec<_>>();
+
+        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+            let result = match result {
+                Ok(indexed_attestation) => Ok(VerifiedAggregate {
+                    indexed_attestation,
+                    signed_aggregate: *package.aggregate,
+                }),
+                Err(error) => Err(RejectedAggregate {
+                    signed_aggregate: *package.aggregate,
+                    error,
+                }),
+            };
+
             self.process_gossip_aggregate_result(
                 result,
                 package.beacon_block_root,
                 package.message_id.clone(),
                 package.peer_id,
-                package.aggregate,
-                reprocess_tx,
+                reprocess_tx.clone(),
                 package.seen_timestamp,
             );
         }
-        */
     }
 
     fn process_gossip_aggregate_result<'a>(
