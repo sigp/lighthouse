@@ -74,9 +74,11 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
     }
 }
 
+/// Indicates that the `genesis.ssz.zip` file is present on the filesystem. This means that the
+/// deposit ceremony has concluded and the final genesis `BeaconState` is known.
 const GENESIS_STATE_IS_KNOWN: bool = true;
 
-macro_rules! define_net {
+macro_rules! define_archive {
     ($title: ident, $genesis_is_known: ident) => {
         paste! {
             #[macro_use]
@@ -110,24 +112,24 @@ macro_rules! define_net {
     };
 }
 
-macro_rules! define_nets {
+macro_rules! define_archives {
     ($(($name: ident, $genesis_is_known: ident)),+) => {
         paste! {
             $(
-            define_net!($name, $genesis_is_known);
+            define_archive!($name, $genesis_is_known);
             )+
             pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name::ETH2_NET_DIR,)+];
         }
     };
 }
 
-// Add a new "baked-in" network by adding it to the list below.
+// Add a new "built-in" network by adding it to the list below.
 //
 // ## Notes
 //
 // - The last entry must not end with a comma.
 // - The network must also be added in the `eth2_network_config` crate.
-define_nets!(
+define_archives!(
     (mainnet, GENESIS_STATE_IS_KNOWN),
     (pyrmont, GENESIS_STATE_IS_KNOWN),
     (prater, GENESIS_STATE_IS_KNOWN)

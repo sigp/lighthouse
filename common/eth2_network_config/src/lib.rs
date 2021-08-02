@@ -1,3 +1,26 @@
+//! Provides the `Eth2NetworkConfig` struct which defines the configuration of an eth2 network or
+//! test-network (aka "testnet").
+//!
+//! Whilst the `Eth2NetworkConfig` struct can be used to read a specification from a directory at
+//! runtime, this crate also includes some pre-defined network configurations "built-in" to the
+//! binary itself (the most notable of these being the "mainnet" configuration). When a network is
+//! "built-in", the  genesis state and configuration files is included in the final binary via the
+//! `std::include_bytes` macro. This provides convenience to the user, the binary is self-sufficient
+//! and does not require the configuration to be read from the filesystem at runtime.
+//!
+//! ## How to "build-in" a network configuration.
+//!
+//! First, create a new directory in the `built_in_network_configs` in the root of the crate. This
+//! directory requires a specific structure, see the other baked-in networks for reference.
+//!
+//! Next, go to the `../eth2_config/src/lib.rs` file and add the testnet to the `define_archives`
+//! invocation.
+//!
+//! Finally, add the network to the `define_nets` invocation in this file.
+//!
+//! The `build.rs` script for this crate will magically include all the files in the binary and then
+//! this crate will export the network as a member of the `HARDCODED_NETS` slice.
+
 use eth2_config::{predefined_networks_dir, *};
 
 use enr::{CombinedKey, Enr};
@@ -49,7 +72,7 @@ macro_rules! define_nets {
     };
 }
 
-// Add a new "baked-in" network by adding it to the list below.
+// Add a new "built-in" network by adding it to the list below.
 //
 // ## Notes
 //
