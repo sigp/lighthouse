@@ -1027,7 +1027,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         };
 
-                        if let Err(e) = chain.add_to_naive_aggregation_pool(attestation) {
+                        if let Err(e) = chain.add_to_naive_aggregation_pool(&attestation) {
                             error!(log,
                                 "Failure adding verified attestation to the naive aggregation pool";
                                 "error" => ?e,
@@ -1813,8 +1813,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
-                            Err((e, aggregate)) => {
+                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
@@ -1846,7 +1846,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
                             warn!(log,
                                     "Could not add verified aggregate attestation to the inclusion pool";
                                     "error" => format!("{:?}", e),

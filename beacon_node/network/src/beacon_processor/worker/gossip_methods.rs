@@ -294,7 +294,10 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    fn process_gossip_attestation_result<'a>(
+    // Clippy warning is is ignored since the arguments are all of a different type (i.e., they
+    // cant' be mixed-up) and creating a struct would result in more complexity.
+    #[allow(clippy::too_many_arguments)]
+    fn process_gossip_attestation_result(
         &self,
         result: Result<VerifiedUnaggregate<T>, RejectedUnaggregate<T::EthSpec>>,
         message_id: MessageId,
@@ -496,7 +499,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    fn process_gossip_aggregate_result<'a>(
+    fn process_gossip_aggregate_result(
         &self,
         result: Result<VerifiedAggregate<T>, RejectedAggregate<T::EthSpec>>,
         beacon_block_root: Hash256,
