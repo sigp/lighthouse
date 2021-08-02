@@ -43,8 +43,9 @@ macro_rules! define_nets {
             $(
             const $name: HardcodedNet = define_net!([<$name:lower>], [<include_ $name:lower _file>]);
             )+
+            const HARDCODED_NETS: &[HardcodedNet] = &[$($name,)+];
+            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$(stringify!([<$name:lower>]),)+];
         }
-        const HARDCODED_NETS: &[HardcodedNet] = &[$($name,)+];
     };
 }
 
@@ -249,6 +250,11 @@ mod tests {
     use types::{Config, Eth1Data, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
+
+    #[test]
+    fn default_network_exists() {
+        assert!(HARDCODED_NET_NAMES.contains(&DEFAULT_HARDCODED_NETWORK));
+    }
 
     #[test]
     fn mainnet_config_eq_chain_spec() {
