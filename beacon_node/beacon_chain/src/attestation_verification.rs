@@ -524,7 +524,7 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<'a, T> {
 
         let attestation = &signed_aggregate.message.aggregate;
         let aggregator_index = signed_aggregate.message.aggregator_index;
-        let attestation_root = match Self::verify_early_checks(&signed_aggregate, chain) {
+        let attestation_root = match Self::verify_early_checks(signed_aggregate, chain) {
             Ok(root) => root,
             // FIXME(paul): can we remove the clone?
             Err(e) => {
@@ -582,7 +582,7 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<'a, T> {
 
     /// Returns the underlying `signed_aggregate`.
     pub fn aggregate(&self) -> &SignedAggregateAndProof<T::EthSpec> {
-        &self.signed_aggregate
+        self.signed_aggregate
     }
 }
 
@@ -632,7 +632,7 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
             signature_sets.push(
                 signed_aggregate_selection_proof_signature_set(
                     |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                    &signed_aggregate,
+                    signed_aggregate,
                     &fork,
                     chain.genesis_validators_root,
                     &chain.spec,
@@ -642,7 +642,7 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
             signature_sets.push(
                 signed_aggregate_signature_set(
                     |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                    &signed_aggregate,
+                    signed_aggregate,
                     &fork,
                     chain.genesis_validators_root,
                     &chain.spec,
@@ -653,7 +653,7 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
                 indexed_attestation_signature_set_from_pubkeys(
                     |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
                     &indexed_attestation.signature,
-                    &indexed_attestation,
+                    indexed_attestation,
                     &fork,
                     chain.genesis_validators_root,
                     &chain.spec,
@@ -767,7 +767,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<'a, T> {
                 // Ensure that all signatures are valid.
                 if let Err(e) = verify_signed_aggregate_signatures(
                     chain,
-                    &signed_aggregate,
+                    signed_aggregate,
                     &indexed_attestation,
                 )
                 .and_then(|is_valid| {
@@ -783,7 +783,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<'a, T> {
             CheckAttestationSignature::No => (),
         };
 
-        if let Err(e) = Self::verify_late_checks(&signed_aggregate, attestation_root, chain) {
+        if let Err(e) = Self::verify_late_checks(signed_aggregate, attestation_root, chain) {
             return Err(SignatureValid(indexed_attestation, e));
         }
 
@@ -800,7 +800,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<'a, T> {
 
     /// Returns the underlying `signed_aggregate`.
     pub fn aggregate(&self) -> &SignedAggregateAndProof<T::EthSpec> {
-        &self.signed_aggregate
+        self.signed_aggregate
     }
 }
 
@@ -923,13 +923,13 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedUnaggregatedAttestation<'a, T> {
     ) -> Result<Self, AttestationSlashInfo<T, Error>> {
         use AttestationSlashInfo::*;
 
-        if let Err(e) = Self::verify_early_checks(&attestation, chain) {
+        if let Err(e) = Self::verify_early_checks(attestation, chain) {
             // FIXME(paul): remove clone?
             return Err(SignatureNotChecked(attestation.clone(), e));
         }
 
         let (indexed_attestation, committees_per_slot) =
-            match obtain_indexed_attestation_and_committees_per_slot(chain, &attestation) {
+            match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
                 Ok(x) => x,
                 Err(e) => {
                     // FIXME(paul): remove clone?
@@ -938,7 +938,7 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedUnaggregatedAttestation<'a, T> {
             };
 
         let (validator_index, expected_subnet_id) = match Self::verify_middle_checks(
-            &attestation,
+            attestation,
             &indexed_attestation,
             committees_per_slot,
             subnet_id,
@@ -963,7 +963,7 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedUnaggregatedAttestation<'a, T> {
 
     /// Returns the wrapped `attestation`.
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
-        &self.attestation
+        self.attestation
     }
 
     /// Returns the wrapped `indexed_attestation`.
@@ -1025,7 +1025,7 @@ pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
             let signature_set = indexed_attestation_signature_set_from_pubkeys(
                 |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
                 &indexed_attestation.signature,
-                &indexed_attestation,
+                indexed_attestation,
                 &fork,
                 chain.genesis_validators_root,
                 &chain.spec,
@@ -1131,7 +1131,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedUnaggregatedAttestation<'a, T> {
             CheckAttestationSignature::No => (),
         };
 
-        if let Err(e) = Self::verify_late_checks(&attestation, validator_index, chain) {
+        if let Err(e) = Self::verify_late_checks(attestation, validator_index, chain) {
             return Err(SignatureValid(indexed_attestation, e));
         }
 
@@ -1149,7 +1149,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedUnaggregatedAttestation<'a, T> {
 
     /// Returns the wrapped `attestation`.
     pub fn attestation(&self) -> &Attestation<T::EthSpec> {
-        &self.attestation
+        self.attestation
     }
 
     /// Returns the wrapped `indexed_attestation`.

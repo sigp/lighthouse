@@ -972,7 +972,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
-                            .verify_unaggregated_attestation_for_gossip(&attestation, None)
+                            .verify_unaggregated_attestation_for_gossip(attestation, None)
                         {
                             Ok(attestation) => attestation,
                             Err(e) => {
@@ -1788,7 +1788,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Verify that all messages in the post are valid before processing further
                     for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
-                        match chain.verify_aggregated_attestation_for_gossip(&aggregate) {
+                        match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     verified_aggregate.aggregate().clone(),
