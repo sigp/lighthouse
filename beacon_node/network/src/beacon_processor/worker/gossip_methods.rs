@@ -7,7 +7,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
-use slog::{debug, error, info, trace, warn};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -100,7 +100,7 @@ impl<T: EthSpec> FailedAtt<T> {
 pub struct GossipAttestationPackage<E: EthSpec> {
     message_id: MessageId,
     peer_id: PeerId,
-    attestation: Option<Box<Attestation<E>>>,
+    attestation: Box<Attestation<E>>,
     subnet_id: SubnetId,
     beacon_block_root: Hash256,
     should_import: bool,
@@ -120,7 +120,7 @@ impl<E: EthSpec> GossipAttestationPackage<E> {
             message_id,
             peer_id,
             beacon_block_root: attestation.data.beacon_block_root,
-            attestation: Some(attestation),
+            attestation,
             subnet_id,
             should_import,
             seen_timestamp,
@@ -232,13 +232,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         packages: Vec<GossipAttestationPackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
     ) {
-        /*
-        let attestations_and_subnets = packages.iter().filter_map(|package| {
-            package
-                .attestation
-                .as_ref()
-                .map(|boxed| (boxed.as_ref(), Some(package.subnet_id)))
-        });
+        let attestations_and_subnets = packages
+            .iter()
+            .map(|package| (package.attestation.as_ref(), Some(package.subnet_id)));
 
         let results = match self
             .chain
@@ -267,18 +263,35 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
 
-        for (result, package) in results.into_iter().zip(packages.iter()) {
+        // Map the results into a new `Vec` so that `results` no longer holds a reference to
+        // `packages`.
+        let results = results
+            .into_iter()
+            .map(|result| result.map(|verified| verified.into_indexed_attestation()))
+            .collect::<Vec<_>>();
+
+        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+            let result = match result {
+                Ok(indexed_attestation) => Ok(VerifiedUnaggregate {
+                    indexed_attestation,
+                    attestation: *package.attestation,
+                }),
+                Err(error) => Err(RejectedUnaggregate {
+                    attestation: *package.attestation,
+                    error,
+                }),
+            };
+
             self.process_gossip_attestation_result(
                 result,
                 package.message_id.clone(),
                 package.peer_id,
-                attestation,
-                reprocess_tx,
+                package.subnet_id,
+                reprocess_tx.clone(),
                 package.should_import,
                 package.seen_timestamp,
             );
         }
-        */
     }
 
     fn process_gossip_attestation_result<'a>(
