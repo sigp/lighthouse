@@ -396,7 +396,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     let spec = &duties_service.spec;
     let log = duties_service.context.log();
 
-    info!(
+    debug!(
         log,
         "Fetching sync committee duties";
         "sync_committee_period" => sync_committee_period,
@@ -427,7 +427,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
         }
     };
 
-    info!(log, "Fetched duties from BN"; "count" => duties.len());
+    debug!(log, "Fetched sync duties from BN"; "count" => duties.len());
 
     // Add duties to map.
     let committee_duties = duties_service
@@ -541,7 +541,7 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                             .ok()?;
 
                         if is_aggregator {
-                            info!(
+                            debug!(
                                 log,
                                 "Validator is sync aggregator";
                                 "validator_index" => duty.validator_index,

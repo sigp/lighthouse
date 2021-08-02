@@ -443,7 +443,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let mut subscriptions = vec![];
 
         for (duty_slot, sync_committee_period) in duty_slots {
-            info!(
+            debug!(
                 log,
                 "Fetching subscription duties";
                 "duty_slot" => duty_slot,
@@ -471,7 +471,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         }
 
         // Post subscriptions to BN.
-        info!(
+        debug!(
             log,
             "Posting sync subscriptions to BN";
             "count" => subscriptions.len(),
