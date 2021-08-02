@@ -1700,7 +1700,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(verified_sync_committee_message)
     }
 
-    /// Accepts a `FullyVerifiedAggregatedAttestation` and attempts to apply it to `self.op_pool`.
+    /// Accepts a `SignatureVerifiedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
     pub fn add_to_block_inclusion_pool(
@@ -1723,6 +1723,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.genesis_validators_root,
                     &self.spec,
                 )
+                .map_err(Error::from)?;
+        }
+
+        Ok(())
+    }
+
+    /// Accepts a `VerifiedSyncContribution` and attempts to apply it to `self.op_pool`.
+    ///
+    /// The op pool is used by local block producers to pack blocks with operations.
+    pub fn add_contribution_to_block_inclusion_pool(
+        &self,
+        contribution: VerifiedSyncContribution<T>,
+    ) -> Result<(), SyncCommitteeError> {
+        let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL);
+
+        // If there's no eth1 chain then it's impossible to produce blocks and therefore
+        // useless to put things in the op pool.
+        if self.eth1_chain.is_some() {
+            self.op_pool
+                .insert_sync_contribution(contribution.contribution())
                 .map_err(Error::from)?;
         }
 
