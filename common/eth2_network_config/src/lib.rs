@@ -64,10 +64,10 @@ macro_rules! define_nets {
     ($($name: ident),+) => {
         paste! {
             $(
-            const $name: HardcodedNet = define_net!([<$name:lower>], [<include_ $name:lower _file>]);
+            const [<$name:upper>]: HardcodedNet = define_net!($name, [<include_ $name _file>]);
             )+
-            const HARDCODED_NETS: &[HardcodedNet] = &[$($name,)+];
-            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$(stringify!([<$name:lower>]),)+];
+            const HARDCODED_NETS: &[HardcodedNet] = &[$([<$name:upper>],)+];
+            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$(stringify!($name),)+];
         }
     };
 }
@@ -78,7 +78,7 @@ macro_rules! define_nets {
 //
 // - The last entry must not end with a comma.
 // - The network must also be added in the `eth2_config` crate.
-define_nets!(MAINNET, PYRMONT, PRATER);
+define_nets!(mainnet, pyrmont, prater);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
