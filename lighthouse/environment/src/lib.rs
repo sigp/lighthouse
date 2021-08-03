@@ -10,21 +10,28 @@
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::{future, Future, StreamExt};
+use futures::{future, StreamExt};
 
 use slog::{error, info, o, warn, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{task::Context, task::Poll};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use tokio::signal::unix::{signal, Signal, SignalKind};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
+
+#[cfg(target_os = "linux")]
+use {
+    futures::Future,
+    std::{pin::Pin, task::Context, task::Poll},
+    tokio::signal::unix::{signal, Signal, SignalKind},
+};
+
+#[cfg(not(target_os = "linux"))]
+use {futures::channel::oneshot, std::cell::RefCell};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
@@ -339,6 +346,7 @@ impl<E: EthSpec> Environment<E> {
     /// Block the current thread until a shutdown signal is received.
     ///
     /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
+    #[cfg(target_os = "linux")]
     pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
         // future of a task requesting to shutdown
         let mut rx = self
@@ -398,6 +406,53 @@ impl<E: EthSpec> Environment<E> {
             future::Either::Right(((res, _, _), _)) => {
                 res.ok_or_else(|| "Handler channel closed".to_string())
             }
+        }
+    }
+
+    /// Block the current thread until a shutdown signal is received.
+    ///
+    /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
+    #[cfg(not(target_os = "linux"))]
+    pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
+        // future of a task requesting to shutdown
+        let mut rx = self
+            .signal_rx
+            .take()
+            .ok_or("Inner shutdown already received")?;
+        let inner_shutdown =
+            async move { rx.next().await.ok_or("Internal shutdown channel exhausted") };
+        futures::pin_mut!(inner_shutdown);
+
+        // setup for handling a Ctrl-C
+        let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
+        let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
+        let log = self.log.clone();
+        ctrlc::set_handler(move || {
+            if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
+                if let Err(e) = ctrlc_send.send(()) {
+                    error!(
+                        log,
+                        "Error sending ctrl-c message";
+                        "error" => e
+                    );
+                }
+            }
+        })
+        .map_err(|e| format!("Could not set ctrlc handler: {:?}", e))?;
+
+        // Block this thread until a shutdown signal is received.
+        match self
+            .runtime()
+            .block_on(future::select(inner_shutdown, ctrlc_oneshot))
+        {
+            future::Either::Left((Ok(reason), _)) => {
+                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                Ok(reason)
+            }
+            future::Either::Left((Err(e), _)) => Err(e.into()),
+            future::Either::Right((x, _)) => x
+                .map(|()| ShutdownReason::Success("Received Ctrl+C"))
+                .map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
         }
     }
 
