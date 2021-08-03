@@ -396,7 +396,7 @@ impl<E: EthSpec> Environment<E> {
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
             future::Either::Right(((res, _, _), _)) => {
-                res.ok_or("Handler channel closed".to_string())
+                res.ok_or_else(|| "Handler channel closed".to_string())
             }
         }
     }
