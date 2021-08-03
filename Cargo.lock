@@ -1969,7 +1969,6 @@ dependencies = [
  "enr",
  "eth2_config",
  "eth2_ssz",
- "paste",
  "serde",
  "serde_yaml",
  "tempfile",

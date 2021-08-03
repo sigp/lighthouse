@@ -8,23 +8,11 @@
 //! `std::include_bytes` macro. This provides convenience to the user, the binary is self-sufficient
 //! and does not require the configuration to be read from the filesystem at runtime.
 //!
-//! ## How to "build-in" a network configuration.
-//!
-//! First, create a new directory in the `built_in_network_configs` in the root of the crate. This
-//! directory requires a specific structure, see the other baked-in networks for reference.
-//!
-//! Next, go to the `../eth2_config/src/lib.rs` file and add the testnet to the `define_archives`
-//! invocation.
-//!
-//! Finally, add the network to the `define_nets` invocation in this file.
-//!
-//! The `build.rs` script for this crate will magically include all the files in the binary and then
-//! this crate will export the network as a member of the `HARDCODED_NETS` slice.
-
-use eth2_config::{predefined_networks_dir, *};
+//! To add a new built-in testnet, add it to the `define_archives` invocation in the `eth2_config`
+//! crate.
 
 use enr::{CombinedKey, Enr};
-use paste::paste;
+use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -35,50 +23,12 @@ pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct HardcodedNet {
-    pub name: &'static str,
-    pub genesis_is_known: bool,
-    pub config: &'static [u8],
-    pub deploy_block: &'static [u8],
-    pub boot_enr: &'static [u8],
-    pub genesis_state_bytes: &'static [u8],
-}
-
-macro_rules! define_net {
-    ($mod: ident, $include_file: tt) => {{
-        use eth2_config::$mod::ETH2_NET_DIR;
-
-        HardcodedNet {
-            name: ETH2_NET_DIR.name,
-            genesis_is_known: ETH2_NET_DIR.genesis_is_known,
-            config: $include_file!("../", "config.yaml"),
-            deploy_block: $include_file!("../", "deploy_block.txt"),
-            boot_enr: $include_file!("../", "boot_enr.yaml"),
-            genesis_state_bytes: $include_file!("../", "genesis.ssz"),
-        }
-    }};
-}
-
-macro_rules! define_nets {
-    ($($name: ident),+) => {
-        paste! {
-            $(
-            const [<$name:upper>]: HardcodedNet = define_net!($name, [<include_ $name _file>]);
-            )+
-            const HARDCODED_NETS: &[HardcodedNet] = &[$([<$name:upper>],)+];
-            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$(stringify!($name),)+];
-        }
-    };
-}
-
-// Add a new "built-in" network by adding it to the list below.
+// Creates definitions for:
 //
-// ## Notes
-//
-// - The last entry must not end with a comma.
-// - The network must also be added in the `eth2_config` crate.
-define_nets!(mainnet, pyrmont, prater);
+// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PYRMONT`, etc).
+// - `HARDCODED_NETS: &[HardcodedNet]`
+// - `HARDCODED_NET_NAMES: &[&'static str]`
+instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 

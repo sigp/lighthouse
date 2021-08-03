@@ -20,4 +20,3 @@ types = { path = "../../consensus/types"}
 eth2_ssz = "0.1.2"
 eth2_config = { path = "../eth2_config"}
 enr = { version = "0.5.1", features = ["ed25519", "k256"] }
-paste = "1.0.5"
