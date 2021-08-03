@@ -15,8 +15,10 @@ eth2_network_config = { path = "../../common/eth2_network_config" }
 logging = { path = "../../common/logging" }
 slog-term = "2.6.0"
 slog-async = "2.5.0"
-ctrlc = { version = "3.1.6", features = ["termination"] }
 futures = "0.3.7"
 parking_lot = "0.11.0"
 slog-json = "2.3.0"
 exit-future = "0.2.0"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+ctrlc = { version = "3.1.6", features = ["termination"] }

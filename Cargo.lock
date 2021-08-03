@@ -562,7 +562,6 @@ dependencies = [
  "clap",
  "clap_utils",
  "client",
- "ctrlc",
  "directory",
  "dirs",
  "environment",

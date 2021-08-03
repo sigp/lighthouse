@@ -493,17 +493,20 @@ pub fn null_logger() -> Result<Logger, String> {
         .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }
 
+#[cfg(target_os = "linux")]
 struct SignalFuture {
     signal: Signal,
     message: &'static str,
 }
 
+#[cfg(target_os = "linux")]
 impl SignalFuture {
     pub fn new(signal: Signal, message: &'static str) -> SignalFuture {
         SignalFuture { signal, message }
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Future for SignalFuture {
     type Output = Option<ShutdownReason>;
 
