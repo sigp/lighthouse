@@ -210,7 +210,7 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
     let gossip_message_id = move |message: &GossipsubMessage| {
         MessageId::from(
             &Sha256::digest(
-                prefix(MESSAGE_DOMAIN_VALID_SNAPPY, &message, fork_context.clone()).as_slice(),
+                prefix(MESSAGE_DOMAIN_VALID_SNAPPY, message, fork_context.clone()).as_slice(),
             )[..20],
         )
     };

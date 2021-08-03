@@ -10,7 +10,10 @@ use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use std::{collections::HashMap, sync::Arc};
 use strum::AsStaticRef;
-use types::{subnet_id::subnet_id_to_string, sync_subnet_id::sync_subnet_id_to_string, EthSpec};
+use types::{
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, subnet_id::subnet_id_to_string,
+    sync_subnet_id::sync_subnet_id_to_string, EthSpec,
+};
 
 lazy_static! {
 
@@ -597,7 +600,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         .map(|v| v.set(0));
     }
 
-    for subnet_id in 0..T::default_spec().sync_committee_subnet_count {
+    for subnet_id in 0..SYNC_COMMITTEE_SUBNET_COUNT {
         let _ = get_int_gauge(
             &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
             &[sync_subnet_id_to_string(subnet_id)],

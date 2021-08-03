@@ -44,7 +44,8 @@ use std::{
     task::{Context, Poll},
 };
 use types::{
-    ChainSpec, EnrForkId, EthSpec, ForkContext, SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, ChainSpec, EnrForkId, EthSpec, ForkContext,
+    SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
 
 pub mod gossipsub_scoring_parameters;
@@ -213,7 +214,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             filter: Self::create_whitelist_filter(
                 possible_fork_digests,
                 chain_spec.attestation_subnet_count,
-                chain_spec.sync_committee_subnet_count,
+                SYNC_COMMITTEE_SUBNET_COUNT,
             ),
             max_subscribed_topics: 200, //TODO change this to a constant
             max_subscriptions_per_request: 100, //this is according to the current go implementation

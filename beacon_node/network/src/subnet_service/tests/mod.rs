@@ -214,7 +214,12 @@ mod attestation_service {
         ];
 
         // Wait for 1 slot duration to get the unsubscription event
-        let events = get_events(&mut attestation_service, None, 1).await;
+        let events = get_events(
+            &mut attestation_service,
+            Some(5),
+            (MainnetEthSpec::slots_per_epoch() * 3) as u32,
+        )
+        .await;
         matches::assert_matches!(
             events[..3],
             [
