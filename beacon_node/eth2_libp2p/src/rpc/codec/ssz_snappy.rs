@@ -21,6 +21,8 @@ use types::{
 };
 use unsigned_varint::codec::Uvi;
 
+const CONTEXT_BYTES_LEN: usize = 4;
+
 /* Inbound Codec */
 
 pub struct SSZSnappyInboundCodec<TSpec: EthSpec> {
@@ -258,9 +260,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Read the context bytes if required
         if self.protocol.has_context_bytes() && self.fork_name.is_none() {
-            if src.len() >= 4 {
-                let context_bytes = src.split_to(4);
-                let mut result = [0; 4];
+            if src.len() >= CONTEXT_BYTES_LEN {
+                let context_bytes = src.split_to(CONTEXT_BYTES_LEN);
+                let mut result = [0; CONTEXT_BYTES_LEN];
                 result.copy_from_slice(context_bytes.as_ref());
                 self.fork_name = Some(context_bytes_to_fork_name(
                     result,
@@ -378,7 +380,7 @@ fn context_bytes<T: EthSpec>(
     protocol: &ProtocolId,
     fork_context: &ForkContext,
     resp: &RPCCodedResponse<T>,
-) -> Option<[u8; 4]> {
+) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
     if protocol.has_context_bytes() {
         if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(res)) = resp {
@@ -578,7 +580,7 @@ fn handle_v2_response<T: EthSpec>(
 
 /// Takes the context bytes and a fork_context and returns the corresponding fork_name.
 fn context_bytes_to_fork_name(
-    context_bytes: [u8; 4],
+    context_bytes: [u8; CONTEXT_BYTES_LEN],
     fork_context: Arc<ForkContext>,
 ) -> Result<ForkName, RPCError> {
     fork_context

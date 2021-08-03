@@ -554,31 +554,26 @@ fn load_or_build_metadata<E: EthSpec>(
     // We load a V2 metadata version by default (regardless of current fork)
     // since a V2 metadata can be converted to V1. The RPC encoder is responsible
     // for sending the correct metadata version based on the negotiated protocol version.
-    let mut meta_data = MetaData::V2(MetaDataV2 {
+    let mut meta_data = MetaDataV2 {
         seq_number: 0,
         attnets: EnrAttestationBitfield::<E>::default(),
         syncnets: EnrSyncCommitteeBitfield::<E>::default(),
-    });
+    };
     // Read metadata from persisted file if available
     let metadata_path = network_dir.join(METADATA_FILENAME);
     if let Ok(mut metadata_file) = File::open(metadata_path) {
         let mut metadata_ssz = Vec::new();
         if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
-            let metadata_mut = meta_data.as_v2_mut().expect("initialized as MetaDataV2");
             // Attempt to read a MetaDataV2 version from the persisted file,
             // if that fails, read MetaDataV1
             match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
-                    let persisted_metadata = MetaData::V2(persisted_metadata);
-                    metadata_mut.seq_number = *persisted_metadata.seq_number();
+                    meta_data.seq_number = persisted_metadata.seq_number;
                     // Increment seq number if persisted attnet is not default
-                    if *persisted_metadata.attnets() != metadata_mut.attnets
-                        || *persisted_metadata
-                            .syncnets()
-                            .expect("initialized as MetaDataV2")
-                            != metadata_mut.syncnets
+                    if persisted_metadata.attnets != meta_data.attnets
+                        || persisted_metadata.syncnets != meta_data.syncnets
                     {
-                        metadata_mut.seq_number += 1;
+                        meta_data.seq_number += 1;
                     }
                     debug!(log, "Loaded metadata from disk");
                 }
@@ -587,7 +582,7 @@ fn load_or_build_metadata<E: EthSpec>(
                         Ok(persisted_metadata) => {
                             let persisted_metadata = MetaData::V1(persisted_metadata);
                             // Increment seq number as the persisted metadata version is updated
-                            metadata_mut.seq_number = *persisted_metadata.seq_number() + 1;
+                            meta_data.seq_number = *persisted_metadata.seq_number() + 1;
                             debug!(log, "Loaded metadata from disk");
                         }
                         Err(e) => {
@@ -602,6 +597,9 @@ fn load_or_build_metadata<E: EthSpec>(
             }
         }
     };
+
+    // Wrap the MetaData
+    let meta_data = MetaData::V2(meta_data);
 
     debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
     save_metadata_to_disk(network_dir, meta_data.clone(), log);
