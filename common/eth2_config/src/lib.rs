@@ -189,7 +189,7 @@ macro_rules! define_nets {
 /// their files in this crate. Then, we must use another crate (`eth2_network_configs`) to run a
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
-macro_rules! define_archives {
+macro_rules! define_hardcoded_nets {
     ($(($name: ident, $genesis_is_known: ident)),+) => {
         paste! {
             $(
@@ -220,7 +220,7 @@ macro_rules! define_archives {
 //
 // This is the canonical place for defining the built-in network configurations that are present in
 // the `common/eth2_network_config/built_in_network_configs` directory.
-define_archives!(
+define_hardcoded_nets!(
     (mainnet, GENESIS_STATE_IS_KNOWN),
     (pyrmont, GENESIS_STATE_IS_KNOWN),
     (prater, GENESIS_STATE_IS_KNOWN)

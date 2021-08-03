@@ -8,7 +8,7 @@
 //! `std::include_bytes` macro. This provides convenience to the user, the binary is self-sufficient
 //! and does not require the configuration to be read from the filesystem at runtime.
 //!
-//! To add a new built-in testnet, add it to the `define_archives` invocation in the `eth2_config`
+//! To add a new built-in testnet, add it to the `define_hardcoded_nets` invocation in the `eth2_config`
 //! crate.
 
 use enr::{CombinedKey, Enr};
