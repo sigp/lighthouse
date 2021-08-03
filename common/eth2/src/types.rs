@@ -419,6 +419,11 @@ pub struct CommitteesQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct SyncCommitteesQuery {
+    pub epoch: Option<Epoch>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct AttestationPoolQuery {
     pub slot: Option<Slot>,
     pub committee_index: Option<u64>,
@@ -437,6 +442,20 @@ pub struct CommitteeData {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncCommitteeByValidatorIndices {
+    #[serde(with = "serde_utils::quoted_u64_vec")]
+    pub validators: Vec<u64>,
+    pub validator_aggregates: Vec<SyncSubcommittee>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SyncSubcommittee {
+    #[serde(with = "serde_utils::quoted_u64_vec")]
+    pub indices: Vec<u64>,
 }
 
 #[derive(Serialize, Deserialize)]

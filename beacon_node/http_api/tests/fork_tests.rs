@@ -1,7 +1,8 @@
 //! Tests for API behaviour across fork boundaries.
 use crate::common::*;
 use beacon_chain::{test_utils::RelativeSyncCommittee, StateSkipConfig};
-use types::{ChainSpec, Epoch, EthSpec, MinimalEthSpec};
+use eth2::types::{StateId, SyncSubcommittee};
+use types::{ChainSpec, Epoch, EthSpec, MinimalEthSpec, Slot};
 
 type E = MinimalEthSpec;
 
@@ -191,4 +192,114 @@ async fn sync_contributions_across_fork_with_skip_slots() {
         .post_validator_contribution_and_proofs(&signed_contributions)
         .await
         .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sync_committee_indices_across_fork() {
+    let validator_count = E::sync_committee_size();
+    let fork_epoch = Epoch::new(8);
+    let spec = altair_spec(fork_epoch);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    let all_validators = harness.get_all_validators();
+
+    // Flatten subcommittees into a single vec.
+    let flatten = |subcommittees: &[SyncSubcommittee]| -> Vec<u64> {
+        subcommittees
+            .iter()
+            .flat_map(|sub| sub.indices.iter().copied())
+            .collect()
+    };
+
+    // Prior to the fork the `sync_committees` endpoint should return a 400 error.
+    assert_eq!(
+        client
+            .get_beacon_states_sync_committees(StateId::Slot(Slot::new(0)), None)
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+    assert_eq!(
+        client
+            .get_beacon_states_sync_committees(StateId::Head, Some(Epoch::new(0)))
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+
+    // If there's a skip slot at the fork slot, the endpoint will return a 400 until a block is
+    // applied.
+    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    let (_, state) = harness
+        .add_attested_block_at_slot(
+            fork_slot - 1,
+            genesis_state,
+            genesis_state_root,
+            &all_validators,
+        )
+        .unwrap();
+
+    harness.advance_slot();
+    assert_eq!(harness.get_current_slot(), fork_slot);
+
+    // Using the head state must fail.
+    assert_eq!(
+        client
+            .get_beacon_states_sync_committees(StateId::Head, Some(fork_epoch))
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+
+    // In theory we could do a state advance and make this work, but to keep things simple I've
+    // avoided doing that for now.
+    assert_eq!(
+        client
+            .get_beacon_states_sync_committees(StateId::Slot(fork_slot), None)
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+
+    // Once the head is updated it should be useable for requests, including in the next sync
+    // committee period.
+    let state_root = state.canonical_root();
+    harness
+        .add_attested_block_at_slot(fork_slot + 1, state, state_root, &all_validators)
+        .unwrap();
+
+    let current_period = fork_epoch.sync_committee_period(&spec).unwrap();
+    let next_period_epoch = spec.epochs_per_sync_committee_period * (current_period + 1);
+    assert!(next_period_epoch > fork_epoch);
+
+    for epoch in [
+        None,
+        Some(fork_epoch),
+        Some(fork_epoch + 1),
+        Some(next_period_epoch),
+        Some(next_period_epoch + 1),
+    ] {
+        let committee = client
+            .get_beacon_states_sync_committees(StateId::Head, epoch)
+            .await
+            .unwrap()
+            .data;
+        assert_eq!(committee.validators.len(), E::sync_committee_size());
+
+        assert_eq!(
+            committee.validators,
+            flatten(&committee.validator_aggregates)
+        );
+    }
 }

@@ -39,8 +39,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
+    EthSpec, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
@@ -681,6 +681,61 @@ pub fn serve<T: BeaconChainTypes>(
 
                         Ok(api_types::GenericResponse::from(response))
                     })
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/sync_committees?epoch
+    let get_beacon_state_sync_committees = beacon_states_path
+        .clone()
+        .and(warp::path("sync_committees"))
+        .and(warp::query::<api_types::SyncCommitteesQuery>())
+        .and(warp::path::end())
+        .and_then(
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query: api_types::SyncCommitteesQuery| {
+                blocking_json_task(move || {
+                    let sync_committee = state_id.map_state(&chain, |state| {
+                        let current_epoch = state.current_epoch();
+                        let epoch = query.epoch.unwrap_or(current_epoch);
+                        state
+                            .get_built_sync_committee(epoch, &chain.spec)
+                            .map(|committee| committee.clone())
+                            .map_err(|e| match e {
+                                BeaconStateError::SyncCommitteeNotKnown { .. } => {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "state at epoch {} has no sync committee for epoch {}",
+                                        current_epoch, epoch
+                                    ))
+                                }
+                                BeaconStateError::IncorrectStateVariant => {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "state at epoch {} is not activated for Altair",
+                                        current_epoch,
+                                    ))
+                                }
+                                e => warp_utils::reject::beacon_state_error(e),
+                            })
+                    })?;
+
+                    let validators = chain
+                        .validator_indices(sync_committee.pubkeys.iter())
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    let validator_aggregates = validators
+                        .chunks_exact(T::EthSpec::sync_subcommittee_size())
+                        .map(|indices| api_types::SyncSubcommittee {
+                            indices: indices.to_vec(),
+                        })
+                        .collect();
+
+                    let response = api_types::SyncCommitteeByValidatorIndices {
+                        validators,
+                        validator_aggregates,
+                    };
+
+                    Ok(api_types::GenericResponse::from(response))
                 })
             },
         );
@@ -2414,6 +2469,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
                 .or(get_beacon_state_committees.boxed())
+                .or(get_beacon_state_sync_committees.boxed())
                 .or(get_beacon_headers.boxed())
                 .or(get_beacon_headers_block_id.boxed())
                 .or(get_beacon_block.boxed())

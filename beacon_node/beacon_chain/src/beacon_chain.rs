@@ -1081,6 +1081,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get_index(pubkey))
     }
 
+    /// Return the validator indices of all public keys fetched from an iterator.
+    ///
+    /// If any public key doesn't belong to a known validator then an error will be returned.
+    /// We could consider relaxing this by returning `Vec<Option<usize>>` in future.
+    pub fn validator_indices<'a>(
+        &self,
+        validator_pubkeys: impl Iterator<Item = &'a PublicKeyBytes>,
+    ) -> Result<Vec<u64>, Error> {
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+
+        validator_pubkeys
+            .map(|pubkey| {
+                pubkey_cache
+                    .get_index(pubkey)
+                    .map(|id| id as u64)
+                    .ok_or(Error::ValidatorPubkeyUnknown(*pubkey))
+            })
+            .collect()
+    }
+
     /// Returns the validator pubkey (if any) for the given validator index.
     ///
     /// ## Notes

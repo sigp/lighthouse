@@ -492,6 +492,29 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET beacon/states/{state_id}/sync_committees?epoch`
+    pub async fn get_beacon_states_sync_committees(
+        &self,
+        state_id: StateId,
+        epoch: Option<Epoch>,
+    ) -> Result<GenericResponse<SyncCommitteeByValidatorIndices>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("sync_committees");
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
+
+        self.get(path).await
+    }
+
     /// `GET beacon/states/{state_id}/validators/{validator_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
