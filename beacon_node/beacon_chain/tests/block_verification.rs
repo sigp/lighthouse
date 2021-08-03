@@ -4,7 +4,7 @@
 extern crate lazy_static;
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    test_logger, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
@@ -830,17 +830,25 @@ fn block_gossip_verification() {
 
 #[test]
 fn verify_block_for_gossip_slashing_detection() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
-
     let slasher_dir = tempdir().unwrap();
     let slasher = Arc::new(
         Slasher::open(
             SlasherConfig::new(slasher_dir.path().into()).for_testing(),
-            harness.logger().clone(),
+            test_logger(),
         )
         .unwrap(),
     );
-    harness.chain.slasher = Some(slasher.clone());
+
+    let harness = BeaconChainHarness::new_with_mutator(
+        MainnetEthSpec,
+        None,
+        KEYPAIRS.to_vec(),
+        1 << 32,
+        StoreConfig::default(),
+        ChainConfig::default(),
+        |builder| builder.slasher(slasher.clone()),
+    );
+    harness.advance_slot();
 
     let state = harness.get_current_state();
     let (block1, _) = harness.make_block(state.clone(), Slot::new(1));

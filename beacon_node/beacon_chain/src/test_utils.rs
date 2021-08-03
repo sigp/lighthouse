@@ -230,6 +230,29 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         store_config: StoreConfig,
         chain_config: ChainConfig,
     ) -> Self {
+        Self::new_with_mutator(
+            eth_spec_instance,
+            spec,
+            validator_keypairs,
+            target_aggregators_per_committee,
+            store_config,
+            chain_config,
+            |x| x,
+        )
+    }
+
+    /// Apply a function to beacon chain builder before building.
+    pub fn new_with_mutator(
+        eth_spec_instance: E,
+        spec: Option<ChainSpec>,
+        validator_keypairs: Vec<Keypair>,
+        target_aggregators_per_committee: u64,
+        store_config: StoreConfig,
+        chain_config: ChainConfig,
+        mutator: impl FnOnce(
+            BeaconChainBuilder<EphemeralHarnessType<E>>,
+        ) -> BeaconChainBuilder<EphemeralHarnessType<E>>,
+    ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
         let mut spec = spec.unwrap_or_else(test_spec::<E>);
 
@@ -240,7 +263,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         let log = test_logger();
 
         let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
-        let chain = BeaconChainBuilder::new(eth_spec_instance)
+        let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(Arc::new(store))
@@ -260,9 +283,9 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], log)
-            .build()
-            .expect("should build");
+            .monitor_validators(true, vec![], log);
+
+        let chain = mutator(builder).build().expect("should build");
 
         Self {
             spec: chain.spec.clone(),
