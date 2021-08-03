@@ -59,7 +59,7 @@ impl FromStr for EndpointVersion {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(version_str) = s.strip_prefix("v") {
+        if let Some(version_str) = s.strip_prefix('v') {
             u64::from_str(version_str)
                 .map(EndpointVersion)
                 .map_err(|_| ())

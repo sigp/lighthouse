@@ -44,13 +44,13 @@ pub enum Error {
     FailedToDownloadAttesters(String),
     FailedToProduceSelectionProof(ValidatorStoreError),
     InvalidModulo(ArithError),
-    ArithError(ArithError),
+    Arith(ArithError),
     SyncDutiesNotFound(u64),
 }
 
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
-        Self::ArithError(e)
+        Self::Arith(e)
     }
 }
 

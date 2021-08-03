@@ -81,7 +81,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let tolerant_current_epoch = chain
         .slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-        .ok_or_else(|| BeaconChainError::UnableToReadSlot)?
+        .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 
     let max_sync_committee_period = tolerant_current_epoch.sync_committee_period(&chain.spec)? + 1;
@@ -119,12 +119,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
 }
 
 fn convert_to_response(duties: Vec<Option<SyncDuty>>) -> SyncDuties {
-    api_types::GenericResponse::from(
-        duties
-            .into_iter()
-            .filter_map(|maybe_duty| maybe_duty)
-            .collect::<Vec<_>>(),
-    )
+    api_types::GenericResponse::from(duties.into_iter().flatten().collect::<Vec<_>>())
 }
 
 /// Receive sync committee duties, storing them in the pools & broadcasting them.

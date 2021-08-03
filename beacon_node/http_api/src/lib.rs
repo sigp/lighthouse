@@ -254,7 +254,6 @@ pub fn serve<T: BeaconChainTypes>(
     // Filter that enforces a single endpoint version and then discards the `EndpointVersion`.
     let single_version = |reqd: EndpointVersion| {
         any_version
-            .clone()
             .and_then(move |version| async move {
                 if version == reqd {
                     Ok(())
@@ -965,7 +964,7 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_blocks_path_v1 = eth1_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
-        .and(block_id_or_err.clone())
+        .and(block_id_or_err)
         .and(chain_filter.clone());
 
     let beacon_blocks_path_any = any_version
@@ -1421,7 +1420,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET debug/beacon/states/{state_id}
     let get_debug_beacon_states = any_version
-        .clone()
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("states"))
@@ -1774,7 +1772,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET validator/blocks/{slot}
     let get_validator_blocks = any_version
-        .clone()
         .and(warp::path("validator"))
         .and(warp::path("blocks"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
