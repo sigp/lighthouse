@@ -521,6 +521,8 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_gossip_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
+            observed_block_attesters: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
             observed_sync_contributors: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_aggregators: <_>::default(),
