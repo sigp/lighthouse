@@ -246,7 +246,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Contains a store of sync contributions which have been observed by the beacon chain.
     pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to attest in recent epochs.
-    pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    pub(crate) observed_gossip_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen sending sync messages in recent epochs.
     pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
@@ -3451,7 +3451,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // See: https://github.com/sigp/lighthouse/pull/2230#discussion_r620013993
         let attested = self
-            .observed_attesters
+            .observed_gossip_attesters
             .read()
             .index_seen_at_epoch(validator_index, epoch);
         let aggregated = self
