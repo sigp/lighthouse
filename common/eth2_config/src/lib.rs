@@ -101,29 +101,29 @@ pub struct HardcodedNet {
 /// It also defines a `include_<title>_bytes!` macro which provides a wrapper around
 /// `std::include_bytes`, allowing the inclusion of bytes from the specific testnet directory.
 macro_rules! define_archive {
-    ($title: ident, $genesis_is_known: ident) => {
+    ($name_ident: ident, $name_str: tt, $genesis_is_known: ident) => {
         paste! {
             #[macro_use]
-            pub mod $title {
+            pub mod $name_ident {
                 use super::*;
 
                 pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
-                    name: stringify!($title),
-                    unique_id: stringify!($title),
+                    name: $name_str,
+                    unique_id: $name_str,
                     genesis_is_known: $genesis_is_known,
                 };
 
                 /// A wrapper around `std::include_bytes` which includes a file from a specific network
                 /// directory. Used by upstream crates to import files at compile time.
                 #[macro_export]
-                macro_rules! [<include_ $title _file>] {
+                macro_rules! [<include_ $name_ident _file>] {
                     ($this_crate: ident, $base_dir: tt, $filename: tt) => {
                         include_bytes!(concat!(
                             $base_dir,
                             "/",
                             $this_crate::predefined_networks_dir!(),
                             "/",
-                            stringify!($title),
+                            $name_str,
                             "/",
                             $filename
                         ))
@@ -157,13 +157,13 @@ macro_rules! define_net {
 /// - `HARDCODED_NET_NAMES`: a list of the *names* of the networks defined by this macro.
 #[macro_export]
 macro_rules! define_nets {
-    ($this_crate: ident, $($name: ident,)+) => {
+    ($this_crate: ident, $($name_ident: ident, $name_str: tt,)+) => {
         $this_crate::paste! {
             $(
-            const [<$name:upper>]: $this_crate::HardcodedNet = $this_crate::define_net!($this_crate, $name, [<include_ $name _file>]);
+            const [<$name_ident:upper>]: $this_crate::HardcodedNet = $this_crate::define_net!($this_crate, $name_ident, [<include_ $name_ident _file>]);
             )+
-            const HARDCODED_NETS: &[$this_crate::HardcodedNet] = &[$([<$name:upper>],)+];
-            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$(stringify!($name),)+];
+            const HARDCODED_NETS: &[$this_crate::HardcodedNet] = &[$([<$name_ident:upper>],)+];
+            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$($name_str,)+];
         }
     };
 }
@@ -190,13 +190,13 @@ macro_rules! define_nets {
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
-    ($(($name: ident, $genesis_is_known: ident)),+) => {
+    ($(($name_ident: ident, $name_str: tt, $genesis_is_known: ident)),+) => {
         paste! {
             $(
-            define_archive!($name, $genesis_is_known);
+            define_archive!($name_ident, $name_str, $genesis_is_known);
             )+
 
-            pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name::ETH2_NET_DIR,)+];
+            pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
 
             /// This macro is designed to be called by an external crate. When called, it will
             /// define in that external crate:
@@ -207,7 +207,7 @@ macro_rules! define_hardcoded_nets {
             #[macro_export]
             macro_rules! instantiate_hardcoded_nets {
                 ($this_crate: ident) => {
-                    $this_crate::define_nets!($this_crate, $($name,)+);
+                    $this_crate::define_nets!($this_crate, $($name_ident, $name_str,)+);
                 }
             }
         }
@@ -220,8 +220,16 @@ macro_rules! define_hardcoded_nets {
 //
 // This is the canonical place for defining the built-in network configurations that are present in
 // the `common/eth2_network_config/built_in_network_configs` directory.
+//
+// Each net is defined as a three-tuple:
+//
+// 0. The name of the testnet as an "ident" (i.e. something that can be a Rust variable name).
+// 1. The human-friendly name of the testnet (i.e. usually with "-" instead of "_").
+// 2. A bool indicating if the genesis state is known and present as a `genesis.ssz.zip`.
+//
+// The directory containing the testnet files should match the human-friendly name (element 1).
 define_hardcoded_nets!(
-    (mainnet, GENESIS_STATE_IS_KNOWN),
-    (pyrmont, GENESIS_STATE_IS_KNOWN),
-    (prater, GENESIS_STATE_IS_KNOWN)
+    (mainnet, "mainnet", GENESIS_STATE_IS_KNOWN),
+    (pyrmont, "pyrmont", GENESIS_STATE_IS_KNOWN),
+    (prater, "prater", GENESIS_STATE_IS_KNOWN)
 );
