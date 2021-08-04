@@ -9,6 +9,7 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
+use filesystem::restrict_file_permissions;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
@@ -160,6 +161,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             let backup_name = format!("{}_backup_{}", file_stem, timestamp);
             let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
             FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
+            restrict_file_permissions(&backup_path).map_err(|e| {
+                format!(
+                    "Unable to set file permissions for {:?}: {:?}",
+                    backup_path, e
+                )
+            })?;
         }
 
         let file = OpenOptions::new()
@@ -168,6 +175,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .truncate(true)
             .open(&path)
             .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
+
+        restrict_file_permissions(&path)
+            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", path, e))?;
 
         // Setting up the initial logger format and building it.
         let drain = if let Some(format) = log_format {

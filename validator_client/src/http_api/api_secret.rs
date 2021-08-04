@@ -1,4 +1,5 @@
 use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
+use filesystem::restrict_file_permissions;
 use libsecp256k1::{Message, PublicKey, SecretKey};
 use rand::thread_rng;
 use ring::digest::{digest, SHA256};
@@ -71,6 +72,12 @@ impl ApiSecret {
             )
             .map_err(|e| e.to_string())?;
         }
+
+        // Restrict file permissions to allow only current user read-write permissions.
+        restrict_file_permissions(&sk_path)
+            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", sk_path, e))?;
+        restrict_file_permissions(&pk_path)
+            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", pk_path, e))?;
 
         let sk = fs::read(&sk_path)
             .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))
