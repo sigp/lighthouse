@@ -203,7 +203,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
                     libp2p::core::identity::secp256k1::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
                 );
-                PeerId::from_public_key(libp2p_pk)
+                PeerId::from_public_key(&libp2p_pk)
             }
             Self::Ed25519(pk) => {
                 let pk_bytes = pk.to_bytes();
@@ -211,7 +211,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
                     libp2p::core::identity::ed25519::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
                 );
-                PeerId::from_public_key(libp2p_pk)
+                PeerId::from_public_key(&libp2p_pk)
             }
         }
     }
@@ -283,7 +283,7 @@ mod tests {
         let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
         let libp2p_kp = Keypair::Secp256k1(secp256k1_kp);
-        let peer_id = libp2p_kp.public().into_peer_id();
+        let peer_id = libp2p_kp.public().to_peer_id();
 
         let enr = discv5::enr::EnrBuilder::new("v4")
             .build(&secret_key)
@@ -304,7 +304,7 @@ mod tests {
         let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
         let ed25519_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();
         let libp2p_kp = Keypair::Ed25519(ed25519_kp);
-        let peer_id = libp2p_kp.public().into_peer_id();
+        let peer_id = libp2p_kp.public().to_peer_id();
 
         let enr = discv5::enr::EnrBuilder::new("v4").build(&keypair).unwrap();
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
