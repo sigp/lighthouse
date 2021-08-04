@@ -231,5 +231,8 @@ macro_rules! define_hardcoded_nets {
 define_hardcoded_nets!(
     (mainnet, "mainnet", GENESIS_STATE_IS_KNOWN),
     (pyrmont, "pyrmont", GENESIS_STATE_IS_KNOWN),
-    (prater, "prater", GENESIS_STATE_IS_KNOWN)
+    (prater, "prater", GENESIS_STATE_IS_KNOWN),
+    (altair_devnet_0, "altair-devnet-0", GENESIS_STATE_IS_KNOWN),
+    (altair_devnet_1, "altair-devnet-1", GENESIS_STATE_IS_KNOWN),
+    (altair_devnet_2, "altair-devnet-2", GENESIS_STATE_IS_KNOWN)
 );
