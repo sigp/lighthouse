@@ -3,8 +3,10 @@ use crate::behaviour::{
 };
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{GoodbyeReason, MetaData, RPCResponseErrorCode, RequestId};
-use crate::types::{error, EnrBitfield, GossipKind};
+use crate::rpc::{
+    GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, RequestId,
+};
+use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
@@ -25,7 +27,7 @@ use std::io::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
 
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR};
 
@@ -66,6 +68,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         config: &NetworkConfig,
         enr_fork_id: EnrForkId,
         log: &Logger,
+        fork_context: Arc<ForkContext>,
         chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
@@ -112,9 +115,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
             // Lighthouse network behaviour
             let behaviour = Behaviour::new(
                 &local_keypair,
-                config,
+                config.clone(),
                 network_globals.clone(),
                 &log,
+                fork_context,
                 chain_spec,
             )
             .await?;
@@ -547,37 +551,57 @@ fn load_or_build_metadata<E: EthSpec>(
     network_dir: &std::path::Path,
     log: &slog::Logger,
 ) -> MetaData<E> {
-    // Default metadata
-    let mut meta_data = MetaData {
+    // We load a V2 metadata version by default (regardless of current fork)
+    // since a V2 metadata can be converted to V1. The RPC encoder is responsible
+    // for sending the correct metadata version based on the negotiated protocol version.
+    let mut meta_data = MetaDataV2 {
         seq_number: 0,
-        attnets: EnrBitfield::<E>::default(),
+        attnets: EnrAttestationBitfield::<E>::default(),
+        syncnets: EnrSyncCommitteeBitfield::<E>::default(),
     };
     // Read metadata from persisted file if available
     let metadata_path = network_dir.join(METADATA_FILENAME);
     if let Ok(mut metadata_file) = File::open(metadata_path) {
         let mut metadata_ssz = Vec::new();
         if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
-            match MetaData::<E>::from_ssz_bytes(&metadata_ssz) {
+            // Attempt to read a MetaDataV2 version from the persisted file,
+            // if that fails, read MetaDataV1
+            match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
                     meta_data.seq_number = persisted_metadata.seq_number;
                     // Increment seq number if persisted attnet is not default
-                    if persisted_metadata.attnets != meta_data.attnets {
+                    if persisted_metadata.attnets != meta_data.attnets
+                        || persisted_metadata.syncnets != meta_data.syncnets
+                    {
                         meta_data.seq_number += 1;
                     }
                     debug!(log, "Loaded metadata from disk");
                 }
-                Err(e) => {
-                    debug!(
-                        log,
-                        "Metadata from file could not be decoded";
-                        "error" => ?e,
-                    );
+                Err(_) => {
+                    match MetaDataV1::<E>::from_ssz_bytes(&metadata_ssz) {
+                        Ok(persisted_metadata) => {
+                            let persisted_metadata = MetaData::V1(persisted_metadata);
+                            // Increment seq number as the persisted metadata version is updated
+                            meta_data.seq_number = *persisted_metadata.seq_number() + 1;
+                            debug!(log, "Loaded metadata from disk");
+                        }
+                        Err(e) => {
+                            debug!(
+                                log,
+                                "Metadata from file could not be decoded";
+                                "error" => ?e,
+                            );
+                        }
+                    }
                 }
             }
         }
     };
 
-    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number);
+    // Wrap the MetaData
+    let meta_data = MetaData::V2(meta_data);
+
+    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
     save_metadata_to_disk(network_dir, meta_data.clone(), log);
     meta_data
 }

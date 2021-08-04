@@ -57,7 +57,8 @@ use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReadyWork,
@@ -121,6 +122,14 @@ const MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN: usize = 4_096;
 /// before we start dropping them.
 const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
+/// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
+/// them.
+const MAX_SYNC_MESSAGE_QUEUE_LEN: usize = 2048;
+
+/// The maximum number of queued `SignedContributionAndProof` objects that will be stored before we
+/// start dropping them.
+const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1024;
+
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
@@ -160,6 +169,8 @@ pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
 pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
 pub const GOSSIP_ATTESTER_SLASHING: &str = "gossip_attester_slashing";
+pub const GOSSIP_SYNC_SIGNATURE: &str = "gossip_sync_signature";
+pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
@@ -322,6 +333,44 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 message_id,
                 peer_id,
                 block,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some sync committee signature.
+    pub fn gossip_sync_signature(
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: SyncCommitteeMessage,
+        subnet_id: SyncSubnetId,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipSyncSignature {
+                message_id,
+                peer_id,
+                sync_signature: Box::new(sync_signature),
+                subnet_id,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some sync committee contribution.
+    pub fn gossip_sync_contribution(
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipSyncContribution {
+                message_id,
+                peer_id,
+                sync_contribution: Box::new(sync_contribution),
                 seen_timestamp,
             },
         }
@@ -553,6 +602,19 @@ pub enum Work<T: BeaconChainTypes> {
         peer_id: PeerId,
         attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
     },
+    GossipSyncSignature {
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: Box<SyncCommitteeMessage>,
+        subnet_id: SyncSubnetId,
+        seen_timestamp: Duration,
+    },
+    GossipSyncContribution {
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: Box<SignedContributionAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
     RpcBlock {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
         result_tx: BlockResultSender<T::EthSpec>,
@@ -588,6 +650,8 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipVoluntaryExit { .. } => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing { .. } => GOSSIP_PROPOSER_SLASHING,
             Work::GossipAttesterSlashing { .. } => GOSSIP_ATTESTER_SLASHING,
+            Work::GossipSyncSignature { .. } => GOSSIP_SYNC_SIGNATURE,
+            Work::GossipSyncContribution { .. } => GOSSIP_SYNC_CONTRIBUTION,
             Work::RpcBlock { .. } => RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
@@ -730,6 +794,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut unknown_block_attestation_queue =
             LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
 
+        let mut sync_message_queue = LifoQueue::new(MAX_SYNC_MESSAGE_QUEUE_LEN);
+        let mut sync_contribution_queue = LifoQueue::new(MAX_SYNC_CONTRIBUTION_QUEUE_LEN);
+
         // Using a FIFO queue for voluntary exits since it prevents exit censoring. I don't have
         // a strong feeling about queue type for exits.
         let mut gossip_voluntary_exit_queue = FifoQueue::new(MAX_GOSSIP_EXIT_QUEUE_LEN);
@@ -859,6 +926,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = attestation_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        // Check sync committee messages after attestations as their rewards are lesser
+                        // and they don't influence fork choice.
+                        } else if let Some(item) = sync_contribution_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = sync_message_queue.pop() {
+                            self.spawn_worker(item, toolbox);
                         // Aggregates and unaggregates queued for re-processing are older and we
                         // care about fresher ones, so check those first.
                         } else if let Some(item) = unknown_block_aggregate_queue.pop() {
@@ -952,6 +1025,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipAttesterSlashing { .. } => {
                                 gossip_attester_slashing_queue.push(work, work_id, &self.log)
                             }
+                            Work::GossipSyncSignature { .. } => sync_message_queue.push(work),
+                            Work::GossipSyncContribution { .. } => {
+                                sync_contribution_queue.push(work)
+                            }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { .. } => {
                                 chain_segment_queue.push(work, work_id, &self.log)
@@ -984,6 +1061,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
                     aggregate_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_SYNC_MESSAGE_QUEUE_TOTAL,
+                    sync_message_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_QUEUE_TOTAL,
+                    sync_contribution_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
@@ -1187,6 +1272,36 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *attester_slashing,
+                    ),
+                    /*
+                     * Sync committee message verification.
+                     */
+                    Work::GossipSyncSignature {
+                        message_id,
+                        peer_id,
+                        sync_signature,
+                        subnet_id,
+                        seen_timestamp,
+                    } => worker.process_gossip_sync_committee_signature(
+                        message_id,
+                        peer_id,
+                        *sync_signature,
+                        subnet_id,
+                        seen_timestamp,
+                    ),
+                    /*
+                     * Syn contribution verification.
+                     */
+                    Work::GossipSyncContribution {
+                        message_id,
+                        peer_id,
+                        sync_contribution,
+                        seen_timestamp,
+                    } => worker.process_sync_committee_contribution(
+                        message_id,
+                        peer_id,
+                        *sync_contribution,
+                        seen_timestamp,
                     ),
                     /*
                      * Verification for beacon blocks received during syncing via RPC.

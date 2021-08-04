@@ -148,26 +148,49 @@ impl ChainSpec {
     }
 
     /// Returns an `EnrForkId` for the given `slot`.
-    ///
-    /// Presently, we don't have any forks so we just ignore the slot. In the future this function
-    /// may return something different based upon the slot.
-    pub fn enr_fork_id(&self, _slot: Slot, genesis_validators_root: Hash256) -> EnrForkId {
+    pub fn enr_fork_id<T: EthSpec>(
+        &self,
+        slot: Slot,
+        genesis_validators_root: Hash256,
+    ) -> EnrForkId {
         EnrForkId {
-            fork_digest: Self::compute_fork_digest(
-                self.genesis_fork_version,
-                genesis_validators_root,
-            ),
-            next_fork_version: self.genesis_fork_version,
-            next_fork_epoch: self.far_future_epoch,
+            fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
+            next_fork_version: self.next_fork_version(),
+            next_fork_epoch: self
+                .next_fork_epoch::<T>(slot)
+                .map(|(_, e)| e)
+                .unwrap_or(self.far_future_epoch),
         }
     }
 
-    /// Returns the epoch of the next scheduled change in the `fork.current_version`.
+    /// Returns the `ForkDigest` for the given slot.
     ///
-    /// There are no future forks scheduled so this function always returns `None`. This may not
-    /// always be the case in the future, though.
-    pub fn next_fork_epoch(&self) -> Option<Epoch> {
-        None
+    /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
+    /// otherwise, returns the fork digest based on the slot.
+    pub fn fork_digest<T: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
+        let fork_name = self.fork_name_at_slot::<T>(slot);
+        Self::compute_fork_digest(
+            self.fork_version_for_name(fork_name),
+            genesis_validators_root,
+        )
+    }
+
+    /// Returns the `next_fork_version`.
+    ///
+    /// Since `next_fork_version = current_fork_version` if no future fork is planned,
+    /// this function returns `altair_fork_version` until the next fork is planned.
+    pub fn next_fork_version(&self) -> [u8; 4] {
+        self.altair_fork_version
+    }
+
+    /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
+    ///
+    /// If no future forks are scheduled, this function returns `None`.
+    pub fn next_fork_epoch<T: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
+        let current_fork_name = self.fork_name_at_slot::<T>(slot);
+        let next_fork_name = current_fork_name.next_fork()?;
+        let fork_epoch = self.fork_epoch(next_fork_name)?;
+        Some((next_fork_name, fork_epoch))
     }
 
     /// Returns the name of the fork which is active at `slot`.
