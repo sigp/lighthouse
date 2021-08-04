@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::{Eth1Config, Eth1GenesisService};
+use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use std::cmp::max;
 use std::path::PathBuf;
@@ -11,7 +12,11 @@ use types::EthSpec;
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
+pub fn run<T: EthSpec>(
+    mut env: Environment<T>,
+    testnet_dir: PathBuf,
+    matches: &ArgMatches<'_>,
+) -> Result<(), String> {
     let endpoints = matches
         .value_of("eth1-endpoint")
         .map(|e| {
@@ -24,33 +29,17 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches<'_>) -> Res
                 .map(|s| s.split(',').map(String::from).collect())
         });
 
-    let testnet_dir = matches
-        .value_of("testnet-dir")
-        .ok_or(())
-        .and_then(|dir| dir.parse::<PathBuf>().map_err(|_| ()))
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .map(|home| home.join(directory::DEFAULT_ROOT_DIR).join("testnet"))
-                .expect("should locate home directory")
-        });
-
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
-    let spec = eth2_network_config
-        .yaml_config
-        .as_ref()
-        .ok_or("The testnet directory must contain a spec config")?
-        .apply_to_chain_spec::<T>(&env.core_context().eth2_config.spec)
-        .ok_or_else(|| {
-            format!(
-                "The loaded config is not compatible with the {} spec",
-                &env.core_context().eth2_config.eth_spec_id
-            )
-        })?;
+    let spec = eth2_network_config.chain_spec::<T>()?;
 
     let mut config = Eth1Config::default();
     if let Some(v) = endpoints.clone() {
-        config.endpoints = v;
+        config.endpoints = v
+            .iter()
+            .map(|s| SensitiveUrl::parse(s))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("Unable to parse eth1 endpoint URL: {:?}", e))?;
     }
     config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     config.deposit_contract_deploy_block = eth2_network_config.deposit_contract_deploy_block;

@@ -5,7 +5,6 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
-use futures::future::FutureExt;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -21,7 +20,7 @@ use types::{
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
-    validator_store: Option<ValidatorStore<T, E>>,
+    validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
@@ -43,7 +42,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn validator_store(mut self, store: ValidatorStore<T, E>) -> Self {
+    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -89,7 +88,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: ValidatorStore<T, E>,
+    validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
@@ -205,15 +204,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.executor.spawn(
-                    self.clone()
-                        .publish_attestations_and_aggregates(
-                            slot,
-                            committee_index,
-                            validator_duties,
-                            aggregate_production_instant,
-                        )
-                        .map(|_| ()),
+                self.inner.context.executor.spawn_ignoring_error(
+                    self.clone().publish_attestations_and_aggregates(
+                        slot,
+                        committee_index,
+                        validator_duties,
+                        aggregate_production_instant,
+                    ),
                     "attestation publish",
                 );
             });
@@ -340,6 +337,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let attestation_data = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_attestation_data(slot, committee_index)
                     .await
@@ -376,25 +377,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            if self
-                .validator_store
-                .sign_attestation(
-                    &duty.pubkey,
-                    duty.validator_committee_index as usize,
-                    &mut attestation,
-                    current_epoch,
-                )
-                .is_some()
-            {
-                attestations.push(attestation);
-            } else {
+            if let Err(e) = self.validator_store.sign_attestation(
+                duty.pubkey,
+                duty.validator_committee_index as usize,
+                &mut attestation,
+                current_epoch,
+            ) {
                 crit!(
                     log,
                     "Failed to sign attestation";
+                    "error" => ?e,
                     "committee_index" => committee_index,
                     "slot" => slot.as_u64(),
                 );
                 continue;
+            } else {
+                attestations.push(attestation);
             }
         }
 
@@ -402,6 +400,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         match self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_POST],
+                );
                 beacon_node
                     .post_beacon_pool_attestations(attestations_slice)
                     .await
@@ -454,6 +456,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let aggregated_attestation = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::AGGREGATES_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_aggregate_attestation(
                         attestation_data_ref.slot,
@@ -488,17 +494,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 continue;
             }
 
-            if let Some(aggregate) = self.validator_store.produce_signed_aggregate_and_proof(
-                &duty.pubkey,
+            match self.validator_store.produce_signed_aggregate_and_proof(
+                duty.pubkey,
                 duty.validator_index,
                 aggregated_attestation.clone(),
                 selection_proof.clone(),
             ) {
-                signed_aggregate_and_proofs.push(aggregate);
-            } else {
-                crit!(log, "Failed to sign attestation");
-                continue;
-            };
+                Ok(aggregate) => signed_aggregate_and_proofs.push(aggregate),
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Failed to sign attestation";
+                        "error" => ?e
+                    );
+                    continue;
+                }
+            }
         }
 
         if !signed_aggregate_and_proofs.is_empty() {
@@ -506,6 +517,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             match self
                 .beacon_nodes
                 .first_success(RequireSynced::No, |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::AGGREGATES_HTTP_POST],
+                    );
                     beacon_node
                         .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
                         .await

@@ -6,6 +6,24 @@ use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 
+/// Provides a reason when Lighthouse is shut down.
+#[derive(Copy, Clone, Debug)]
+pub enum ShutdownReason {
+    /// The node shut down successfully.
+    Success(&'static str),
+    /// The node shut down due to an error condition.
+    Failure(&'static str),
+}
+
+impl ShutdownReason {
+    pub fn message(&self) -> &'static str {
+        match self {
+            ShutdownReason::Success(msg) => msg,
+            ShutdownReason::Failure(msg) => msg,
+        }
+    }
+}
+
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
 pub struct TaskExecutor {
@@ -17,7 +35,7 @@ pub struct TaskExecutor {
     /// continue they can request that everything shuts down.
     ///
     /// The task must provide a reason for shutting down.
-    signal_tx: Sender<&'static str>,
+    signal_tx: Sender<ShutdownReason>,
 
     log: slog::Logger,
 }
@@ -31,7 +49,7 @@ impl TaskExecutor {
         runtime: Weak<Runtime>,
         exit: exit_future::Exit,
         log: slog::Logger,
-        signal_tx: Sender<&'static str>,
+        signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
             runtime,
@@ -49,6 +67,20 @@ impl TaskExecutor {
             signal_tx: self.signal_tx.clone(),
             log: self.log.new(o!("service" => service_name)),
         }
+    }
+
+    /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
+    /// are of type `()`.
+    ///
+    /// The purpose of this function is to create a compile error if some function which previously
+    /// returned `()` starts returning something else. Such a case may otherwise result in
+    /// accidental error suppression.
+    pub fn spawn_ignoring_error(
+        &self,
+        task: impl Future<Output = Result<(), ()>> + Send + 'static,
+        name: &'static str,
+    ) {
+        self.spawn(task.map(|_| ()), name)
     }
 
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
@@ -255,7 +287,7 @@ impl TaskExecutor {
     }
 
     /// Get a channel to request shutting down.
-    pub fn shutdown_sender(&self) -> Sender<&'static str> {
+    pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
     }
 

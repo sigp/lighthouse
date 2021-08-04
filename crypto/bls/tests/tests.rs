@@ -34,6 +34,7 @@ macro_rules! test_suite {
                 AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
                 AggregateSignature::infinity(),
             );
+            assert!(AggregateSignature::infinity().is_infinity());
         }
 
         #[test]
@@ -295,6 +296,17 @@ macro_rules! test_suite {
                 .aggregate_infinity_sig()
                 .aggregate_infinity_sig()
                 .assert_single_message_verify(true)
+        }
+
+        /// Adding two infinity signatures should yield the infinity signature.
+        #[test]
+        fn add_two_infinity_signatures() {
+            let tester = AggregateSignatureTester::new_with_single_msg(1)
+                .infinity_sig()
+                .aggregate_infinity_sig();
+            assert!(tester.sig.is_infinity());
+            assert_eq!(tester.sig, AggregateSignature::infinity());
+            tester.assert_single_message_verify(false)
         }
 
         /// The wrong signature should not verify.

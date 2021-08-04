@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BeaconBlock, EthSpec, Slot, Unsigned};
+use types::{BeaconBlockRef, Epoch, EthSpec, Slot, Unsigned};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -52,14 +52,14 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn observe_proposer(&mut self, block: &BeaconBlock<E>) -> Result<bool, Error> {
+    pub fn observe_proposer(&mut self, block: BeaconBlockRef<'_, E>) -> Result<bool, Error> {
         self.sanitize_block(block)?;
 
         let did_not_exist = self
             .items
-            .entry(block.slot)
+            .entry(block.slot())
             .or_insert_with(|| HashSet::with_capacity(E::SlotsPerEpoch::to_usize()))
-            .insert(block.proposer_index);
+            .insert(block.proposer_index());
 
         Ok(!did_not_exist)
     }
@@ -72,27 +72,27 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn proposer_has_been_observed(&self, block: &BeaconBlock<E>) -> Result<bool, Error> {
+    pub fn proposer_has_been_observed(&self, block: BeaconBlockRef<'_, E>) -> Result<bool, Error> {
         self.sanitize_block(block)?;
 
         let exists = self
             .items
-            .get(&block.slot)
-            .map_or(false, |set| set.contains(&block.proposer_index));
+            .get(&block.slot())
+            .map_or(false, |set| set.contains(&block.proposer_index()));
 
         Ok(exists)
     }
 
     /// Returns `Ok(())` if the given `block` is sane.
-    fn sanitize_block(&self, block: &BeaconBlock<E>) -> Result<(), Error> {
-        if block.proposer_index > E::ValidatorRegistryLimit::to_u64() {
-            return Err(Error::ValidatorIndexTooHigh(block.proposer_index));
+    fn sanitize_block(&self, block: BeaconBlockRef<'_, E>) -> Result<(), Error> {
+        if block.proposer_index() >= E::ValidatorRegistryLimit::to_u64() {
+            return Err(Error::ValidatorIndexTooHigh(block.proposer_index()));
         }
 
         let finalized_slot = self.finalized_slot;
-        if finalized_slot > 0 && block.slot <= finalized_slot {
+        if finalized_slot > 0 && block.slot() <= finalized_slot {
             return Err(Error::FinalizedBlock {
-                slot: block.slot,
+                slot: block.slot(),
                 finalized_slot,
             });
         }
@@ -114,19 +114,28 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
         self.finalized_slot = finalized_slot;
         self.items.retain(|slot, _set| *slot > finalized_slot);
     }
+
+    /// Returns `true` if the given `validator_index` has been stored in `self` at `epoch`.
+    ///
+    /// This is useful for doppelganger detection.
+    pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: Epoch) -> bool {
+        self.items.iter().any(|(slot, producers)| {
+            slot.epoch(E::slots_per_epoch()) == epoch && producers.contains(&validator_index)
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::{BeaconBlock, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
     fn get_block(slot: u64, proposer: u64) -> BeaconBlock<E> {
         let mut block = BeaconBlock::empty(&E::default_spec());
-        block.slot = slot.into();
-        block.proposer_index = proposer;
+        *block.slot_mut() = slot.into();
+        *block.proposer_index_mut() = proposer;
         block
     }
 
@@ -138,10 +147,10 @@ mod tests {
         assert_eq!(cache.items.len(), 0, "no slots should be present");
 
         // Slot 0, proposer 0
-        let block_a = &get_block(0, 0);
+        let block_a = get_block(0, 0);
 
         assert_eq!(
-            cache.observe_proposer(block_a),
+            cache.observe_proposer(block_a.to_ref()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
@@ -197,10 +206,10 @@ mod tests {
          */
 
         // First slot of finalized epoch, proposer 0
-        let block_b = &get_block(E::slots_per_epoch(), 0);
+        let block_b = get_block(E::slots_per_epoch(), 0);
 
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Err(Error::FinalizedBlock {
                 slot: E::slots_per_epoch().into(),
                 finalized_slot: E::slots_per_epoch().into(),
@@ -217,10 +226,10 @@ mod tests {
         let three_epochs = E::slots_per_epoch() * 3;
 
         // First slot of finalized epoch, proposer 0
-        let block_b = &get_block(three_epochs, 0);
+        let block_b = get_block(three_epochs, 0);
 
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Ok(false),
             "can insert non-finalized block"
         );
@@ -266,25 +275,25 @@ mod tests {
         let mut cache = ObservedBlockProducers::default();
 
         // Slot 0, proposer 0
-        let block_a = &get_block(0, 0);
+        let block_a = get_block(0, 0);
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_a),
+            cache.proposer_has_been_observed(block_a.to_ref()),
             Ok(false),
             "no observation in empty cache"
         );
         assert_eq!(
-            cache.observe_proposer(block_a),
+            cache.observe_proposer(block_a.to_ref()),
             Ok(false),
             "can observe proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_a),
+            cache.proposer_has_been_observed(block_a.to_ref()),
             Ok(true),
             "observed block is indicated as true"
         );
         assert_eq!(
-            cache.observe_proposer(block_a),
+            cache.observe_proposer(block_a.to_ref()),
             Ok(true),
             "observing again indicates true"
         );
@@ -302,25 +311,25 @@ mod tests {
         );
 
         // Slot 1, proposer 0
-        let block_b = &get_block(1, 0);
+        let block_b = get_block(1, 0);
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_b),
+            cache.proposer_has_been_observed(block_b.to_ref()),
             Ok(false),
             "no observation for new slot"
         );
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Ok(false),
             "can observe proposer for new slot, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_b),
+            cache.proposer_has_been_observed(block_b.to_ref()),
             Ok(true),
             "observed block in slot 1 is indicated as true"
         );
         assert_eq!(
-            cache.observe_proposer(block_b),
+            cache.observe_proposer(block_b.to_ref()),
             Ok(true),
             "observing slot 1 again indicates true"
         );
@@ -347,25 +356,25 @@ mod tests {
         );
 
         // Slot 0, proposer 1
-        let block_c = &get_block(0, 1);
+        let block_c = get_block(0, 1);
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_c),
+            cache.proposer_has_been_observed(block_c.to_ref()),
             Ok(false),
             "no observation for new proposer"
         );
         assert_eq!(
-            cache.observe_proposer(block_c),
+            cache.observe_proposer(block_c.to_ref()),
             Ok(false),
             "can observe new proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_c),
+            cache.proposer_has_been_observed(block_c.to_ref()),
             Ok(true),
             "observed new proposer block is indicated as true"
         );
         assert_eq!(
-            cache.observe_proposer(block_c),
+            cache.observe_proposer(block_c.to_ref()),
             Ok(true),
             "observing new proposer again indicates true"
         );

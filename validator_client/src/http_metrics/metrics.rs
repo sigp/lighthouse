@@ -9,8 +9,14 @@ pub const SAME_DATA: &str = "same_data";
 pub const UNREGISTERED: &str = "unregistered";
 pub const FULL_UPDATE: &str = "full_update";
 pub const BEACON_BLOCK: &str = "beacon_block";
+pub const BEACON_BLOCK_HTTP_GET: &str = "beacon_block_http_get";
+pub const BEACON_BLOCK_HTTP_POST: &str = "beacon_block_http_post";
 pub const ATTESTATIONS: &str = "attestations";
+pub const ATTESTATIONS_HTTP_GET: &str = "attestations_http_get";
+pub const ATTESTATIONS_HTTP_POST: &str = "attestations_http_post";
 pub const AGGREGATES: &str = "aggregates";
+pub const AGGREGATES_HTTP_GET: &str = "aggregates_http_get";
+pub const AGGREGATES_HTTP_POST: &str = "aggregates_http_post";
 pub const CURRENT_EPOCH: &str = "current_epoch";
 pub const NEXT_EPOCH: &str = "next_epoch";
 pub const UPDATE_INDICES: &str = "update_indices";
@@ -18,6 +24,10 @@ pub const UPDATE_ATTESTERS_CURRENT_EPOCH: &str = "update_attesters_current_epoch
 pub const UPDATE_ATTESTERS_NEXT_EPOCH: &str = "update_attesters_next_epoch";
 pub const UPDATE_ATTESTERS_FETCH: &str = "update_attesters_fetch";
 pub const UPDATE_ATTESTERS_STORE: &str = "update_attesters_store";
+pub const ATTESTER_DUTIES_HTTP_POST: &str = "attester_duties_http_post";
+pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
+pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
+pub const SUBSCRIPTIONS_HTTP_POST: &str = "subscriptions_http_post";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";
 pub const SUBSCRIPTIONS: &str = "subscriptions";
 
@@ -108,6 +118,16 @@ lazy_static::lazy_static! {
         "The number of beacon node requests for each endpoint",
         &["endpoint"]
     );
+
+    pub static ref ETH2_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth2_fallback_configured",
+        "The number of configured eth2 fallbacks",
+    );
+
+    pub static ref ETH2_FALLBACK_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth2_fallback_connected",
+        "Set to 1 if connected to atleast one synced eth2 fallback node, otherwise set to 0",
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(
@@ -124,20 +144,6 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 let distance = now.as_secs() as i64 - genesis_time as i64;
                 set_gauge(&GENESIS_DISTANCE, distance);
             }
-        }
-
-        if let Some(validator_store) = &shared.validator_store {
-            let initialized_validators_lock = validator_store.initialized_validators();
-            let initialized_validators = initialized_validators_lock.read();
-
-            set_gauge(
-                &ENABLED_VALIDATORS_COUNT,
-                initialized_validators.num_enabled() as i64,
-            );
-            set_gauge(
-                &TOTAL_VALIDATORS_COUNT,
-                initialized_validators.num_total() as i64,
-            );
         }
 
         if let Some(duties_service) = &shared.duties_service {

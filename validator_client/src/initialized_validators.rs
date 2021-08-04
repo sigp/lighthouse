@@ -14,6 +14,7 @@ use account_utils::{
     ZeroizeString,
 };
 use eth2_keystore::Keystore;
+use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -32,7 +33,7 @@ const USE_STDIN: bool = false;
 pub enum Error {
     /// Refused to open a validator with an existing lockfile since that validator may be in-use by
     /// another process.
-    LockfileError(LockfileError),
+    Lockfile(LockfileError),
     /// The voting public key in the definition did not match the one in the keystore.
     VotingPublicKeyMismatch {
         definition: Box<PublicKey>,
@@ -61,11 +62,15 @@ pub enum Error {
     TokioJoin(tokio::task::JoinError),
     /// Cannot initialize the same validator twice.
     DuplicatePublicKey,
+    /// The public key does not exist in the set of initialized validators.
+    ValidatorNotInitialized(PublicKey),
+    /// Unable to read the slot clock.
+    SlotClock,
 }
 
 impl From<LockfileError> for Error {
     fn from(error: LockfileError) -> Self {
-        Self::LockfileError(error)
+        Self::Lockfile(error)
     }
 }
 
@@ -87,6 +92,8 @@ pub enum SigningMethod {
 pub struct InitializedValidator {
     signing_method: SigningMethod,
     graffiti: Option<Graffiti>,
+    /// The validators index in `state.validators`, to be updated by an external service.
+    index: Option<u64>,
 }
 
 impl InitializedValidator {
@@ -211,6 +218,7 @@ impl InitializedValidator {
                         voting_keypair,
                     },
                     graffiti: def.graffiti.map(Into::into),
+                    index: None,
                 })
             }
         }
@@ -312,7 +320,7 @@ impl InitializedValidators {
         self.definitions.as_slice().len()
     }
 
-    /// Iterate through all **enabled** voting public keys in `self`.
+    /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
@@ -455,7 +463,7 @@ impl InitializedValidators {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
                     } else {
                         let keystore = open_keystore(voting_keystore_path)?;
-                        unlock_keystore_via_stdin_password(&keystore, &voting_keystore_path)?
+                        unlock_keystore_via_stdin_password(&keystore, voting_keystore_path)?
                             .0
                             .as_ref()
                             .to_vec()
@@ -609,6 +617,26 @@ impl InitializedValidators {
         } else {
             debug!(log, "Key cache not modified");
         }
+
+        // Update the enabled and total validator counts
+        set_gauge(
+            &crate::http_metrics::metrics::ENABLED_VALIDATORS_COUNT,
+            self.num_enabled() as i64,
+        );
+        set_gauge(
+            &crate::http_metrics::metrics::TOTAL_VALIDATORS_COUNT,
+            self.num_total() as i64,
+        );
         Ok(())
+    }
+
+    pub fn get_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(pubkey).and_then(|val| val.index)
+    }
+
+    pub fn set_index(&mut self, pubkey: &PublicKeyBytes, index: u64) {
+        if let Some(val) = self.validators.get_mut(pubkey) {
+            val.index = Some(index);
+        }
     }
 }

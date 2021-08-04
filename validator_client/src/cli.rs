@@ -94,6 +94,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       node is not synced.",
                 ),
         )
+        .arg(
+            Arg::with_name("use-long-timeouts")
+                .long("use-long-timeouts")
+                .help("If present, the validator client will use longer timeouts for requests \
+                        made to the beacon node. This flag is generally not recommended, \
+                        longer timeouts can cause missed duties when fallbacks are used.")
+        )
         // This overwrites the graffiti configured in the beacon node.
         .arg(
             Arg::with_name("graffiti")
@@ -118,23 +125,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         /*
-         * Note: there is purposefully no `--http-address` flag provided.
+         * Note: The HTTP server is **not** encrypted (i.e., not HTTPS) and therefore it is
+         * unsafe to publish on a public network.
          *
-         * The HTTP server is **not** encrypted (i.e., not HTTPS) and therefore it is unsafe to
-         * publish on a public network.
-         *
-         * We restrict the user to `127.0.0.1` and they must provide some other transport-layer
-         * encryption (e.g., SSH tunnels).
+         * If the `--http-address` flag is used, the `--unencrypted-http-transport` flag
+         * must also be used in order to make it clear to the user that this is unsafe.
          */
+         .arg(
+             Arg::with_name("http-address")
+                 .long("http-address")
+                 .value_name("ADDRESS")
+                 .help("Set the address for the HTTP address. The HTTP server is not encrypted \
+                        and therefore it is unsafe to publish on a public network. When this \
+                        flag is used, it additionally requires the explicit use of the \
+                        `--unencrypted-http-transport` flag to ensure the user is aware of the \
+                        risks involved. For access via the Internet, users should apply \
+                        transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.")
+                .requires("unencrypted-http-transport"),
+         )
+         .arg(
+             Arg::with_name("unencrypted-http-transport")
+                 .long("unencrypted-http-transport")
+                 .help("This is a safety flag to ensure that the user is aware that the http \
+                        transport is unencrypted and using a custom HTTP address is unsafe.")
+                 .requires("http-address"),
+         )
         .arg(
             Arg::with_name("http-port")
                 .long("http-port")
                 .value_name("PORT")
-                .help("Set the listen TCP port for the RESTful HTTP API server. This server does **not** \
-                provide encryption and is completely unsuitable to expose to a public network. \
-                We do not provide a --http-address flag and restrict the user to listening on \
-                127.0.0.1. For access via the Internet, apply a transport-layer security like \
-                a HTTPS reverse-proxy or SSH tunnelling.")
+                .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value("5062")
                 .takes_value(true),
         )
@@ -180,5 +200,35 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5064).")
                 .takes_value(true),
+        )
+        /*
+         * Explorer metrics
+         */
+         .arg(
+            Arg::with_name("monitoring-endpoint")
+                .long("monitoring-endpoint")
+                .value_name("ADDRESS")
+                .help("Enables the monitoring service for sending system metrics to a remote endpoint. \
+                This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
+                This flag sets the endpoint where the beacon node metrics will be sent. \
+                Note: This will send information to a remote sever which may identify and associate your \
+                validators, IP address and other personal information. Always use a HTTPS connection \
+                and never provide an untrusted URL.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enable-doppelganger-protection")
+                .long("enable-doppelganger-protection")
+                .value_name("ENABLE_DOPPELGANGER_PROTECTION")
+                .help("If this flag is set, Lighthouse will delay startup for three epochs and \
+                    monitor for messages on the network by any of the validators managed by this \
+                    client. This will result in three (possibly four) epochs worth of missed \
+                    attestations. If an attestation is detected during this period, it means it is \
+                    very likely that you are running a second validator client with the same keys. \
+                    This validator client will immediately shutdown if this is detected in order \
+                    to avoid potentially committing a slashable offense. Use this flag in order to \
+                    ENABLE this functionality, without this flag Lighthouse will begin attesting \
+                    immediately.")
+                .takes_value(false),
         )
 }

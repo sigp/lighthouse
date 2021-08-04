@@ -16,7 +16,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
-use types::{ChainSpec, EthSpec, YamlConfig};
+use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -50,10 +50,10 @@ impl From<String> for Error {
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: Clone, E: EthSpec> {
+pub struct Context<T: SlotClock, E: EthSpec> {
     pub runtime: Weak<Runtime>,
     pub api_secret: ApiSecret,
-    pub validator_store: Option<ValidatorStore<T, E>>,
+    pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub spec: ChainSpec,
     pub config: Config,
@@ -191,9 +191,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and_then(|spec: Arc<_>, signer| {
             blocking_signed_json_task(signer, move || {
-                Ok(api_types::GenericResponse::from(
-                    YamlConfig::from_spec::<E>(&spec),
-                ))
+                let mut config = ConfigAndPreset::from_chain_spec::<E>(&spec);
+                config.make_backwards_compat(&spec);
+                Ok(api_types::GenericResponse::from(config))
             })
         });
 
@@ -203,7 +203,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and_then(|validator_store: ValidatorStore<T, E>, signer| {
+        .and_then(|validator_store: Arc<ValidatorStore<T, E>>, signer| {
             blocking_signed_json_task(signer, move || {
                 let validators = validator_store
                     .initialized_validators()
@@ -229,7 +229,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and_then(
-            |validator_pubkey: PublicKey, validator_store: ValidatorStore<T, E>, signer| {
+            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
                     let validator = validator_store
                         .initialized_validators()
@@ -267,7 +267,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              signer,
              runtime: Weak<Runtime>| {
@@ -309,7 +309,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              signer,
              runtime: Weak<Runtime>| {
@@ -353,7 +353,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              signer,
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
@@ -428,7 +428,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
-             validator_store: ValidatorStore<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
              signer,
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {

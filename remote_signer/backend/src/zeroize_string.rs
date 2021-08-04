@@ -73,7 +73,7 @@ mod object {
     #[test]
     fn v_u8_zeroized() {
         // Create from `hex_string_to_bytes`, and record the pointer to its buffer.
-        let mut decoded_bytes = hex_string_to_bytes(&SECRET_KEY_1.to_string()).unwrap();
+        let mut decoded_bytes = hex_string_to_bytes(SECRET_KEY_1).unwrap();
         let old_pointer = decoded_bytes.as_ptr() as usize;
 
         // Do something with the borrowed vector, and zeroize.
@@ -185,17 +185,17 @@ mod functions {
         );
 
         assert_eq!(
-            hex_string_to_bytes(&SECRET_KEY_1).unwrap(),
+            hex_string_to_bytes(SECRET_KEY_1).unwrap(),
             SECRET_KEY_1_BYTES
         );
 
         assert_eq!(
-            hex_string_to_bytes(&PUBLIC_KEY_1).unwrap(),
+            hex_string_to_bytes(PUBLIC_KEY_1).unwrap(),
             PUBLIC_KEY_1_BYTES.to_vec()
         );
 
         assert_eq!(
-            hex_string_to_bytes(&SIGNING_ROOT).unwrap(),
+            hex_string_to_bytes(SIGNING_ROOT).unwrap(),
             SIGNING_ROOT_BYTES.to_vec()
         );
 

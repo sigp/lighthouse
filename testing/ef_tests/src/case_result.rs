@@ -37,11 +37,11 @@ pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
     expected: &mut Option<BeaconState<T>>,
 ) -> Result<(), Error> {
     if let (Ok(ref mut result), Some(ref mut expected)) = (result.as_mut(), expected.as_mut()) {
-        result.drop_all_caches();
-        expected.drop_all_caches();
+        result.drop_all_caches().unwrap();
+        expected.drop_all_caches().unwrap();
     }
 
-    compare_result_detailed(&result, &expected)
+    compare_result_detailed(result, expected)
 }
 
 /// Same as `compare_result`, however utilizes the `CompareFields` trait to give a list of
@@ -94,7 +94,7 @@ where
         (Err(_), None) => Ok(()),
         // Fail: The test failed when it should have produced a result (fail).
         (Err(e), Some(expected)) => Err(Error::NotEqual(format!(
-            "Got {:?} | Expected {:?}",
+            "Got {:?} | Expected {}",
             e,
             fmt_val(expected)
         ))),
@@ -106,7 +106,7 @@ where
                 Ok(())
             } else {
                 Err(Error::NotEqual(format!(
-                    "Got {:?} | Expected {:?}",
+                    "Got {} | Expected {}",
                     fmt_val(result),
                     fmt_val(expected)
                 )))

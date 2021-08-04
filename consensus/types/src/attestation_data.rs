@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{Checkpoint, Hash256, SignedRoot, Slot};
 
+use crate::slot_data::SlotData;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -38,6 +39,12 @@ pub struct AttestationData {
 }
 
 impl SignedRoot for AttestationData {}
+
+impl SlotData for AttestationData {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
 
 #[cfg(test)]
 mod tests {

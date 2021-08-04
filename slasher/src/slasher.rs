@@ -38,10 +38,10 @@ impl<E: EthSpec> Slasher<E> {
         let block_queue = BlockQueue::default();
         Ok(Self {
             db,
-            attester_slashings,
-            proposer_slashings,
             attestation_queue,
             block_queue,
+            attester_slashings,
+            proposer_slashings,
             config,
             log,
         })
@@ -244,7 +244,7 @@ impl<E: EthSpec> Slasher<E> {
             let slashing_status = self.db.check_and_update_attester_record(
                 txn,
                 validator_index,
-                &attestation,
+                attestation,
                 attester_record,
             )?;
 

@@ -71,6 +71,7 @@ pub struct Config {
     pub eth1: eth1::Config,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
+    pub monitoring_api: Option<monitoring_api::Config>,
     pub slasher: Option<slasher::Config>,
 }
 
@@ -92,6 +93,7 @@ impl Default for Config {
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            monitoring_api: None,
             slasher: None,
             validator_monitor_auto: false,
             validator_monitor_pubkeys: vec![],

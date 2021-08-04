@@ -1,18 +1,23 @@
+#![recursion_limit = "256"]
+
 mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
+use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
+use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
+use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
+use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
+use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -39,10 +44,13 @@ fn main() {
         .long_version(
             format!(
                 "{}\n\
-                 BLS Library: {}\n\
-                 Specs: mainnet (true), minimal ({}), v0.12.3 ({})",
-                 VERSION.replace("Lighthouse/", ""), bls_library_name(),
-                 cfg!(feature = "spec-minimal"), cfg!(feature = "spec-v12"),
+                 BLS library: {}\n\
+                 SHA256 hardware acceleration: {}\n\
+                 Specs: mainnet (true), minimal ({})",
+                 VERSION.replace("Lighthouse/", ""),
+                 bls_library_name(),
+                 have_sha_extensions(),
+                 cfg!(feature = "spec-minimal"),
             ).as_str()
         )
         .arg(
@@ -119,11 +127,38 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["medalla", "altona", "spadina", "pyrmont", "mainnet", "toledo", "prater"])
+                .possible_values(&["pyrmont", "mainnet", "prater"])
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
 
+        )
+        .arg(
+            Arg::with_name("dump-config")
+                .long("dump-config")
+                .hidden(true)
+                .help("Dumps the config to a desired location. Used for testing only.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("immediate-shutdown")
+                .long("immediate-shutdown")
+                .hidden(true)
+                .help(
+                    "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
+                    Used for testing only, DO NOT USE IN PRODUCTION.")
+                .global(true)
+        )
+        .arg(
+            Arg::with_name(DISABLE_MALLOC_TUNING_FLAG)
+                .long(DISABLE_MALLOC_TUNING_FLAG)
+                .help(
+                    "If present, do not configure the system allocator. Providing this flag will \
+                    generally increase memory usage, it should only be provided when debugging \
+                    specific memory allocation issues."
+                )
+                .global(true),
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
@@ -131,6 +166,23 @@ fn main() {
         .subcommand(account_manager::cli_app())
         .subcommand(remote_signer::cli_app())
         .get_matches();
+
+    // Configure the allocator early in the process, before it has the chance to use the default values for
+    // anything important.
+    //
+    // Only apply this optimization for the beacon node. It's the only process with a substantial
+    // memory footprint.
+    let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
+    if is_beacon_node && !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        if let Err(e) = configure_memory_allocator() {
+            eprintln!(
+                "Unable to configure the memory allocator: {} \n\
+                Try providing the --{} flag",
+                e, DISABLE_MALLOC_TUNING_FLAG
+            );
+            exit(1)
+        }
+    }
 
     // Debugging output for libp2p and external crates.
     if matches.is_present("env_log") {
@@ -157,11 +209,7 @@ fn main() {
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
-            #[cfg(feature = "spec-v12")]
-            EthSpecId::V012Legacy => {
-                run(EnvironmentBuilder::v012_legacy(), &matches, testnet_config)
-            }
-            #[cfg(any(not(feature = "spec-minimal"), not(feature = "spec-v12")))]
+            #[cfg(not(feature = "spec-minimal"))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
@@ -224,6 +272,9 @@ fn run<E: EthSpec>(
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);
 
+    // Allow Prometheus access to the version and commit of the Lighthouse build.
+    metrics::expose_lighthouse_version();
+
     if matches.is_present("spec") {
         warn!(
             log,
@@ -285,6 +336,15 @@ fn run<E: EthSpec>(
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;
+            let shutdown_flag = matches.is_present("immediate-shutdown");
+            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
+            {
+                let mut file = File::create(dump_path)
+                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+                serde_json::to_writer(&mut file, &config)
+                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
+            };
+
             environment.runtime().spawn(async move {
                 if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
                     crit!(log, "Failed to start beacon node"; "reason" => e);
@@ -292,7 +352,11 @@ fn run<E: EthSpec>(
                     // shutting down.
                     let _ = executor
                         .shutdown_sender()
-                        .try_send("Failed to start beacon node");
+                        .try_send(ShutdownReason::Failure("Failed to start beacon node"));
+                } else if shutdown_flag {
+                    let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
+                        "Beacon node immediate shutdown triggered.",
+                    ));
                 }
             });
         }
@@ -300,25 +364,35 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(&matches, context.log())
+            let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            environment.runtime().spawn(async move {
-                let run = async {
-                    ProductionValidatorClient::new(context, config)
-                        .await?
-                        .start_service()?;
-
-                    Ok::<(), String>(())
-                };
-                if let Err(e) = run.await {
-                    crit!(log, "Failed to start validator client"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send("Failed to start validator client");
-                }
-            });
+            let shutdown_flag = matches.is_present("immediate-shutdown");
+            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
+            {
+                let mut file = File::create(dump_path)
+                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+                serde_json::to_writer(&mut file, &config)
+                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
+            };
+            if !shutdown_flag {
+                environment.runtime().spawn(async move {
+                    if let Err(e) = ProductionValidatorClient::new(context, config)
+                        .await
+                        .and_then(|mut vc| vc.start_service())
+                    {
+                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
+                    }
+                });
+            } else {
+                let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
+                    "Validator client immediate shutdown triggered.",
+                ));
+            }
         }
         ("remote_signer", Some(matches)) => {
             if let Err(e) = remote_signer::run(&mut environment, matches) {
@@ -327,7 +401,7 @@ fn run<E: EthSpec>(
                     .core_context()
                     .executor
                     .shutdown_sender()
-                    .try_send("Failed to start remote signer");
+                    .try_send(ShutdownReason::Failure("Failed to start remote signer"));
             }
         }
         _ => {
@@ -337,12 +411,16 @@ fn run<E: EthSpec>(
     };
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
-    environment.block_until_shutdown_requested()?;
-    info!(log, "Shutting down..");
+    let shutdown_reason = environment.block_until_shutdown_requested()?;
+    info!(log, "Shutting down.."; "reason" => ?shutdown_reason);
 
     environment.fire_signal();
 
     // Shutdown the environment once all tasks have completed.
     environment.shutdown_on_idle();
-    Ok(())
+
+    match shutdown_reason {
+        ShutdownReason::Success(_) => Ok(()),
+        ShutdownReason::Failure(msg) => Err(msg.to_string()),
+    }
 }

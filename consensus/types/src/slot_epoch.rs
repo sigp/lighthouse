@@ -11,10 +11,10 @@
 //! may lead to programming errors which are not detected by the compiler.
 
 use crate::test_utils::TestRandom;
-use crate::SignedRoot;
+use crate::{ChainSpec, SignedRoot};
 
 use rand::RngCore;
-use safe_arith::SafeArith;
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use std::fmt;
@@ -88,6 +88,13 @@ impl Epoch {
         } else {
             None
         }
+    }
+
+    /// Compute the sync committee period for an epoch.
+    pub fn sync_committee_period(&self, spec: &ChainSpec) -> Result<u64, ArithError> {
+        Ok(self
+            .safe_div(spec.epochs_per_sync_committee_period)?
+            .as_u64())
     }
 
     pub fn slot_iter(&self, slots_per_epoch: u64) -> SlotIter {

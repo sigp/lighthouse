@@ -301,6 +301,10 @@ lazy_static! {
         "beacon_processor_unaggregated_attestation_imported_total",
         "Total number of unaggregated attestations imported to fork choice, etc."
     );
+    pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_unaggregated_attestation_requeued_total",
+        "Total number of unaggregated attestations that referenced an unknown block and were re-queued."
+    );
     // Aggregated attestations.
     pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_aggregated_attestation_queue_total",
@@ -313,6 +317,10 @@ lazy_static! {
     pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_aggregated_attestation_imported_total",
         "Total number of aggregated attestations imported to fork choice, etc."
+    );
+    pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_aggregated_attestation_requeued_total",
+        "Total number of aggregated attestations that referenced an unknown block and were re-queued."
     );
 }
 
@@ -370,6 +378,24 @@ lazy_static! {
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
     );
+
+    /*
+     * Attestation reprocessing queue metrics.
+     */
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+        "beacon_processor_reprocessing_queue_total",
+        "Count of items in a reprocessing queue.",
+        &["type"]
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_expired_attestations",
+        "Number of queued attestations which have expired before a matching block has been found"
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_matched_attestations",
+        "Number of queued attestations where as matching block has been imported"
+    );
 }
 
 pub fn register_attestation_error(error: &AttnError) {
@@ -384,7 +410,7 @@ pub fn expose_publish_metrics<T: EthSpec>(messages: &[PubsubMessage<T>]) {
             PubsubMessage::Attestation(subnet_id) => {
                 inc_counter_vec(
                     &ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT,
-                    &[&subnet_id.0.as_ref()],
+                    &[subnet_id.0.as_ref()],
                 );
                 inc_counter(&GOSSIP_UNAGGREGATED_ATTESTATIONS_TX)
             }
@@ -551,7 +577,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
 
     // mesh peers
     for topic_hash in gossipsub.topics() {
-        let peers = gossipsub.mesh_peers(&topic_hash).count();
+        let peers = gossipsub.mesh_peers(topic_hash).count();
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
@@ -607,7 +633,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             match topic.kind() {
                 GossipKind::BeaconBlock => {
-                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
                         if let Some(client) = peer_to_client.get(peer) {
                             if let Some(v) =
                                 get_int_gauge(&BEACON_BLOCK_MESH_PEERS_PER_CLIENT, &[client])
@@ -618,7 +644,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     }
                 }
                 GossipKind::BeaconAggregateAndProof => {
-                    for peer in gossipsub.mesh_peers(&topic_hash) {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
                         if let Some(client) = peer_to_client.get(peer) {
                             if let Some(v) = get_int_gauge(
                                 &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,

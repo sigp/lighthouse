@@ -6,16 +6,12 @@ edition = "2018"
 license = "Apache-2.0"
 description = "Efficient Merkle-hashing as used in Ethereum 2.0"
 
-[[bench]]
-name = "benches"
-harness = false
-
 [dev-dependencies]
-criterion = "0.3.3"
 rand = "0.7.3"
 tree_hash_derive = "0.2.0"
 types = { path = "../types" }
 lazy_static = "1.4.0"
+beacon_chain = { path = "../../beacon_node/beacon_chain" }
 
 [dependencies]
 ethereum-types = "0.9.2"

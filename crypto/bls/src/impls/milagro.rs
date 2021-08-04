@@ -82,11 +82,22 @@ impl TPublicKey for milagro::PublicKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        Self::from_bytes(bytes).map_err(Into::into)
     }
 }
 
-impl TAggregatePublicKey for milagro::AggregatePublicKey {}
+impl TAggregatePublicKey<milagro::PublicKey> for milagro::AggregatePublicKey {
+    fn to_public_key(&self) -> GenericPublicKey<milagro::PublicKey> {
+        GenericPublicKey::from_point(milagro::PublicKey {
+            point: self.point.clone(),
+        })
+    }
+
+    fn aggregate(pubkeys: &[GenericPublicKey<milagro::PublicKey>]) -> Result<Self, Error> {
+        let pubkey_refs = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
+        Ok(milagro::AggregatePublicKey::aggregate(&pubkey_refs)?)
+    }
+}
 
 impl TSignature<milagro::PublicKey> for milagro::Signature {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
@@ -178,6 +189,6 @@ impl TSecretKey<milagro::Signature, milagro::PublicKey> for milagro::SecretKey {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        Self::from_bytes(bytes).map_err(Into::into)
     }
 }

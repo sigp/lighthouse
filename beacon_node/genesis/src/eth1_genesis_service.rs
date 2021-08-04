@@ -5,7 +5,7 @@ use eth1::{DepositLog, Eth1Block, Service as Eth1Service};
 use slog::{debug, error, info, trace, Logger};
 use state_processing::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
-    per_block_processing::process_deposit, process_activations,
+    per_block_processing::process_operations::process_deposit, process_activations,
 };
 use std::sync::{
     atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -190,7 +190,7 @@ impl Eth1GenesisService {
                         .get_active_validator_indices(E::genesis_epoch(), &spec)
                         .map_err(|e| format!("Genesis validators error: {:?}", e))?
                         .len(),
-                    "genesis_time" => genesis_state.genesis_time,
+                    "genesis_time" => genesis_state.genesis_time(),
                 );
                 break Ok(genesis_state);
             }
@@ -316,7 +316,7 @@ impl Eth1GenesisService {
             //
             // Note: this state is fully valid, some fields have been bypassed to make verification
             // faster.
-            let state = self.cheap_state_at_eth1_block::<E>(block, &spec)?;
+            let state = self.cheap_state_at_eth1_block::<E>(block, spec)?;
             let active_validator_count = state
                 .get_active_validator_indices(E::genesis_epoch(), spec)
                 .map_err(|e| format!("Genesis validators error: {:?}", e))?
@@ -328,7 +328,7 @@ impl Eth1GenesisService {
 
             if is_valid_genesis_state(&state, spec) {
                 let genesis_state = self
-                    .genesis_from_eth1_block(block.clone(), &spec)
+                    .genesis_from_eth1_block(block.clone(), spec)
                     .map_err(|e| format!("Failed to generate valid genesis state : {}", e))?;
 
                 return Ok(Some(genesis_state));
@@ -372,12 +372,12 @@ impl Eth1GenesisService {
         let genesis_state = initialize_beacon_state_from_eth1(
             eth1_block.hash,
             eth1_block.timestamp,
-            genesis_deposits(deposit_logs, &spec)?,
-            &spec,
+            genesis_deposits(deposit_logs, spec)?,
+            spec,
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
 
-        if is_valid_genesis_state(&genesis_state, &spec) {
+        if is_valid_genesis_state(&genesis_state, spec) {
             Ok(genesis_state)
         } else {
             Err("Generated state was not valid.".to_string())
@@ -406,7 +406,7 @@ impl Eth1GenesisService {
                 deposit_root: Hash256::zero(),
                 deposit_count: 0,
             },
-            &spec,
+            spec,
         );
 
         self.deposit_logs_at_block(eth1_block.number)

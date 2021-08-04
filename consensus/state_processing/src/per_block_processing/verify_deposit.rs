@@ -15,7 +15,7 @@ fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
 ///
 /// Spec v0.12.1
 pub fn verify_deposit_signature(deposit_data: &DepositData, spec: &ChainSpec) -> Result<()> {
-    let (public_key, signature, msg) = deposit_pubkey_signature_message(&deposit_data, spec)
+    let (public_key, signature, msg) = deposit_pubkey_signature_message(deposit_data, spec)
         .ok_or_else(|| error(DepositInvalid::BadBlsBytes))?;
 
     verify!(
@@ -60,7 +60,7 @@ pub fn verify_deposit_merkle_proof<T: EthSpec>(
             &deposit.proof[..],
             spec.deposit_contract_tree_depth.safe_add(1)? as usize,
             deposit_index as usize,
-            state.eth1_data.deposit_root,
+            state.eth1_data().deposit_root,
         ),
         DepositInvalid::BadMerkleProof
     );

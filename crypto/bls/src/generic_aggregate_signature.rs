@@ -110,6 +110,11 @@ where
         self.point.is_none()
     }
 
+    /// Returns `true` if `self` is equal to the point at infinity.
+    pub fn is_infinity(&self) -> bool {
+        self.is_infinity
+    }
+
     /// Returns a reference to the underlying BLS point.
     pub(crate) fn point(&self) -> Option<&AggSig> {
         self.point.as_ref()
@@ -173,7 +178,7 @@ where
 impl<Pub, AggPub, Sig, AggSig> GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: TPublicKey + Clone,
-    AggPub: TAggregatePublicKey + Clone,
+    AggPub: TAggregatePublicKey<Pub> + Clone,
     Sig: TSignature<Pub>,
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
@@ -204,6 +209,20 @@ where
             Some(point) => point.aggregate_verify(msgs, pubkeys),
             None => false,
         }
+    }
+}
+
+/// Allow aggregate signatures to be created from single signatures.
+impl<Pub, AggPub, Sig, AggSig> From<&GenericSignature<Pub, Sig>>
+    for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
+where
+    Sig: TSignature<Pub>,
+    AggSig: TAggregateSignature<Pub, AggPub, Sig>,
+{
+    fn from(sig: &GenericSignature<Pub, Sig>) -> Self {
+        let mut agg = Self::infinity();
+        agg.add_assign(sig);
+        agg
     }
 }
 

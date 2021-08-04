@@ -5,7 +5,7 @@ use eth2_keystore::{Error, Keystore};
 const PASSWORD: &str = "testpassword";
 
 fn decrypt_error(vector: &str) -> Error {
-    Keystore::from_json_str(&vector)
+    Keystore::from_json_str(vector)
         .unwrap()
         .decrypt_keypair(PASSWORD.as_bytes())
         .err()

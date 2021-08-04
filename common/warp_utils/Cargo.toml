@@ -14,7 +14,7 @@ beacon_chain = { path = "../../beacon_node/beacon_chain" }
 state_processing = { path = "../../consensus/state_processing" }
 safe_arith = { path = "../../consensus/safe_arith" }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.1.0", features = ["sync"] }
+tokio = { version = "1.7.1", features = ["sync"] }
 headers = "0.3.2"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"

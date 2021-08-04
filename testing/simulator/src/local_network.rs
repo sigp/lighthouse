@@ -4,6 +4,7 @@ use node_test_rig::{
     ClientConfig, LocalBeaconNode, LocalValidatorClient, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
+use sensitive_url::SensitiveUrl;
 use std::{
     ops::Deref,
     time::{SystemTime, UNIX_EPOCH},
@@ -140,9 +141,12 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .expect("Must have http started")
         };
 
-        let beacon_node = format!("http://{}:{}", socket_addr.ip(), socket_addr.port());
+        let beacon_node = SensitiveUrl::parse(
+            format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
+        )
+        .unwrap();
         validator_config.beacon_nodes = if invalid_first_beacon_node {
-            vec![INVALID_ADDRESS.to_string(), beacon_node]
+            vec![SensitiveUrl::parse(INVALID_ADDRESS).unwrap(), beacon_node]
         } else {
             vec![beacon_node]
         };

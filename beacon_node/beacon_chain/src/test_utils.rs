@@ -10,8 +10,11 @@ use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
+use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
 use genesis::interop_genesis_state;
+use int_to_bytes::int_to_bytes32;
+use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -25,22 +28,27 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use task_executor::ShutdownReason;
 use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, AttestationData, AttesterSlashing, BeaconState,
-    BeaconStateHash, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, Graffiti, Hash256,
-    IndexedAttestation, Keypair, ProposerSlashing, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedRoot, SignedVoluntaryExit, Slot, SubnetId,
-    VariableList, VoluntaryExit,
-};
-
+use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
+use types::{
+    typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
+    BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
+    Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
+    PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
+    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeMessage, VariableList,
+    VoluntaryExit,
+};
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // This parameter is required by a builder but not used because we use the `TestingSlotClock`.
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
+// Environment variable to read if `fork_from_env` feature is enabled.
+const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
 pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
@@ -80,6 +88,14 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
+/// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
+/// `state.next_sync_committee` when creating sync messages or contributions.
+#[derive(Clone, Debug)]
+pub enum RelativeSyncCommittee {
+    Current,
+    Next,
+}
+
 fn make_rng() -> Mutex<StdRng> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
@@ -105,6 +121,29 @@ pub fn test_logger() -> Logger {
     }
 }
 
+/// Return a `ChainSpec` suitable for test usage.
+///
+/// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
+/// variable. Otherwise use the default spec.
+pub fn test_spec<E: EthSpec>() -> ChainSpec {
+    if cfg!(feature = "fork_from_env") {
+        let fork_name = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
+            panic!(
+                "{} env var must be defined when using fork_from_env: {:?}",
+                FORK_NAME_ENV_VAR, e
+            )
+        });
+        let fork = match fork_name.as_str() {
+            "base" => ForkName::Base,
+            "altair" => ForkName::Altair,
+            other => panic!("unknown FORK_NAME: {}", other),
+        };
+        fork.make_genesis_spec(E::default_spec())
+    } else {
+        E::default_spec()
+    }
+}
+
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
 /// attestations.
 ///
@@ -115,20 +154,30 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: BeaconChain<T>,
     pub spec: ChainSpec,
     pub data_dir: TempDir,
-    pub shutdown_receiver: Receiver<&'static str>,
+    pub shutdown_receiver: Receiver<ShutdownReason>,
 
     pub rng: Mutex<StdRng>,
 }
 
-type HarnessAttestations<E> = Vec<(
+pub type HarnessAttestations<E> = Vec<(
     Vec<(Attestation<E>, SubnetId)>,
     Option<SignedAggregateAndProof<E>>,
 )>;
 
+pub type HarnessSyncContributions<E> = Vec<(
+    Vec<(SyncCommitteeMessage, usize)>,
+    Option<SignedContributionAndProof<E>>,
+)>;
+
 impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
-    pub fn new(eth_spec_instance: E, validator_keypairs: Vec<Keypair>) -> Self {
+    pub fn new(
+        eth_spec_instance: E,
+        spec: Option<ChainSpec>,
+        validator_keypairs: Vec<Keypair>,
+    ) -> Self {
         Self::new_with_store_config(
             eth_spec_instance,
+            spec,
             validator_keypairs,
             StoreConfig::default(),
         )
@@ -136,6 +185,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
 
     pub fn new_with_store_config(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
         config: StoreConfig,
     ) -> Self {
@@ -143,18 +193,26 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         // committee are required to produce an aggregate. This is overkill, however with small
         // validator counts it's the only way to be certain there is _at least one_ aggregator per
         // committee.
-        Self::new_with_target_aggregators(eth_spec_instance, validator_keypairs, 1 << 32, config)
+        Self::new_with_target_aggregators(
+            eth_spec_instance,
+            spec,
+            validator_keypairs,
+            1 << 32,
+            config,
+        )
     }
 
     /// Instantiate a new harness with  a custom `target_aggregators_per_committee` spec value
     pub fn new_with_target_aggregators(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
     ) -> Self {
         Self::new_with_chain_config(
             eth_spec_instance,
+            spec,
             validator_keypairs,
             target_aggregators_per_committee,
             store_config,
@@ -166,13 +224,14 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
     /// `target_aggregators_per_committee` spec value, and a `ChainConfig`
     pub fn new_with_chain_config(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
         target_aggregators_per_committee: u64,
         store_config: StoreConfig,
         chain_config: ChainConfig,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let mut spec = E::default_spec();
+        let mut spec = spec.unwrap_or_else(test_spec::<E>);
 
         spec.target_aggregators_per_committee = target_aggregators_per_committee;
 
@@ -220,11 +279,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let data_dir = tempdir().expect("should create temporary data_dir");
-        let spec = E::default_spec();
+        let spec = spec.unwrap_or_else(test_spec::<E>);
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
@@ -264,11 +324,12 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     /// Instantiate a new harness with `validator_count` initial validators.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
+        spec: Option<ChainSpec>,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
         data_dir: TempDir,
     ) -> Self {
-        let spec = E::default_spec();
+        let spec = spec.unwrap_or_else(test_spec::<E>);
 
         let log = test_logger();
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
@@ -378,7 +439,7 @@ where
         slot: Slot,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
-        assert!(slot >= state.slot);
+        assert!(slot >= state.slot());
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
@@ -399,8 +460,8 @@ where
             let domain = self.spec.get_domain(
                 epoch,
                 Domain::Randao,
-                &state.fork,
-                state.genesis_validators_root,
+                &state.fork(),
+                state.genesis_validators_root(),
             );
             let message = epoch.signing_root(domain);
             let sk = &self.validator_keypairs[proposer_index].sk;
@@ -414,12 +475,66 @@ where
 
         let signed_block = block.sign(
             &self.validator_keypairs[proposer_index].sk,
-            &state.fork,
-            state.genesis_validators_root,
+            &state.fork(),
+            state.genesis_validators_root(),
             &self.spec,
         );
 
         (signed_block, state)
+    }
+
+    /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
+    /// caches are built but before the generated block is processed.
+    pub fn make_block_return_pre_state(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        complete_state_advance(&mut state, None, slot, &self.spec)
+            .expect("should be able to advance state to slot");
+
+        state
+            .build_all_caches(&self.spec)
+            .expect("should build caches");
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        // If we produce two blocks for the same slot, they hash up to the same value and
+        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // different blocks each time.
+        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+
+        let randao_reveal = {
+            let epoch = slot.epoch(E::slots_per_epoch());
+            let domain = self.spec.get_domain(
+                epoch,
+                Domain::Randao,
+                &state.fork(),
+                state.genesis_validators_root(),
+            );
+            let message = epoch.signing_root(domain);
+            let sk = &self.validator_keypairs[proposer_index].sk;
+            sk.sign(message)
+        };
+
+        let pre_state = state.clone();
+
+        let (block, state) = self
+            .chain
+            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+
+        (signed_block, pre_state)
     }
 
     /// A list of attestations for each committee for the given slot.
@@ -435,7 +550,7 @@ where
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
-        let committee_count = state.get_committee_count_at_slot(state.slot).unwrap();
+        let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
 
         state
             .get_beacon_committees_at_slot(attestation_slot)
@@ -466,8 +581,8 @@ where
                             let domain = self.spec.get_domain(
                                 attestation.data.target.epoch,
                                 Domain::BeaconAttester,
-                                &state.fork,
-                                state.genesis_validators_root,
+                                &state.fork(),
+                                state.genesis_validators_root(),
                             );
 
                             let message = attestation.data.signing_root(domain);
@@ -489,6 +604,57 @@ where
                         .unwrap();
 
                         Some((attestation, subnet_id))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A list of sync messages for the given state.
+    pub fn make_sync_committee_messages(
+        &self,
+        state: &BeaconState<E>,
+        head_block_root: Hash256,
+        message_slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
+    ) -> Vec<Vec<(SyncCommitteeMessage, usize)>> {
+        let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
+            RelativeSyncCommittee::Current => state
+                .current_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+            RelativeSyncCommittee::Next => state
+                .next_sync_committee()
+                .expect("should be called on altair beacon state")
+                .clone(),
+        };
+
+        sync_committee
+            .pubkeys
+            .as_ref()
+            .chunks(E::sync_subcommittee_size())
+            .map(|subcommittee| {
+                subcommittee
+                    .iter()
+                    .enumerate()
+                    .map(|(subcommittee_position, pubkey)| {
+                        let validator_index = self
+                            .chain
+                            .validator_index(pubkey)
+                            .expect("should find validator index")
+                            .expect("pubkey should exist in the beacon chain");
+
+                        let sync_message = SyncCommitteeMessage::new::<E>(
+                            message_slot,
+                            head_block_root,
+                            validator_index as u64,
+                            &self.validator_keypairs[validator_index].sk,
+                            &state.fork(),
+                            state.genesis_validators_root(),
+                            &self.spec,
+                        );
+
+                        (sync_message, subcommittee_position)
                     })
                     .collect()
             })
@@ -532,77 +698,171 @@ where
         slot: Slot,
     ) -> HarnessAttestations<E> {
         let unaggregated_attestations = self.make_unaggregated_attestations(
-            &attesting_validators,
-            &state,
+            attesting_validators,
+            state,
             state_root,
             block_hash,
             slot,
         );
 
-        let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> = unaggregated_attestations
-            .iter()
-            .map(|committee_attestations| {
-                // If there are any attestations in this committee, create an aggregate.
-                if let Some((attestation, _)) = committee_attestations.first() {
-                    let bc = state.get_beacon_committee(attestation.data.slot, attestation.data.index)
-                        .unwrap();
+        let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
+            unaggregated_attestations
+                .iter()
+                .map(|committee_attestations| {
+                    // If there are any attestations in this committee, create an aggregate.
+                    if let Some((attestation, _)) = committee_attestations.first() {
+                        let bc = state
+                            .get_beacon_committee(attestation.data.slot, attestation.data.index)
+                            .unwrap();
 
-                    let aggregator_index = bc.committee
-                        .iter()
-                        .find(|&validator_index| {
-                            if !attesting_validators.contains(validator_index) {
-                                return false
-                            }
+                        // Find an aggregator if one exists. Return `None` if there are no
+                        // aggregators.
+                        let aggregator_index = bc
+                            .committee
+                            .iter()
+                            .find(|&validator_index| {
+                                if !attesting_validators.contains(validator_index) {
+                                    return false;
+                                }
 
-                            let selection_proof = SelectionProof::new::<E>(
-                                state.slot,
-                                &self.validator_keypairs[*validator_index].sk,
-                                &state.fork,
-                                state.genesis_validators_root,
-                                &self.spec,
-                            );
+                                let selection_proof = SelectionProof::new::<E>(
+                                    state.slot(),
+                                    &self.validator_keypairs[*validator_index].sk,
+                                    &state.fork(),
+                                    state.genesis_validators_root(),
+                                    &self.spec,
+                                );
 
-                            selection_proof.is_aggregator(bc.committee.len(), &self.spec).unwrap_or(false)
-                        })
-                        .copied()
-                        .unwrap_or_else(|| panic!(
-                            "Committee {} at slot {} with {} attesting validators does not have any aggregators",
-                            bc.index, state.slot, bc.committee.len()
-                        ));
-
-                    // If the chain is able to produce an aggregate, use that. Otherwise, build an
-                    // aggregate locally.
-                    let aggregate = self
-                        .chain
-                        .get_aggregated_attestation(&attestation.data)
-                        .unwrap_or_else(|| {
-                            committee_attestations.iter().skip(1).fold(attestation.clone(), |mut agg, (att, _)| {
-                                agg.aggregate(att);
-                                agg
+                                selection_proof
+                                    .is_aggregator(bc.committee.len(), &self.spec)
+                                    .unwrap_or(false)
                             })
-                        });
+                            .copied()?;
 
-                    let signed_aggregate = SignedAggregateAndProof::from_aggregate(
-                        aggregator_index as u64,
-                        aggregate,
-                        None,
-                        &self.validator_keypairs[aggregator_index].sk,
-                        &state.fork,
-                        state.genesis_validators_root,
-                        &self.spec,
-                    );
+                        // If the chain is able to produce an aggregate, use that. Otherwise, build an
+                        // aggregate locally.
+                        let aggregate = self
+                            .chain
+                            .get_aggregated_attestation(&attestation.data)
+                            .unwrap_or_else(|| {
+                                committee_attestations.iter().skip(1).fold(
+                                    attestation.clone(),
+                                    |mut agg, (att, _)| {
+                                        agg.aggregate(att);
+                                        agg
+                                    },
+                                )
+                            });
 
-                    Some(signed_aggregate)
-                }
-                else {
-                    None
-                }
-            }).collect();
+                        let signed_aggregate = SignedAggregateAndProof::from_aggregate(
+                            aggregator_index as u64,
+                            aggregate,
+                            None,
+                            &self.validator_keypairs[aggregator_index].sk,
+                            &state.fork(),
+                            state.genesis_validators_root(),
+                            &self.spec,
+                        );
+
+                        Some(signed_aggregate)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
         unaggregated_attestations
             .into_iter()
             .zip(aggregated_attestations)
             .collect()
+    }
+
+    pub fn make_sync_contributions(
+        &self,
+        state: &BeaconState<E>,
+        block_hash: Hash256,
+        slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
+    ) -> HarnessSyncContributions<E> {
+        let sync_messages =
+            self.make_sync_committee_messages(state, block_hash, slot, relative_sync_committee);
+
+        let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_messages
+            .iter()
+            .enumerate()
+            .map(|(subnet_id, committee_messages)| {
+                // If there are any sync messages in this committee, create an aggregate.
+                if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
+                    let sync_committee: Arc<SyncCommittee<E>> = state
+                        .current_sync_committee()
+                        .expect("should be called on altair beacon state")
+                        .clone();
+
+                    let aggregator_index = sync_committee
+                        .get_subcommittee_pubkeys(subnet_id)
+                        .unwrap()
+                        .iter()
+                        .find_map(|pubkey| {
+                            let validator_index = self
+                                .chain
+                                .validator_index(pubkey)
+                                .expect("should find validator index")
+                                .expect("pubkey should exist in the beacon chain");
+
+                            let selection_proof = SyncSelectionProof::new::<E>(
+                                slot,
+                                subnet_id as u64,
+                                &self.validator_keypairs[validator_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            );
+
+                            selection_proof
+                                .is_aggregator::<E>()
+                                .expect("should determine aggregator")
+                                .then(|| validator_index)
+                        })?;
+
+                    let default = SyncCommitteeContribution::from_message(
+                        sync_message,
+                        subnet_id as u64,
+                        *subcommittee_position,
+                    )
+                    .expect("should derive sync contribution");
+
+                    let aggregate = committee_messages.iter().skip(1).fold(
+                        default,
+                        |mut agg, (sig, position)| {
+                            let contribution = SyncCommitteeContribution::from_message(
+                                sig,
+                                subnet_id as u64,
+                                *position,
+                            )
+                            .expect("should derive sync contribution");
+                            agg.aggregate(&contribution);
+                            agg
+                        },
+                    );
+
+                    let signed_aggregate = SignedContributionAndProof::from_aggregate(
+                        aggregator_index as u64,
+                        aggregate,
+                        None,
+                        &self.validator_keypairs[aggregator_index].sk,
+                        &state.fork(),
+                        state.genesis_validators_root(),
+                        &self.spec,
+                    );
+
+                    Some(signed_aggregate)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        sync_messages.into_iter().zip(sync_contributions).collect()
     }
 
     pub fn make_attester_slashing(&self, validator_indices: Vec<u64>) -> AttesterSlashing<E> {
@@ -652,12 +912,70 @@ where
         }
     }
 
+    pub fn make_attester_slashing_different_indices(
+        &self,
+        validator_indices_1: Vec<u64>,
+        validator_indices_2: Vec<u64>,
+    ) -> AttesterSlashing<E> {
+        let data = AttestationData {
+            slot: Slot::new(0),
+            index: 0,
+            beacon_block_root: Hash256::zero(),
+            target: Checkpoint {
+                root: Hash256::zero(),
+                epoch: Epoch::new(0),
+            },
+            source: Checkpoint {
+                root: Hash256::zero(),
+                epoch: Epoch::new(0),
+            },
+        };
+
+        let mut attestation_1 = IndexedAttestation {
+            attesting_indices: VariableList::new(validator_indices_1).unwrap(),
+            data: data.clone(),
+            signature: AggregateSignature::infinity(),
+        };
+
+        let mut attestation_2 = IndexedAttestation {
+            attesting_indices: VariableList::new(validator_indices_2).unwrap(),
+            data,
+            signature: AggregateSignature::infinity(),
+        };
+
+        attestation_2.data.index += 1;
+
+        for attestation in &mut [&mut attestation_1, &mut attestation_2] {
+            for &i in &attestation.attesting_indices {
+                let sk = &self.validator_keypairs[i as usize].sk;
+
+                let fork = self.chain.head_info().unwrap().fork;
+                let genesis_validators_root = self.chain.genesis_validators_root;
+
+                let domain = self.chain.spec.get_domain(
+                    attestation.data.target.epoch,
+                    Domain::BeaconAttester,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = attestation.data.signing_root(domain);
+
+                attestation.signature.add_assign(&sk.sign(message));
+            }
+        }
+
+        AttesterSlashing {
+            attestation_1,
+            attestation_2,
+        }
+    }
+
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
         let mut block_header_1 = self
             .chain
             .head_beacon_block()
             .unwrap()
-            .message
+            .message()
             .block_header();
         block_header_1.proposer_index = validator_index;
 
@@ -671,7 +989,7 @@ where
         let mut signed_block_headers = vec![block_header_1, block_header_2]
             .into_iter()
             .map(|block_header| {
-                block_header.sign::<E>(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                block_header.sign::<E>(sk, &fork, genesis_validators_root, &self.chain.spec)
             })
             .collect::<Vec<_>>();
 
@@ -691,6 +1009,116 @@ where
             validator_index,
         }
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
+    }
+
+    pub fn add_voluntary_exit(
+        &self,
+        block: &mut BeaconBlock<E>,
+        validator_index: u64,
+        epoch: Epoch,
+    ) {
+        let exit = self.make_voluntary_exit(validator_index, epoch);
+        block.body_mut().voluntary_exits_mut().push(exit).unwrap();
+    }
+
+    /// Create a new block, apply `block_modifier` to it, sign it and return it.
+    ///
+    /// The state returned is a pre-block state at the same slot as the produced block.
+    pub fn make_block_with_modifier(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        block_modifier: impl FnOnce(&mut BeaconBlock<E>),
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        let (block, state) = self.make_block_return_pre_state(state, slot);
+        let (mut block, _) = block.deconstruct();
+
+        block_modifier(&mut block);
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index as usize].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        (signed_block, state)
+    }
+
+    pub fn make_deposits<'a>(
+        &self,
+        state: &'a mut BeaconState<E>,
+        num_deposits: usize,
+        invalid_pubkey: Option<PublicKeyBytes>,
+        invalid_signature: Option<SignatureBytes>,
+    ) -> (Vec<Deposit>, &'a mut BeaconState<E>) {
+        let mut datas = vec![];
+
+        for _ in 0..num_deposits {
+            let keypair = Keypair::random();
+            let pubkeybytes = PublicKeyBytes::from(keypair.pk.clone());
+
+            let mut data = DepositData {
+                pubkey: pubkeybytes,
+                withdrawal_credentials: Hash256::from_slice(
+                    &get_withdrawal_credentials(&keypair.pk, self.spec.bls_withdrawal_prefix_byte)
+                        [..],
+                ),
+                amount: self.spec.min_deposit_amount,
+                signature: SignatureBytes::empty(),
+            };
+
+            data.signature = data.create_signature(&keypair.sk, &self.spec);
+
+            if let Some(invalid_pubkey) = invalid_pubkey {
+                data.pubkey = invalid_pubkey;
+            }
+            if let Some(invalid_signature) = invalid_signature.clone() {
+                data.signature = invalid_signature;
+            }
+            datas.push(data);
+        }
+
+        // Vector containing all leaves
+        let leaves = datas
+            .iter()
+            .map(|data| data.tree_hash_root())
+            .collect::<Vec<_>>();
+
+        // Building a VarList from leaves
+        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+
+        // Setting the deposit_root to be the tree_hash_root of the VarList
+        state.eth1_data_mut().deposit_root = deposit_data_list.tree_hash_root();
+        state.eth1_data_mut().deposit_count = num_deposits as u64;
+        *state.eth1_deposit_index_mut() = 0;
+
+        // Building the merkle tree used for generating proofs
+        let tree = MerkleTree::create(&leaves[..], self.spec.deposit_contract_tree_depth as usize);
+
+        // Building proofs
+        let mut proofs = vec![];
+        for i in 0..leaves.len() {
+            let (_, mut proof) =
+                tree.generate_proof(i, self.spec.deposit_contract_tree_depth as usize);
+            proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
+            proofs.push(proof);
+        }
+
+        // Building deposits
+        let deposits = datas
+            .into_par_iter()
+            .zip(proofs.into_par_iter())
+            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| Deposit { proof, data })
+            .collect::<Vec<_>>();
+
+        // Pushing deposits to block body
+        (deposits, state)
     }
 
     pub fn process_block(
@@ -770,13 +1198,8 @@ where
         block: &SignedBeaconBlock<E>,
         validators: &[usize],
     ) {
-        let attestations = self.make_attestations(
-            validators,
-            &state,
-            state_root,
-            block_hash,
-            block.message.slot,
-        );
+        let attestations =
+            self.make_attestations(validators, state, state_root, block_hash, block.slot());
         self.process_attestations(attestations);
     }
 
@@ -931,7 +1354,7 @@ where
         chain_dump
             .iter()
             .cloned()
-            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint.root.into())
+            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
             .filter(|block_hash| *block_hash != Hash256::zero().into())
             .collect()
     }

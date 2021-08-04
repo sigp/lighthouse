@@ -1,9 +1,10 @@
 use clap::ArgMatches;
-use clap_utils::BAD_TESTNET_DIR_MESSAGE;
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
@@ -106,6 +107,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_origin = Some(allow_origin.to_string());
     }
 
+    if cli_args.is_present("http-disable-legacy-spec") {
+        client_config.http_api.serve_legacy_spec = false;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
@@ -135,6 +140,17 @@ pub fn get_config<E: EthSpec>(
         client_config.http_metrics.allow_origin = Some(allow_origin.to_string());
     }
 
+    /*
+     * Explorer metrics
+     */
+    if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        client_config.monitoring_api = Some(monitoring_api::Config {
+            db_path: None,
+            freezer_db_path: None,
+            monitoring_endpoint: monitoring_endpoint.to_string(),
+        });
+    }
+
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
     if cli_args.is_present("staking") {
@@ -142,6 +158,11 @@ pub fn get_config<E: EthSpec>(
             log,
             "Running HTTP server on port {}", client_config.http_api.listen_port
         );
+    }
+
+    // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
+    if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        client_config.http_metrics.allocator_metrics_enabled = false;
     }
 
     /*
@@ -163,17 +184,22 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Defines the URL to reach the eth1 node.
-    if let Some(val) = cli_args.value_of("eth1-endpoint") {
+    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
         warn!(
             log,
             "The --eth1-endpoint flag is deprecated";
             "msg" => "please use --eth1-endpoints instead"
         );
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = vec![val.to_string()];
-    } else if let Some(val) = cli_args.value_of("eth1-endpoints") {
+        client_config.eth1.endpoints = vec![SensitiveUrl::parse(endpoint)
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
+    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = val.split(',').map(String::from).collect();
+        client_config.eth1.endpoints = endpoints
+            .split(',')
+            .map(|s| SensitiveUrl::parse(s))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -238,7 +264,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_network_config = get_eth2_network_config(&cli_args)?;
+    let eth2_network_config = get_eth2_network_config(cli_args)?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
@@ -672,7 +698,7 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
 
 /// A bit of hack to find an unused port.
 ///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
+/// Does not guarantee that the given port is unused after the function exits, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
 ///
 /// Used for passing unused ports to libp2 so that lighthouse won't have to update

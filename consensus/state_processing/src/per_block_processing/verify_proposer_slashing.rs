@@ -41,7 +41,7 @@ pub fn verify_proposer_slashing<T: EthSpec>(
 
     // Check proposer is slashable
     let proposer = state
-        .validators
+        .validators()
         .get(header_1.proposer_index as usize)
         .ok_or_else(|| error(Invalid::ProposerUnknown(header_1.proposer_index)))?;
 

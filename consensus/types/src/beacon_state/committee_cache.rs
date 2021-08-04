@@ -39,7 +39,7 @@ impl CommitteeCache {
             return Err(Error::ZeroSlotsPerEpoch);
         }
 
-        let active_validator_indices = get_active_validator_indices(&state.validators, epoch);
+        let active_validator_indices = get_active_validator_indices(state.validators(), epoch);
 
         if active_validator_indices.is_empty() {
             return Err(Error::InsufficientValidators);
@@ -59,13 +59,15 @@ impl CommitteeCache {
         .ok_or(Error::UnableToShuffle)?;
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validators.len() == usize::max_value() {
+        if state.validators().len() == usize::max_value() {
             return Err(Error::TooManyValidators);
         }
 
-        let mut shuffling_positions = vec![None; state.validators.len()];
-        for (i, v) in shuffling.iter().enumerate() {
-            shuffling_positions[*v] = NonZeroUsize::new(i + 1);
+        let mut shuffling_positions = vec![None; state.validators().len()];
+        for (i, &v) in shuffling.iter().enumerate() {
+            *shuffling_positions
+                .get_mut(v)
+                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1);
         }
 
         Ok(CommitteeCache {
@@ -119,8 +121,12 @@ impl CommitteeCache {
             return None;
         }
 
-        let committee_index =
-            (slot.as_u64() % self.slots_per_epoch) * self.committees_per_slot + index;
+        let committee_index = compute_committee_index_in_epoch(
+            slot,
+            self.slots_per_epoch as usize,
+            self.committees_per_slot as usize,
+            index as usize,
+        );
         let committee = self.compute_committee(committee_index as usize)?;
 
         Some(BeaconCommittee {
@@ -217,7 +223,10 @@ impl CommitteeCache {
     ///
     /// Spec v0.12.1
     pub fn epoch_committee_count(&self) -> usize {
-        self.committees_per_slot as usize * self.slots_per_epoch as usize
+        epoch_committee_count(
+            self.committees_per_slot as usize,
+            self.slots_per_epoch as usize,
+        )
     }
 
     /// Returns the number of committees per slot for this cache's epoch.
@@ -229,7 +238,7 @@ impl CommitteeCache {
     ///
     /// Spec v0.12.1
     fn compute_committee(&self, index: usize) -> Option<&[usize]> {
-        Some(&self.shuffling[self.compute_committee_range(index)?])
+        self.shuffling.get(self.compute_committee_range(index)?)
     }
 
     /// Returns a range of `self.shuffling` that represents the `index`'th committee in the epoch.
@@ -240,26 +249,55 @@ impl CommitteeCache {
     ///
     /// Spec v0.12.1
     fn compute_committee_range(&self, index: usize) -> Option<Range<usize>> {
-        let count = self.epoch_committee_count();
-        if count == 0 || index >= count {
-            return None;
-        }
-
-        let num_validators = self.shuffling.len();
-        let start = (num_validators * index) / count;
-        let end = (num_validators * (index + 1)) / count;
-
-        Some(start..end)
+        compute_committee_range_in_epoch(self.epoch_committee_count(), index, self.shuffling.len())
     }
 
     /// Returns the index of some validator in `self.shuffling`.
     ///
     /// Always returns `None` for a non-initialized epoch.
-    fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
+    pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?
             .and_then(|p| Some(p.get() - 1))
     }
+}
+
+/// Computes the position of the given `committee_index` with respect to all committees in the
+/// epoch.
+///
+/// The return result may be used to provide input to the `compute_committee_range_in_epoch`
+/// function.
+pub fn compute_committee_index_in_epoch(
+    slot: Slot,
+    slots_per_epoch: usize,
+    committees_per_slot: usize,
+    committee_index: usize,
+) -> usize {
+    (slot.as_usize() % slots_per_epoch) * committees_per_slot + committee_index
+}
+
+/// Computes the range for slicing the shuffled indices to determine the members of a committee.
+///
+/// The `index_in_epoch` parameter can be computed computed using
+/// `compute_committee_index_in_epoch`.
+pub fn compute_committee_range_in_epoch(
+    epoch_committee_count: usize,
+    index_in_epoch: usize,
+    shuffling_len: usize,
+) -> Option<Range<usize>> {
+    if epoch_committee_count == 0 || index_in_epoch >= epoch_committee_count {
+        return None;
+    }
+
+    let start = (shuffling_len * index_in_epoch) / epoch_committee_count;
+    let end = (shuffling_len * (index_in_epoch + 1)) / epoch_committee_count;
+
+    Some(start..end)
+}
+
+/// Returns the total number of committees in an epoch.
+pub fn epoch_committee_count(committees_per_slot: usize, slots_per_epoch: usize) -> usize {
+    committees_per_slot * slots_per_epoch
 }
 
 /// Returns a list of all `validators` indices where the validator is active at the given

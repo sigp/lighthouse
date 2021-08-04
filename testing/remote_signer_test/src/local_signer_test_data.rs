@@ -42,7 +42,7 @@ impl LocalSignerTestData<BeaconBlock<E>> {
             &self.spec,
         );
 
-        signed_block.signature.to_string()
+        signed_block.signature().to_string()
     }
 }
 

@@ -148,7 +148,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
             state.current_epoch(),
             dependent_root,
             indices.clone(),
-            state.fork,
+            state.fork(),
         )
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -185,7 +185,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         ensure_state_is_in_epoch(&mut state, state_root, epoch, &chain.spec)?;
         state
     } else {
-        StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(&chain)?
+        StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
     };
 
     // Ensure the state lookup was correct.

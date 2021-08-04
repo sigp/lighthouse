@@ -182,6 +182,11 @@ impl<T: EthSpec> PeerInfo<T> {
         matches!(self.connection_status, Disconnected { .. })
     }
 
+    /// Checks if the peer is outbound-only
+    pub fn is_outbound_only(&self) -> bool {
+        matches!(self.connection_status, Connected {n_in, n_out} if n_in == 0 && n_out > 0)
+    }
+
     /// Returns the number of connections with this peer.
     pub fn connections(&self) -> (u8, u8) {
         match self.connection_status {
@@ -193,25 +198,16 @@ impl<T: EthSpec> PeerInfo<T> {
     // Setters
 
     /// Modifies the status to Disconnected and sets the last seen instant to now. Returns None if
-    /// no changes were made. Returns Some(bool) where the bool represents if peer became banned or
-    /// simply just disconnected.
+    /// no changes were made. Returns Some(bool) where the bool represents if peer is to now be
+    /// baned
     pub fn notify_disconnect(&mut self) -> Option<bool> {
         match self.connection_status {
             Banned { .. } | Disconnected { .. } => None,
             Disconnecting { to_ban } => {
-                // If we are disconnecting this peer in the process of banning, we now ban the
-                // peer.
-                if to_ban {
-                    self.connection_status = Banned {
-                        since: Instant::now(),
-                    };
-                    Some(true)
-                } else {
-                    self.connection_status = Disconnected {
-                        since: Instant::now(),
-                    };
-                    Some(false)
-                }
+                self.connection_status = Disconnected {
+                    since: Instant::now(),
+                };
+                Some(to_ban)
             }
             Connected { .. } | Dialing { .. } | Unknown => {
                 self.connection_status = Disconnected {
@@ -222,11 +218,8 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Notify the we are currently disconnecting this peer, after which the peer will be
-    /// considered banned.
-    // This intermediate state is required to inform the network behaviours that the sub-protocols
-    // are aware this peer exists and it is in the process of being banned. Compared to nodes that
-    // try to connect to us and are already banned (sub protocols do not know of these peers).
+    /// Notify the we are currently disconnecting this peer. Optionally ban the peer after the
+    /// disconnect.
     pub fn disconnecting(&mut self, to_ban: bool) {
         self.connection_status = Disconnecting { to_ban }
     }
@@ -305,6 +298,11 @@ impl<T: EthSpec> PeerInfo<T> {
         if !self.is_trusted {
             self.score.test_add(score)
         }
+    }
+
+    #[cfg(test)]
+    pub fn set_gossipsub_score(&mut self, score: f64) {
+        self.score.set_gossipsub_score(score);
     }
 }
 

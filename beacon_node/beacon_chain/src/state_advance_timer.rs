@@ -213,10 +213,10 @@ fn advance_head<T: BeaconChainTypes>(
         } => (block_slot, state_root, *state),
     };
 
-    let initial_slot = state.slot;
+    let initial_slot = state.slot();
     let initial_epoch = state.current_epoch();
 
-    let state_root = if state.slot == head_slot {
+    let state_root = if state.slot() == head_slot {
         Some(head_state_root)
     } else {
         // Protect against advancing a state more than a single slot.
@@ -225,7 +225,7 @@ fn advance_head<T: BeaconChainTypes>(
         // database. Future works might store temporary, intermediate states inside this function.
         return Err(Error::BadStateSlot {
             block_slot: head_slot,
-            state_slot: state.slot,
+            state_slot: state.slot(),
         });
     };
 
@@ -233,15 +233,32 @@ fn advance_head<T: BeaconChainTypes>(
     if let Some(summary) = per_slot_processing(&mut state, state_root, &beacon_chain.spec)
         .map_err(BeaconChainError::from)?
     {
+        // Expose Prometheus metrics.
+        if let Err(e) = summary.observe_metrics() {
+            error!(
+                log,
+                "Failed to observe epoch summary metrics";
+                "src" => "state_advance_timer",
+                "error" => ?e
+            );
+        }
+
         // Only notify the validator monitor for recent blocks.
         if state.current_epoch() + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
             >= current_slot.epoch(T::EthSpec::slots_per_epoch())
         {
             // Potentially create logs/metrics for locally monitored validators.
-            beacon_chain
+            if let Err(e) = beacon_chain
                 .validator_monitor
                 .read()
-                .process_validator_statuses(state.current_epoch(), &summary.statuses);
+                .process_validator_statuses(state.current_epoch(), &summary, &beacon_chain.spec)
+            {
+                error!(
+                    log,
+                    "Unable to process validator statuses";
+                    "error" => ?e
+                );
+            }
         }
     }
 
@@ -249,7 +266,7 @@ fn advance_head<T: BeaconChainTypes>(
         log,
         "Advanced head state one slot";
         "head_root" => ?head_root,
-        "state_slot" => state.slot,
+        "state_slot" => state.slot(),
         "current_slot" => current_slot,
     );
 
@@ -278,7 +295,7 @@ fn advance_head<T: BeaconChainTypes>(
                 state
                     .get_beacon_proposer_indices(&beacon_chain.spec)
                     .map_err(BeaconChainError::from)?,
-                state.fork,
+                state.fork(),
             )
             .map_err(BeaconChainError::from)?;
 
@@ -304,7 +321,13 @@ fn advance_head<T: BeaconChainTypes>(
         );
     }
 
-    let final_slot = state.slot;
+    // Apply the state to the attester cache, if the cache deems it interesting.
+    beacon_chain
+        .attester_cache
+        .maybe_cache_state(&state, head_root, &beacon_chain.spec)
+        .map_err(BeaconChainError::from)?;
+
+    let final_slot = state.slot();
 
     // Insert the advanced state back into the snapshot cache.
     beacon_chain
@@ -353,11 +376,11 @@ mod tests {
     #[test]
     fn lock() {
         let lock = Lock::new();
-        assert_eq!(lock.lock(), false);
-        assert_eq!(lock.lock(), true);
-        assert_eq!(lock.lock(), true);
+        assert!(!lock.lock());
+        assert!(lock.lock());
+        assert!(lock.lock());
         lock.unlock();
-        assert_eq!(lock.lock(), false);
-        assert_eq!(lock.lock(), true);
+        assert!(!lock.lock());
+        assert!(lock.lock());
     }
 }

@@ -9,11 +9,9 @@ use eth2_wallet::{
     PlainText,
 };
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
+use filesystem::create_with_600_perms;
 use std::ffi::OsStr;
 use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub const CMD: &str = "create";
@@ -83,6 +81,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
@@ -114,7 +114,7 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
         Language::English,
     );
 
-    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)?;
+    let wallet = create_wallet_from_mnemonic(matches, wallet_base_dir.as_path(), &mnemonic)?;
 
     if let Some(path) = mnemonic_output_path {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
@@ -153,8 +153,7 @@ pub fn create_wallet_from_mnemonic(
     let name: Option<String> = clap_utils::parse_optional(matches, NAME_FLAG)?;
     let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
     let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
-
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let wallet_type = match type_field.as_ref() {
         HD_TYPE => WalletType::Hd,
         unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
@@ -169,7 +168,7 @@ pub fn create_wallet_from_mnemonic(
             if !path.exists() {
                 // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
                 // create a file with that name, we require that the password has a .pass suffix.
-                if path.extension() != Some(&OsStr::new("pass")) {
+                if path.extension() != Some(OsStr::new("pass")) {
                     return Err(format!(
                         "Only creates a password file if that file ends in .pass: {:?}",
                         path
@@ -190,7 +189,7 @@ pub fn create_wallet_from_mnemonic(
         .create_wallet(
             wallet_name,
             wallet_type,
-            &mnemonic,
+            mnemonic,
             wallet_password.as_bytes(),
         )
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
@@ -236,27 +235,4 @@ pub fn read_new_wallet_password_from_cli(
             }
         },
     }
-}
-
-/// Creates a file with `600 (-rw-------)` permissions.
-pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), String> {
-    let path = path.as_ref();
-
-    let mut file =
-        File::create(&path).map_err(|e| format!("Unable to create {:?}: {}", path, e))?;
-
-    let mut perm = file
-        .metadata()
-        .map_err(|e| format!("Unable to get {:?} metadata: {}", path, e))?
-        .permissions();
-
-    perm.set_mode(0o600);
-
-    file.set_permissions(perm)
-        .map_err(|e| format!("Unable to set {:?} permissions: {}", path, e))?;
-
-    file.write_all(bytes)
-        .map_err(|e| format!("Unable to write to {:?}: {}", path, e))?;
-
-    Ok(())
 }

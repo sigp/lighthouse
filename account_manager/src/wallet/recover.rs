@@ -54,6 +54,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
@@ -61,7 +63,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_inputs = matches.is_present(STDIN_INPUTS_FLAG);
+    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
 
     eprintln!();
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
@@ -69,7 +71,7 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
-    let wallet = create_wallet_from_mnemonic(matches, &wallet_base_dir.as_path(), &mnemonic)
+    let wallet = create_wallet_from_mnemonic(matches, wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     println!("Your wallet has been successfully recovered.");

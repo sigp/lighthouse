@@ -67,7 +67,7 @@ pub fn use_or_load_enr(
                     Ok(disk_enr) => {
                         // if the same node id, then we may need to update our sequence number
                         if local_enr.node_id() == disk_enr.node_id() {
-                            if compare_enr(&local_enr, &disk_enr) {
+                            if compare_enr(local_enr, &disk_enr) {
                                 debug!(log, "ENR loaded from disk"; "file" => ?enr_f);
                                 // the stored ENR has the same configuration, use it
                                 *local_enr = disk_enr;
@@ -92,7 +92,7 @@ pub fn use_or_load_enr(
         }
     }
 
-    save_enr_to_disk(&config.network_dir, &local_enr, log);
+    save_enr_to_disk(&config.network_dir, local_enr, log);
 
     Ok(())
 }
@@ -193,7 +193,7 @@ pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
 pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
     let _ = std::fs::create_dir_all(dir);
     match File::create(dir.join(Path::new(ENR_FILENAME)))
-        .and_then(|mut f| f.write_all(&enr.to_base64().as_bytes()))
+        .and_then(|mut f| f.write_all(enr.to_base64().as_bytes()))
     {
         Ok(_) => {
             debug!(log, "ENR written to disk");

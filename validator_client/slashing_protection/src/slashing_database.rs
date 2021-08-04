@@ -5,9 +5,10 @@ use crate::interchange::{
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{hash256_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
+use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::Duration;
 use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
@@ -46,13 +47,13 @@ impl SlashingDatabase {
     ///
     /// Error if a database (or any file) already exists at `path`.
     pub fn create(path: &Path) -> Result<Self, NotSafe> {
-        let file = OpenOptions::new()
+        let _file = OpenOptions::new()
             .write(true)
             .read(true)
             .create_new(true)
             .open(path)?;
 
-        Self::set_db_file_permissions(&file)?;
+        restrict_file_permissions(path).map_err(|_| NotSafe::PermissionsError)?;
         let conn_pool = Self::open_conn_pool(path)?;
         let conn = conn_pool.get()?;
 
@@ -92,7 +93,7 @@ impl SlashingDatabase {
 
     /// Open an existing `SlashingDatabase` from disk.
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
-        let conn_pool = Self::open_conn_pool(&path)?;
+        let conn_pool = Self::open_conn_pool(path)?;
         Ok(Self { conn_pool })
     }
 
@@ -120,21 +121,6 @@ impl SlashingDatabase {
         conn.pragma_update(None, "locking_mode", &"EXCLUSIVE")?;
         Ok(())
     }
-
-    /// Set the database file to readable and writable only by its owner (0600).
-    #[cfg(unix)]
-    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut perm = file.metadata()?.permissions();
-        perm.set_mode(0o600);
-        file.set_permissions(perm)?;
-        Ok(())
-    }
-
-    // TODO: add support for Windows ACLs
-    #[cfg(windows)]
-    fn set_db_file_permissions(file: &File) -> Result<(), NotSafe> {}
 
     /// Creates an empty transaction and drops it. Used to test whether the database is locked.
     pub fn test_transaction(&self) -> Result<(), NotSafe> {
@@ -173,8 +159,8 @@ impl SlashingDatabase {
     ) -> Result<(), NotSafe> {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
-            if self.get_validator_id_opt(&txn, pubkey)?.is_none() {
-                stmt.execute(&[pubkey.to_hex_string()])?;
+            if self.get_validator_id_opt(txn, pubkey)?.is_none() {
+                stmt.execute(&[pubkey.as_hex_string()])?;
             }
         }
         Ok(())
@@ -219,7 +205,7 @@ impl SlashingDatabase {
         Ok(txn
             .query_row(
                 "SELECT id FROM validators WHERE public_key = ?1",
-                params![&public_key.to_hex_string()],
+                params![&public_key.as_hex_string()],
                 |row| row.get(0),
             )
             .optional()?)
@@ -495,10 +481,10 @@ impl SlashingDatabase {
         signing_root: SigningRoot,
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
-        let safe = self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
+        let safe = self.check_block_proposal(txn, validator_pubkey, slot, signing_root)?;
 
         if safe != Safe::SameData {
-            self.insert_block_proposal(&txn, validator_pubkey, slot, signing_root)?;
+            self.insert_block_proposal(txn, validator_pubkey, slot, signing_root)?;
         }
         Ok(safe)
     }
@@ -555,7 +541,7 @@ impl SlashingDatabase {
         txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let safe = self.check_attestation(
-            &txn,
+            txn,
             validator_pubkey,
             att_source_epoch,
             att_target_epoch,
@@ -564,7 +550,7 @@ impl SlashingDatabase {
 
         if safe != Safe::SameData {
             self.insert_attestation(
-                &txn,
+                txn,
                 validator_pubkey,
                 att_source_epoch,
                 att_target_epoch,
@@ -576,8 +562,8 @@ impl SlashingDatabase {
 
     /// Import slashing protection from another client in the interchange format.
     ///
-    /// Return a vector of public keys and errors for any validators whose data could not be
-    /// imported.
+    /// This function will atomically import the entire interchange, failing if *any*
+    /// record cannot be imported.
     pub fn import_interchange_info(
         &self,
         interchange: Interchange,
@@ -595,25 +581,33 @@ impl SlashingDatabase {
             });
         }
 
+        // Create a single transaction for the entire batch, which will only be committed if
+        // all records are imported successfully.
         let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction()?;
 
         let mut import_outcomes = vec![];
+        let mut commit = true;
 
         for record in interchange.data {
             let pubkey = record.pubkey;
-            let txn = conn.transaction()?;
             match self.import_interchange_record(record, &txn) {
                 Ok(summary) => {
                     import_outcomes.push(InterchangeImportOutcome::Success { pubkey, summary });
-                    txn.commit()?;
                 }
                 Err(error) => {
                     import_outcomes.push(InterchangeImportOutcome::Failure { pubkey, error });
+                    commit = false;
                 }
             }
         }
 
-        Ok(import_outcomes)
+        if commit {
+            txn.commit()?;
+            Ok(import_outcomes)
+        } else {
+            Err(InterchangeError::AtomicBatchAborted(import_outcomes))
+        }
     }
 
     pub fn import_interchange_record(
@@ -701,7 +695,7 @@ impl SlashingDatabase {
         .query_and_then(params![], |row| {
             let validator_pubkey: String = row.get(0)?;
             let slot = row.get(1)?;
-            let signing_root = Some(hash256_from_row(2, &row)?);
+            let signing_root = Some(hash256_from_row(2, row)?);
             let signed_block = InterchangeBlock { slot, signing_root };
             data.entry(validator_pubkey)
                 .or_insert_with(|| (vec![], vec![]))
@@ -721,7 +715,7 @@ impl SlashingDatabase {
             let validator_pubkey: String = row.get(0)?;
             let source_epoch = row.get(1)?;
             let target_epoch = row.get(2)?;
-            let signing_root = Some(hash256_from_row(3, &row)?);
+            let signing_root = Some(hash256_from_row(3, row)?);
             let signed_attestation = InterchangeAttestation {
                 source_epoch,
                 target_epoch,
@@ -928,12 +922,14 @@ pub enum InterchangeError {
         interchange_file: Hash256,
         client: Hash256,
     },
-    MinimalAttestationSourceAndTargetInconsistent,
+    MinAndMaxInconsistent,
     SQLError(String),
     SQLPoolError(r2d2::Error),
     SerdeJsonError(serde_json::Error),
     InvalidPubkey(String),
     NotSafe(NotSafe),
+    /// One or more records were found to be slashable, so the whole batch was aborted.
+    AtomicBatchAborted(Vec<InterchangeImportOutcome>),
 }
 
 impl From<NotSafe> for InterchangeError {
@@ -1004,11 +1000,9 @@ mod tests {
             assert_eq!(db.conn_pool.max_size(), POOL_SIZE);
             assert_eq!(db.conn_pool.connection_timeout(), CONNECTION_TIMEOUT);
             let conn = db.conn_pool.get().unwrap();
-            assert_eq!(
-                conn.pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
-                    .unwrap(),
-                true
-            );
+            assert!(conn
+                .pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
+                .unwrap());
             assert_eq!(
                 conn.pragma_query_value(None, "locking_mode", |row| { row.get::<_, String>(0) })
                     .unwrap()

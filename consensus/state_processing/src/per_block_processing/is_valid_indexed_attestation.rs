@@ -1,6 +1,7 @@
 use super::errors::{BlockOperationError, IndexedAttestationInvalid as Invalid};
 use super::signature_sets::{get_pubkey_from_state, indexed_attestation_signature_set};
 use crate::VerifySignatures;
+use itertools::Itertools;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
@@ -10,8 +11,6 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 }
 
 /// Verify an `IndexedAttestation`.
-///
-/// Spec v0.12.1
 pub fn is_valid_indexed_attestation<T: EthSpec>(
     state: &BeaconState<T>,
     indexed_attestation: &IndexedAttestation<T>,
@@ -25,13 +24,16 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
 
     // Check that indices are sorted and unique
     let check_sorted = |list: &[u64]| -> Result<()> {
-        list.windows(2).enumerate().try_for_each(|(i, pair)| {
-            if pair[0] < pair[1] {
-                Ok(())
-            } else {
-                Err(error(Invalid::BadValidatorIndicesOrdering(i)))
-            }
-        })?;
+        list.iter()
+            .tuple_windows()
+            .enumerate()
+            .try_for_each(|(i, (x, y))| {
+                if x < y {
+                    Ok(())
+                } else {
+                    Err(error(Invalid::BadValidatorIndicesOrdering(i)))
+                }
+            })?;
         Ok(())
     };
     check_sorted(indices)?;
@@ -42,7 +44,7 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
                 state,
                 |i| get_pubkey_from_state(state, i),
                 &indexed_attestation.signature,
-                &indexed_attestation,
+                indexed_attestation,
                 spec
             )?
             .verify(),

@@ -11,6 +11,8 @@ use types::*;
 /// (e.g., when processing attestations instead of when processing deposits).
 #[derive(Debug, PartialEq, Clone)]
 pub enum BlockProcessingError {
+    /// Logic error indicating that the wrong state type was provided.
+    IncorrectStateType,
     RandaoSignatureInvalid,
     BulkSignatureVerificationFailed,
     StateRootMismatch,
@@ -45,11 +47,16 @@ pub enum BlockProcessingError {
         index: usize,
         reason: ExitInvalid,
     },
+    SyncAggregateInvalid {
+        reason: SyncAggregateInvalid,
+    },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
+    InconsistentBlockFork(InconsistentFork),
+    InconsistentStateFork(InconsistentFork),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -73,6 +80,12 @@ impl From<ssz_types::Error> for BlockProcessingError {
 impl From<ArithError> for BlockProcessingError {
     fn from(e: ArithError) -> Self {
         BlockProcessingError::ArithError(e)
+    }
+}
+
+impl From<SyncAggregateInvalid> for BlockProcessingError {
+    fn from(reason: SyncAggregateInvalid) -> Self {
+        BlockProcessingError::SyncAggregateInvalid { reason }
     }
 }
 
@@ -131,6 +144,7 @@ pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
 pub type AttesterSlashingValidationError = BlockOperationError<AttesterSlashingInvalid>;
 pub type ProposerSlashingValidationError = BlockOperationError<ProposerSlashingInvalid>;
 pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
+pub type SyncCommitteeMessageValidationError = BlockOperationError<SyncAggregateInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
 
@@ -338,4 +352,12 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum SyncAggregateInvalid {
+    /// One or more of the aggregate public keys is invalid.
+    PubkeyInvalid,
+    /// The signature is invalid.
+    SignatureInvalid,
 }

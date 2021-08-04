@@ -198,6 +198,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5052).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("http-disable-legacy-spec")
+                .long("http-disable-legacy-spec")
+                .help("Disable serving of legacy data on the /config/spec endpoint. May be \
+                       disabled by default in a future release.")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
@@ -229,6 +235,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5054).")
+                .takes_value(true),
+        )
+
+        /*
+         * Monitoring metrics
+         */
+
+        .arg(
+            Arg::with_name("monitoring-endpoint")
+                .long("monitoring-endpoint")
+                .value_name("ADDRESS")
+                .help("Enables the monitoring service for sending system metrics to a remote endpoint. \
+                This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
+                This flag sets the endpoint where the beacon node metrics will be sent. \
+                Note: This will send information to a remote sever which may identify and associate your \
+                validators, IP address and other personal information. Always use a HTTPS connection \
+                and never provide an untrusted URL.")
                 .takes_value(true),
         )
 

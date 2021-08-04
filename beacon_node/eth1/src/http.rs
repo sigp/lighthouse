@@ -12,8 +12,10 @@
 
 use futures::future::TryFutureExt;
 use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
+use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fmt;
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
@@ -32,6 +34,9 @@ pub const DEPOSIT_COUNT_RESPONSE_BYTES: usize = 96;
 /// Number of bytes in deposit contract deposit root (value only).
 pub const DEPOSIT_ROOT_BYTES: usize = 32;
 
+/// This error is returned during a `chainId` call by Geth.
+pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
+
 /// Represents an eth1 chain/network id.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Eth1Id {
@@ -45,6 +50,32 @@ pub enum Eth1Id {
 pub enum BlockQuery {
     Number(u64),
     Latest,
+}
+
+/// Represents an error received from a remote procecdure call.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum RpcError {
+    NoResultField,
+    Eip155Error,
+    InvalidJson(String),
+    Error(String),
+}
+
+impl fmt::Display for RpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RpcError::NoResultField => write!(f, "No result field in response"),
+            RpcError::Eip155Error => write!(f, "Not synced past EIP-155"),
+            RpcError::InvalidJson(e) => write!(f, "Malformed JSON received: {}", e),
+            RpcError::Error(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl From<RpcError> for String {
+    fn from(e: RpcError) -> String {
+        e.to_string()
+    }
 }
 
 impl Into<u64> for Eth1Id {
@@ -72,33 +103,36 @@ impl FromStr for Eth1Id {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        u64::from_str_radix(s, 10)
+        s.parse::<u64>()
             .map(Into::into)
             .map_err(|e| format!("Failed to parse eth1 network id {}", e))
     }
 }
 
 /// Get the eth1 network id of the given endpoint.
-pub async fn get_network_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
+pub async fn get_network_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<Eth1Id, String> {
     let response_body = send_rpc_request(endpoint, "net_version", json!([]), timeout).await?;
     Eth1Id::from_str(
-        response_result(&response_body)?
-            .ok_or("No result was returned for network id")?
+        response_result_or_error(&response_body)?
             .as_str()
             .ok_or("Data was not string")?,
     )
 }
 
 /// Get the eth1 chain id of the given endpoint.
-pub async fn get_chain_id(endpoint: &str, timeout: Duration) -> Result<Eth1Id, String> {
-    let response_body = send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
-    hex_to_u64_be(
-        response_result(&response_body)?
-            .ok_or("No result was returned for chain id")?
-            .as_str()
-            .ok_or("Data was not string")?,
-    )
-    .map(Into::into)
+pub async fn get_chain_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<Eth1Id, String> {
+    let response_body: String =
+        send_rpc_request(endpoint, "eth_chainId", json!([]), timeout).await?;
+
+    match response_result_or_error(&response_body) {
+        Ok(chain_id) => {
+            hex_to_u64_be(chain_id.as_str().ok_or("Data was not string")?).map(|id| id.into())
+        }
+        // Geth returns this error when it's syncing lower blocks. Simply map this into `0` since
+        // Lighthouse does not raise errors for `0`, it simply waits for it to change.
+        Err(RpcError::Eip155Error) => Ok(Eth1Id::Custom(0)),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -111,11 +145,11 @@ pub struct Block {
 /// Returns the current block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
-pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, String> {
+pub async fn get_block_number(endpoint: &SensitiveUrl, timeout: Duration) -> Result<u64, String> {
     let response_body = send_rpc_request(endpoint, "eth_blockNumber", json!([]), timeout).await?;
     hex_to_u64_be(
-        response_result(&response_body)?
-            .ok_or("No result field was returned for block number")?
+        response_result_or_error(&response_body)
+            .map_err(|e| format!("eth_blockNumber failed: {}", e))?
             .as_str()
             .ok_or("Data was not string")?,
     )
@@ -126,7 +160,7 @@ pub async fn get_block_number(endpoint: &str, timeout: Duration) -> Result<u64, 
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_block(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     query: BlockQuery,
     timeout: Duration,
 ) -> Result<Block, String> {
@@ -140,23 +174,24 @@ pub async fn get_block(
     ]);
 
     let response_body = send_rpc_request(endpoint, "eth_getBlockByNumber", params, timeout).await?;
-    let hash = hex_to_bytes(
-        response_result(&response_body)?
-            .ok_or("No result field was returned for block")?
+    let response = response_result_or_error(&response_body)
+        .map_err(|e| format!("eth_getBlockByNumber failed: {}", e))?;
+
+    let hash: Vec<u8> = hex_to_bytes(
+        response
             .get("hash")
             .ok_or("No hash for block")?
             .as_str()
             .ok_or("Block hash was not string")?,
     )?;
-    let hash = if hash.len() == 32 {
-        Ok(Hash256::from_slice(&hash))
+    let hash: Hash256 = if hash.len() == 32 {
+        Hash256::from_slice(&hash)
     } else {
-        Err(format!("Block has was not 32 bytes: {:?}", hash))
-    }?;
+        return Err(format!("Block has was not 32 bytes: {:?}", hash));
+    };
 
     let timestamp = hex_to_u64_be(
-        response_result(&response_body)?
-            .ok_or("No result field was returned for timestamp")?
+        response
             .get("timestamp")
             .ok_or("No timestamp for block")?
             .as_str()
@@ -164,8 +199,7 @@ pub async fn get_block(
     )?;
 
     let number = hex_to_u64_be(
-        response_result(&response_body)?
-            .ok_or("No result field was returned for number")?
+        response
             .get("number")
             .ok_or("No number for block")?
             .as_str()
@@ -191,7 +225,7 @@ pub async fn get_block(
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_deposit_count(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     block_number: u64,
     timeout: Duration,
@@ -229,7 +263,7 @@ pub async fn get_deposit_count(
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_deposit_root(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     block_number: u64,
     timeout: Duration,
@@ -266,7 +300,7 @@ pub async fn get_deposit_root(
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 async fn call(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     hex_data: &str,
     block_number: u64,
@@ -281,9 +315,9 @@ async fn call(
     ]);
 
     let response_body = send_rpc_request(endpoint, "eth_call", params, timeout).await?;
-    match response_result(&response_body)? {
-        None => Ok(None),
-        Some(result) => {
+
+    match response_result_or_error(&response_body) {
+        Ok(result) => {
             let hex = result
                 .as_str()
                 .map(|s| s.to_string())
@@ -291,6 +325,9 @@ async fn call(
 
             Ok(Some(hex_to_bytes(&hex)?))
         }
+        // It's valid for `eth_call` to return without a result.
+        Err(RpcError::NoResultField) => Ok(None),
+        Err(e) => Err(format!("eth_call failed: {}", e)),
     }
 }
 
@@ -308,7 +345,7 @@ pub struct Log {
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_deposit_logs_in_range(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     address: &str,
     block_height_range: Range<u64>,
     timeout: Duration,
@@ -321,8 +358,8 @@ pub async fn get_deposit_logs_in_range(
     }]);
 
     let response_body = send_rpc_request(endpoint, "eth_getLogs", params, timeout).await?;
-    response_result(&response_body)?
-        .ok_or("No result field was returned for deposit logs")?
+    Ok(response_result_or_error(&response_body)
+        .map_err(|e| format!("eth_getLogs failed: {}", e))?
         .as_array()
         .cloned()
         .ok_or("'result' value was not an array")?
@@ -341,19 +378,19 @@ pub async fn get_deposit_logs_in_range(
                 .ok_or("Data was not string")?;
 
             Ok(Log {
-                block_number: hex_to_u64_be(&block_number)?,
+                block_number: hex_to_u64_be(block_number)?,
                 data: hex_to_bytes(data)?,
             })
         })
         .collect::<Result<Vec<Log>, String>>()
-        .map_err(|e| format!("Failed to get logs in range: {}", e))
+        .map_err(|e| format!("Failed to get logs in range: {}", e))?)
 }
 
 /// Sends an RPC request to `endpoint`, using a POST with the given `body`.
 ///
 /// Tries to receive the response and parse the body as a `String`.
 pub async fn send_rpc_request(
-    endpoint: &str,
+    endpoint: &SensitiveUrl,
     method: &str,
     params: Value,
     timeout: Duration,
@@ -374,7 +411,7 @@ pub async fn send_rpc_request(
         .timeout(timeout)
         .build()
         .expect("The builder should always build a client")
-        .post(endpoint)
+        .post(endpoint.full.clone())
         .header(CONTENT_TYPE, "application/json")
         .body(body)
         .send()
@@ -407,19 +444,20 @@ pub async fn send_rpc_request(
         .map_err(|e| format!("Failed to receive body: {:?}", e))
 }
 
-/// Accepts an entire HTTP body (as a string) and returns the `result` field, as a serde `Value`.
-fn response_result(response: &str) -> Result<Option<Value>, String> {
-    let json = serde_json::from_str::<Value>(&response)
-        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+/// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value`.
+fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
+    let json = serde_json::from_str::<Value>(response)
+        .map_err(|e| RpcError::InvalidJson(e.to_string()))?;
 
-    if let Some(error) = json.get("error") {
-        Err(format!("Eth1 node returned error: {}", error))
+    if let Some(error) = json.get("error").map(|e| e.get("message")).flatten() {
+        let error = error.to_string();
+        if error.contains(EIP155_ERROR_STR) {
+            Err(RpcError::Eip155Error)
+        } else {
+            Err(RpcError::Error(error))
+        }
     } else {
-        Ok(json
-            .get("result")
-            .cloned()
-            .map(Some)
-            .unwrap_or_else(|| None))
+        json.get("result").cloned().ok_or(RpcError::NoResultField)
     }
 }
 

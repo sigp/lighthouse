@@ -27,11 +27,9 @@
 //! ```
 
 use crate::{
-    beacon_chain::{
-        HEAD_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
+    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
     metrics,
-    observed_attestations::ObserveOutcome,
+    observed_aggregates::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
@@ -375,7 +373,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     pub fn verify(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, (Error, SignedAggregateAndProof<T::EthSpec>)> {
         Self::verify_slashable(signed_aggregate, chain)
             .map(|verified_aggregate| {
                 if let Some(slasher) = chain.slasher.as_ref() {
@@ -383,7 +381,9 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                 }
                 verified_aggregate
             })
-            .map_err(|slash_info| process_slash_info(slash_info, chain))
+            .map_err(|(slash_info, original_aggregate)| {
+                (process_slash_info(slash_info, chain), original_aggregate)
+            })
     }
 
     /// Run the checks that happen before an indexed attestation is constructed.
@@ -428,7 +428,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         match chain
             .observed_aggregators
             .read()
-            .validator_has_been_observed(attestation, aggregator_index as usize)
+            .validator_has_been_observed(attestation.data.target.epoch, aggregator_index as usize)
         {
             Ok(true) => Err(Error::AggregatorAlreadyKnown(aggregator_index)),
             Ok(false) => Ok(()),
@@ -448,7 +448,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let head_block = verify_head_block_is_known(chain, &attestation, None)?;
+        let head_block = verify_head_block_is_known(chain, attestation, None)?;
 
         // Check the attestation target root is consistent with the head root.
         //
@@ -457,7 +457,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         //
         // Whilst this attestation *technically* could be used to add value to a block, it is
         // invalid in the spirit of the protocol. Here we choose safety over profit.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
 
         // Ensure that the attestation has participants.
         if attestation.aggregation_bits.is_zero() {
@@ -483,7 +483,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         if let ObserveOutcome::AlreadyKnown = chain
             .observed_attestations
             .write()
-            .observe_attestation(attestation, Some(attestation_root))
+            .observe_item(attestation, Some(attestation_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             return Err(Error::AttestationAlreadyKnown(attestation_root));
@@ -496,7 +496,7 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
         if chain
             .observed_aggregators
             .write()
-            .observe_validator(&attestation, aggregator_index as usize)
+            .observe_validator(attestation.data.target.epoch, aggregator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
@@ -509,17 +509,31 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
+    // NOTE: Clippy considers the return too complex. This tuple is not used elsewhere so it is not
+    // worth creating an alias.
+    #[allow(clippy::type_complexity)]
     pub fn verify_slashable(
         signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<
+        Self,
+        (
+            AttestationSlashInfo<T, Error>,
+            SignedAggregateAndProof<T::EthSpec>,
+        ),
+    > {
         use AttestationSlashInfo::*;
 
         let attestation = &signed_aggregate.message.aggregate;
         let aggregator_index = signed_aggregate.message.aggregator_index;
         let attestation_root = match Self::verify_early_checks(&signed_aggregate, chain) {
             Ok(root) => root,
-            Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
+            Err(e) => {
+                return Err((
+                    SignatureNotChecked(signed_aggregate.message.aggregate.clone(), e),
+                    signed_aggregate,
+                ))
+            }
         };
 
         let indexed_attestation =
@@ -546,7 +560,12 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                     .map_err(|e| BeaconChainError::from(e).into())
             }) {
                 Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => return Err(SignatureNotChecked(signed_aggregate.message.aggregate, e)),
+                Err(e) => {
+                    return Err((
+                        SignatureNotChecked(signed_aggregate.message.aggregate.clone(), e),
+                        signed_aggregate,
+                    ))
+                }
             };
 
         // Ensure that all signatures are valid.
@@ -560,11 +579,11 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<T> {
                     }
                 })
         {
-            return Err(SignatureInvalid(e));
+            return Err((SignatureInvalid(e), signed_aggregate));
         }
 
         if let Err(e) = Self::verify_late_checks(&signed_aggregate, attestation_root, chain) {
-            return Err(SignatureValid(indexed_attestation, e));
+            return Err((SignatureValid(indexed_attestation, e), signed_aggregate));
         }
 
         Ok(VerifiedAggregatedAttestation {
@@ -609,7 +628,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, &attestation)?;
+        verify_propagation_slot_range(chain, attestation)?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -623,10 +642,10 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         //
         // Enforce a maximum skip distance for unaggregated attestations.
         let head_block =
-            verify_head_block_is_known(chain, &attestation, chain.config.import_max_skip_slots)?;
+            verify_head_block_is_known(chain, attestation, chain.config.import_max_skip_slots)?;
 
         // Check the attestation target root is consistent with the head root.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation)?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
 
         Ok(())
     }
@@ -668,7 +687,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .read()
-            .validator_has_been_observed(&attestation, validator_index as usize)
+            .validator_has_been_observed(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
@@ -695,7 +714,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         if chain
             .observed_attesters
             .write()
-            .observe_validator(&attestation, validator_index as usize)
+            .observe_validator(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
@@ -715,7 +734,7 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
         attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, (Error, Attestation<T::EthSpec>)> {
         Self::verify_slashable(attestation, subnet_id, chain)
             .map(|verified_unaggregated| {
                 if let Some(slasher) = chain.slasher.as_ref() {
@@ -723,26 +742,31 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
                 }
                 verified_unaggregated
             })
-            .map_err(|slash_info| process_slash_info(slash_info, chain))
+            .map_err(|(slash_info, original_attestation)| {
+                (process_slash_info(slash_info, chain), original_attestation)
+            })
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
+    // NOTE: Clippy considers the return too complex. This tuple is not used elsewhere so it is not
+    // worth creating an alias.
+    #[allow(clippy::type_complexity)]
     pub fn verify_slashable(
         attestation: Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<Self, (AttestationSlashInfo<T, Error>, Attestation<T::EthSpec>)> {
         use AttestationSlashInfo::*;
 
         if let Err(e) = Self::verify_early_checks(&attestation, chain) {
-            return Err(SignatureNotChecked(attestation, e));
+            return Err((SignatureNotChecked(attestation.clone(), e), attestation));
         }
 
         let (indexed_attestation, committees_per_slot) =
             match obtain_indexed_attestation_and_committees_per_slot(chain, &attestation) {
                 Ok(x) => x,
                 Err(e) => {
-                    return Err(SignatureNotChecked(attestation, e));
+                    return Err((SignatureNotChecked(attestation.clone(), e), attestation));
                 }
             };
 
@@ -754,16 +778,21 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<T> {
             chain,
         ) {
             Ok(t) => t,
-            Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
+            Err(e) => {
+                return Err((
+                    SignatureNotCheckedIndexed(indexed_attestation, e),
+                    attestation,
+                ))
+            }
         };
 
         // The aggregate signature of the attestation is valid.
         if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
-            return Err(SignatureInvalid(e));
+            return Err((SignatureInvalid(e), attestation));
         }
 
         if let Err(e) = Self::verify_late_checks(&attestation, validator_index, chain) {
-            return Err(SignatureValid(indexed_attestation, e));
+            return Err((SignatureValid(indexed_attestation, e), attestation));
         }
 
         Ok(Self {
@@ -892,15 +921,13 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
     let fork = chain
-        .canonical_head
-        .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork)?;
+        .spec
+        .fork_at_epoch(indexed_attestation.data.target.epoch);
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
         &indexed_attestation.signature,
-        &indexed_attestation,
+        indexed_attestation,
         &fork,
         chain.genesis_validators_root,
         &chain.spec,
@@ -998,15 +1025,13 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     }
 
     let fork = chain
-        .canonical_head
-        .try_read_for(HEAD_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
-        .map(|head| head.beacon_state.fork)?;
+        .spec
+        .fork_at_epoch(indexed_attestation.data.target.epoch);
 
     let signature_sets = vec![
         signed_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &signed_aggregate,
+            signed_aggregate,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -1014,7 +1039,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
         signed_aggregate_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            &signed_aggregate,
+            signed_aggregate,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -1023,7 +1048,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         indexed_attestation_signature_set_from_pubkeys(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             &indexed_attestation.signature,
-            &indexed_attestation,
+            indexed_attestation,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -1044,7 +1069,7 @@ fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
     map_attestation_committee(chain, attestation, |(committee, committees_per_slot)| {
-        get_indexed_attestation(committee.committee, &attestation)
+        get_indexed_attestation(committee.committee, attestation)
             .map(|attestation| (attestation, committees_per_slot))
             .map_err(Error::Invalid)
     })

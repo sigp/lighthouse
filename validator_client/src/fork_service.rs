@@ -2,7 +2,6 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::http_metrics::metrics;
 use environment::RuntimeContext;
 use eth2::types::StateId;
-use futures::future::FutureExt;
 use parking_lot::RwLock;
 use slog::{debug, trace};
 use slog::{error, Logger};
@@ -84,7 +83,8 @@ impl<E: EthSpec> ForkServiceBuilder<slot_clock::TestingSlotClock, E> {
             std::time::Duration::from_secs(42),
         );
         let candidates = vec![CandidateBeaconNode::new(eth2::BeaconNodeHttpClient::new(
-            eth2::Url::parse("http://127.0.0.1").unwrap(),
+            sensitive_url::SensitiveUrl::parse("http://127.0.0.1").unwrap(),
+            eth2::Timeouts::set_all(Duration::from_secs(12)),
         ))];
         let mut beacon_nodes = BeaconNodeFallback::new(candidates, spec, log.clone());
         beacon_nodes.set_slot_clock(slot_clock);
@@ -137,12 +137,17 @@ impl<T: SlotClock + 'static, E: EthSpec> ForkService<T, E> {
         *self.fork.read()
     }
 
+    /// Returns the slot clock.
+    pub fn slot_clock(&self) -> T {
+        self.slot_clock.clone()
+    }
+
     /// Starts the service that periodically polls for the `Fork`.
     pub fn start_update_service(self, context: &RuntimeContext<E>) -> Result<(), String> {
         // Run an immediate update before starting the updater service.
         context
             .executor
-            .spawn(self.clone().do_update().map(|_| ()), "fork service update");
+            .spawn_ignoring_error(self.clone().do_update(), "fork service update");
 
         let executor = context.executor.clone();
         let log = context.log().clone();

@@ -13,7 +13,7 @@ impl BlockQueue {
 
     pub fn dequeue(&self) -> Vec<SignedBeaconBlockHeader> {
         let mut blocks = self.blocks.lock();
-        std::mem::replace(&mut *blocks, vec![])
+        std::mem::take(&mut *blocks)
     }
 
     pub fn len(&self) -> usize {

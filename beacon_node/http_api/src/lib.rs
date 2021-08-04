@@ -17,6 +17,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, ValidatorId};
@@ -36,8 +37,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, CommitteeCache, Epoch, EthSpec, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot, YamlConfig,
+    Attestation, AttesterSlashing, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, Slot,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -74,6 +76,7 @@ pub struct Config {
     pub listen_addr: Ipv4Addr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
+    pub serve_legacy_spec: bool,
 }
 
 impl Default for Config {
@@ -83,6 +86,7 @@ impl Default for Config {
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
             listen_port: 5052,
             allow_origin: None,
+            serve_legacy_spec: true,
         }
     }
 }
@@ -331,7 +335,8 @@ pub fn serve<T: BeaconChainTypes>(
         .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
-    let log_filter = warp::any().map(move || ctx.log.clone());
+    let inner_ctx = ctx.clone();
+    let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
     /*
      *
@@ -406,9 +411,9 @@ pub fn serve<T: BeaconChainTypes>(
                 state_id
                     .map_state(&chain, |state| {
                         Ok(api_types::FinalityCheckpointsData {
-                            previous_justified: state.previous_justified_checkpoint,
-                            current_justified: state.current_justified_checkpoint,
-                            finalized: state.finalized_checkpoint,
+                            previous_justified: state.previous_justified_checkpoint(),
+                            current_justified: state.current_justified_checkpoint(),
+                            finalized: state.finalized_checkpoint(),
                         })
                     })
                     .map(api_types::GenericResponse::from)
@@ -429,9 +434,9 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
-                                .validators
+                                .validators()
                                 .iter()
-                                .zip(state.balances.iter())
+                                .zip(state.balances().iter())
                                 .enumerate()
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
@@ -474,9 +479,9 @@ pub fn serve<T: BeaconChainTypes>(
                             let far_future_epoch = chain.spec.far_future_epoch;
 
                             Ok(state
-                                .validators
+                                .validators()
                                 .iter()
-                                .zip(state.balances.iter())
+                                .zip(state.balances().iter())
                                 .enumerate()
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
@@ -540,15 +545,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_state(&chain, |state| {
                             let index_opt = match &validator_id {
                                 ValidatorId::PublicKey(pubkey) => {
-                                    state.validators.iter().position(|v| v.pubkey == *pubkey)
+                                    state.validators().iter().position(|v| v.pubkey == *pubkey)
                                 }
                                 ValidatorId::Index(index) => Some(*index as usize),
                             };
 
                             index_opt
                                 .and_then(|index| {
-                                    let validator = state.validators.get(index)?;
-                                    let balance = *state.balances.get(index)?;
+                                    let validator = state.validators().get(index)?;
+                                    let balance = *state.balances().get(index)?;
                                     let epoch = state.current_epoch();
                                     let far_future_epoch = chain.spec.far_future_epoch;
 
@@ -590,7 +595,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 blocking_json_task(move || {
                     query_state_id.map_state(&chain, |state| {
-                        let epoch = state.slot.epoch(T::EthSpec::slots_per_epoch());
+                        let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
 
                         let committee_cache = if state
                             .committee_cache_is_initialized(RelativeEpoch::Current)
@@ -724,8 +729,8 @@ pub fn serve<T: BeaconChainTypes>(
                         root,
                         canonical: true,
                         header: api_types::BlockHeaderAndSignature {
-                            message: block.message.block_header(),
-                            signature: block.signature.into(),
+                            message: block.message().block_header(),
+                            signature: block.signature().clone().into(),
                         },
                     };
 
@@ -751,7 +756,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let block = BlockId::from_root(root).block(&chain)?;
 
                 let canonical = chain
-                    .block_root_at_slot(block.slot())
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .map_or(false, |canonical| root == canonical);
 
@@ -759,8 +764,8 @@ pub fn serve<T: BeaconChainTypes>(
                     root,
                     canonical,
                     header: api_types::BlockHeaderAndSignature {
-                        message: block.message.block_header(),
-                        signature: block.signature.into(),
+                        message: block.message().block_header(),
+                        signature: block.signature().clone().into(),
                     },
                 };
 
@@ -798,7 +803,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Determine the delay after the start of the slot, register it with metrics.
                     let delay =
-                        get_block_delay_ms(seen_timestamp, &block.message, &chain.slot_clock);
+                        get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
                     metrics::observe_duration(
                         &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
                         delay,
@@ -816,7 +821,7 @@ pub fn serve<T: BeaconChainTypes>(
                             // Notify the validator monitor.
                             chain.validator_monitor.read().register_api_block(
                                 seen_timestamp,
-                                &block.message,
+                                block.message(),
                                 root,
                                 &chain.slot_clock,
                             );
@@ -934,7 +939,7 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 block_id
                     .block(&chain)
-                    .map(|block| block.message.body.attestations)
+                    .map(|block| block.message().body().attestations().clone())
                     .map(api_types::GenericResponse::from)
             })
         });
@@ -1253,7 +1258,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // GET config/fork_schedule
     let get_config_fork_schedule = config_path
-        .clone()
         .and(warp::path("fork_schedule"))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1266,24 +1270,24 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET config/spec
+    let serve_legacy_spec = ctx.config.serve_legacy_spec;
     let get_config_spec = config_path
-        .clone()
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(|chain: Arc<BeaconChain<T>>| {
+        .and_then(move |chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                Ok(api_types::GenericResponse::from(YamlConfig::from_spec::<
-                    T::EthSpec,
-                >(
-                    &chain.spec
-                )))
+                let mut config_and_preset =
+                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
+                if serve_legacy_spec {
+                    config_and_preset.make_backwards_compat(&chain.spec);
+                }
+                Ok(api_types::GenericResponse::from(config_and_preset))
             })
         });
 
     // GET config/deposit_contract
     let get_config_deposit_contract = config_path
-        .clone()
         .and(warp::path("deposit_contract"))
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -1355,7 +1359,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let heads = chain
                     .heads()
                     .into_iter()
-                    .map(|(root, slot)| api_types::ChainHeadData { root, slot })
+                    .map(|(root, slot)| api_types::ChainHeadData { slot, root })
                     .collect::<Vec<_>>();
                 Ok(api_types::GenericResponse::from(heads))
             })
@@ -1511,11 +1515,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
-                                direction: api_types::PeerDirection::from_connection_direction(
-                                    &dir,
-                                ),
+                                direction: api_types::PeerDirection::from_connection_direction(dir),
                                 state: api_types::PeerState::from_peer_connection_status(
-                                    &peer_info.connection_status(),
+                                    peer_info.connection_status(),
                                 ),
                             }));
                         }
@@ -1559,9 +1561,9 @@ pub fn serve<T: BeaconChainTypes>(
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
                             if let Some(dir) = peer_info.connection_direction.as_ref() {
                                 let direction =
-                                    api_types::PeerDirection::from_connection_direction(&dir);
+                                    api_types::PeerDirection::from_connection_direction(dir);
                                 let state = api_types::PeerState::from_peer_connection_status(
-                                    &peer_info.connection_status(),
+                                    peer_info.connection_status(),
                                 );
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
@@ -1612,7 +1614,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .peers()
                     .for_each(|(_, peer_info)| {
                         let state = api_types::PeerState::from_peer_connection_status(
-                            &peer_info.connection_status(),
+                            peer_info.connection_status(),
                         );
                         match state {
                             api_types::PeerState::Connected => connected += 1,
@@ -1623,10 +1625,10 @@ pub fn serve<T: BeaconChainTypes>(
                     });
 
                 Ok(api_types::GenericResponse::from(api_types::PeerCount {
-                    disconnecting,
-                    connecting,
                     connected,
+                    connecting,
                     disconnected,
+                    disconnecting,
                 }))
             })
         });
@@ -1785,8 +1787,8 @@ pub fn serve<T: BeaconChainTypes>(
                     let mut failures = Vec::new();
 
                     // Verify that all messages in the post are valid before processing further
-                    for (index, aggregate) in aggregates.as_slice().iter().enumerate() {
-                        match chain.verify_aggregated_attestation_for_gossip(aggregate.clone()) {
+                    for (index, aggregate) in aggregates.into_iter().enumerate() {
+                        match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
                                     verified_aggregate.aggregate().clone(),
@@ -1811,8 +1813,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
-                            Err(e) => {
+                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
+                            Err((e, aggregate)) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
@@ -1901,6 +1903,49 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     Ok(())
+                })
+            },
+        );
+
+    // POST lighthouse/liveness
+    let post_lighthouse_liveness = warp::path("lighthouse")
+        .and(warp::path("liveness"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: api_types::LivenessRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    // Ensure the request is for either the current, previous or next epoch.
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
+
+                    if request_data.epoch < prev_epoch || request_data.epoch > next_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is more than one epoch from the current epoch {}",
+                            request_data.epoch, current_epoch
+                        )));
+                    }
+
+                    let liveness: Vec<api_types::LivenessResponseData> = request_data
+                        .indices
+                        .iter()
+                        .cloned()
+                        .map(|index| {
+                            let is_live =
+                                chain.validator_seen_at_epoch(index as usize, request_data.epoch);
+                            api_types::LivenessResponseData {
+                                index: index as u64,
+                                epoch: request_data.epoch,
+                                is_live,
+                            }
+                        })
+                        .collect();
+
+                    Ok(api_types::GenericResponse::from(liveness))
                 })
             },
         );
@@ -2152,6 +2197,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::FinalizedCheckpoint => {
                                     event_handler.subscribe_finalized()
                                 }
+                                api_types::EventTopic::ChainReorg => {
+                                    event_handler.subscribe_reorgs()
+                                }
                             };
 
                             receivers.push(BroadcastStream::new(receiver).map(|msg| {
@@ -2244,6 +2292,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
+                .or(post_lighthouse_liveness.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)

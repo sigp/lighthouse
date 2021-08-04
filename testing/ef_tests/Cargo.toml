@@ -13,6 +13,8 @@ fake_crypto = ["bls/fake_crypto"]
 [dependencies]
 bls = { path = "../../crypto/bls", default-features = false }
 compare_fields = { path = "../../common/compare_fields" }
+compare_fields_derive = { path = "../../common/compare_fields_derive" }
+derivative = "2.1.1"
 ethereum-types = "0.9.2"
 hex = "0.4.2"
 rayon = "1.4.1"
@@ -28,3 +30,6 @@ cached_tree_hash = { path = "../../consensus/cached_tree_hash" }
 state_processing = { path = "../../consensus/state_processing" }
 swap_or_not_shuffle = { path = "../../consensus/swap_or_not_shuffle" }
 types = { path = "../../consensus/types" }
+snap = "1.0.1"
+parking_lot = "0.11.0"
+fs2 = "0.4.3"

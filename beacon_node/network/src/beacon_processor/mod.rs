@@ -5,6 +5,7 @@
 //!
 //! - A "manager" task, which either spawns worker tasks or enqueues work.
 //! - One or more "worker" tasks which perform time-intensive work on the `BeaconChain`.
+//! - A task managing the scheduling of work that needs to be re-processed.
 //!
 //! ## Purpose
 //!
@@ -19,10 +20,12 @@
 //!
 //! ## Detail
 //!
-//! There is a single "manager" thread who listens to two event channels. These events are either:
+//! There is a single "manager" thread who listens to three event channels. These events are
+//! either:
 //!
 //! - A new parcel of work (work event).
 //! - Indication that a worker has finished a parcel of work (worker idle).
+//! - A work ready for reprocessing (work event).
 //!
 //! Then, there is a maximum of `n` "worker" blocking threads, where `n` is the CPU count.
 //!
@@ -37,7 +40,6 @@
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
-use block_delay_queue::{spawn_block_delay_queue, QueuedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -57,11 +59,14 @@ use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
+use work_reprocessing_queue::{
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReadyWork,
+};
 
 use worker::{Toolbox, Worker};
 
-mod block_delay_queue;
 mod tests;
+mod work_reprocessing_queue;
 mod worker;
 
 pub use worker::ProcessId;
@@ -77,13 +82,24 @@ pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 /// set to the CPU count, but we set it high to be safe.
 const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
+/// The maximum size of the channel for re-processing work events.
+const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 16_384;
+
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
 const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 16_384;
 
+/// The maximum number of queued `Attestation` objects that will be stored before we start dropping
+/// them.
+const MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 8_192;
+
 /// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
 /// start dropping them.
 const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
+/// start dropping them.
+const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received on gossip that will be stored
 /// before we start dropping them.
@@ -127,6 +143,7 @@ const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
+
 /// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 
@@ -148,6 +165,8 @@ pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
+pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
+pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 
 /// Used to send/receive results from a rpc block import in a blocking task.
 pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
@@ -308,22 +327,6 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
-    /// Create a new `Work` event for some block that was delayed for later processing.
-    pub fn delayed_import_beacon_block(
-        peer_id: PeerId,
-        block: Box<GossipVerifiedBlock<T>>,
-        seen_timestamp: Duration,
-    ) -> Self {
-        Self {
-            drop_during_sync: false,
-            work: Work::DelayedImportBlock {
-                peer_id,
-                block,
-                seen_timestamp,
-            },
-        }
-    }
-
     /// Create a new `Work` event for some exit.
     pub fn gossip_voluntary_exit(
         message_id: MessageId,
@@ -442,6 +445,57 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     }
 }
 
+impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
+    fn from(ready_work: ReadyWork<T>) -> Self {
+        match ready_work {
+            ReadyWork::Block(QueuedBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::DelayedImportBlock {
+                    peer_id,
+                    block: Box::new(block),
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::Unaggregate(QueuedUnaggregate {
+                peer_id,
+                message_id,
+                attestation,
+                subnet_id,
+                should_import,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockAttestation {
+                    message_id,
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::Aggregate(QueuedAggregate {
+                peer_id,
+                message_id,
+                attestation,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockAggregate {
+                    message_id,
+                    peer_id,
+                    aggregate: attestation,
+                    seen_timestamp,
+                },
+            },
+        }
+    }
+}
+
 /// A consensus message (or multiple) from the network that requires processing.
 #[derive(Debug)]
 pub enum Work<T: BeaconChainTypes> {
@@ -453,7 +507,21 @@ pub enum Work<T: BeaconChainTypes> {
         should_import: bool,
         seen_timestamp: Duration,
     },
+    UnknownBlockAttestation {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<T::EthSpec>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    },
     GossipAggregate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownBlockAggregate {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
@@ -525,6 +593,8 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
+            Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
+            Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
     }
 }
@@ -554,8 +624,8 @@ enum InboundEvent<T: BeaconChainTypes> {
     WorkerIdle,
     /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
-    /// A block that was delayed for import at a later slot has become ready.
-    QueuedBlock(Box<QueuedBlock<T>>),
+    /// A work event that was queued for re-processing has become ready.
+    ReprocessingWork(WorkEvent<T>),
 }
 
 /// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
@@ -567,8 +637,8 @@ struct InboundEvents<T: BeaconChainTypes> {
     idle_rx: mpsc::Receiver<()>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<T>>,
-    /// Used internally for queuing blocks for processing once their slot arrives.
-    post_delay_block_queue_rx: mpsc::Receiver<QueuedBlock<T>>,
+    /// Used internally for queuing work ready to be re-processed.
+    reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
 }
 
 impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
@@ -589,9 +659,9 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
 
         // Poll for delayed blocks before polling for new work. It might be the case that a delayed
         // block is required to successfully process some new work.
-        match self.post_delay_block_queue_rx.poll_recv(cx) {
-            Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::QueuedBlock(Box::new(queued_block))));
+        match self.reprocess_work_rx.poll_recv(cx) {
+            Poll::Ready(Some(ready_work)) => {
+                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -643,7 +713,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     pub fn spawn_manager(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<T>>,
-        work_journal_tx: Option<mpsc::Sender<String>>,
+        work_journal_tx: Option<mpsc::Sender<&'static str>>,
     ) {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
@@ -655,6 +725,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut aggregate_debounce = TimeLatch::default();
         let mut attestation_queue = LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN);
         let mut attestation_debounce = TimeLatch::default();
+        let mut unknown_block_aggregate_queue =
+            LifoQueue::new(MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
+        let mut unknown_block_attestation_queue =
+            LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
 
         // Using a FIFO queue for voluntary exits since it prevents exit censoring. I don't have
         // a strong feeling about queue type for exits.
@@ -677,14 +751,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
-        // The delayed block queues are used to re-queue blocks for processing at a later time if
-        // they're received early.
-        let (post_delay_block_queue_tx, post_delay_block_queue_rx) =
-            mpsc::channel(MAX_DELAYED_BLOCK_QUEUE_LEN);
-        let pre_delay_block_queue_tx = {
+        // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
+        // receive them back once they are ready (`ready_work_rx`).
+        let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+        let work_reprocessing_tx = {
             if let Some(chain) = self.beacon_chain.upgrade() {
-                spawn_block_delay_queue(
-                    post_delay_block_queue_tx,
+                spawn_reprocess_scheduler(
+                    ready_work_tx,
                     &self.executor,
                     chain.slot_clock.clone(),
                     self.log.clone(),
@@ -704,7 +777,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             let mut inbound_events = InboundEvents {
                 idle_rx,
                 event_rx,
-                post_delay_block_queue_rx,
+                reprocess_work_rx: ready_work_rx,
             };
 
             loop {
@@ -713,14 +786,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(event)) => Some(event),
-                    Some(InboundEvent::QueuedBlock(queued_block)) => {
-                        Some(WorkEvent::delayed_import_beacon_block(
-                            queued_block.peer_id,
-                            Box::new(queued_block.block),
-                            queued_block.seen_timestamp,
-                        ))
-                    }
+                    Some(InboundEvent::WorkEvent(event))
+                    | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
                         debug!(
                             self.log,
@@ -750,7 +817,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
                     // We don't care if this message was successfully sent, we only use the journal
                     // during testing.
-                    let _ = work_journal_tx.try_send(id.to_string());
+                    let _ = work_journal_tx.try_send(id);
                 }
 
                 let can_spawn = self.current_workers < self.max_workers;
@@ -766,7 +833,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     None if can_spawn => {
                         let toolbox = Toolbox {
                             idle_tx: idle_tx.clone(),
-                            delayed_block_tx: pre_delay_block_queue_tx.clone(),
+                            work_reprocessing_tx: work_reprocessing_tx.clone(),
                         };
 
                         // Check for chain segments first, they're the most efficient way to get
@@ -791,6 +858,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         } else if let Some(item) = aggregate_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = attestation_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        // Aggregates and unaggregates queued for re-processing are older and we
+                        // care about fresher ones, so check those first.
+                        } else if let Some(item) = unknown_block_aggregate_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = unknown_block_attestation_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
@@ -820,7 +893,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             if let Some(work_journal_tx) = &work_journal_tx {
                                 // We don't care if this message was successfully sent, we only use the journal
                                 // during testing.
-                                let _ = work_journal_tx.try_send(NOTHING_TO_DO.to_string());
+                                let _ = work_journal_tx.try_send(NOTHING_TO_DO);
                             }
                         }
                     }
@@ -857,7 +930,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         let work_id = work.str_id();
                         let toolbox = Toolbox {
                             idle_tx: idle_tx.clone(),
-                            delayed_block_tx: pre_delay_block_queue_tx.clone(),
+                            work_reprocessing_tx: work_reprocessing_tx.clone(),
                         };
 
                         match work {
@@ -889,6 +962,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::UnknownBlockAttestation { .. } => {
+                                unknown_block_attestation_queue.push(work)
+                            }
+                            Work::UnknownBlockAggregate { .. } => {
+                                unknown_block_aggregate_queue.push(work)
                             }
                         }
                     }
@@ -960,7 +1039,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
     fn spawn_worker(&mut self, work: Work<T>, toolbox: Toolbox<T>) {
         let idle_tx = toolbox.idle_tx;
-        let delayed_block_tx = toolbox.delayed_block_tx;
+        let work_reprocessing_tx = toolbox.work_reprocessing_tx;
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
@@ -1031,6 +1110,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         *attestation,
                         subnet_id,
                         should_import,
+                        Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
                     /*
@@ -1045,6 +1125,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *aggregate,
+                        Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
                     /*
@@ -1059,7 +1140,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         *block,
-                        delayed_block_tx,
+                        work_reprocessing_tx,
                         seen_timestamp,
                     ),
                     /*
@@ -1069,7 +1150,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         block,
                         seen_timestamp,
-                    } => worker.process_gossip_verified_block(peer_id, *block, seen_timestamp),
+                    } => worker.process_gossip_verified_block(
+                        peer_id,
+                        *block,
+                        work_reprocessing_tx,
+                        seen_timestamp,
+                    ),
                     /*
                      * Voluntary exits received on gossip.
                      */
@@ -1106,7 +1192,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      * Verification for beacon blocks received during syncing via RPC.
                      */
                     Work::RpcBlock { block, result_tx } => {
-                        worker.process_rpc_block(*block, result_tx)
+                        worker.process_rpc_block(*block, result_tx, work_reprocessing_tx)
                     }
                     /*
                      * Verification for a chain segment (multiple blocks).
@@ -1134,6 +1220,34 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         request_id,
                         request,
                     } => worker.handle_blocks_by_root_request(peer_id, request_id, request),
+                    Work::UnknownBlockAttestation {
+                        message_id,
+                        peer_id,
+                        attestation,
+                        subnet_id,
+                        should_import,
+                        seen_timestamp,
+                    } => worker.process_gossip_attestation(
+                        message_id,
+                        peer_id,
+                        *attestation,
+                        subnet_id,
+                        should_import,
+                        None, // Do not allow this attestation to be re-processed beyond this point.
+                        seen_timestamp,
+                    ),
+                    Work::UnknownBlockAggregate {
+                        message_id,
+                        peer_id,
+                        aggregate,
+                        seen_timestamp,
+                    } => worker.process_gossip_aggregate(
+                        message_id,
+                        peer_id,
+                        *aggregate,
+                        None,
+                        seen_timestamp,
+                    ),
                 };
 
                 trace!(

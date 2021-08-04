@@ -9,6 +9,7 @@ use bls::PublicKeyBytes;
 use types::{graffiti::GraffitiString, Graffiti};
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum Error {
     InvalidFile(std::io::Error),
     InvalidLine(String),
@@ -91,7 +92,7 @@ fn read_line(line: &str) -> Result<(Option<PublicKeyBytes>, Graffiti), Error> {
         if key == "default" {
             Ok((None, graffiti))
         } else {
-            let pk = PublicKeyBytes::from_str(&key).map_err(Error::InvalidPublicKey)?;
+            let pk = PublicKeyBytes::from_str(key).map_err(Error::InvalidPublicKey)?;
             Ok((Some(pk), graffiti))
         }
     } else {
@@ -129,13 +130,13 @@ mod tests {
             .write_all(format!("default: {}\n", DEFAULT_GRAFFITI).as_bytes())
             .unwrap();
         graffiti_file
-            .write_all(format!("{}: {}\n", pk1.to_hex_string(), CUSTOM_GRAFFITI1).as_bytes())
+            .write_all(format!("{}: {}\n", pk1.as_hex_string(), CUSTOM_GRAFFITI1).as_bytes())
             .unwrap();
         graffiti_file
-            .write_all(format!("{}: {}\n", pk2.to_hex_string(), CUSTOM_GRAFFITI2).as_bytes())
+            .write_all(format!("{}: {}\n", pk2.as_hex_string(), CUSTOM_GRAFFITI2).as_bytes())
             .unwrap();
         graffiti_file
-            .write_all(format!("{}:{}\n", pk3.to_hex_string(), EMPTY_GRAFFITI).as_bytes())
+            .write_all(format!("{}:{}\n", pk3.as_hex_string(), EMPTY_GRAFFITI).as_bytes())
             .unwrap();
         graffiti_file.flush().unwrap();
         file_name

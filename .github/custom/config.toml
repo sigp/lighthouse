@@ -1,0 +1,3 @@
+# Custom Cargo config to be used for the udeps CI job
+[http]
+multiplexing = false

@@ -22,7 +22,7 @@ mod impls;
 mod leveldb_store;
 mod memory_store;
 pub mod metadata;
-mod metrics;
+pub mod metrics;
 mod partial_beacon_state;
 
 pub mod iter;
@@ -254,18 +254,18 @@ mod tests {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
 
         store.put(&key, &item).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), true);
+        assert!(store.exists::<StorableThing>(&key).unwrap());
 
         let retrieved = store.get(&key).unwrap().unwrap();
         assert_eq!(item, retrieved);
 
         store.delete::<StorableThing>(&key).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
 
         assert_eq!(store.get::<StorableThing>(&key).unwrap(), None);
     }
@@ -274,7 +274,7 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = LevelDB::open(&path).unwrap();
+        let store = LevelDB::open(path).unwrap();
 
         test_impl(store);
     }
@@ -292,14 +292,14 @@ mod tests {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
 
         store.put(&key, &item).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), true);
+        assert!(store.exists::<StorableThing>(&key).unwrap());
 
         store.delete::<StorableThing>(&key).unwrap();
 
-        assert_eq!(store.exists::<StorableThing>(&key).unwrap(), false);
+        assert!(!store.exists::<StorableThing>(&key).unwrap());
     }
 }

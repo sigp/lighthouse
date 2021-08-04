@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![recursion_limit = "256"]
 
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
@@ -52,7 +53,7 @@ fn http_server_genesis_state() {
         .expect("client should have beacon chain")
         .state_at_slot(Slot::new(0), StateSkipConfig::WithStateRoots)
         .expect("should find state");
-    db_state.drop_all_caches();
+    db_state.drop_all_caches().unwrap();
 
     assert_eq!(
         api_state, db_state,

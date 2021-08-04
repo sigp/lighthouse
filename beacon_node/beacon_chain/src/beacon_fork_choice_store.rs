@@ -10,10 +10,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
-use types::{
-    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, SignedBeaconBlock,
-    Slot,
-};
+use types::{BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum Error {
@@ -45,7 +42,7 @@ const MAX_BALANCE_CACHE_SIZE: usize = 4;
 /// zero.
 pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
     state
-        .validators
+        .validators()
         .iter()
         .map(|validator| {
             if validator.is_active_at(state.current_epoch()) {
@@ -91,7 +88,7 @@ impl BalancesCache {
         }
 
         let epoch_boundary_slot = state.current_epoch().start_slot(E::slots_per_epoch());
-        let epoch_boundary_root = if epoch_boundary_slot == state.slot {
+        let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
             block_root
         } else {
             // This call remains sensible as long as `state.block_roots` is larger than a single
@@ -127,7 +124,7 @@ impl BalancesCache {
         let mut prior_block_found = false;
 
         for slot in state.current_epoch().slot_iter(E::slots_per_epoch()) {
-            if slot < state.slot {
+            if slot < state.slot() {
                 if *state.get_block_root(slot)? != block_root {
                     prior_block_found = true;
                     break;
@@ -208,7 +205,7 @@ where
         anchor: &BeaconSnapshot<E>,
     ) -> Self {
         let anchor_state = &anchor.beacon_state;
-        let mut anchor_block_header = anchor_state.latest_block_header.clone();
+        let mut anchor_block_header = anchor_state.latest_block_header().clone();
         if anchor_block_header.state_root == Hash256::zero() {
             anchor_block_header.state_root = anchor.beacon_state_root();
         }
@@ -223,9 +220,9 @@ where
         Self {
             store,
             balances_cache: <_>::default(),
-            time: anchor_state.slot,
+            time: anchor_state.slot(),
             justified_checkpoint,
-            justified_balances: anchor_state.balances.clone().into(),
+            justified_balances: anchor_state.balances().clone().into(),
             finalized_checkpoint,
             best_justified_checkpoint: justified_checkpoint,
             _phantom: PhantomData,
@@ -318,17 +315,19 @@ where
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
             let justified_block = self
                 .store
-                .get_item::<SignedBeaconBlock<E>>(&self.justified_checkpoint.root)
+                .get_block(&self.justified_checkpoint.root)
                 .map_err(Error::FailedToReadBlock)?
                 .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
-                .message;
+                .deconstruct()
+                .0;
 
             self.justified_balances = self
                 .store
-                .get_state(&justified_block.state_root, Some(justified_block.slot))
+                .get_state(&justified_block.state_root(), Some(justified_block.slot()))
                 .map_err(Error::FailedToReadState)?
-                .ok_or(Error::MissingState(justified_block.state_root))?
-                .balances
+                .ok_or_else(|| Error::MissingState(justified_block.state_root()))?
+                .balances()
+                .clone()
                 .into();
         }
 

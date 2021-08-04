@@ -132,7 +132,7 @@ impl TPublicKey for blst_core::PublicKey {
                 expected: PUBLIC_KEY_BYTES_LEN,
             });
         }
-        Self::key_validate(&bytes).map_err(Into::into)
+        Self::key_validate(bytes).map_err(Into::into)
     }
 }
 
@@ -153,7 +153,19 @@ impl PartialEq for BlstAggregatePublicKey {
     }
 }
 
-impl TAggregatePublicKey for BlstAggregatePublicKey {}
+impl TAggregatePublicKey<blst_core::PublicKey> for BlstAggregatePublicKey {
+    fn to_public_key(&self) -> GenericPublicKey<blst_core::PublicKey> {
+        GenericPublicKey::from_point(self.0.to_public_key())
+    }
+
+    fn aggregate(pubkeys: &[GenericPublicKey<blst_core::PublicKey>]) -> Result<Self, Error> {
+        let pubkey_refs = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
+
+        // Public keys have already been checked for subgroup and infinity
+        let agg_pub = blst_core::AggregatePublicKey::aggregate(&pubkey_refs, false)?;
+        Ok(BlstAggregatePublicKey(agg_pub))
+    }
+}
 
 impl TSignature<blst_core::PublicKey> for blst_core::Signature {
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
@@ -266,6 +278,6 @@ impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::Secre
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
-        Self::from_bytes(&bytes).map_err(Into::into)
+        Self::from_bytes(bytes).map_err(Into::into)
     }
 }

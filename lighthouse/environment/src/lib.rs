@@ -23,11 +23,10 @@ use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use task_executor::TaskExecutor;
+use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, MainnetEthSpec, MinimalEthSpec, V012LegacyEthSpec};
+use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
 
-pub const ETH2_CONFIG_FILENAME: &str = "eth2-spec.toml";
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
@@ -62,19 +61,6 @@ impl EnvironmentBuilder<MainnetEthSpec> {
             log: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
-            testnet: None,
-        }
-    }
-}
-
-impl EnvironmentBuilder<V012LegacyEthSpec> {
-    /// Creates a new builder using the v0.12.x eth2 specification.
-    pub fn v012_legacy() -> Self {
-        Self {
-            runtime: None,
-            log: None,
-            eth_spec_instance: V012LegacyEthSpec,
-            eth2_config: Eth2Config::v012_legacy(),
             testnet: None,
         }
     }
@@ -226,18 +212,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = eth2_network_config
-            .yaml_config
-            .as_ref()
-            .ok_or("The testnet directory must contain a spec config")?
-            .apply_to_chain_spec::<E>(&self.eth2_config.spec)
-            .ok_or_else(|| {
-                format!(
-                    "The loaded config is not compatible with the {} spec",
-                    &self.eth2_config.eth_spec_id
-                )
-            })?;
-
+        self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
         self.testnet = Some(eth2_network_config);
 
         Ok(self)
@@ -314,9 +289,9 @@ impl<E: EthSpec> RuntimeContext<E> {
 pub struct Environment<E: EthSpec> {
     runtime: Arc<Runtime>,
     /// Receiver side of an internal shutdown signal.
-    signal_rx: Option<Receiver<&'static str>>,
+    signal_rx: Option<Receiver<ShutdownReason>>,
     /// Sender to request shutting down.
-    signal_tx: Sender<&'static str>,
+    signal_tx: Sender<ShutdownReason>,
     signal: Option<exit_future::Signal>,
     exit: exit_future::Exit,
     log: Logger,
@@ -365,7 +340,7 @@ impl<E: EthSpec> Environment<E> {
     /// Block the current thread until a shutdown signal is received.
     ///
     /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
-    pub fn block_until_shutdown_requested(&mut self) -> Result<(), String> {
+    pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
         // future of a task requesting to shutdown
         let mut rx = self
             .signal_rx
@@ -398,11 +373,13 @@ impl<E: EthSpec> Environment<E> {
             .block_on(future::select(inner_shutdown, ctrlc_oneshot))
         {
             future::Either::Left((Ok(reason), _)) => {
-                info!(self.log, "Internal shutdown received"; "reason" => reason);
-                Ok(())
+                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
-            future::Either::Right((x, _)) => x.map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
+            future::Either::Right((x, _)) => x
+                .map(|()| ShutdownReason::Success("Received Ctrl+C"))
+                .map_err(|e| format!("Ctrlc oneshot failed: {}", e)),
         }
     }
 

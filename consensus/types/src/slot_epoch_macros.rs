@@ -572,10 +572,8 @@ macro_rules! math_tests {
         #[test]
         fn checked_div() {
             let assert_checked_div = |a: u64, b: u64, result: Option<u64>| {
-                let division_result_as_u64 = match $type(a).safe_div($type(b)).ok() {
-                    None => None,
-                    Some(val) => Some(val.as_u64()),
-                };
+                let division_result_as_u64 =
+                    $type(a).safe_div($type(b)).ok().map(|val| val.as_u64());
                 assert_eq!(division_result_as_u64, result);
             };
 
