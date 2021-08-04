@@ -52,4 +52,9 @@ or reboot) or whenever a new validator is added via the [VC HTTP API].
 
 ## Enabling Doppelganger Protection
 
+If you understand that DP is imperfect and will cause some (generally, non-substantial) missed
+duties, it can be enabled by providing the `--enable-doppelganger-protection` flag:
 
+```bash
+lighthouse vc --enable-doppelganger-protection
+```
