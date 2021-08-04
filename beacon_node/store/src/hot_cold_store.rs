@@ -3,10 +3,7 @@ use crate::chunked_vector::{
 };
 use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
-use crate::impls::{
-    beacon_block_as_kv_store_op,
-    beacon_state::{get_full_state, store_full_state},
-};
+use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
@@ -251,13 +248,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block: SignedBeaconBlock<E>,
     ) -> Result<(), Error> {
         // Store on disk.
-        self.hot_db
-            .do_atomically(vec![beacon_block_as_kv_store_op(block_root, &block)])?;
+        let op = self.block_as_kv_store_op(block_root, &block);
+        self.hot_db.do_atomically(vec![op])?;
 
         // Update cache.
         self.block_cache.lock().put(*block_root, block);
 
         Ok(())
+    }
+
+    /// Prepare a signed beacon block for storage in the database.
+    #[must_use]
+    pub fn block_as_kv_store_op(
+        &self,
+        key: &Hash256,
+        block: &SignedBeaconBlock<E>,
+    ) -> KeyValueStoreOp {
+        // FIXME(altair): re-add block write/overhead metrics, or remove them
+        let db_key = get_key_for_col(DBColumn::BeaconBlock.into(), key.as_bytes());
+        KeyValueStoreOp::PutKeyValue(db_key, block.as_ssz_bytes())
     }
 
     /// Fetch a block from the store.
@@ -313,7 +322,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn put_state(&self, state_root: &Hash256, state: &BeaconState<E>) -> Result<(), Error> {
         let mut ops: Vec<KeyValueStoreOp> = Vec::new();
         if state.slot() < self.get_split_slot() {
-            ops.push(ColdStateSummary { slot: state.slot }.as_kv_store_op(*state_root));
+            ops.push(ColdStateSummary { slot: state.slot() }.as_kv_store_op(*state_root));
             self.store_cold_state(state_root, state, &mut ops)?;
             self.cold_db.do_atomically(ops)
         } else {
@@ -492,7 +501,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    key_value_batch.push(beacon_block_as_kv_store_op(block_root, block));
+                    key_value_batch.push(self.block_as_kv_store_op(block_root, block));
                 }
 
                 StoreOp::PutState(state_root, state) => {

@@ -318,7 +318,7 @@ where
 
         self.genesis_state_root = Some(beacon_state_root);
         self.genesis_block_root = Some(beacon_block_root);
-        self.genesis_time = Some(beacon_state.genesis_time);
+        self.genesis_time = Some(beacon_state.genesis_time());
 
         Ok((
             BeaconSnapshot {
@@ -361,7 +361,7 @@ where
     ) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
-        let weak_subj_slot = weak_subj_state.slot;
+        let weak_subj_slot = weak_subj_state.slot();
         let weak_subj_block_root = weak_subj_block.canonical_root();
         let weak_subj_state_root = weak_subj_block.state_root();
 
@@ -379,12 +379,14 @@ where
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
         store
-            .put_item(&weak_subj_block_root, &weak_subj_block)
+            .put_block(&weak_subj_block_root, weak_subj_block.clone())
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
 
         // Store anchor info (context for weak subj sync).
-        let anchor_info =
-            AnchorInfo::new(weak_subj_state.slot, weak_subj_block.message.parent_root);
+        let anchor_info = AnchorInfo::new(
+            weak_subj_state.slot(),
+            weak_subj_block.message().parent_root(),
+        );
         store
             .compare_and_set_anchor_info(None, Some(anchor_info))
             .map_err(|e| format!("Error setting anchor: {:?}", e))?;
@@ -393,7 +395,7 @@ where
         store
             .store_pruning_checkpoint(Checkpoint {
                 root: weak_subj_block_root,
-                epoch: weak_subj_state.slot.epoch(TEthSpec::slots_per_epoch()),
+                epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
             })
             .map_err(|e| format!("Failed to write pruning checkpoint: {:?}", e))?;
 
@@ -408,7 +410,7 @@ where
         let fork_choice = ForkChoice::from_genesis(
             fc_store,
             snapshot.beacon_block_root,
-            &snapshot.beacon_block.message,
+            &snapshot.beacon_block.deconstruct().0,
             &snapshot.beacon_state,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;

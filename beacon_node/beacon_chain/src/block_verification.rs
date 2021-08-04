@@ -502,7 +502,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let block_root = get_block_root(&block);
 
         // Disallow blocks that conflict with the anchor (weak subjectivity checkpoint), if any.
-        check_block_against_anchor_slot(&block.message, chain)?;
+        check_block_against_anchor_slot(block.message(), chain)?;
 
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(block.message(), chain)?;
@@ -712,7 +712,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .map_err(BlockError::InconsistentFork)?;
 
         // Check the anchor slot before loading the parent, to avoid spurious lookups.
-        check_block_against_anchor_slot(&block.message, chain)?;
+        check_block_against_anchor_slot(block.message(), chain)?;
 
         let (mut parent, block) = load_parent(block, chain)?;
 

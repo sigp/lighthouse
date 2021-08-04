@@ -209,11 +209,11 @@ where
             } => {
                 info!(context.log(), "Starting from weak subjectivity checkpoint");
 
-                let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes)
+                let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
-                let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes)
+                let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
-                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes)
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder

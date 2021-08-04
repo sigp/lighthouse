@@ -1,5 +1,5 @@
 use crate::{errors::BeaconChainError as Error, BeaconChain, BeaconChainTypes};
-use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore, StoreItem};
+use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
 use types::{Hash256, SignedBeaconBlock, Slot};
 
 #[derive(Debug)]
@@ -42,7 +42,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut chunk_writer =
             ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
 
-        let mut io_batch = Vec::with_capacity(blocks.len());
+        let mut cold_batch = Vec::with_capacity(blocks.len());
+        let mut hot_batch = Vec::with_capacity(blocks.len());
 
         for block in blocks.iter().rev() {
             // Check chain integrity.
@@ -56,21 +57,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into());
             }
 
-            // Store block.
-            io_batch.push(block.as_kv_store_op(block_root));
+            // Store block in the hot database.
+            hot_batch.push(self.store.block_as_kv_store_op(&block_root, block));
 
-            // Store block roots, including at all skip slots.
+            // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
-                chunk_writer.set(slot, block_root, &mut io_batch)?;
+                chunk_writer.set(slot, block_root, &mut cold_batch)?;
             }
 
             prev_block_slot = block.slot();
-            expected_block_root = block.message.parent_root;
+            expected_block_root = block.message().parent_root();
         }
+        chunk_writer.write(&mut cold_batch)?;
 
-        // Write the I/O batch to disk.
-        chunk_writer.write(&mut io_batch)?;
-        self.store.cold_db.do_atomically(io_batch)?;
+        // Write the I/O batches to disk, writing the blocks themselves first, as it's better
+        // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
+        // do not exist.
+        self.store.hot_db.do_atomically(hot_batch)?;
+        self.store.cold_db.do_atomically(cold_batch)?;
 
         // Update the anchor.
         let new_anchor = AnchorInfo {
