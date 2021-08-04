@@ -41,7 +41,8 @@ fn main() {
                 .takes_value(true)
                 .required(true)
                 .possible_values(&["minimal", "mainnet"])
-                .default_value("mainnet"),
+                .default_value("mainnet")
+                .global(true),
         )
         .arg(
             Arg::with_name("testnet-dir")
