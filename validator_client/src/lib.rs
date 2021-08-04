@@ -348,6 +348,9 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             "voting_validators" => validator_store.num_voting_validators()
         );
 
+        // Ensure all validators are registered in doppelganger protection.
+        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
+
         // Perform pruning of the slashing protection database on start-up. In case the database is
         // oversized from having not been pruned (by a prior version) we don't want to prune
         // concurrently, as it will hog the lock and cause the attestation service to spew CRITs.
@@ -399,9 +402,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).
         wait_for_genesis(&beacon_nodes, genesis_time, &context).await?;
-
-        // Ensure all validators are registered in doppelganger protection.
-        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
 
         Ok(Self {
             context,
