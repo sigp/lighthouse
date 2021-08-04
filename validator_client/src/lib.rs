@@ -342,14 +342,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 log.clone(),
             ));
 
+        // Ensure all validators are registered in doppelganger protection.
+        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
+
         info!(
             log,
             "Loaded validator keypair store";
             "voting_validators" => validator_store.num_voting_validators()
         );
-
-        // Ensure all validators are registered in doppelganger protection.
-        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
 
         // Perform pruning of the slashing protection database on start-up. In case the database is
         // oversized from having not been pruned (by a prior version) we don't want to prune
