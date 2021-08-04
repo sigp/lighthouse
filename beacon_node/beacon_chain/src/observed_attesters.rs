@@ -28,7 +28,7 @@ use types::{Epoch, EthSpec, Slot, Unsigned};
 /// `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the specification
 /// declares:
 ///
-/// ```
+/// ```ignore
 /// aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
 ///      >= current_slot >= aggregate.data.slot
 /// ```
