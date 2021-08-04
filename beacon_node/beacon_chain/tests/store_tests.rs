@@ -3,12 +3,12 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::test_utils::{
-    test_logger, test_spec AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
-    HARNESS_SLOT_TIME,
+    test_logger, test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy,
+    DiskHarnessType, HARNESS_SLOT_TIME,
 };
 use beacon_chain::{
-    historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChainError,
-    BeaconSnapshot, ChainConfig, ServerSentEventHandler, BeaconChain, BeaconChainTypes,
+    historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
+    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
 };
 use lazy_static::lazy_static;
 use maplit::hashset;
