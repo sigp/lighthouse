@@ -6,18 +6,18 @@
 
 From Lighthouse `v1.5.0`, the *Doppelganger Protection* feature is available for the Validator
 Client. Taken from the German *[doppelgänger]*, which translates literally to "double-walker", a
-"doppelganger" in Eth2 refers to another instance of a validator running on a separate validator
-service. As detailed in [Slashing Protection], running the same validator twice will inevitably
+"doppelganger" in Eth2 refers to another instance of a validator running in a separate validator
+process. As detailed in [Slashing Protection], running the same validator twice will inevitably
 result in slashing.
 
 The Doppelganger Protection (DP) feature in Lighthouse *imperfectly* attempts to detect other
 instances of a validator operating on the network before any slashable offences can be committed. It
-achieves this by waiting 2-3 epochs after a validator is started to other messages from other
-processes from that validator before starting to sign and publish slashable messages.
+achieves this by staying silent for 2-3 epochs after a validator is started so it can listen for
+other instances of that validator before starting to sign potentially slashable messages.
 
-## Considerations
+## Initial Considerations
 
-There are two important considerations when using DP:
+There are two important initial considerations when using DP:
 
 ### 1. Doppelganger Protection is imperfect
 
@@ -27,7 +27,7 @@ doppelganger protection to fail to detect another validator due to network fault
 circumstances.**
 
 DP should be considered a last-line-of-defence that *might* save a validator from being slashed due
-to operator error (the error being running two instances of the same validator). Users should
+to operator error (i.e. running two instances of the same validator). Users should
 *never* rely upon DP and should practice the same caution with regards to duplicating validators as
 if it did not exist.
 
@@ -39,11 +39,10 @@ same validator.**
 DP works by staying silent on the network for 2-3 epochs before starting to sign slashable messages.
 Staying silent and refusing to sign messages will cause the following:
 
-- 2-3 missed attestations, incurring penalties and missed rewards)
-- 2-3 epochs of missed sync committee contributions, incurring penalties and missed rewards.
-    (Post-Altair upgrade only)
-- Potentially missed rewards by missing a block proposal (generally very unlikely for one
-    validator).
+- 2-3 missed attestations, incurring penalties and missed rewards.
+- 2-3 epochs of missed sync committee contributions (if the validator is in a sync committee, which is unlikely), incurring penalties and missed rewards (post-Altair upgrade only).
+- Potentially missed rewards by missing a block proposal (if the validator is an elected block
+    proposer, which is unlikely).
 
 The loss of rewards and penalties incurred due to the missed duties will be very small in
 dollar-values. Generally, they will equate around one US dollar (at August 2021 figures) or about 2%
@@ -116,7 +115,7 @@ good idea to err on the safe side.
 
 ### How long does it take for DP to complete?
 
-Approximately 2-3 epochs, approximately 12-20 minutes.
+DP takes 2-3 epochs, which is approximately 12-20 minutes.
 
 ### How long does it take for DP to detect a doppelganger?
 
@@ -129,5 +128,5 @@ This means your validator client might take up to 20 minutes to detect a doppelg
 
 ### Can I use DP to run redundant validator instances?
 
-**Absolutely not.** DP is imperfect and cannot be relied upon. The Internet is messy and lossy,
+🙅 **Absolutely not.** 🙅 DP is imperfect and cannot be relied upon. The Internet is messy and lossy,
 there's no guarantee that DP will detect a duplicate validator before slashing conditions arise.
