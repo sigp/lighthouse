@@ -36,7 +36,7 @@ use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
 use slog::{crit, error, info, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::ShutdownReason;
@@ -505,7 +505,7 @@ impl DoppelgangerService {
         //
         // A following loop will update the states of each validator, depending on whether or not
         // any violators were detected here.
-        let mut violators = vec![];
+        let mut violators = HashSet::new();
         for response in previous_epoch_responses
             .iter()
             .chain(current_epoch_responses.iter())
@@ -541,7 +541,7 @@ impl DoppelgangerService {
             };
 
             if response.is_live && next_check_epoch <= response.epoch {
-                violators.push(response.index);
+                violators.insert(response.index);
             }
         }
 
