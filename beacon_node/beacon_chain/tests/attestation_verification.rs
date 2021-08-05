@@ -986,14 +986,15 @@ fn verify_aggregate_for_gossip_doppelganger_detection() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, _attester_index, _attester_committee_index, validator_sk, subnet_id) =
+    let (valid_attestation, _attester_index, _attester_committee_index, _, _) =
         get_valid_unaggregated_attestation(&harness.chain);
-    let (valid_aggregate, aggregator_index, aggregator_sk) =
+    let (valid_aggregate, _, _) =
         get_valid_aggregated_attestation(&harness.chain, valid_attestation);
 
     harness
         .chain
-        .verify_aggregated_attestation_for_gossip(valid_aggregate.clone());
+        .verify_aggregated_attestation_for_gossip(valid_aggregate.clone())
+        .expect("should verify aggregate attestation");
 
     let epoch = valid_aggregate.message.aggregate.data.target.epoch;
     let index = valid_aggregate.message.aggregator_index as usize;
@@ -1042,12 +1043,13 @@ fn verify_attestation_for_gossip_doppelganger_detection() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, index, _attester_committee_index, validator_sk, subnet_id) =
+    let (valid_attestation, index, _attester_committee_index, _, subnet_id) =
         get_valid_unaggregated_attestation(&harness.chain);
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id));
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id))
+        .expect("should verify attestation");
 
     let epoch = valid_attestation.data.target.epoch;
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
