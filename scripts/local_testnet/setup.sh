@@ -9,7 +9,7 @@
 # $VALIDATOR_COUNT and $NODE_COUNT variables.
 #
 
-set -o nounset errexit pipefail
+set -o nounset -o errexit -o pipefail
 
 source ./vars.env
 
