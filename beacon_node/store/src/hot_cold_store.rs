@@ -21,6 +21,7 @@ use crate::{
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
+use serde_derive::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -913,6 +914,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.split.read_recursive().slot
     }
 
+    /// Fetch a copy of the current split slot from memory.
+    pub fn get_split_info(&self) -> Split {
+        self.split.read_recursive().clone()
+    }
+
     pub fn set_split(&self, slot: Slot, state_root: Hash256) {
         *self.split.write() = Split { slot, state_root };
     }
@@ -937,7 +943,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// To do mutations, use `compare_and_set_anchor_info`.
     pub fn get_anchor_info(&self) -> Option<AnchorInfo> {
-        self.anchor_info.read().clone()
+        self.anchor_info.read_recursive().clone()
     }
 
     /// Atomically update the anchor info from `prev_value` to `new_value`.
@@ -977,13 +983,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// If an anchor exists, return its `anchor_slot` field.
     pub fn get_anchor_slot(&self) -> Option<Slot> {
-        self.anchor_info.read().as_ref().map(|a| a.anchor_slot)
+        self.anchor_info
+            .read_recursive()
+            .as_ref()
+            .map(|a| a.anchor_slot)
     }
 
     /// Return the minimum slot such that states are available for all subsequent slots.
     pub fn get_oldest_state_slot(&self) -> Slot {
         self.anchor_info
-            .read()
+            .read_recursive()
             .as_ref()
             .map_or(self.spec.genesis_slot, |a| a.oldest_state_slot)
     }
@@ -991,7 +1000,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Return the minimum slot such that blocks are available for all subsequent slots.
     pub fn get_oldest_block_slot(&self) -> Slot {
         self.anchor_info
-            .read()
+            .read_recursive()
             .as_ref()
             .map_or(self.spec.genesis_slot, |anchor| anchor.oldest_block_slot)
     }
@@ -1280,7 +1289,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 }
 
 /// Struct for storing the split slot and state root in the database.
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Default, Encode, Decode, Deserialize, Serialize)]
 pub struct Split {
     slot: Slot,
     state_root: Hash256,

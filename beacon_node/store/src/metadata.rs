@@ -1,4 +1,5 @@
 use crate::{DBColumn, Error, StoreItem};
+use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Checkpoint, Hash256, Slot};
@@ -80,7 +81,7 @@ impl StoreItem for CompactionTimestamp {
 }
 
 /// Database parameters relevant to weak subjectivity sync.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct AnchorInfo {
     /// The slot at which the anchor state is present and which we cannot revert.
     pub anchor_slot: Slot,

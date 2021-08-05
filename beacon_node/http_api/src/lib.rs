@@ -7,6 +7,7 @@
 
 mod attester_duties;
 mod block_id;
+mod database;
 mod metrics;
 mod proposer_duties;
 mod state_id;
@@ -2172,6 +2173,36 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    let database_path = warp::path("lighthouse").and(warp::path("database"));
+
+    // GET lighthouse/database/info
+    let get_lighthouse_database_info = database_path
+        .and(warp::path("info"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| blocking_json_task(move || database::info(chain)));
+
+    // POST lighthouse/database/historical_blocks
+    let post_lighthouse_database_historical_blocks = database_path
+        .and(warp::path("historical_blocks"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| {
+                info!(
+                    log,
+                    "Importing historical blocks";
+                    "count" => blocks.len(),
+                    "source" => "http_api"
+                );
+                blocking_json_task(move || database::historical_blocks(chain, blocks))
+            },
+        );
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2281,6 +2312,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_database_info.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
@@ -2293,7 +2325,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
                 .or(post_lighthouse_liveness.boxed())
-                .or(post_validator_beacon_committee_subscriptions.boxed()),
+                .or(post_validator_beacon_committee_subscriptions.boxed())
+                .or(post_lighthouse_database_historical_blocks.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
