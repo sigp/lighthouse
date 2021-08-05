@@ -861,6 +861,44 @@ fn verify_block_for_gossip_slashing_detection() {
 }
 
 #[test]
+fn verify_block_for_gossip_doppelganger_detection() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let state = harness.get_current_state();
+    let (block, _) = harness.make_block(state.clone(), Slot::new(1));
+
+    let verified_block = harness.chain.verify_block_for_gossip(block).unwrap();
+    let attestations = verified_block.block.message().body().attestations().clone();
+    harness.chain.process_block(verified_block).unwrap();
+
+    for att in attestations.iter() {
+        let epoch = att.data.target.epoch;
+        let index = att.data.index as usize;
+        assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+
+        // Check the correct beacon cache is populated
+        assert!(harness
+            .chain
+            .observed_block_attesters
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if block attester was observed"));
+        assert!(!harness
+            .chain
+            .observed_gossip_attesters
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if gossip attester was observed"));
+        assert!(!harness
+            .chain
+            .observed_aggregators
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if gossip aggregator was observed"));
+    }
+}
+
+#[test]
 fn add_base_block_to_altair_chain() {
     let mut spec = MainnetEthSpec::default_spec();
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();

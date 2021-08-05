@@ -248,15 +248,15 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to publish gossip attestations in
     /// recent epochs.
-    pub(crate) observed_gossip_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    pub observed_gossip_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to have attestations included in
     /// blocks in recent epochs.
-    pub(crate) observed_block_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    pub observed_block_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen sending sync messages in recent epochs.
     pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
-    pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
+    pub observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
     /// in recent epochs.
     pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
