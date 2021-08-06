@@ -628,6 +628,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         } else if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_state_root));
+        } else if request_slot < self.store.get_oldest_state_slot() {
+            return Ok(None);
         }
 
         // Try an optimized path of reading the root directly from the head state.
@@ -667,7 +669,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Notes
     ///
     /// - Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
-    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot, or less than
+    ///   the oldest known block slot.
     pub fn block_root_at_slot(
         &self,
         request_slot: Slot,
@@ -677,6 +680,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             WhenSlotSkipped::None => self.block_root_at_slot_skips_none(request_slot),
             WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(request_slot),
         }
+        .or_else(|e| match e {
+            Error::HistoricalBlockError(_) => Ok(None),
+            e => Err(e),
+        })
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.

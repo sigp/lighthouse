@@ -9,6 +9,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
+    WhenSlotSkipped,
 };
 use lazy_static::lazy_static;
 use maplit::hashset;
@@ -1778,7 +1779,6 @@ fn weak_subjectivity_sync() {
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
     let log = test_logger();
     let temp2 = tempdir().unwrap();
-    let data_dir = tempdir().unwrap();
     let store = get_store(&temp2);
 
     // Initialise a new beacon chain from the finalized checkpoint
@@ -1788,7 +1788,6 @@ fn weak_subjectivity_sync() {
         .unwrap()
         .logger(log.clone())
         .store_migrator_config(MigratorConfig::default().blocking())
-        .data_dir(data_dir.path().to_path_buf())
         .dummy_eth1_backend()
         .expect("should build dummy backend")
         .testing_slot_clock(HARNESS_SLOT_TIME)
@@ -1828,9 +1827,14 @@ fn weak_subjectivity_sync() {
     ));
 
     // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
-    // `root_at_slot` with an old slot for which we don't know the block root. It should
+    // `block_root_at_slot` with an old slot for which we don't know the block root. It should
     // return `None` rather than erroring.
-    assert_eq!(beacon_chain.root_at_slot(Slot::new(1)).unwrap(), None);
+    assert_eq!(
+        beacon_chain
+            .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+            .unwrap(),
+        None
+    );
 
     // Supply blocks backwards to reach genesis
     let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
