@@ -35,15 +35,13 @@ mod tests {
     fn test_dht_persistence() {
         let log = get_logger(false);
 
-        let beacon_chain = Arc::new(
-            BeaconChainHarness::new_with_store_config(
-                MinimalEthSpec,
-                None,
-                generate_deterministic_keypairs(8),
-                StoreConfig::default(),
-            )
-            .chain,
-        );
+        let beacon_chain = BeaconChainHarness::new_with_store_config(
+            MinimalEthSpec,
+            None,
+            generate_deterministic_keypairs(8),
+            StoreConfig::default(),
+        )
+        .chain;
 
         let store = beacon_chain.store.clone();
 

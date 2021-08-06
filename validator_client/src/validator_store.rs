@@ -1,5 +1,5 @@
 use crate::{
-    doppelganger_service::DoppelgangerService, fork_service::ForkService, http_metrics::metrics,
+    doppelganger_service::DoppelgangerService, http_metrics::metrics,
     initialized_validators::InitializedValidators,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
@@ -8,12 +8,15 @@ use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::iter::FromIterator;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Attestation, BeaconBlock,
     ChainSpec, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedRoot, Slot,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -69,8 +72,8 @@ pub struct ValidatorStore<T, E: EthSpec> {
     spec: Arc<ChainSpec>,
     log: Logger,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
-    fork_service: ForkService<T, E>,
     slot_clock: T,
+    _phantom: PhantomData<E>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
@@ -79,8 +82,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
         spec: ChainSpec,
-        fork_service: ForkService<T, E>,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
+        slot_clock: T,
         log: Logger,
     ) -> Self {
         Self {
@@ -89,10 +92,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
             spec: Arc::new(spec),
-            log: log.clone(),
+            log,
             doppelganger_service,
-            slot_clock: fork_service.slot_clock(),
-            fork_service,
+            slot_clock,
+            _phantom: PhantomData,
         }
     }
 
@@ -253,8 +256,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().num_enabled()
     }
 
-    fn fork(&self) -> Fork {
-        self.fork_service.fork()
+    fn fork(&self, epoch: Epoch) -> Fork {
+        self.spec.fork_at_epoch(epoch)
     }
 
     /// Runs `func`, providing it access to the `Keypair` corresponding to `validator_pubkey`.
@@ -301,7 +304,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let domain = self.spec.get_domain(
             epoch,
             Domain::Randao,
-            &self.fork(),
+            &self.fork(epoch),
             self.genesis_validators_root,
         );
         let message = epoch.signing_root(domain);
@@ -334,7 +337,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Check for slashing conditions.
-        let fork = self.fork();
+        let fork = self.fork(block.epoch());
         let domain = self.spec.get_domain(
             block.epoch(),
             Domain::BeaconProposer,
@@ -403,7 +406,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let fork = self.fork();
+        let fork = self.fork(attestation.data.target.epoch);
 
         let domain = self.spec.get_domain(
             attestation.data.target.epoch,
@@ -486,8 +489,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
     ) -> Result<SignedAggregateAndProof<E>, Error> {
-        // Take the fork early to avoid lock interleaving.
-        let fork = self.fork();
+        let fork = self.fork(aggregate.data.target.epoch);
 
         let proof = self.with_validator_keypair(validator_pubkey, move |keypair| {
             SignedAggregateAndProof::from_aggregate(
@@ -513,9 +515,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
-        // Take the fork early to avoid lock interleaving.
-        let fork = self.fork();
-
         // Bypass the `with_validator_keypair` function.
         //
         // This is because we don't care about doppelganger protection when it comes to selection
@@ -531,7 +530,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let proof = SelectionProof::new::<E>(
             slot,
             &keypair.sk,
-            &fork,
+            &self.fork(slot.epoch(E::slots_per_epoch())),
             self.genesis_validators_root,
             &self.spec,
         );
@@ -539,6 +538,93 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
 
         Ok(proof)
+    }
+
+    /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
+    pub fn produce_sync_selection_proof(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        slot: Slot,
+        subnet_id: SyncSubnetId,
+    ) -> Result<SyncSelectionProof, Error> {
+        // Bypass `with_validator_keypair`: sync committee messages are not slashable.
+        let validators = self.validators.read();
+        let voting_keypair = validators
+            .voting_keypair(validator_pubkey)
+            .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Ok(SyncSelectionProof::new::<E>(
+            slot,
+            subnet_id.into(),
+            &voting_keypair.sk,
+            &self.fork(slot.epoch(E::slots_per_epoch())),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    pub fn produce_sync_committee_signature(
+        &self,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        validator_index: u64,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Result<SyncCommitteeMessage, Error> {
+        // Bypass `with_validator_keypair`: sync committee messages are not slashable.
+        let validators = self.validators.read();
+        let voting_keypair = validators
+            .voting_keypair(validator_pubkey)
+            .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Ok(SyncCommitteeMessage::new::<E>(
+            slot,
+            beacon_block_root,
+            validator_index,
+            &voting_keypair.sk,
+            &self.fork(slot.epoch(E::slots_per_epoch())),
+            self.genesis_validators_root,
+            &self.spec,
+        ))
+    }
+
+    pub fn produce_signed_contribution_and_proof(
+        &self,
+        aggregator_index: u64,
+        aggregator_pubkey: &PublicKeyBytes,
+        contribution: SyncCommitteeContribution<E>,
+        selection_proof: SyncSelectionProof,
+    ) -> Result<SignedContributionAndProof<E>, Error> {
+        // Bypass `with_validator_keypair`: sync committee messages are not slashable.
+        let validators = self.validators.read();
+        let voting_keypair = validators
+            .voting_keypair(aggregator_pubkey)
+            .ok_or(Error::UnknownPubkey(*aggregator_pubkey))?;
+        let fork = self.fork(contribution.slot.epoch(E::slots_per_epoch()));
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Ok(SignedContributionAndProof::from_aggregate(
+            aggregator_index,
+            contribution,
+            Some(selection_proof),
+            &voting_keypair.sk,
+            &fork,
+            self.genesis_validators_root,
+            &self.spec,
+        ))
     }
 
     /// Prune the slashing protection database so that it remains performant.

@@ -7312,6 +7312,7 @@ dependencies = [
  "futures",
  "hex",
  "hyper",
+ "itertools 0.10.1",
  "lazy_static",
  "libc",
  "libsecp256k1",

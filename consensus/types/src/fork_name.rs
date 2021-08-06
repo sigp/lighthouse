@@ -1,6 +1,12 @@
 use crate::{ChainSpec, Epoch};
+use serde_derive::{Deserialize, Serialize};
+use std::convert::TryFrom;
+use std::fmt::{self, Display, Formatter};
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String")]
+#[serde(into = "String")]
 pub enum ForkName {
     Base,
     Altair,
@@ -48,7 +54,7 @@ impl ForkName {
     }
 }
 
-impl std::str::FromStr for ForkName {
+impl FromStr for ForkName {
     type Err = ();
 
     fn from_str(fork_name: &str) -> Result<Self, ()> {
@@ -57,6 +63,29 @@ impl std::str::FromStr for ForkName {
             "altair" => ForkName::Altair,
             _ => return Err(()),
         })
+    }
+}
+
+impl Display for ForkName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ForkName::Base => "phase0".fmt(f),
+            ForkName::Altair => "altair".fmt(f),
+        }
+    }
+}
+
+impl From<ForkName> for String {
+    fn from(fork: ForkName) -> String {
+        fork.to_string()
+    }
+}
+
+impl TryFrom<String> for ForkName {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Self::from_str(&s).map_err(|()| format!("Invalid fork name: {}", s))
     }
 }
 

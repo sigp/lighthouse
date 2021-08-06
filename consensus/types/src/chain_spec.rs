@@ -685,6 +685,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use itertools::Itertools;
+    use safe_arith::SafeArith;
 
     #[test]
     fn test_mainnet_spec_can_be_constructed() {
@@ -742,6 +744,33 @@ mod tests {
         for fork_name in ForkName::list_all() {
             if let Some(fork_epoch) = spec.fork_epoch(fork_name) {
                 assert_eq!(spec.fork_name_at_epoch(fork_epoch), fork_name);
+            }
+        }
+    }
+
+    // Test that `next_fork_epoch` is consistent with the other functions.
+    #[test]
+    fn next_fork_epoch_consistency() {
+        type E = MainnetEthSpec;
+        let spec = ChainSpec::mainnet();
+
+        let mut last_fork_slot = Slot::new(0);
+
+        for (_, fork) in ForkName::list_all().into_iter().tuple_windows() {
+            if let Some(fork_epoch) = spec.fork_epoch(fork) {
+                last_fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+
+                // Fork is activated at non-zero epoch: check that `next_fork_epoch` returns
+                // the correct result.
+                if let Ok(prior_slot) = last_fork_slot.safe_sub(1) {
+                    let (next_fork, next_fork_epoch) =
+                        spec.next_fork_epoch::<E>(prior_slot).unwrap();
+                    assert_eq!(fork, next_fork);
+                    assert_eq!(spec.fork_epoch(fork).unwrap(), next_fork_epoch);
+                }
+            } else {
+                // Fork is not activated, check that `next_fork_epoch` returns `None`.
+                assert_eq!(spec.next_fork_epoch::<E>(last_fork_slot), None);
             }
         }
     }
