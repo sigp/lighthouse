@@ -916,7 +916,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Fetch a copy of the current split slot from memory.
     pub fn get_split_info(&self) -> Split {
-        self.split.read_recursive().clone()
+        *self.split.read_recursive()
     }
 
     pub fn set_split(&self, slot: Slot, state_root: Hash256) {
@@ -967,7 +967,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load the anchor info from disk, but do not set `self.anchor_info`.
     fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
-        Ok(self.hot_db.get(&ANCHOR_INFO_KEY)?)
+        self.hot_db.get(&ANCHOR_INFO_KEY)
     }
 
     /// Store the given `anchor_info` to disk.
@@ -1130,9 +1130,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Store the checkpoint to begin pruning from (the "old finalized checkpoint").
     pub fn store_pruning_checkpoint(&self, checkpoint: Checkpoint) -> Result<(), Error> {
-        Ok(self
-            .hot_db
-            .do_atomically(vec![self.pruning_checkpoint_store_op(checkpoint)])?)
+        self.hot_db
+            .do_atomically(vec![self.pruning_checkpoint_store_op(checkpoint)])
     }
 
     /// Create a staged store for the pruning checkpoint.
