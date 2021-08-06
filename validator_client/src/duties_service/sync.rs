@@ -87,7 +87,7 @@ impl Default for SyncDutiesMap {
 
 impl SyncDutiesMap {
     /// Check if duties are already known for all of the given validators for `committee_period`.
-    pub fn all_duties_known(&self, committee_period: u64, validator_indices: &[u64]) -> bool {
+    fn all_duties_known(&self, committee_period: u64, validator_indices: &[u64]) -> bool {
         self.committees
             .read()
             .get(&committee_period)
@@ -104,7 +104,7 @@ impl SyncDutiesMap {
     /// Return the epoch up to which proofs should be pre-computed, as well as a vec of
     /// `(previous_pre_compute_epoch, sync_duty)` pairs for all validators which need to have proofs
     /// computed. See `fill_in_aggregation_proofs` for the actual calculation.
-    pub fn prepare_for_aggregator_pre_compute(
+    fn prepare_for_aggregator_pre_compute(
         &self,
         committee_period: u64,
         current_epoch: Epoch,
@@ -149,7 +149,7 @@ impl SyncDutiesMap {
         (pre_compute_epoch, pre_compute_duties)
     }
 
-    pub fn get_or_create_committee_duties<'a, 'b>(
+    fn get_or_create_committee_duties<'a, 'b>(
         &'a self,
         committee_period: u64,
         validator_indices: impl IntoIterator<Item = &'b u64>,
@@ -225,7 +225,7 @@ impl SyncDutiesMap {
     }
 
     /// Prune duties for past sync committee periods from the map.
-    pub fn prune(&self, current_sync_committee_period: u64) {
+    fn prune(&self, current_sync_committee_period: u64) {
         self.committees
             .write()
             .retain(|period, _| *period >= current_sync_committee_period)

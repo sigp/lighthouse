@@ -74,10 +74,9 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     //
     // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`. However, during
-    // the first `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
+    // the last `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
     // will equal `current_epoch + 1`
     let current_epoch = chain.epoch()?;
-
     let tolerant_current_epoch = chain
         .slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
