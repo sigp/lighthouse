@@ -745,6 +745,11 @@ mod test {
             self
         }
 
+        pub fn assert_prior_to_genesis(self) -> Self {
+            assert!(self.slot_clock.is_prior_to_genesis().unwrap());
+            self
+        }
+
         pub fn register_all_in_doppelganger_protection_if_enabled(self) -> Self {
             let mut this = self;
             for i in 0..this.validators.len() {
@@ -1114,6 +1119,7 @@ mod test {
         TestBuilder::default()
             .build()
             .set_current_time(prior_to_genesis)
+            .assert_prior_to_genesis()
             .register_all_in_doppelganger_protection_if_enabled();
     }
 
