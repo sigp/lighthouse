@@ -19,6 +19,7 @@
     * [Slashing Protection](./slashing-protection.md)
     * [Voluntary Exits](./voluntary-exit.md)
     * [Validator Monitoring](./validator-monitoring.md)
+    * [Doppelganger Protection](./validator-doppelganger.md)
 * [APIs](./api.md)
 	* [Beacon Node API](./api-bn.md)
 		* [/lighthouse](./api-lighthouse.md)
