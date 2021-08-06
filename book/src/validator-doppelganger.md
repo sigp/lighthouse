@@ -45,9 +45,9 @@ Staying silent and refusing to sign messages will cause the following:
     proposer, which is unlikely).
 
 The loss of rewards and penalties incurred due to the missed duties will be very small in
-dollar-values. Generally, they will equate around one US dollar (at August 2021 figures) or about 2%
-of daily validator rewards. Since DP costs so little but can protect a user from slashing, many
-users will consider this a worthwhile trade-off.
+dollar-values. Generally, they will equate to around one US dollar (at August 2021 figures) or about
+2% of the reward for one validator for one day. Since DP costs so little but can protect a user from
+slashing, many users will consider this a worthwhile trade-off.
 
 The 2-3 epochs of missed duties will be incurred whenever the VC is started (e.g., after an update
 or reboot) or whenever a new validator is added via the [VC HTTP API].
