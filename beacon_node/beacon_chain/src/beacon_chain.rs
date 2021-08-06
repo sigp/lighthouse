@@ -24,7 +24,6 @@ use crate::observed_aggregates::{
 };
 use crate::observed_attesters::{
     ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
-    MAX_CAPACITY as OBSERVED_ATTESTERS_MAX_CAPACITY,
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
@@ -2311,7 +2310,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
 
-            if attestation_target_epoch + OBSERVED_ATTESTERS_MAX_CAPACITY >= current_epoch {
+            // To avoid slowing down sync, only register attestations for the
+            // `observed_block_attesters` if they are from the previous epoch or later.
+            if attestation_target_epoch + 1 >= current_epoch {
                 let mut observed_block_attesters = self.observed_block_attesters.write();
                 for &validator_index in &indexed_attestation.attesting_indices {
                     if let Err(e) = observed_block_attesters
@@ -2319,7 +2320,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     {
                         debug!(
                             self.log,
-                            "Failed register observed block attester";
+                            "Failed to register observed block attester";
                             "error" => ?e,
                             "epoch" => attestation_target_epoch,
                             "validator_index" => validator_index,

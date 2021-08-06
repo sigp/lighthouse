@@ -35,7 +35,7 @@ use types::{Epoch, EthSpec, Slot, Unsigned};
 ///
 /// This means that during the current epoch we will always accept an attestation
 /// from at least one slot in the previous epoch.
-pub const MAX_CAPACITY: u64 = 3;
+pub const MAX_CACHED_EPOCHS: u64 = 3;
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =
@@ -362,7 +362,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
 
     /// The maximum number of epochs stored in `self`.
     fn max_capacity(&self) -> u64 {
-        MAX_CAPACITY
+        MAX_CACHED_EPOCHS
     }
 
     /// Updates `self` with the current epoch, removing all attestations that become expired
