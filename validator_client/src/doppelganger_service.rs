@@ -371,7 +371,8 @@ impl DoppelgangerService {
         slot_clock: &T,
     ) -> Result<(), String> {
         let current_epoch = slot_clock
-            .now()
+            // If registering before genesis, use the genesis slot.
+            .now_or_genesis()
             .ok_or_else(|| "Unable to read slot clock when registering validator".to_string())?
             .epoch(E::slots_per_epoch());
         let genesis_epoch = slot_clock.genesis_slot().epoch(E::slots_per_epoch());
@@ -674,6 +675,9 @@ mod test {
 
     const DEFAULT_VALIDATORS: usize = 8;
 
+    const GENESIS_TIME: Duration = Duration::from_secs(42);
+    const SLOT_DURATION: Duration = Duration::from_secs(1);
+
     type E = MainnetEthSpec;
 
     fn genesis_epoch() -> Epoch {
@@ -703,8 +707,7 @@ mod test {
     impl TestBuilder {
         fn build(self) -> TestScenario {
             let mut rng = XorShiftRng::from_seed([42; 16]);
-            let slot_clock =
-                TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            let slot_clock = TestingSlotClock::new(Slot::new(0), GENESIS_TIME, SLOT_DURATION);
             let log = null_logger().unwrap();
 
             TestScenario {
@@ -734,6 +737,16 @@ mod test {
 
         pub fn set_slot(self, slot: Slot) -> Self {
             self.slot_clock.set_slot(slot.into());
+            self
+        }
+
+        pub fn set_current_time(self, time: Duration) -> Self {
+            self.slot_clock.set_current_time(time);
+            self
+        }
+
+        pub fn assert_prior_to_genesis(self) -> Self {
+            assert!(self.slot_clock.is_prior_to_genesis().unwrap());
             self
         }
 
@@ -1097,6 +1110,17 @@ mod test {
         detect_after_genesis_test(|liveness_responses| {
             liveness_responses.previous_epoch_responses[0].is_live = true
         })
+    }
+
+    #[test]
+    fn register_prior_to_genesis() {
+        let prior_to_genesis = GENESIS_TIME.checked_sub(SLOT_DURATION).unwrap();
+
+        TestBuilder::default()
+            .build()
+            .set_current_time(prior_to_genesis)
+            .assert_prior_to_genesis()
+            .register_all_in_doppelganger_protection_if_enabled();
     }
 
     #[test]
