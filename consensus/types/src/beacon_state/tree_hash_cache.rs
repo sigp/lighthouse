@@ -133,6 +133,7 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     fixed_arena: CacheArena,
     balances_arena: CacheArena,
     slashings_arena: CacheArena,
+    inactivity_scores_arena: CacheArena,
     // Caches
     block_roots: TreeHashCache,
     state_roots: TreeHashCache,
@@ -141,6 +142,7 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
     eth1_data_votes: Eth1DataVotesTreeHashCache<T>,
+    inactivity_scores: Option<TreeHashCache>,
     // Participation caches
     previous_epoch_participation: ParticipationTreeHashCache,
     current_epoch_participation: ParticipationTreeHashCache,
@@ -168,6 +170,11 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let mut slashings_arena = CacheArena::default();
         let slashings = state.slashings().new_tree_hash_cache(&mut slashings_arena);
 
+        let mut inactivity_scores_arena = CacheArena::default();
+        let inactivity_scores = state.inactivity_scores().ok().map(|inactivity_scores| {
+            inactivity_scores.new_tree_hash_cache(&mut inactivity_scores_arena)
+        });
+
         let previous_epoch_participation =
             ParticipationTreeHashCache::new(state, BeaconState::previous_epoch_participation);
         let current_epoch_participation =
@@ -179,12 +186,14 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             fixed_arena,
             balances_arena,
             slashings_arena,
+            inactivity_scores_arena,
             block_roots,
             state_roots,
             historical_roots,
             balances,
             randao_mixes,
             slashings,
+            inactivity_scores,
             eth1_data_votes: Eth1DataVotesTreeHashCache::new(state),
             previous_epoch_participation,
             current_epoch_participation,
@@ -314,8 +323,27 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
 
         // Inactivity & light-client sync committees
         if let BeaconState::Altair(ref state) = state {
-            // FIXME(altair): add cache for this field
-            hasher.write(state.inactivity_scores.tree_hash_root().as_bytes())?;
+            let mut inactivity_scores_cache_opt =
+                std::mem::replace(&mut self.inactivity_scores, None);
+            let inactivity_scores_cache = inactivity_scores_cache_opt.get_or_insert_with(|| {
+                state
+                    .inactivity_scores
+                    .new_tree_hash_cache(&mut self.inactivity_scores_arena)
+            });
+
+            hasher.write(
+                state
+                    .inactivity_scores
+                    .recalculate_tree_hash_root(
+                        &mut self.inactivity_scores_arena,
+                        inactivity_scores_cache,
+                    )?
+                    .as_bytes(),
+            )?;
+            std::mem::swap(
+                &mut inactivity_scores_cache_opt,
+                &mut self.inactivity_scores,
+            );
 
             hasher.write(state.current_sync_committee.tree_hash_root().as_bytes())?;
             hasher.write(state.next_sync_committee.tree_hash_root().as_bytes())?;
