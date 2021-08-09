@@ -9,6 +9,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
+    common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
     per_slot_processing, BlockProcessingError,
 };
@@ -866,6 +867,52 @@ fn verify_block_for_gossip_slashing_detection() {
     drop(harness);
     drop(slasher);
     slasher_dir.close().unwrap();
+}
+
+#[test]
+fn verify_block_for_gossip_doppelganger_detection() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let state = harness.get_current_state();
+    let (block, _) = harness.make_block(state.clone(), Slot::new(1));
+
+    let verified_block = harness.chain.verify_block_for_gossip(block).unwrap();
+    let attestations = verified_block.block.message().body().attestations().clone();
+    harness.chain.process_block(verified_block).unwrap();
+
+    for att in attestations.iter() {
+        let epoch = att.data.target.epoch;
+        let committee = state
+            .get_beacon_committee(att.data.slot, att.data.index)
+            .unwrap();
+        let indexed_attestation = get_indexed_attestation(committee.committee, att).unwrap();
+
+        for &index in &indexed_attestation.attesting_indices {
+            let index = index as usize;
+
+            assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+
+            // Check the correct beacon cache is populated
+            assert!(harness
+                .chain
+                .observed_block_attesters
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if block attester was observed"));
+            assert!(!harness
+                .chain
+                .observed_gossip_attesters
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if gossip attester was observed"));
+            assert!(!harness
+                .chain
+                .observed_aggregators
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if gossip aggregator was observed"));
+        }
+    }
 }
 
 #[test]

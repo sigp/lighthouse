@@ -245,13 +245,17 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
     /// Contains a store of sync contributions which have been observed by the beacon chain.
     pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
-    /// Maintains a record of which validators have been seen to attest in recent epochs.
-    pub(crate) observed_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen to publish gossip attestations in
+    /// recent epochs.
+    pub observed_gossip_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
+    /// Maintains a record of which validators have been seen to have attestations included in
+    /// blocks in recent epochs.
+    pub observed_block_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
     /// Maintains a record of which validators have been seen sending sync messages in recent epochs.
     pub(crate) observed_sync_contributors: RwLock<ObservedSyncContributors<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedAggregateAndProofs`
     /// in recent epochs.
-    pub(crate) observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
+    pub observed_aggregators: RwLock<ObservedAggregators<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to create `SignedContributionAndProofs`
     /// in recent epochs.
     pub(crate) observed_sync_aggregators: RwLock<ObservedSyncAggregators<T::EthSpec>>,
@@ -2337,6 +2341,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for attestation in block.body().attestations() {
             let _fork_choice_attestation_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+            let attestation_target_epoch = attestation.data.target.epoch;
 
             let committee =
                 state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
@@ -2350,6 +2355,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
+
+            // To avoid slowing down sync, only register attestations for the
+            // `observed_block_attesters` if they are from the previous epoch or later.
+            if attestation_target_epoch + 1 >= current_epoch {
+                let mut observed_block_attesters = self.observed_block_attesters.write();
+                for &validator_index in &indexed_attestation.attesting_indices {
+                    if let Err(e) = observed_block_attesters
+                        .observe_validator(attestation_target_epoch, validator_index as usize)
+                    {
+                        debug!(
+                            self.log,
+                            "Failed to register observed block attester";
+                            "error" => ?e,
+                            "epoch" => attestation_target_epoch,
+                            "validator_index" => validator_index,
+                        )
+                    }
+                }
+            }
 
             // Only register this with the validator monitor when the block is sufficiently close to
             // the current slot.
@@ -3521,8 +3545,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // It's necessary to assign these checks to intermediate variables to avoid a deadlock.
         //
         // See: https://github.com/sigp/lighthouse/pull/2230#discussion_r620013993
-        let attested = self
-            .observed_attesters
+        let gossip_attested = self
+            .observed_gossip_attesters
+            .read()
+            .index_seen_at_epoch(validator_index, epoch);
+        let block_attested = self
+            .observed_block_attesters
             .read()
             .index_seen_at_epoch(validator_index, epoch);
         let aggregated = self
@@ -3534,7 +3562,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .read()
             .index_seen_at_epoch(validator_index as u64, epoch);
 
-        attested || aggregated || produced_block
+        gossip_attested || block_attested || aggregated || produced_block
     }
 }
 
