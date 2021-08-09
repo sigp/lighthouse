@@ -446,7 +446,7 @@ pub struct CommitteeData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncCommitteeByValidatorIndices {
-    #[serde(with = "serde_utils::quoted_u64_vec")]
+    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
 }
@@ -454,7 +454,7 @@ pub struct SyncCommitteeByValidatorIndices {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SyncSubcommittee {
-    #[serde(with = "serde_utils::quoted_u64_vec")]
+    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     pub indices: Vec<u64>,
 }
 
@@ -910,13 +910,13 @@ impl FromStr for Accept {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
-    #[serde(with = "serde_utils::quoted_u64_vec")]
+    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     pub indices: Vec<u64>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct LivenessResponseData {
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
     pub epoch: Epoch,
     pub is_live: bool,
