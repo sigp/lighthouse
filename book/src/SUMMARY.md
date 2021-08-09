@@ -37,6 +37,7 @@
     * [Advanced Networking](./advanced_networking.md)
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
+    * [Pre-Releases](./advanced-pre-releases.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
 * [FAQs](./faq.md)
