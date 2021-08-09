@@ -543,13 +543,13 @@ pub struct OptionalTreeHashCacheInner {
 }
 
 impl OptionalTreeHashCache {
-    /// Initialize a new cache for the participation list returned by `field` (if any).
-    fn new<C: CachedTreeHash<TreeHashCache>>(field: Option<&C>) -> Self {
-        let inner = field.map(OptionalTreeHashCacheInner::new);
+    /// Initialize a new cache if `item.is_some()`.
+    fn new<C: CachedTreeHash<TreeHashCache>>(item: Option<&C>) -> Self {
+        let inner = item.map(OptionalTreeHashCacheInner::new);
         Self { inner }
     }
 
-    /// Compute the tree hash root for the given `epoch_participation`.
+    /// Compute the tree hash root for the given `item`.
     ///
     /// This function will initialize the inner cache if necessary (e.g. when crossing the fork).
     fn recalculate_tree_hash_root<C: CachedTreeHash<TreeHashCache>>(
