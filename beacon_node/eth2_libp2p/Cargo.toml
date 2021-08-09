@@ -49,7 +49,7 @@ superstruct = "0.2.0"
 #version = "0.39.1"
 #default-features = false
 git = "https://github.com/sigp/rust-libp2p"
-rev = "2a4183f1041d2b8c495fb82626365c76ce216afd"
+rev = "35eaa10eeacabea3239bfd7216a2f0c836efb719"
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
