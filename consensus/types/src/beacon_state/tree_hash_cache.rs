@@ -323,27 +323,25 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
 
         // Inactivity & light-client sync committees
         if let BeaconState::Altair(ref state) = state {
-            let mut inactivity_scores_cache_opt =
-                std::mem::replace(&mut self.inactivity_scores, None);
-            let inactivity_scores_cache = inactivity_scores_cache_opt.get_or_insert_with(|| {
-                state
+            let mut write_inactivity_scores = |arena, cache| -> Result<(), Error> {
+                hasher
+                    .write(
+                        state
+                            .inactivity_scores
+                            .recalculate_tree_hash_root(arena, cache)?
+                            .as_bytes(),
+                    )
+                    .map_err(Into::into)
+            };
+            if let Some(cache) = &mut self.inactivity_scores {
+                write_inactivity_scores(&mut self.inactivity_scores_arena, cache)?;
+            } else {
+                let mut cache = state
                     .inactivity_scores
-                    .new_tree_hash_cache(&mut self.inactivity_scores_arena)
-            });
-
-            hasher.write(
-                state
-                    .inactivity_scores
-                    .recalculate_tree_hash_root(
-                        &mut self.inactivity_scores_arena,
-                        inactivity_scores_cache,
-                    )?
-                    .as_bytes(),
-            )?;
-            std::mem::swap(
-                &mut inactivity_scores_cache_opt,
-                &mut self.inactivity_scores,
-            );
+                    .new_tree_hash_cache(&mut self.inactivity_scores_arena);
+                write_inactivity_scores(&mut self.inactivity_scores_arena, &mut cache)?;
+                self.inactivity_scores = Some(cache);
+            }
 
             hasher.write(state.current_sync_committee.tree_hash_root().as_bytes())?;
             hasher.write(state.next_sync_committee.tree_hash_root().as_bytes())?;
