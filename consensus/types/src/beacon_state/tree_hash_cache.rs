@@ -3,9 +3,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use super::Error;
-use crate::{
-    BeaconState, EthSpec, Hash256, ParticipationFlags, ParticipationList, Slot, Unsigned, Validator,
-};
+use crate::{BeaconState, EthSpec, Hash256, ParticipationList, Slot, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
 use ssz_derive::{Decode, Encode};
@@ -144,8 +142,8 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     eth1_data_votes: Eth1DataVotesTreeHashCache<T>,
     inactivity_scores: Option<TreeHashCache>,
     // Participation caches
-    previous_epoch_participation: ParticipationTreeHashCache,
-    current_epoch_participation: ParticipationTreeHashCache,
+    previous_epoch_participation: OptionalTreeHashCache,
+    current_epoch_participation: OptionalTreeHashCache,
 }
 
 impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
@@ -175,10 +173,20 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             inactivity_scores.new_tree_hash_cache(&mut inactivity_scores_arena)
         });
 
-        let previous_epoch_participation =
-            ParticipationTreeHashCache::new(state, BeaconState::previous_epoch_participation);
-        let current_epoch_participation =
-            ParticipationTreeHashCache::new(state, BeaconState::current_epoch_participation);
+        let previous_epoch_participation = OptionalTreeHashCache::new(
+            state
+                .previous_epoch_participation()
+                .ok()
+                .map(ParticipationList::new)
+                .as_ref(),
+        );
+        let current_epoch_participation = OptionalTreeHashCache::new(
+            state
+                .current_epoch_participation()
+                .ok()
+                .map(ParticipationList::new)
+                .as_ref(),
+        );
 
         Self {
             previous_state: None,
@@ -296,12 +304,16 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         } else {
             hasher.write(
                 self.previous_epoch_participation
-                    .recalculate_tree_hash_root(state.previous_epoch_participation()?)?
+                    .recalculate_tree_hash_root(&ParticipationList::new(
+                        state.previous_epoch_participation()?,
+                    ))?
                     .as_bytes(),
             )?;
             hasher.write(
                 self.current_epoch_participation
-                    .recalculate_tree_hash_root(state.current_epoch_participation()?)?
+                    .recalculate_tree_hash_root(&ParticipationList::new(
+                        state.current_epoch_participation()?,
+                    ))?
                     .as_bytes(),
             )?;
         }
@@ -539,53 +551,43 @@ impl ParallelValidatorTreeHash {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ParticipationTreeHashCache {
-    inner: Option<ParticipationTreeHashCacheInner>,
+pub struct OptionalTreeHashCache {
+    inner: Option<OptionalTreeHashCacheInner>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ParticipationTreeHashCacheInner {
+pub struct OptionalTreeHashCacheInner {
     arena: CacheArena,
     tree_hash_cache: TreeHashCache,
 }
 
-impl ParticipationTreeHashCache {
+impl OptionalTreeHashCache {
     /// Initialize a new cache for the participation list returned by `field` (if any).
-    fn new<T: EthSpec>(
-        state: &BeaconState<T>,
-        field: impl FnOnce(
-            &BeaconState<T>,
-        ) -> Result<
-            &VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-            Error,
-        >,
-    ) -> Self {
-        let inner = field(state).map(ParticipationTreeHashCacheInner::new).ok();
+    fn new<C: CachedTreeHash<TreeHashCache>>(field: Option<&C>) -> Self {
+        let inner = field.map(OptionalTreeHashCacheInner::new);
         Self { inner }
     }
 
     /// Compute the tree hash root for the given `epoch_participation`.
     ///
     /// This function will initialize the inner cache if necessary (e.g. when crossing the fork).
-    fn recalculate_tree_hash_root<N: Unsigned>(
+    fn recalculate_tree_hash_root<C: CachedTreeHash<TreeHashCache>>(
         &mut self,
-        epoch_participation: &VariableList<ParticipationFlags, N>,
+        item: &C,
     ) -> Result<Hash256, Error> {
         let cache = self
             .inner
-            .get_or_insert_with(|| ParticipationTreeHashCacheInner::new(epoch_participation));
-        ParticipationList::new(epoch_participation)
-            .recalculate_tree_hash_root(&mut cache.arena, &mut cache.tree_hash_cache)
+            .get_or_insert_with(|| OptionalTreeHashCacheInner::new(item));
+        item.recalculate_tree_hash_root(&mut cache.arena, &mut cache.tree_hash_cache)
             .map_err(Into::into)
     }
 }
 
-impl ParticipationTreeHashCacheInner {
-    fn new<N: Unsigned>(epoch_participation: &VariableList<ParticipationFlags, N>) -> Self {
+impl OptionalTreeHashCacheInner {
+    fn new<C: CachedTreeHash<TreeHashCache>>(item: &C) -> Self {
         let mut arena = CacheArena::default();
-        let tree_hash_cache =
-            ParticipationList::new(epoch_participation).new_tree_hash_cache(&mut arena);
-        ParticipationTreeHashCacheInner {
+        let tree_hash_cache = item.new_tree_hash_cache(&mut arena);
+        OptionalTreeHashCacheInner {
             arena,
             tree_hash_cache,
         }
@@ -602,7 +604,7 @@ impl<T: EthSpec> arbitrary::Arbitrary for BeaconTreeHashCache<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{MainnetEthSpec, ParticipationFlags};
 
     #[test]
     fn validator_node_count() {
@@ -620,13 +622,13 @@ mod test {
         test_flag.add_flag(0).unwrap();
         let epoch_participation = VariableList::<_, N>::new(vec![test_flag; len]).unwrap();
 
-        let mut cache = ParticipationTreeHashCache { inner: None };
+        let mut cache = OptionalTreeHashCache { inner: None };
 
         let cache_root = cache
-            .recalculate_tree_hash_root(&epoch_participation)
+            .recalculate_tree_hash_root(&ParticipationList::new(&epoch_participation))
             .unwrap();
         let recalc_root = cache
-            .recalculate_tree_hash_root(&epoch_participation)
+            .recalculate_tree_hash_root(&ParticipationList::new(&epoch_participation))
             .unwrap();
 
         assert_eq!(cache_root, recalc_root, "recalculated root should match");
