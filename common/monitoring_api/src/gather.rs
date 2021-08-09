@@ -49,11 +49,9 @@ impl JsonMetric {
 const BEACON_PROCESS_METRICS: &[JsonMetric] = &[
     JsonMetric::new(
         "sync_eth1_fallback_configured",
-        "sync_eth1_fallback_configured",
         JsonType::Boolean,
     ),
     JsonMetric::new(
-        "sync_eth1_fallback_connected",
         "sync_eth1_fallback_connected",
         JsonType::Boolean,
     ),
@@ -103,11 +101,9 @@ const VALIDATOR_PROCESS_METRICS: &[JsonMetric] = &[
     ),
     JsonMetric::new(
         "sync_eth2_fallback_configured",
-        "sync_eth2_fallback_configured",
         JsonType::Boolean,
     ),
     JsonMetric::new(
-        "sync_eth2_fallback_connected",
         "sync_eth2_fallback_connected",
         JsonType::Boolean,
     ),
