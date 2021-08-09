@@ -131,7 +131,6 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     fixed_arena: CacheArena,
     balances_arena: CacheArena,
     slashings_arena: CacheArena,
-    inactivity_scores_arena: CacheArena,
     // Caches
     block_roots: TreeHashCache,
     state_roots: TreeHashCache,
@@ -140,7 +139,7 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
     eth1_data_votes: Eth1DataVotesTreeHashCache<T>,
-    inactivity_scores: Option<TreeHashCache>,
+    inactivity_scores: OptionalTreeHashCache,
     // Participation caches
     previous_epoch_participation: OptionalTreeHashCache,
     current_epoch_participation: OptionalTreeHashCache,
@@ -168,10 +167,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let mut slashings_arena = CacheArena::default();
         let slashings = state.slashings().new_tree_hash_cache(&mut slashings_arena);
 
-        let mut inactivity_scores_arena = CacheArena::default();
-        let inactivity_scores = state.inactivity_scores().ok().map(|inactivity_scores| {
-            inactivity_scores.new_tree_hash_cache(&mut inactivity_scores_arena)
-        });
+        let inactivity_scores = OptionalTreeHashCache::new(state.inactivity_scores().ok());
 
         let previous_epoch_participation = OptionalTreeHashCache::new(
             state
@@ -194,7 +190,6 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             fixed_arena,
             balances_arena,
             slashings_arena,
-            inactivity_scores_arena,
             block_roots,
             state_roots,
             historical_roots,
@@ -335,25 +330,11 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
 
         // Inactivity & light-client sync committees
         if let BeaconState::Altair(ref state) = state {
-            let mut write_inactivity_scores = |arena, cache| -> Result<(), Error> {
-                hasher
-                    .write(
-                        state
-                            .inactivity_scores
-                            .recalculate_tree_hash_root(arena, cache)?
-                            .as_bytes(),
-                    )
-                    .map_err(Into::into)
-            };
-            if let Some(cache) = &mut self.inactivity_scores {
-                write_inactivity_scores(&mut self.inactivity_scores_arena, cache)?;
-            } else {
-                let mut cache = state
-                    .inactivity_scores
-                    .new_tree_hash_cache(&mut self.inactivity_scores_arena);
-                write_inactivity_scores(&mut self.inactivity_scores_arena, &mut cache)?;
-                self.inactivity_scores = Some(cache);
-            }
+            hasher.write(
+                self.inactivity_scores
+                    .recalculate_tree_hash_root(&state.inactivity_scores)?
+                    .as_bytes(),
+            )?;
 
             hasher.write(state.current_sync_committee.tree_hash_root().as_bytes())?;
             hasher.write(state.next_sync_committee.tree_hash_root().as_bytes())?;
