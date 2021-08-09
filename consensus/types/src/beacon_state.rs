@@ -837,6 +837,32 @@ impl<T: EthSpec> BeaconState<T> {
         })
     }
 
+    /// Get the sync committee duties for a list of validator indices.
+    ///
+    /// Will return a `SyncCommitteeNotKnown` error if the `epoch` is out of bounds with respect
+    /// to the current or next sync committee periods.
+    pub fn get_sync_committee_duties(
+        &self,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        spec: &ChainSpec,
+    ) -> Result<Vec<Option<SyncDuty>>, Error> {
+        let sync_committee = self.get_built_sync_committee(epoch, spec)?;
+
+        validator_indices
+            .iter()
+            .map(|&validator_index| {
+                let pubkey = self.get_validator(validator_index as usize)?.pubkey;
+
+                Ok(SyncDuty::from_sync_committee(
+                    validator_index,
+                    pubkey,
+                    sync_committee,
+                ))
+            })
+            .collect()
+    }
+
     /// Get the canonical root of the `latest_block_header`, filling in its state root if necessary.
     ///
     /// It needs filling in on all slots where there isn't a skip.

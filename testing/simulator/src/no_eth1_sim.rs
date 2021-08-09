@@ -125,7 +125,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 network.clone(),
                 Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
                 slot_duration,
-            )
+            ),
         );
         finalization?;
         block_prod?;

@@ -87,6 +87,7 @@ pub enum BeaconChainError {
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheFileError(String),
     ValidatorIndexUnknown(usize),
+    ValidatorPubkeyUnknown(PublicKeyBytes),
     OpPoolError(OpPoolError),
     NaiveAggregationError(NaiveAggregationError),
     ObservedAttestationsError(ObservedAttestationsError),
@@ -120,6 +121,7 @@ pub enum BeaconChainError {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
     },
+    SyncDutiesError(BeaconStateError),
     InconsistentForwardsIter {
         request_slot: Slot,
         slot: Slot,

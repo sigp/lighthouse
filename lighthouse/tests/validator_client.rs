@@ -378,3 +378,16 @@ pub fn malloc_tuning_flag() {
         // effects of it.
         .run();
 }
+#[test]
+fn doppelganger_protection_flag() {
+    CommandLineTest::new()
+        .flag("enable-doppelganger-protection", None)
+        .run()
+        .with_config(|config| assert!(config.enable_doppelganger_protection));
+}
+#[test]
+fn no_doppelganger_protection_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.enable_doppelganger_protection));
+}

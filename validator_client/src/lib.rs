@@ -5,14 +5,15 @@ mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
-mod fork_service;
 mod graffiti_file;
 mod http_metrics;
 mod initialized_validators;
 mod key_cache;
 mod notifier;
+mod sync_committee_service;
 mod validator_store;
 
+mod doppelganger_service;
 pub mod http_api;
 
 pub use cli::cli_app;
@@ -23,15 +24,14 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
+use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
-use eth2::types::StateId;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
-use fork_service::{ForkService, ForkServiceBuilder};
 use http_api::ApiSecret;
 use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
@@ -44,11 +44,12 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sync_committee_service::SyncCommitteeService;
 use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Fork, Hash256};
+use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -61,17 +62,22 @@ const WAITING_FOR_GENESIS_POLL_TIME: Duration = Duration::from_secs(12);
 /// This can help ensure that proper endpoint fallback occurs.
 const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+
+const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
 #[derive(Clone)]
 pub struct ProductionValidatorClient<T: EthSpec> {
     context: RuntimeContext<T>,
     duties_service: Arc<DutiesService<SystemTimeSlotClock, T>>,
-    fork_service: ForkService<SystemTimeSlotClock, T>,
     block_service: BlockService<SystemTimeSlotClock, T>,
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
-    validator_store: ValidatorStore<SystemTimeSlotClock, T>,
+    sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, T>,
+    doppelganger_service: Option<Arc<DoppelgangerService>>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     http_api_listen_addr: Option<SocketAddr>,
     http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
@@ -254,8 +260,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     Timeouts {
                         attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
                         attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                        liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
                         proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
                         proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                        sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)
@@ -286,7 +294,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
         // Perform some potentially long-running initialization tasks.
-        let (genesis_time, genesis_validators_root, fork) = tokio::select! {
+        let (genesis_time, genesis_validators_root) = tokio::select! {
             tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
@@ -306,21 +314,29 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
 
-        let fork_service = ForkServiceBuilder::new()
-            .fork(fork)
-            .slot_clock(slot_clock.clone())
-            .beacon_nodes(beacon_nodes.clone())
-            .log(log.clone())
-            .build()?;
+        let doppelganger_service = if config.enable_doppelganger_protection {
+            Some(Arc::new(DoppelgangerService::new(
+                context
+                    .service_context(DOPPELGANGER_SERVICE_NAME.into())
+                    .log()
+                    .clone(),
+            )))
+        } else {
+            None
+        };
 
-        let validator_store: ValidatorStore<SystemTimeSlotClock, T> = ValidatorStore::new(
+        let validator_store = Arc::new(ValidatorStore::new(
             validators,
             slashing_protection,
             genesis_validators_root,
             context.eth2_config.spec.clone(),
-            fork_service.clone(),
+            doppelganger_service.clone(),
+            slot_clock.clone(),
             log.clone(),
-        );
+        ));
+
+        // Ensure all validators are registered in doppelganger protection.
+        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
 
         info!(
             log,
@@ -339,7 +355,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let duties_service = Arc::new(DutiesService {
             attesters: <_>::default(),
             proposers: <_>::default(),
-            indices: <_>::default(),
+            sync_duties: <_>::default(),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
@@ -369,11 +385,19 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
-            .slot_clock(slot_clock)
+            .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
+
+        let sync_committee_service = SyncCommitteeService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock,
+            beacon_nodes.clone(),
+            context.service_context("sync_committee".into()),
+        );
 
         // Wait until genesis has occured.
         //
@@ -384,9 +408,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         Ok(Self {
             context,
             duties_service,
-            fork_service,
             block_service,
             attestation_service,
+            sync_committee_service,
+            doppelganger_service,
             validator_store,
             config,
             http_api_listen_addr: None,
@@ -404,11 +429,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
-        self.fork_service
-            .clone()
-            .start_update_service(&self.context)
-            .map_err(|e| format!("Unable to start fork service: {}", e))?;
-
         self.block_service
             .clone()
             .start_update_service(block_service_rx)
@@ -419,12 +439,31 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
+        self.sync_committee_service
+            .clone()
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
+
+        if let Some(doppelganger_service) = self.doppelganger_service.clone() {
+            DoppelgangerService::start_update_service(
+                doppelganger_service,
+                self.context
+                    .service_context(DOPPELGANGER_SERVICE_NAME.into()),
+                self.validator_store.clone(),
+                self.duties_service.beacon_nodes.clone(),
+                self.duties_service.slot_clock.clone(),
+            )
+            .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
+        } else {
+            info!(log, "Doppelganger protection disabled.")
+        }
+
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
-            let ctx: Arc<http_api::Context<SystemTimeSlotClock, T>> = Arc::new(http_api::Context {
+            let ctx = Arc::new(http_api::Context {
                 runtime: self.context.executor.runtime(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
@@ -458,7 +497,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     context: &RuntimeContext<E>,
-) -> Result<(u64, Hash256, Fork), String> {
+) -> Result<(u64, Hash256), String> {
     loop {
         beacon_nodes.update_unready_candidates().await;
         let num_available = beacon_nodes.num_available().await;
@@ -517,33 +556,7 @@ async fn init_from_beacon_node<E: EthSpec>(
         sleep(RETRY_DELAY).await;
     };
 
-    let fork = loop {
-        match beacon_nodes
-            .first_success(RequireSynced::No, |node| async move {
-                node.get_beacon_states_fork(StateId::Head).await
-            })
-            .await
-        {
-            Ok(Some(fork)) => break fork.data,
-            Ok(None) => {
-                info!(
-                    context.log(),
-                    "Failed to get fork, state not found";
-                );
-            }
-            Err(errors) => {
-                error!(
-                    context.log(),
-                    "Failed to get fork";
-                    "error" => %errors
-                );
-            }
-        }
-
-        sleep(RETRY_DELAY).await;
-    };
-
-    Ok((genesis.genesis_time, genesis.genesis_validators_root, fork))
+    Ok((genesis.genesis_time, genesis.genesis_validators_root))
 }
 
 async fn wait_for_genesis<E: EthSpec>(

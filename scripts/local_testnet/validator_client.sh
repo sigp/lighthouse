@@ -16,4 +16,5 @@ exec lighthouse \
 	--datadir $1 \
 	--testnet-dir $TESTNET_DIR \
 	--init-slashing-protection \
-	--beacon-nodes $2
+	--beacon-nodes $2 \
+	$VC_ARGS

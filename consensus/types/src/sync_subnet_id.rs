@@ -1,6 +1,11 @@
 //! Identifies each sync committee subnet by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use crate::EthSpec;
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
+use ssz_types::typenum::Unsigned;
+use std::collections::HashSet;
+use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
 lazy_static! {
@@ -32,6 +37,24 @@ pub fn sync_subnet_id_to_string(i: u64) -> &'static str {
 impl SyncSubnetId {
     pub fn new(id: u64) -> Self {
         id.into()
+    }
+
+    /// Compute required subnets to subscribe to given the sync committee indices.
+    pub fn compute_subnets_for_sync_committee<T: EthSpec>(
+        sync_committee_indices: &[u64],
+    ) -> Result<HashSet<Self>, ArithError> {
+        let subcommittee_size = T::SyncSubcommitteeSize::to_u64();
+
+        sync_committee_indices
+            .iter()
+            .map(|index| index.safe_div(subcommittee_size).map(Self::new))
+            .collect()
+    }
+}
+
+impl Display for SyncSubnetId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0)
     }
 }
 

@@ -41,7 +41,8 @@ fn main() {
                 .takes_value(true)
                 .required(true)
                 .possible_values(&["minimal", "mainnet"])
-                .default_value("mainnet"),
+                .default_value("mainnet")
+                .global(true),
         )
         .arg(
             Arg::with_name("testnet-dir")
@@ -343,6 +344,13 @@ fn main() {
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
                         ),
+                )
+                .arg(
+                    Arg::with_name("seconds-per-slot")
+                        .long("seconds-per-slot")
+                        .value_name("SECONDS")
+                        .takes_value(true)
+                        .help("Eth2 slot time"),
                 )
                 .arg(
                     Arg::with_name("seconds-per-eth1-block")

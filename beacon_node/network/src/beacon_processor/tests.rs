@@ -9,8 +9,12 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use environment::{null_logger, Environment, EnvironmentBuilder};
-use eth2_libp2p::discv5::enr::{CombinedKey, EnrBuilder};
-use eth2_libp2p::{rpc::methods::MetaData, types::EnrBitfield, MessageId, NetworkGlobals, PeerId};
+use eth2_libp2p::{
+    discv5::enr::{CombinedKey, EnrBuilder},
+    rpc::methods::{MetaData, MetaDataV2},
+    types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
+    MessageId, NetworkGlobals, PeerId,
+};
 use slot_clock::SlotClock;
 use std::cmp;
 use std::iter::Iterator;
@@ -19,8 +23,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use types::{
-    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, MainnetEthSpec,
-    ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, EthSpec,
+    MainnetEthSpec, ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -67,9 +71,13 @@ impl Drop for TestRig {
 
 impl TestRig {
     pub fn new(chain_length: u64) -> Self {
-        let mut harness = BeaconChainHarness::new(
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = E::default_spec();
+        spec.shard_committee_period = 2;
+
+        let harness = BeaconChainHarness::new(
             MainnetEthSpec,
-            None,
+            Some(spec),
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 
@@ -147,13 +155,7 @@ impl TestRig {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
 
-        // Changing this *after* the chain has been initialized is a bit cheeky, but it shouldn't
-        // cause issue.
-        //
-        // This allows for testing voluntary exits without building out a massive chain.
-        harness.chain.spec.shard_committee_period = 2;
-
-        let chain = Arc::new(harness.chain);
+        let chain = harness.chain;
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
@@ -163,10 +165,11 @@ impl TestRig {
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
-        let meta_data = MetaData {
+        let meta_data = MetaData::V2(MetaDataV2 {
             seq_number: SEQ_NUMBER,
-            attnets: EnrBitfield::<MainnetEthSpec>::default(),
-        };
+            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+        });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
         let network_globals = Arc::new(NetworkGlobals::new(

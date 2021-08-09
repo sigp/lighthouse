@@ -216,4 +216,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 and never provide an untrusted URL.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("enable-doppelganger-protection")
+                .long("enable-doppelganger-protection")
+                .value_name("ENABLE_DOPPELGANGER_PROTECTION")
+                .help("If this flag is set, Lighthouse will delay startup for three epochs and \
+                    monitor for messages on the network by any of the validators managed by this \
+                    client. This will result in three (possibly four) epochs worth of missed \
+                    attestations. If an attestation is detected during this period, it means it is \
+                    very likely that you are running a second validator client with the same keys. \
+                    This validator client will immediately shutdown if this is detected in order \
+                    to avoid potentially committing a slashable offense. Use this flag in order to \
+                    ENABLE this functionality, without this flag Lighthouse will begin attesting \
+                    immediately.")
+                .takes_value(false),
+        )
 }
