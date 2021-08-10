@@ -23,14 +23,14 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
 
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 use {
     futures::Future,
     std::{pin::Pin, task::Context, task::Poll},
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -346,7 +346,7 @@ impl<E: EthSpec> Environment<E> {
     /// Block the current thread until a shutdown signal is received.
     ///
     /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
-    #[cfg(target_os = "linux")]
+    #[cfg(target_family = "unix")]
     pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
         // future of a task requesting to shutdown
         let mut rx = self
@@ -412,7 +412,7 @@ impl<E: EthSpec> Environment<E> {
     /// Block the current thread until a shutdown signal is received.
     ///
     /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(target_family = "unix"))]
     pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
         // future of a task requesting to shutdown
         let mut rx = self
@@ -493,20 +493,20 @@ pub fn null_logger() -> Result<Logger, String> {
         .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 struct SignalFuture {
     signal: Signal,
     message: &'static str,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 impl SignalFuture {
     pub fn new(signal: Signal, message: &'static str) -> SignalFuture {
         SignalFuture { signal, message }
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 impl Future for SignalFuture {
     type Output = Option<ShutdownReason>;
 
