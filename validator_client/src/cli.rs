@@ -95,6 +95,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 ),
         )
         .arg(
+            Arg::with_name("reuse-password")
+                .long("reuse-password")
+                .help("If present, the same password will be used for all keystores without a password."),
+        )
+        .arg(
             Arg::with_name("use-long-timeouts")
                 .long("use-long-timeouts")
                 .help("If present, the validator client will use longer timeouts for requests \

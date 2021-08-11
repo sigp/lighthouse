@@ -13,7 +13,7 @@ use account_utils::{
     },
     ZeroizeString,
 };
-use eth2_keystore::Keystore;
+use eth2_keystore::{Keystore, PlainText};
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use slog::{debug, error, info, warn, Logger};
@@ -133,6 +133,8 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        reuse_password: bool,
+        reuse_password_text: &mut Option<PlainText>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -160,39 +162,65 @@ impl InitializedValidator {
                     // Decoding a local keystore can take several seconds, therefore it's best
                     // to keep if off the core executor. This also has the fortunate effect of
                     // interrupting the potentially long-running task during shut down.
-                    let (password, keypair) = tokio::task::spawn_blocking(move || {
-                        Result::<_, Error>::Ok(
-                            match (voting_keystore_password_path, voting_keystore_password) {
-                                // If the password is supplied, use it and ignore the path
-                                // (if supplied).
-                                (_, Some(password)) => (
-                                    password.as_ref().to_vec().into(),
-                                    keystore
-                                        .decrypt_keypair(password.as_ref())
-                                        .map_err(Error::UnableToDecryptKeystore)?,
-                                ),
-                                // If only the path is supplied, use the path.
-                                (Some(path), None) => {
-                                    let password = read_password(path)
-                                        .map_err(Error::UnableToReadVotingKeystorePassword)?;
-                                    let keypair = keystore
-                                        .decrypt_keypair(password.as_bytes())
-                                        .map_err(Error::UnableToDecryptKeystore)?;
-                                    (password, keypair)
-                                }
-                                // If there is no password available, maybe prompt for a password.
-                                (None, None) => {
-                                    let (password, keypair) = unlock_keystore_via_stdin_password(
-                                        &keystore,
-                                        &keystore_path,
-                                    )?;
-                                    (password.as_ref().to_vec().into(), keypair)
-                                }
-                            },
-                        )
-                    })
-                    .await
-                    .map_err(Error::TokioJoin)??;
+                    let stored_password = if reuse_password {
+                        reuse_password_text.clone()
+                    } else {
+                        None
+                    };
+                    let (password, keypair, set_reuse_password_text) =
+                        tokio::task::spawn_blocking(move || {
+                            Result::<_, Error>::Ok(
+                                match (voting_keystore_password_path, voting_keystore_password) {
+                                    // If the password is supplied, use it and ignore the path
+                                    // (if supplied).
+                                    (_, Some(password)) => (
+                                        password.as_ref().to_vec().into(),
+                                        keystore
+                                            .decrypt_keypair(password.as_ref())
+                                            .map_err(Error::UnableToDecryptKeystore)?,
+                                        false,
+                                    ),
+                                    // If only the path is supplied, use the path.
+                                    (Some(path), None) => {
+                                        let password = read_password(path)
+                                            .map_err(Error::UnableToReadVotingKeystorePassword)?;
+                                        let keypair = keystore
+                                            .decrypt_keypair(password.as_bytes())
+                                            .map_err(Error::UnableToDecryptKeystore)?;
+                                        (password, keypair, false)
+                                    }
+                                    // If there is no password available, maybe prompt for a password.
+                                    (None, None) => match stored_password {
+                                        Some(password) => (
+                                            password.clone(),
+                                            keystore
+                                                .decrypt_keypair(password.as_ref())
+                                                .map_err(Error::UnableToDecryptKeystore)?,
+                                            false,
+                                        ),
+                                        None => {
+                                            let (password, keypair) =
+                                                unlock_keystore_via_stdin_password(
+                                                    &keystore,
+                                                    &keystore_path,
+                                                )?;
+                                            (
+                                                password.as_ref().to_vec().into(),
+                                                keypair,
+                                                reuse_password,
+                                            )
+                                        }
+                                    },
+                                },
+                            )
+                        })
+                        .await
+                        .map_err(Error::TokioJoin)??;
+
+                    if set_reuse_password_text {
+                        *reuse_password_text = Some(password.clone());
+                    }
+
                     key_cache.add(keypair.clone(), voting_keystore.uuid(), password);
                     keypair
                 };
@@ -291,6 +319,10 @@ pub struct InitializedValidators {
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// For logging via `slog`.
     log: Logger,
+    /// If true, reuse the same password entered via STDIN for all keystores without password
+    reuse_password: bool,
+    /// Temporarily stores password that will be re-used
+    reuse_password_text: Option<PlainText>,
 }
 
 impl InitializedValidators {
@@ -299,12 +331,15 @@ impl InitializedValidators {
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
         log: Logger,
+        reuse_password: bool,
     ) -> Result<Self, Error> {
         let mut this = Self {
             validators_dir,
             definitions,
             validators: HashMap::default(),
             log,
+            reuse_password,
+            reuse_password_text: None,
         };
         this.update_validators().await?;
         Ok(this)
@@ -412,7 +447,7 @@ impl InitializedValidators {
     /// and an error if a needed password couldn't get extracted.
     ///
     async fn decrypt_key_cache(
-        &self,
+        &mut self,
         mut cache: KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
     ) -> Result<KeyCache, Error> {
@@ -461,6 +496,23 @@ impl InitializedValidators {
                         p.as_ref().to_vec().into()
                     } else if let Some(path) = voting_keystore_password_path {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
+                    } else if self.reuse_password {
+                        let keystore = open_keystore(voting_keystore_path)?;
+                        match &self.reuse_password_text {
+                            Some(password) => password.clone(),
+                            None => {
+                                let password: PlainText = unlock_keystore_via_stdin_password(
+                                    &keystore,
+                                    voting_keystore_path,
+                                )?
+                                .0
+                                .as_ref()
+                                .to_vec()
+                                .into();
+                                self.reuse_password_text = Some(password.clone());
+                                password
+                            }
+                        }
                     } else {
                         let keystore = open_keystore(voting_keystore_path)?;
                         unlock_keystore_via_stdin_password(&keystore, voting_keystore_path)?
@@ -531,6 +583,8 @@ impl InitializedValidators {
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            self.reuse_password,
+                            &mut self.reuse_password_text,
                         )
                         .await
                         {
@@ -627,6 +681,9 @@ impl InitializedValidators {
             &crate::http_metrics::metrics::TOTAL_VALIDATORS_COUNT,
             self.num_total() as i64,
         );
+        // No reason to keep this around any longer than needed
+        self.reuse_password_text = None;
+
         Ok(())
     }
 

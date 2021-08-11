@@ -169,6 +169,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_defs,
             config.validator_dir.clone(),
             log.clone(),
+            config.reuse_password,
         )
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;

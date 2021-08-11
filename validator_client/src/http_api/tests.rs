@@ -61,6 +61,7 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             log.clone(),
+            false,
         )
         .await
         .unwrap();

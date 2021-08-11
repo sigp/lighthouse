@@ -50,6 +50,8 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    /// If true, the password read from STDIN will be used multiple times for all keystores without password
+    pub reuse_password: bool,
 }
 
 impl Default for Config {
@@ -80,6 +82,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
+            reuse_password: false,
         }
     }
 }
@@ -164,6 +167,7 @@ impl Config {
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
+        config.reuse_password = cli_args.is_present("reuse-password");
 
         if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
