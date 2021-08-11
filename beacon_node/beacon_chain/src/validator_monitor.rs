@@ -68,7 +68,7 @@ struct EpochSummary {
      */
     /// The number of sync committee messages seen.
     sync_committee_messages: usize,
-    /// The delay between when the sync committee_message should have been produced and when it was observed.
+    /// The delay between when the sync committee message should have been produced and when it was observed.
     sync_committee_message_min_delay: Option<Duration>,
     /// The number of times a validator's sync signature was included in the sync aggregate.
     sync_signature_block_inclusions: usize,
@@ -80,7 +80,7 @@ struct EpochSummary {
      */
     /// The number of SyncContributions observed in the current epoch.
     sync_contributions: usize,
-    /// The delay between when the sync committee_message should have been produced and when it was observed.
+    /// The delay between when the sync committee contribution should have been produced and when it was observed.
     sync_contribution_min_delay: Option<Duration>,
 
     /*

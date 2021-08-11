@@ -563,7 +563,7 @@ lazy_static! {
         );
     pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
-            "validator_monitor_prev_epoch_sync_contribtution_inclusions",
+            "validator_monitor_prev_epoch_sync_contribution_inclusions",
             "The count of times a sync signature was seen inside a sync contribution.",
             &["validator"]
         );
