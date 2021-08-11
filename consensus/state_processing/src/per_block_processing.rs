@@ -20,7 +20,7 @@ pub use verify_attestation::{
 pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
 };
-pub use verify_exit::{verify_exit, verify_exit_time_independent_only};
+pub use verify_exit::verify_exit;
 
 pub mod altair;
 pub mod block_signature_verifier;
