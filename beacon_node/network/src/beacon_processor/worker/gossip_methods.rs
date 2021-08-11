@@ -808,6 +808,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 sync_contribution.participant_pubkeys(),
                 &self.chain.slot_clock,
             );
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_VERIFIED_TOTAL);
 
         if let Err(e) = self
             .chain

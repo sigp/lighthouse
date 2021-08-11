@@ -2403,7 +2403,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             validator_monitor.register_sync_aggregate_in_block(
                 block.slot(),
-                block.body_root(),
+                block.parent_root(),
                 participant_pubkeys,
             );
         }
