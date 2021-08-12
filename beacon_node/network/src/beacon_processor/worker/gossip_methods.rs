@@ -1232,9 +1232,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
 
-                // Peers that are slow or not to spec can spam us with these messages draining our
-                // bandwidth. We therefore penalize these peers when they do this.
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                // Unlike attestations, we have a zero slot buffer in case of sync committee messages,
+                // so we don't penalize heavily.
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
 
                 // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
