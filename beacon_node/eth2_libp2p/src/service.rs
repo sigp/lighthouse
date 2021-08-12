@@ -143,7 +143,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .with_max_established_outgoing(Some(
                     (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
                 ))
-                .with_max_established_total(Some(
+                .with_max_established(Some(
                     (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
                 ))
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
