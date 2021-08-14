@@ -10,7 +10,6 @@ use slog::Logger;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::ops::Range;
 use std::time::Duration;
-use tokio_compat_02::FutureExt;
 use tree_hash::TreeHash;
 use types::{DepositData, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature};
 use web3::{transports::Http, Web3};
@@ -90,7 +89,6 @@ async fn blocking_deposit_count(eth1: &GanacheEth1Instance, block_number: u64) -
 async fn get_block_number(web3: &Web3<Http>) -> u64 {
     web3.eth()
         .block_number()
-        .compat()
         .await
         .map(|v| v.as_u64())
         .expect("should get block number")
@@ -180,7 +178,6 @@ mod eth1_cache {
                 }
             }
         }
-        .compat()
         .await;
     }
 
@@ -235,7 +232,6 @@ mod eth1_cache {
                 "should not grow cache beyond target"
             );
         }
-        .compat()
         .await;
     }
 
@@ -288,7 +284,6 @@ mod eth1_cache {
                 "should not grow cache beyond target"
             );
         }
-        .compat()
         .await;
     }
 
@@ -335,7 +330,6 @@ mod eth1_cache {
 
             assert!(service.block_cache_len() >= n, "should grow the cache");
         }
-        .compat()
         .await;
     }
 }
@@ -420,7 +414,6 @@ mod deposit_tree {
                 );
             }
         }
-        .compat()
         .await;
     }
 
@@ -470,7 +463,6 @@ mod deposit_tree {
 
             assert_eq!(service.deposit_cache_len(), n);
         }
-        .compat()
         .await;
     }
 
@@ -571,7 +563,6 @@ mod deposit_tree {
                 }
             }
         }
-        .compat()
         .await;
     }
 }
@@ -675,7 +666,6 @@ mod http {
                 );
             }
         }
-        .compat()
         .await;
     }
 }
@@ -756,7 +746,6 @@ mod fast {
                 );
             }
         }
-        .compat()
         .await;
     }
 }
@@ -838,7 +827,6 @@ mod persist {
                 "Should have equal cached deposits as before recovery"
             );
         }
-        .compat()
         .await;
     }
 }
@@ -918,7 +906,6 @@ mod fallbacks {
                 endpoint2_block_number
             );
         }
-        .compat()
         .await;
     }
 
@@ -988,7 +975,6 @@ mod fallbacks {
                 endpoint2_block_number
             );
         }
-        .compat()
         .await;
     }
 
@@ -1058,7 +1044,6 @@ mod fallbacks {
                 endpoint2_block_number
             );
         }
-        .compat()
         .await;
     }
 
@@ -1136,7 +1121,6 @@ mod fallbacks {
                 endpoint2_block_number
             );
         }
-        .compat()
         .await;
     }
 }
