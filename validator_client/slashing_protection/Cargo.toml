@@ -8,9 +8,9 @@ edition = "2018"
 tempfile = "3.1.0"
 types = { path = "../../consensus/types" }
 tree_hash = "0.1.1"
-rusqlite = { version = "0.24.0", features = ["bundled"] }
+rusqlite = { version = "0.25.3", features = ["bundled"] }
 r2d2 = "0.8.9"
-r2d2_sqlite = "0.17.0"
+r2d2_sqlite = "0.18.0"
 parking_lot = "0.11.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"

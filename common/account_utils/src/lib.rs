@@ -90,6 +90,7 @@ pub fn random_password() -> PlainText {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
+        .map(char::from)
         .collect::<String>()
         .into_bytes()
         .into()

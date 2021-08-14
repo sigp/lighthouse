@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmapr
 edition = "2018"
 
 [dev-dependencies]
-env_logger = "0.8.2"
+env_logger = "0.9.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 lazy_static = "1.4.0"
