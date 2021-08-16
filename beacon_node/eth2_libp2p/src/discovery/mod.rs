@@ -1112,10 +1112,7 @@ mod tests {
             subnet_query.min_ttl,
             subnet_query.retries,
         );
-        assert_eq!(
-            discovery.queued_queries.back(),
-            Some(&QueryType::Subnet(subnet_query.clone()))
-        );
+        assert_eq!(discovery.queued_queries.back(), Some(&subnet_query.clone()));
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
@@ -1126,7 +1123,7 @@ mod tests {
         assert_eq!(discovery.queued_queries.len(), 1);
         assert_eq!(
             discovery.queued_queries.pop_back(),
-            Some(QueryType::Subnet(subnet_query.clone()))
+            Some(subnet_query.clone())
         );
 
         // Retries > MAX_DISCOVERY_RETRY must return immediately without adding
@@ -1138,39 +1135,6 @@ mod tests {
         );
 
         assert_eq!(discovery.queued_queries.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_process_queue() {
-        let mut discovery = build_discovery().await;
-
-        // FindPeers query is processed if there is no subnet query
-        discovery.queued_queries.push_back(QueryType::FindPeers);
-        assert!(discovery.process_queue());
-
-        let now = Instant::now();
-        let subnet_query = SubnetQuery {
-            subnet: Subnet::Attestation(SubnetId::new(1)),
-            min_ttl: Some(now + Duration::from_secs(10)),
-            retries: 0,
-        };
-
-        // Refresh active queries
-        discovery.active_queries = Default::default();
-
-        // SubnetQuery is processed if it's the only queued query
-        discovery
-            .queued_queries
-            .push_back(QueryType::Subnet(subnet_query.clone()));
-        assert!(discovery.process_queue());
-
-        // SubnetQuery is processed if it's there is also 1 queued discovery query
-        discovery.queued_queries.push_back(QueryType::FindPeers);
-        discovery
-            .queued_queries
-            .push_back(QueryType::Subnet(subnet_query));
-        // Process Subnet query and FindPeers afterwards.
-        assert!(discovery.process_queue());
     }
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
@@ -1216,7 +1180,10 @@ mod tests {
 
         let enrs: Vec<Enr> = vec![enr1.clone(), enr2, enr3];
         let results = discovery
-            .process_completed_queries(QueryResult(query, Ok(enrs)))
+            .process_completed_queries(QueryResult {
+                query_type: query,
+                result: Ok(enrs),
+            })
             .unwrap();
 
         // enr1 and enr2 are required peers based on the requested subnet ids
