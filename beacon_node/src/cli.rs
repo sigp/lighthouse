@@ -490,6 +490,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("initial-state")
         )
         .arg(
+            Arg::with_name("checkpoint-sync-url")
+                .long("checkpoint-sync-url")
+                .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync")
+                .value_name("BEACON_NODE")
+                .takes_value(true)
+                .conflicts_with("initial-state")
+        )
+        .arg(
             Arg::with_name("validator-monitor-auto")
                 .long("validator-monitor-auto")
                 .help("Enables the automatic detection and monitoring of validators connected to the \

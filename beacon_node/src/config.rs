@@ -319,6 +319,14 @@ pub fn get_config<E: EthSpec>(
                     anchor_state_bytes,
                     anchor_block_bytes,
                 }
+            } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
+                let url = SensitiveUrl::parse(remote_bn_url)
+                    .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+
+                ClientGenesis::CheckpointSyncUrl {
+                    genesis_state_bytes,
+                    url,
+                }
             } else {
                 // Note: re-serializing the genesis state is not so efficient, however it avoids adding
                 // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
@@ -330,9 +338,9 @@ pub fn get_config<E: EthSpec>(
         } else {
             if cli_args.is_present("initial-state") {
                 return Err(
-                "Checkpoint sync is not available for this network as no genesis state is known"
-                    .to_string(),
-            );
+                    "Checkpoint sync is not available for this network as no genesis state is known"
+                        .to_string(),
+                );
             }
             ClientGenesis::DepositContract
         };
