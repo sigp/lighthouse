@@ -848,7 +848,7 @@ fn scrape_attestation_observation<T: BeaconChainTypes>(slot_now: Slot, chain: &B
     let prev_epoch = slot_now.epoch(T::EthSpec::slots_per_epoch()) - 1;
 
     if let Some(count) = chain
-        .observed_attesters
+        .observed_gossip_attesters
         .read()
         .observed_validator_count(prev_epoch)
     {

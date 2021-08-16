@@ -1,10 +1,12 @@
 //! Implementation of Lighthouse's peer management system.
 
 pub use self::peerdb::*;
+use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkConfig, NetworkGlobals, PeerId};
+use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use futures::prelude::*;
 use futures::Stream;
@@ -19,7 +21,7 @@ use std::{
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use types::{EthSpec, SubnetId};
+use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -34,7 +36,7 @@ pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionSta
 pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
 use score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
 
 /// The time in seconds between re-status's peers.
@@ -78,6 +80,11 @@ pub struct PeerManager<TSpec: EthSpec> {
     target_peers: usize,
     /// The maximum number of peers we allow (exceptions for subnet peers)
     max_peers: usize,
+    /// A collection of sync committee subnets that we need to stay subscribed to.
+    /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
+    /// discovery queries for subnet peers if we disconnect from existing sync
+    /// committee subnet peers.
+    sync_committee_subnets: HashMap<SyncSubnetId, Instant>,
     /// The heartbeat interval to perform routine maintenance.
     heartbeat: tokio::time::Interval,
     /// Keeps track of whether the discovery service is enabled or not.
@@ -108,6 +115,8 @@ pub enum PeerManagerEvent {
     UnBanned(PeerId, Vec<IpAddr>),
     /// Request the behaviour to discover more peers.
     DiscoverPeers,
+    /// Request the behaviour to discover peers on subnets.
+    DiscoverSubnetPeers(Vec<SubnetDiscovery>),
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
@@ -127,6 +136,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_OUTBOUND)),
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             target_peers: config.target_peers,
+            sync_committee_subnets: Default::default(),
             max_peers: (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize,
             heartbeat,
             discovery_enabled: !config.disable_discovery,
@@ -264,16 +274,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
-    pub fn add_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+    pub fn add_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.insert(subnet_id);
+            info.subnets.insert(subnet);
         }
     }
 
     /// Removes a gossipsub subscription to a peer in the peerdb.
-    pub fn remove_subscription(&self, peer_id: &PeerId, subnet_id: SubnetId) {
+    pub fn remove_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.remove(&subnet_id);
+            info.subnets.remove(&subnet);
         }
     }
 
@@ -281,6 +291,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn remove_all_subscriptions(&self, peer_id: &PeerId) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             info.subnets = Default::default();
+        }
+    }
+
+    /// Insert the sync subnet into list of long lived sync committee subnets that we need to
+    /// maintain adequate number of peers for.
+    pub fn add_sync_subnet(&mut self, subnet_id: SyncSubnetId, min_ttl: Instant) {
+        match self.sync_committee_subnets.entry(subnet_id) {
+            Entry::Vacant(_) => {
+                self.sync_committee_subnets.insert(subnet_id, min_ttl);
+            }
+            Entry::Occupied(old) => {
+                if *old.get() < min_ttl {
+                    self.sync_committee_subnets.insert(subnet_id, min_ttl);
+                }
+            }
         }
     }
 
@@ -599,9 +624,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // if the sequence number is unknown send an update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
+                if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "ping_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "ping_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
@@ -623,9 +648,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // if the sequence number is unknown send update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data {
-                if meta_data.seq_number < seq {
+                if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
-                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number, "pong_seq_no" => seq);
+                        "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "pong_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
@@ -643,19 +668,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data {
-                if known_meta_data.seq_number < meta_data.seq_number {
+                if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
-                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                 } else {
                     debug!(self.log, "Received old metadata";
-                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number, "new_seq_no" => meta_data.seq_number);
+                        "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                     // Updating metadata even in this case to prevent storing
-                    // incorrect  `metadata.attnets` for a peer
+                    // incorrect  `attnets/syncnets` for a peer
                 }
             } else {
                 // we have no meta-data for this peer, update
                 debug!(self.log, "Obtained peer's metadata";
-                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number);
+                    "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
             peer_info.meta_data = Some(meta_data);
         } else {
@@ -965,6 +990,46 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         Ok(())
     }
 
+    /// Run discovery query for additional sync committee peers if we fall below `TARGET_PEERS`.
+    fn maintain_sync_committee_peers(&mut self) {
+        // Remove expired entries
+        self.sync_committee_subnets
+            .retain(|_, v| *v > Instant::now());
+
+        let subnets_to_discover: Vec<SubnetDiscovery> = self
+            .sync_committee_subnets
+            .iter()
+            .filter_map(|(k, v)| {
+                if self
+                    .network_globals
+                    .peers
+                    .read()
+                    .good_peers_on_subnet(Subnet::SyncCommittee(*k))
+                    .count()
+                    < TARGET_SUBNET_PEERS
+                {
+                    Some(SubnetDiscovery {
+                        subnet: Subnet::SyncCommittee(*k),
+                        min_ttl: Some(*v),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // request the subnet query from discovery
+        if !subnets_to_discover.is_empty() {
+            debug!(
+                self.log,
+                "Making subnet queries for maintaining sync committee peers";
+                "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
+            );
+            self.events
+                .push(PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover));
+        }
+    }
+
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
     ///
     /// It will request discovery queries if the peer count has not reached the desired number of
@@ -988,6 +1053,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Updates peer's scores.
         self.update_peer_scores();
+
+        // Maintain minimum count for sync committee peers.
+        self.maintain_sync_committee_peers();
 
         // Keep a list of peers we are disconnecting
         let mut disconnecting_peers = Vec::new();
@@ -1115,7 +1183,7 @@ mod tests {
     use super::*;
     use crate::discovery::enr::build_enr;
     use crate::discovery::enr_ext::CombinedKeyExt;
-    use crate::rpc::methods::MetaData;
+    use crate::rpc::methods::{MetaData, MetaDataV2};
     use crate::Enr;
     use discv5::enr::CombinedKey;
     use slog::{o, Drain};
@@ -1156,10 +1224,11 @@ mod tests {
             enr,
             9000,
             9000,
-            MetaData {
+            MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
-            },
+                syncnets: Default::default(),
+            }),
             vec![],
             &log,
         );

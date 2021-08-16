@@ -3,6 +3,7 @@ name = "http_api"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
+autotests = false # using a single test binary compiles faster
 
 [dependencies]
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
@@ -35,3 +36,7 @@ store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.1.1"
 sensitive_url = { path = "../../common/sensitive_url" }
+
+[[test]]
+name = "bn_http_api_tests"
+path = "tests/main.rs"

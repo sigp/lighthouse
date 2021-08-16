@@ -64,6 +64,7 @@ scrypt = { version = "0.5.0", default-features = false }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 fallback = { path = "../common/fallback" }
+itertools = "0.10.0"
 monitoring_api = { path = "../common/monitoring_api" }
 sensitive_url = { path = "../common/sensitive_url" }
 task_executor = { path = "../common/task_executor" }

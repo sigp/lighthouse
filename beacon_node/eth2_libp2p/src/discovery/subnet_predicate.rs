@@ -1,11 +1,12 @@
 ///! The subnet predicate used for searching for a particular subnet.
 use super::*;
+use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use slog::trace;
 use std::ops::Deref;
 
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<TSpec>(
-    subnet_ids: Vec<SubnetId>,
+    subnets: Vec<Subnet>,
     log: &slog::Logger,
 ) -> impl Fn(&Enr) -> bool + Send
 where
@@ -14,39 +15,33 @@ where
     let log_clone = log.clone();
 
     move |enr: &Enr| {
-        if let Some(bitfield_bytes) = enr.get(BITFIELD_ENR_KEY) {
-            let bitfield = match BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(
-                bitfield_bytes,
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!(log_clone, "Could not decode ENR bitfield for peer"; "peer_id" => format!("{}", enr.peer_id()), "error" => format!("{:?}", e));
-                    return false;
-                }
+        let attestation_bitfield: EnrAttestationBitfield<TSpec> =
+            match enr.attestation_bitfield::<TSpec>() {
+                Ok(b) => b,
+                Err(_e) => return false,
             };
 
-            let matches: Vec<&SubnetId> = subnet_ids
-                .iter()
-                .filter(|id| bitfield.get(**id.deref() as usize).unwrap_or(false))
-                .collect();
+        // Pre-fork/fork-boundary enrs may not contain a syncnets field.
+        // Don't return early here
+        let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<TSpec>, _> =
+            enr.sync_committee_bitfield::<TSpec>();
 
-            if matches.is_empty() {
-                trace!(
-                    log_clone,
-                    "Peer found but not on any of the desired subnets";
-                    "peer_id" => %enr.peer_id()
-                );
-                return false;
-            } else {
-                trace!(
-                   log_clone,
-                   "Peer found on desired subnet(s)";
-                   "peer_id" => %enr.peer_id(),
-                   "subnets" => ?matches.as_slice()
-                );
-                return true;
-            }
+        let predicate = subnets.iter().any(|subnet| match subnet {
+            Subnet::Attestation(s) => attestation_bitfield
+                .get(*s.deref() as usize)
+                .unwrap_or(false),
+            Subnet::SyncCommittee(s) => sync_committee_bitfield
+                .as_ref()
+                .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
+        });
+
+        if !predicate {
+            trace!(
+                log_clone,
+                "Peer found but not on any of the desired subnets";
+                "peer_id" => %enr.peer_id()
+            );
         }
-        false
+        predicate
     }
 }

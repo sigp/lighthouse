@@ -4,7 +4,7 @@
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
-    Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
+    Config, InitializedValidators, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
@@ -17,10 +17,11 @@ use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
-use slot_clock::TestingSlotClock;
+use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
@@ -73,20 +74,19 @@ impl ApiTester {
 
         let spec = E::default_spec();
 
-        let fork_service = ForkServiceBuilder::testing_only(spec.clone(), log.clone())
-            .build()
-            .unwrap();
-
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+
+        let validator_store = ValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
             spec,
-            fork_service.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            slot_clock,
             log.clone(),
         );
 
@@ -96,7 +96,7 @@ impl ApiTester {
 
         let initialized_validators = validator_store.initialized_validators();
 
-        let context: Arc<Context<TestingSlotClock, E>> = Arc::new(Context {
+        let context = Arc::new(Context {
             runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),

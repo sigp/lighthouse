@@ -17,7 +17,7 @@ use eth2_libp2p::{MessageId, PeerId};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
-use slog::{crit, debug, error, Logger};
+use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
@@ -46,7 +46,7 @@ pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
-const MAXIMUM_QUEUED_ATTESTATIONS: usize = 1_024;
+const MAXIMUM_QUEUED_ATTESTATIONS: usize = 2_048;
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
@@ -261,7 +261,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
                     // Check to ensure this won't over-fill the queue.
                     if self.queued_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
-                        error!(
+                        warn!(
                             log,
                             "Early blocks queue is full";
                             "queue_size" => MAXIMUM_QUEUED_BLOCKS,

@@ -1,16 +1,19 @@
 use super::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use super::peer_sync_status::PeerSyncStatus;
 use super::score::{Score, ScoreState};
-use crate::multiaddr::{Multiaddr, Protocol};
 use crate::rpc::methods::MetaData;
 use crate::Enr;
 use crate::PeerId;
+use crate::{
+    multiaddr::{Multiaddr, Protocol},
+    types::Subnet,
+};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, trace, warn};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
-use types::{EthSpec, SubnetId};
+use types::EthSpec;
 
 /// Max number of disconnected nodes to remember.
 const MAX_DC_PEERS: usize = 500;
@@ -267,14 +270,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives an iterator of all peers on a given subnet.
-    pub fn good_peers_on_subnet(&self, subnet_id: SubnetId) -> impl Iterator<Item = &PeerId> {
+    pub fn good_peers_on_subnet(&self, subnet: Subnet) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
                 // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
                 info.is_connected()
-                    && info.on_subnet_metadata(subnet_id)
-                    && info.on_subnet_gossipsub(subnet_id)
+                    && info.on_subnet_metadata(&subnet)
+                    && info.on_subnet_gossipsub(&subnet)
                     && info.is_good_gossipsub_peer()
             })
             .map(|(peer_id, _)| peer_id)
@@ -382,11 +385,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Extends the ttl of all peers on the given subnet that have a shorter
     /// min_ttl than what's given.
-    pub fn extend_peers_on_subnet(&mut self, subnet_id: SubnetId, min_ttl: Instant) {
+    pub fn extend_peers_on_subnet(&mut self, subnet: &Subnet, min_ttl: Instant) {
         let log = &self.log;
         self.peers.iter_mut()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet_metadata(subnet_id) && info.on_subnet_gossipsub(subnet_id)
+                info.is_connected() && info.on_subnet_metadata(subnet) && info.on_subnet_gossipsub(subnet)
             })
             .for_each(|(peer_id,info)| {
                 if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {

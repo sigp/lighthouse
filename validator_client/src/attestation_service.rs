@@ -18,7 +18,7 @@ use types::{
 };
 
 /// Builds an `AttestationService`.
-pub struct AttestationServiceBuilder<T, E: EthSpec> {
+pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<T>,
