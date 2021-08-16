@@ -1784,6 +1784,7 @@ fn weak_subjectivity_sync() {
     // Initialise a new beacon chain from the finalized checkpoint
     let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
         .store(store.clone())
+        .custom_spec(test_spec::<E>())
         .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
         .unwrap()
         .logger(log.clone())
