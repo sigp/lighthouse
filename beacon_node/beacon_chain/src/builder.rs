@@ -355,7 +355,7 @@ where
     /// Start the chain from a weak subjectivity state.
     pub fn weak_subjectivity_state(
         mut self,
-        weak_subj_state: BeaconState<TEthSpec>,
+        mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
         genesis_state: BeaconState<TEthSpec>,
     ) -> Result<Self, String> {
@@ -364,6 +364,37 @@ where
         let weak_subj_slot = weak_subj_state.slot();
         let weak_subj_block_root = weak_subj_block.canonical_root();
         let weak_subj_state_root = weak_subj_block.state_root();
+
+        // Check that the given block lies on an epoch boundary. Due to the database only storing
+        // full states on epoch boundaries and at restore points it would be difficult to support
+        // starting from a mid-epoch state.
+        if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
+            return Err(format!(
+                "Checkpoint block at slot {} is not aligned to epoch start. \
+                 Please supply an aligned checkpoint with block.slot % 32 == 0",
+                weak_subj_block.slot(),
+            ));
+        }
+
+        // Check that the block and state have consistent slots and state roots.
+        if weak_subj_state.slot() != weak_subj_block.slot() {
+            return Err(format!(
+                "Slot of snapshot block ({}) does not match snapshot state ({})",
+                weak_subj_block.slot(),
+                weak_subj_state.slot(),
+            ));
+        }
+
+        let computed_state_root = weak_subj_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
+
+        if weak_subj_state_root != computed_state_root {
+            return Err(format!(
+                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
+                weak_subj_state_root, computed_state_root
+            ));
+        }
 
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
