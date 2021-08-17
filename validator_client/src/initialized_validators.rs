@@ -321,7 +321,7 @@ pub struct InitializedValidators {
     log: Logger,
     /// If true, reuse the same password entered via STDIN for all keystores without password.
     reuse_password: bool,
-    /// Temporarily stores password that will be re-used
+    /// Temporarily stores password that will be re-used.
     reuse_password_text: Option<PlainText>,
 }
 
