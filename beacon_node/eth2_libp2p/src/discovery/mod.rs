@@ -638,24 +638,19 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // Check that we are within our query concurrency limit
         while !self.at_capacity() {
             // consume and process the query queue
-            match self.queued_queries.pop_front() {
-                Some(subnet_query) => {
-                    subnet_queries.push(subnet_query);
+            if let Some(subnet_query) = self.queued_queries.pop_front() {
+                subnet_queries.push(subnet_query);
 
-                    // We want to start a grouped subnet query if:
-                    //  1. We've grouped MAX_SUBNETS_IN_QUERY subnets together.
-                    //  2. There are no more messages in the queue.
-                    if subnet_queries.len() == MAX_SUBNETS_IN_QUERY
-                        || self.queued_queries.is_empty()
-                    {
-                        // This query is for searching for peers of a particular subnet
-                        // Drain subnet_queries so we can re-use it as we continue to process the queue
-                        let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
-                        self.start_subnet_query(grouped_queries);
-                        processed = true;
-                    }
+                // We want to start a grouped subnet query if:
+                //  1. We've grouped MAX_SUBNETS_IN_QUERY subnets together.
+                //  2. There are no more messages in the queue.
+                if subnet_queries.len() == MAX_SUBNETS_IN_QUERY || self.queued_queries.is_empty() {
+                    // This query is for searching for peers of a particular subnet
+                    // Drain subnet_queries so we can re-use it as we continue to process the queue
+                    let grouped_queries: Vec<SubnetQuery> = subnet_queries.drain(..).collect();
+                    self.start_subnet_query(grouped_queries);
+                    processed = true;
                 }
-                None => {} // Queue is empty
             }
         }
         // Update the queue metric
@@ -775,6 +770,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
             Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && additional_predicate(enr));
 
+        // Indicate that we are starting a `FindPeers` query
+        if let QueryType::FindPeers = &query {
+            self.find_peer_active = true;
+        }
+
         // Build the future
         let query_future = self
             .discv5
@@ -783,11 +783,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 query_type: query,
                 result: v,
             });
-
-        // Indicate that we are starting a `FindPeers` query
-        if let QueryType::FindPeers = query {
-            self.find_peer_active = true;
-        }
 
         // Add the future to active queries, to be executed.
         self.active_queries.push(Box::pin(query_future));
@@ -1118,7 +1113,7 @@ mod tests {
             subnet_query.min_ttl,
             subnet_query.retries,
         );
-        assert_eq!(discovery.queued_queries.back(), Some(&subnet_query.clone()));
+        assert_eq!(discovery.queued_queries.back(), Some(&subnet_query));
 
         // New query should replace old query
         subnet_query.min_ttl = Some(now + Duration::from_secs(1));
