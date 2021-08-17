@@ -471,7 +471,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         // Note: it is critical that the `authorization_header_filter` is applied to all routes.
         // Keeping all the routes inside the following `and` is a reliable way to achieve this.
         //
-        // When adding a route, don't forget to add it to the `routes_with_invalid_token` tests!
+        // When adding a route, don't forget to add it to the `routes_with_invalid_auth` tests!
         .and(
             warp::get()
                 .and(
