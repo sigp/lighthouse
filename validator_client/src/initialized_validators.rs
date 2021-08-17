@@ -319,7 +319,7 @@ pub struct InitializedValidators {
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// For logging via `slog`.
     log: Logger,
-    /// If true, reuse the same password entered via STDIN for all keystores without password
+    /// If true, reuse the same password entered via STDIN for all keystores without password.
     reuse_password: bool,
     /// Temporarily stores password that will be re-used
     reuse_password_text: Option<PlainText>,
