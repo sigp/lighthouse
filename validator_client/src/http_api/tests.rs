@@ -144,7 +144,7 @@ impl ApiTester {
         }
     }
 
-    pub async fn with_invalid_token_client<F, A>(self, func: F) -> Self
+    pub async fn with_invalid_auth_clients<F, A>(self, func: F) -> Self
     where
         F: Fn(ValidatorClientHttpClient) -> A,
         A: Future<Output = ()>,
@@ -153,9 +153,21 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
         let invalid_pubkey = api_secret.api_token();
 
+        /*
+         * Test with an invalid Authorization header.
+         */
         let invalid_token_client =
-            ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
+            ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey.clone()).unwrap();
         func(invalid_token_client).await;
+
+        /*
+         * Test with a missing Authorization header.
+         */
+        let mut missing_token_client =
+            ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
+        missing_token_client.send_authorization_header(false);
+        func(missing_token_client).await;
+
         self
     }
 
@@ -475,7 +487,7 @@ fn invalid_pubkey() {
     });
 }
 
-fn assert_invalid_secret<T>(result: Result<T, ApiError>) {
+fn assert_authorized<T>(result: Result<T, ApiError>) {
     match &result {
         Err(ApiError::ServerMessage(ApiErrorMessage { code, .. })) if *code == 403 => (),
         Err(other) => panic!("expected authorized error, got {:?}", other),
@@ -490,17 +502,17 @@ fn routes_with_invalid_token() {
     runtime.block_on(async {
         ApiTester::new(weak_runtime)
             .await
-            .with_invalid_token_client(|client| async move {
-                assert_invalid_secret(client.get_lighthouse_version().await);
-                assert_invalid_secret(client.get_lighthouse_health().await);
-                assert_invalid_secret(client.get_lighthouse_spec().await);
-                assert_invalid_secret(client.get_lighthouse_validators().await);
-                assert_invalid_secret(
+            .with_invalid_auth_clients(|client| async move {
+                assert_authorized(client.get_lighthouse_version().await);
+                assert_authorized(client.get_lighthouse_health().await);
+                assert_authorized(client.get_lighthouse_spec().await);
+                assert_authorized(client.get_lighthouse_validators().await);
+                assert_authorized(
                     client
                         .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
                         .await,
                 );
-                assert_invalid_secret(
+                assert_authorized(
                     client
                         .post_lighthouse_validators(vec![ValidatorRequest {
                             enable: <_>::default(),
@@ -510,7 +522,7 @@ fn routes_with_invalid_token() {
                         }])
                         .await,
                 );
-                assert_invalid_secret(
+                assert_authorized(
                     client
                         .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
                             mnemonic: String::default().into(),
@@ -525,7 +537,7 @@ fn routes_with_invalid_token() {
                     .unwrap()
                     .build()
                     .unwrap();
-                assert_invalid_secret(
+                assert_authorized(
                     client
                         .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
                             password: String::default().into(),
@@ -535,7 +547,7 @@ fn routes_with_invalid_token() {
                         })
                         .await,
                 );
-                assert_invalid_secret(
+                assert_authorized(
                     client
                         .patch_lighthouse_validators(&PublicKeyBytes::empty(), false)
                         .await,
