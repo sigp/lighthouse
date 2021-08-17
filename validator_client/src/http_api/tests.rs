@@ -12,12 +12,17 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
-use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*};
+use eth2::{
+    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    types::ErrorMessage as ApiErrorMessage,
+    Error as ApiError,
+};
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -137,6 +142,21 @@ impl ApiTester {
             url,
             _server_shutdown: shutdown_tx,
         }
+    }
+
+    pub async fn with_invalid_token_client<F, A>(self, func: F) -> Self
+    where
+        F: Fn(ValidatorClientHttpClient) -> A,
+        A: Future<Output = ()>,
+    {
+        let tmp = tempdir().unwrap();
+        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let invalid_pubkey = api_secret.api_token();
+
+        let invalid_token_client =
+            ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
+        func(invalid_token_client).await;
+        self
     }
 
     pub fn invalidate_api_token(mut self) -> Self {
@@ -451,6 +471,76 @@ fn invalid_pubkey() {
             .await
             .invalidate_api_token()
             .test_get_lighthouse_version_invalid()
+            .await;
+    });
+}
+
+fn assert_invalid_secret<T>(result: Result<T, ApiError>) {
+    match &result {
+        Err(ApiError::ServerMessage(ApiErrorMessage { code, .. })) if *code == 403 => (),
+        Err(other) => panic!("expected authorized error, got {:?}", other),
+        Ok(_) => panic!("expected authorized error, got Ok"),
+    }
+}
+
+#[test]
+fn routes_with_invalid_token() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .with_invalid_token_client(|client| async move {
+                assert_invalid_secret(client.get_lighthouse_version().await);
+                assert_invalid_secret(client.get_lighthouse_health().await);
+                assert_invalid_secret(client.get_lighthouse_spec().await);
+                assert_invalid_secret(client.get_lighthouse_validators().await);
+                assert_invalid_secret(
+                    client
+                        .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
+                        .await,
+                );
+                assert_invalid_secret(
+                    client
+                        .post_lighthouse_validators(vec![ValidatorRequest {
+                            enable: <_>::default(),
+                            description: <_>::default(),
+                            graffiti: <_>::default(),
+                            deposit_gwei: <_>::default(),
+                        }])
+                        .await,
+                );
+                assert_invalid_secret(
+                    client
+                        .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
+                            mnemonic: String::default().into(),
+                            key_derivation_path_offset: <_>::default(),
+                            validators: <_>::default(),
+                        })
+                        .await,
+                );
+                let password = random_password();
+                let keypair = Keypair::random();
+                let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                assert_invalid_secret(
+                    client
+                        .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
+                            password: String::default().into(),
+                            enable: <_>::default(),
+                            keystore,
+                            graffiti: <_>::default(),
+                        })
+                        .await,
+                );
+                assert_invalid_secret(
+                    client
+                        .patch_lighthouse_validators(&PublicKeyBytes::empty(), false)
+                        .await,
+                );
+            })
             .await;
     });
 }
