@@ -320,12 +320,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             return;
         }
         // Immediately start a FindNode query
-        debug!(self.log, "Discovery query started");
-        self.find_peer_active = true;
+        debug!(self.log, "Starting a peer discovery request");
         self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS, |_| {
             true
         });
-        metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
     }
 
     /// Processes a request to search for more peers on a subnet.
@@ -336,7 +334,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
         trace!(
             self.log,
-            "Making discovery query for subnets";
+            "Starting discovery query for subnets";
             "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
         );
         for subnet in subnets_to_discover {
@@ -628,8 +626,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// Consume the discovery queue and initiate queries when applicable.
     ///
     /// This also sanitizes the queue removing out-dated queries.
-    /// Returns `true` if any of the queued queries is processed and a discovery
-    /// query (Subnet or FindPeers) is started.
+    /// Returns `true` if any of the queued queries is processed and a subnet discovery
+    /// query is started.
     fn process_queue(&mut self) -> bool {
         // Sanitize the queue, removing any out-dated subnet queries
         self.queued_queries.retain(|query| !query.expired());
@@ -638,7 +636,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let mut subnet_queries: Vec<SubnetQuery> = Vec::new();
         let mut processed = false;
         // Check that we are within our query concurrency limit
-        while !self.at_capacity() && !self.queued_queries.is_empty() {
+        while !self.at_capacity() {
             // consume and process the query queue
             match self.queued_queries.pop_front() {
                 Some(subnet_query) => {
@@ -666,9 +664,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     // Returns a boolean indicating if we are currently processing the maximum number of
-    // concurrent queries or not.
+    // concurrent subnet queries or not.
     fn at_capacity(&self) -> bool {
-        self.active_queries.len() >= MAX_CONCURRENT_QUERIES
+        self.active_queries
+            .len()
+            .saturating_sub(self.find_peer_active as usize) // We only count active subnet queries
+            >= MAX_CONCURRENT_QUERIES
     }
 
     /// Runs a discovery request for a given group of subnets.
@@ -782,6 +783,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 query_type: query,
                 result: v,
             });
+
+        // Indicate that we are starting a `FindPeers` query
+        if let QueryType::FindPeers = query {
+            self.find_peer_active = true;
+        }
 
         // Add the future to active queries, to be executed.
         self.active_queries.push(Box::pin(query_future));
