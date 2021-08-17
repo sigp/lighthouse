@@ -50,7 +50,7 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
-    /// If true, the password read from STDIN will be used multiple times for all keystores without password
+    /// If true, the password read from STDIN will be used multiple times for all keystores without password.
     pub reuse_password: bool,
 }
 
