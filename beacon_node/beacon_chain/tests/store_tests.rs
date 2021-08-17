@@ -1880,14 +1880,11 @@ fn weak_subjectivity_sync() {
     // All states from the oldest state slot can be loaded.
     let oldest_state_slot = store.get_oldest_state_slot();
     for (state_root, slot) in beacon_chain
-        .forwards_iter_state_roots(dbg!(oldest_state_slot))
+        .forwards_iter_state_roots(oldest_state_slot)
         .unwrap()
         .map(Result::unwrap)
     {
-        let state = store
-            .get_state(&dbg!(state_root), Some(dbg!(slot)))
-            .unwrap()
-            .unwrap();
+        let state = store.get_state(&state_root, Some(slot)).unwrap().unwrap();
         assert_eq!(state.slot(), slot);
         assert_eq!(state.canonical_root(), state_root);
     }
