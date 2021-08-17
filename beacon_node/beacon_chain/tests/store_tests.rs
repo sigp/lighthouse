@@ -1837,6 +1837,10 @@ fn weak_subjectivity_sync() {
         None
     );
 
+    // Simulate querying the API for a historic state that is unknown. It should also return
+    // `None` rather than erroring.
+    assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None,);
+
     // Supply blocks backwards to reach genesis
     let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
         .iter()
@@ -1862,6 +1866,34 @@ fn weak_subjectivity_sync() {
             .forwards_iter_block_roots(Slot::new(0))
             .unwrap()
             .map(Result::unwrap)));
+
+    // All blocks can be loaded.
+    for (block_root, slot) in beacon_chain
+        .forwards_iter_block_roots(Slot::new(0))
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        let block = store.get_block(&block_root).unwrap().unwrap();
+        assert_eq!(block.slot(), slot);
+    }
+
+    // All states from the oldest state slot can be loaded.
+    let oldest_state_slot = store.get_oldest_state_slot();
+    for (state_root, slot) in beacon_chain
+        .forwards_iter_state_roots(dbg!(oldest_state_slot))
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        let state = store
+            .get_state(&dbg!(state_root), Some(dbg!(slot)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.slot(), slot);
+        assert_eq!(state.canonical_root(), state_root);
+    }
+
+    // Anchor slot is still set to the starting slot.
+    assert_eq!(store.get_anchor_slot(), Some(wss_slot));
 }
 
 #[test]

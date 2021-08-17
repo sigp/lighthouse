@@ -29,6 +29,7 @@ use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
     SlotProcessingError,
 };
+use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -697,9 +698,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Return `None` if no state with `state_root` lies in the freezer.
     pub fn load_cold_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
+        // Guard against fetching states that do not exist due to weak subjectivity sync.
+        // See the comment within `get_oldest_state_slot` for a rationale.
         match self.load_cold_state_slot(state_root)? {
-            Some(slot) => self.load_cold_state_by_slot(slot).map(Some),
-            None => Ok(None),
+            Some(slot) if slot >= self.get_oldest_state_slot() => {
+                self.load_cold_state_by_slot(slot).map(Some)
+            }
+            _ => Ok(None),
         }
     }
 
@@ -939,6 +944,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 
+    /// Initialise the anchor info for checkpoint sync starting from `block`.
+    pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<(), Error> {
+        let anchor_slot = block.slot();
+        let slots_per_restore_point = self.config.slots_per_restore_point;
+
+        // Set the `oldest_state_slot` to the slot of the *next* restore point.
+        // See `get_oldest_state_slot` for rationale.
+        let next_restore_point_slot = if anchor_slot % slots_per_restore_point == 0 {
+            anchor_slot
+        } else {
+            (anchor_slot / slots_per_restore_point + 1) * slots_per_restore_point
+        };
+        let anchor_info = AnchorInfo {
+            anchor_slot,
+            oldest_block_slot: anchor_slot,
+            oldest_block_parent: block.parent_root(),
+            oldest_state_slot: next_restore_point_slot,
+        };
+        self.compare_and_set_anchor_info(None, Some(anchor_info))
+    }
+
     /// Get a clone of the store's anchor info.
     ///
     /// To do mutations, use `compare_and_set_anchor_info`.
@@ -991,10 +1017,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Return the minimum slot such that states are available for all subsequent slots.
     pub fn get_oldest_state_slot(&self) -> Slot {
+        // If checkpoint sync is used then states in the hot DB will always be available, but may
+        // become unavailable as finalisation advances due to the lack of a restore point in the
+        // database. For this reason we take the minimum of the split slot and the
+        // restore-point-aligned `oldest_state_slot`, which should be set _ahead_ of the checkpoint
+        // slot during initialisation.
+        //
+        // E.g. if we start from a checkpoint at slot 2048+1024=3072 with SPRP=2048, then states
+        // with slots 3072-4095 will be available only while they are in the hot database, and
+        // this function will return the current split slot. Once slot 4096 is reached a new
+        // restore point will be created at that slot, making all states from 4096 onwards
+        // permanently available.
+        let split_slot = self.get_split_slot();
         self.anchor_info
             .read_recursive()
             .as_ref()
-            .map_or(self.spec.genesis_slot, |a| a.oldest_state_slot)
+            .map_or(self.spec.genesis_slot, |a| {
+                min(a.oldest_state_slot, split_slot)
+            })
     }
 
     /// Return the minimum slot such that blocks are available for all subsequent slots.

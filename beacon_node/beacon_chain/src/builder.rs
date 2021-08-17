@@ -24,7 +24,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{AnchorInfo, Error as StoreError, HotColdDB, ItemStore};
+use store::{Error as StoreError, HotColdDB, ItemStore};
 use task_executor::ShutdownReason;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
@@ -414,13 +414,9 @@ where
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
 
         // Store anchor info (context for weak subj sync).
-        let anchor_info = AnchorInfo::new(
-            weak_subj_state.slot(),
-            weak_subj_block.message().parent_root(),
-        );
         store
-            .compare_and_set_anchor_info(None, Some(anchor_info))
-            .map_err(|e| format!("Error setting anchor: {:?}", e))?;
+            .init_anchor_info(weak_subj_block.message())
+            .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?;
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
         store
