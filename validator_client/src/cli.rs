@@ -97,7 +97,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("reuse-password")
                 .long("reuse-password")
-                .help("If present, the same password will be used for all keystores without a password."),
+                .help("If present, the same password will be used to unlock all keystores without a password."),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
