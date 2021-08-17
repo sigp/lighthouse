@@ -4,12 +4,14 @@ use crate::{
     http_metrics::metrics,
     validator_store::ValidatorStore,
 };
+use bls::Hash256;
 use environment::RuntimeContext;
-use slog::{crit, error, info, trace};
+use slog::{crit, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{
@@ -119,9 +121,34 @@ impl<T, E: EthSpec> Deref for AttestationService<T, E> {
     }
 }
 
+#[derive(Clone)]
+enum AttTrigger {
+    Head {
+        root: Hash256,
+        attestation_slot: Slot,
+    },
+    Time(Slot),
+}
+
+impl AttTrigger {
+    pub fn slot(&self) -> Slot {
+        match self {
+            AttTrigger::Head {
+                root: _,
+                attestation_slot,
+            } => *attestation_slot,
+            AttTrigger::Time(slot) => *slot,
+        }
+    }
+}
+
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Starts the service which periodically produces attestations.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(
+        self,
+        spec: &ChainSpec,
+        mut rx: broadcast::Receiver<Hash256>,
+    ) -> Result<(), String> {
         let log = self.context.log().clone();
 
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
@@ -141,10 +168,24 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
                     let log = self.context.log();
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                    //TODO: error handling
+                    let attestation_slot = self
+                        .slot_clock
+                        .now()
+                        .map(|s| s + 1)
+                        .ok_or("Failed to read slot clock")
+                        .unwrap();
+                    let trigger: AttTrigger = tokio::select! {
+                        Ok(root) = rx.recv() => {
+                            info!(log, "Head event received"; "head_root" => ?root);
+                            AttTrigger::Head{root, attestation_slot}
+                        },
+                        _ = sleep(duration_to_next_slot + slot_duration / 3) => AttTrigger::Time(attestation_slot),
+                    };
+
+                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, trigger) {
                         crit!(
                             log,
                             "Failed to spawn attestation tasks";
@@ -171,11 +212,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
     /// attestation to the beacon node.
-    fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
-        let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
+    fn spawn_attestation_tasks(
+        &self,
+        slot_duration: Duration,
+        trigger: AttTrigger,
+    ) -> Result<(), String> {
+        let slot = trigger.slot();
         let duration_to_next_slot = self
             .slot_clock
-            .duration_to_next_slot()
+            .duration_to_slot(slot + 1)
             .ok_or("Unable to determine duration to next slot")?;
 
         // If a validator needs to publish an aggregate attestation, they must do so at 2/3
@@ -206,10 +251,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 // Spawn a separate task for each attestation.
                 self.inner.context.executor.spawn_ignoring_error(
                     self.clone().publish_attestations_and_aggregates(
-                        slot,
                         committee_index,
                         validator_duties,
                         aggregate_production_instant,
+                        trigger.clone(),
                     ),
                     "attestation publish",
                 );
@@ -234,11 +279,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
     async fn publish_attestations_and_aggregates(
         self,
-        slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
+        trigger: AttTrigger,
     ) -> Result<(), ()> {
+        let slot = trigger.slot();
         let log = self.context.log();
         let attestations_timer = metrics::start_timer_vec(
             &metrics::ATTESTATION_SERVICE_TIMES,
@@ -255,7 +301,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         //
         // Download, sign and publish an `Attestation` for each validator.
         let attestation_opt = self
-            .produce_and_publish_attestations(slot, committee_index, &validator_duties)
+            .produce_and_publish_attestations(committee_index, &validator_duties, trigger)
             .await
             .map_err(move |e| {
                 crit!(
@@ -318,11 +364,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// validator and the list of individually-signed `Attestation` objects is returned to the BN.
     async fn produce_and_publish_attestations(
         &self,
-        slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
+        trigger: AttTrigger,
     ) -> Result<Option<AttestationData>, String> {
         let log = self.context.log();
+        let slot = trigger.slot();
 
         if validator_duties.is_empty() {
             return Ok(None);
@@ -334,7 +381,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .ok_or("Unable to determine current slot from clock")?
             .epoch(E::slots_per_epoch());
 
-        let attestation_data = self
+        let mut attestation_data = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let _timer = metrics::start_timer_vec(
@@ -349,6 +396,42 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             })
             .await
             .map_err(|e| e.to_string())?;
+
+        match trigger {
+            AttTrigger::Head {
+                root,
+                attestation_slot,
+            } => {
+                info!(log, "Attestation production triggered by event"; "root" => ?root, "attestation_data_root" => ?attestation_data.beacon_block_root);
+                if root != attestation_data.beacon_block_root {
+                    let duration_until_att_production = self
+                        .slot_clock
+                        .duration_until_start_of(attestation_slot)
+                        .ok_or("Unable to read slot clock")?
+                        + self.slot_clock.unagg_attestation_production_delay();
+
+                    warn!(log, "Head from event stream does not match current connected beacon node's head. Retrying at one-third through the slot"; "event_root" => ?root, "head_root" => ?attestation_data.beacon_block_root, "ms_until_att_production" => ?duration_until_att_production.as_millis());
+
+                    sleep(duration_until_att_production).await;
+                    attestation_data = self
+                        .beacon_nodes
+                        .first_success(RequireSynced::No, |beacon_node| async move {
+                            let _timer = metrics::start_timer_vec(
+                                &metrics::ATTESTATION_SERVICE_TIMES,
+                                &[metrics::ATTESTATIONS_HTTP_GET],
+                            );
+                            beacon_node
+                                .get_validator_attestation_data(slot, committee_index)
+                                .await
+                                .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                                .map(|result| result.data)
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?
+                }
+            }
+            AttTrigger::Time(_) => {}
+        }
 
         let mut attestations = Vec::with_capacity(validator_duties.len());
 

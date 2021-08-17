@@ -4,9 +4,13 @@
 
 use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
+use bls::Hash256;
 use environment::RuntimeContext;
+use eth2::types::{EventKind, EventTopic};
 use eth2::BeaconNodeHttpClient;
 use futures::future;
+use futures_util::pin_mut;
+use futures_util::stream::StreamExt;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
@@ -15,7 +19,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::{sync::RwLock, time::sleep};
+use tokio::{sync::broadcast, sync::RwLock, time::sleep};
 use types::{ChainSpec, EthSpec};
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
@@ -59,6 +63,89 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     };
 
     executor.spawn(future, "fallback");
+
+    Ok(())
+}
+
+pub fn start_event_stream_tasks<T: SlotClock + 'static, E: EthSpec>(
+    context: RuntimeContext<E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+) -> Result<(), &'static str> {
+    let executor = context.executor;
+    if beacon_nodes.slot_clock.is_none() {
+        return Err("Cannot start event manager service without slot clock");
+    }
+
+    for candidate_index in 0..beacon_nodes.candidates.len() {
+        let beacon_nodes = beacon_nodes.clone();
+        let future = |beacon_nodes: Arc<BeaconNodeFallback<T, E>>| async move {
+            loop {
+                let beacon_nodes = beacon_nodes.clone();
+                let candidate = match beacon_nodes.candidates.get(candidate_index) {
+                    Some(candidate) => candidate,
+                    None => {
+                        warn!(
+                            beacon_nodes.log,
+                            "Invalid fallback candidate index, this candidate will not be retried"
+                        );
+                        break;
+                    }
+                };
+
+                if candidate.status(RequireSynced::Yes).await.is_ok() {
+                    info!(
+                        beacon_nodes.log,
+                        "Opening events stream connection with beacon node {}", candidate_index
+                    );
+                    if let Ok(stream) = candidate
+                        .beacon_node
+                        .get_events::<E>(&[EventTopic::Head])
+                        .await
+                    {
+                        pin_mut!(stream);
+                        while let Some(event) = stream.next().await {
+                            match event {
+                                Ok(EventKind::Head(head)) => {
+                                    let primary =
+                                        beacon_nodes.primary_candidate.read().await.clone();
+                                    if let Some(primary_index) = primary {
+                                        if primary_index == candidate_index {
+                                            if let Err(e) = beacon_nodes.tx.send(head.block) {
+                                                warn!(beacon_nodes.log, "Unable to send head event to attestation and sync committee services"; "error" => ?e);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                Ok(event) => {
+                                    warn!(beacon_nodes.log, "Invalid event received from beacon node"; "event"=>?event, "candidate_index"=> candidate_index)
+                                }
+                                Err(e) => {
+                                    warn!(beacon_nodes.log, "Error received in event stream from beacon node"; "e"=>?e,  "candidate_index"=> candidate_index)
+                                }
+                            }
+                        }
+                        info!(
+                            beacon_nodes.log,
+                            "End of event stream connection with beacon node {}", candidate_index
+                        );
+                    }
+                }
+
+                // Retry at the start of the next slot
+                let sleep_time = beacon_nodes
+                    .slot_clock
+                    .as_ref()
+                    .and_then(|slot_clock| {
+                        let slot = slot_clock.now()?;
+                        slot_clock.duration_to_slot(slot + 1)
+                    })
+                    .unwrap_or_else(|| Duration::from_secs(1));
+                sleep(sleep_time).await
+            }
+        };
+        executor.spawn(future(beacon_nodes), "event_stream_manager_{}");
+    }
 
     Ok(())
 }
@@ -124,6 +211,7 @@ pub enum CandidateError {
 /// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
 /// for a query.
 pub struct CandidateBeaconNode<E> {
+    id: usize,
     beacon_node: BeaconNodeHttpClient,
     status: RwLock<Result<(), CandidateError>>,
     _phantom: PhantomData<E>,
@@ -131,8 +219,9 @@ pub struct CandidateBeaconNode<E> {
 
 impl<E: EthSpec> CandidateBeaconNode<E> {
     /// Instantiate a new node.
-    pub fn new(beacon_node: BeaconNodeHttpClient) -> Self {
+    pub fn new(id: usize, beacon_node: BeaconNodeHttpClient) -> Self {
         Self {
+            id,
             beacon_node,
             status: RwLock::new(Err(CandidateError::Uninitialized)),
             _phantom: PhantomData,
@@ -275,8 +364,11 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 /// A collection of `CandidateBeaconNode` that can be used to perform requests with "fallback"
 /// behaviour, where the failure of one candidate results in the next candidate receiving an
 /// identical query.
-pub struct BeaconNodeFallback<T, E> {
+pub struct BeaconNodeFallback<T, E: EthSpec> {
     candidates: Vec<CandidateBeaconNode<E>>,
+    primary_candidate: RwLock<Option<usize>>,
+    pub tx: broadcast::Sender<Hash256>,
+    pub rx: broadcast::Receiver<Hash256>,
     slot_clock: Option<T>,
     spec: ChainSpec,
     log: Logger,
@@ -284,8 +376,12 @@ pub struct BeaconNodeFallback<T, E> {
 
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(candidates: Vec<CandidateBeaconNode<E>>, spec: ChainSpec, log: Logger) -> Self {
+        let (tx, rx) = broadcast::channel(10);
         Self {
             candidates,
+            primary_candidate: RwLock::new(None),
+            tx,
+            rx,
             slot_clock: None,
             spec,
             log,
@@ -345,6 +441,8 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// We do not poll nodes that are synced to avoid sending additional requests when everything is
     /// going smoothly.
     pub async fn update_unready_candidates(&self) {
+        let initial_primary_candidate = self.primary_candidate.read().await.clone();
+
         let mut futures = Vec::new();
         for candidate in &self.candidates {
             // There is a potential race condition between having the read lock and the write
@@ -367,6 +465,18 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         //run all updates concurrently and ignore results
         let _ = future::join_all(futures).await;
+
+        // Update the `primary_candidate` if it has changed
+        for candidate in &self.candidates {
+            if candidate.status(RequireSynced::Yes).await.is_ok()
+                && initial_primary_candidate.map_or(true, |initial_candidate_id| {
+                    initial_candidate_id != candidate.id
+                })
+            {
+                *self.primary_candidate.write().await = Some(candidate.id);
+                break;
+            }
+        }
     }
 
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.

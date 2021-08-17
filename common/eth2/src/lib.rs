@@ -1337,10 +1337,12 @@ impl BeaconNodeHttpClient {
         Ok(self
             .client
             .get(path)
+            .timeout(Duration::from_secs(u64::MAX))
             .send()
             .await
             .map_err(Error::Reqwest)?
             .bytes_stream()
+            //TODO: handle keep alive events
             .map(|next| match next {
                 Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
                 Err(e) => Err(Error::Reqwest(e)),

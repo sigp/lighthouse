@@ -22,7 +22,8 @@ use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
+    start_event_stream_tasks, start_fallback_updater_service, BeaconNodeFallback,
+    CandidateBeaconNode, RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
@@ -280,7 +281,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let num_nodes = beacon_nodes.len();
         let candidates = beacon_nodes
             .into_iter()
-            .map(CandidateBeaconNode::new)
+            .enumerate()
+            .map(|(i, node)| CandidateBeaconNode::new(i, node))
             .collect();
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
@@ -313,6 +315,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         beacon_nodes.set_slot_clock(slot_clock.clone());
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
+        start_event_stream_tasks(context.clone(), beacon_nodes.clone())?;
 
         let doppelganger_service = if config.enable_doppelganger_protection {
             Some(Arc::new(DoppelgangerService::new(
@@ -429,6 +432,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
+        let rx = self.duties_service.beacon_nodes.tx.subscribe();
+
         self.block_service
             .clone()
             .start_update_service(block_service_rx)
@@ -436,7 +441,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.attestation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service(&self.context.eth2_config.spec, rx)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         self.sync_committee_service

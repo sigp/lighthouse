@@ -62,6 +62,11 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Returns the start time of the slot, as a duration since `UNIX_EPOCH`.
     fn start_of(&self, slot: Slot) -> Option<Duration>;
 
+    /// Returns the `Duration` until the start time of the slot.
+    fn duration_until_start_of(&self, slot: Slot) -> Option<Duration> {
+        self.start_of(slot)?.checked_sub(self.now_duration()?)
+    }
+
     /// Returns the first slot to be returned at the genesis time.
     fn genesis_slot(&self) -> Slot;
 
