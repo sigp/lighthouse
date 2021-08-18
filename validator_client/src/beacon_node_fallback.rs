@@ -79,7 +79,7 @@ pub fn start_event_stream_tasks<T: SlotClock + 'static, E: EthSpec>(
     for candidate_index in 0..beacon_nodes.candidates.len() {
         let beacon_nodes = beacon_nodes.clone();
         let future = |beacon_nodes: Arc<BeaconNodeFallback<T, E>>| async move {
-            loop {
+            'outer: loop {
                 let beacon_nodes = beacon_nodes.clone();
                 let candidate = match beacon_nodes.candidates.get(candidate_index) {
                     Some(candidate) => candidate,
@@ -88,7 +88,7 @@ pub fn start_event_stream_tasks<T: SlotClock + 'static, E: EthSpec>(
                             beacon_nodes.log,
                             "Invalid fallback candidate index, this candidate will not be retried"
                         );
-                        break;
+                        break 'outer;
                     }
                 };
 
@@ -103,16 +103,27 @@ pub fn start_event_stream_tasks<T: SlotClock + 'static, E: EthSpec>(
                         .await
                     {
                         pin_mut!(stream);
-                        while let Some(event) = stream.next().await {
+                        'inner: while let Some(event) = stream.next().await {
                             match event {
                                 Ok(EventKind::Head(head)) => {
-                                    let primary =
-                                        beacon_nodes.primary_candidate.read().await.clone();
+                                    let current_slot = if let Some(slot) = beacon_nodes
+                                        .slot_clock
+                                        .as_ref()
+                                        .and_then(|clock| clock.now())
+                                    {
+                                        slot
+                                    } else {
+                                        continue 'inner;
+                                    };
+
+                                    let primary = *beacon_nodes.primary_candidate.read().await;
                                     if let Some(primary_index) = primary {
-                                        if primary_index == candidate_index {
+                                        if primary_index == candidate_index
+                                            && current_slot == head.slot
+                                        {
                                             if let Err(e) = beacon_nodes.tx.send(head.block) {
                                                 warn!(beacon_nodes.log, "Unable to send head event to attestation and sync committee services"; "error" => ?e);
-                                                break;
+                                                continue 'inner;
                                             }
                                         }
                                     }
@@ -367,8 +378,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 pub struct BeaconNodeFallback<T, E: EthSpec> {
     candidates: Vec<CandidateBeaconNode<E>>,
     primary_candidate: RwLock<Option<usize>>,
-    pub tx: broadcast::Sender<Hash256>,
-    pub rx: broadcast::Receiver<Hash256>,
+    tx: broadcast::Sender<Hash256>,
     slot_clock: Option<T>,
     spec: ChainSpec,
     log: Logger,
@@ -376,16 +386,19 @@ pub struct BeaconNodeFallback<T, E: EthSpec> {
 
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(candidates: Vec<CandidateBeaconNode<E>>, spec: ChainSpec, log: Logger) -> Self {
-        let (tx, rx) = broadcast::channel(10);
+        let (tx, _) = broadcast::channel(10);
         Self {
             candidates,
             primary_candidate: RwLock::new(None),
             tx,
-            rx,
             slot_clock: None,
             spec,
             log,
         }
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<Hash256> {
+        self.tx.subscribe()
     }
 
     /// Used to update the slot clock post-instantiation.
@@ -441,7 +454,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// We do not poll nodes that are synced to avoid sending additional requests when everything is
     /// going smoothly.
     pub async fn update_unready_candidates(&self) {
-        let initial_primary_candidate = self.primary_candidate.read().await.clone();
+        let initial_primary_candidate = *self.primary_candidate.read().await;
 
         let mut futures = Vec::new();
         for candidate in &self.candidates {
@@ -468,11 +481,10 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Update the `primary_candidate` if it has changed
         for candidate in &self.candidates {
-            if candidate.status(RequireSynced::Yes).await.is_ok()
-                && initial_primary_candidate.map_or(true, |initial_candidate_id| {
-                    initial_candidate_id != candidate.id
-                })
-            {
+            let should_update = initial_primary_candidate.map_or(true, |initial_candidate_id| {
+                initial_candidate_id != candidate.id
+            });
+            if candidate.status(RequireSynced::Yes).await.is_ok() && should_update {
                 *self.primary_candidate.write().await = Some(candidate.id);
                 break;
             }

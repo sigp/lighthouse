@@ -784,9 +784,13 @@ impl<T: EthSpec> EventKind<T> {
         }
     }
 
-    pub fn from_sse_bytes(message: &[u8]) -> Result<Self, ServerError> {
+    pub fn from_sse_bytes(message: &[u8]) -> Result<Option<Self>, ServerError> {
         let s = from_utf8(message)
             .map_err(|e| ServerError::InvalidServerSentEvent(format!("{:?}", e)))?;
+
+        if s.eq(":") {
+            return Ok(None);
+        }
 
         let mut split = s.split('\n');
         let event = split
@@ -803,28 +807,32 @@ impl<T: EthSpec> EventKind<T> {
             .trim_start_matches("data:");
 
         match event {
-            "attestation" => Ok(EventKind::Attestation(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Attestation: {:?}", e)),
-            )?)),
-            "block" => Ok(EventKind::Block(serde_json::from_str(data).map_err(
+            "attestation" => Ok(Some(EventKind::Attestation(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Attestation: {:?}", e))
+                })?,
+            ))),
+            "block" => Ok(Some(EventKind::Block(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
-            )?)),
-            "chain_reorg" => Ok(EventKind::ChainReorg(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Chain Reorg: {:?}", e)),
-            )?)),
-            "finalized_checkpoint" => Ok(EventKind::FinalizedCheckpoint(
+            )?))),
+            "chain_reorg" => Ok(Some(EventKind::ChainReorg(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Chain Reorg: {:?}", e))
+                })?,
+            ))),
+            "finalized_checkpoint" => Ok(Some(EventKind::FinalizedCheckpoint(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Finalized Checkpoint: {:?}", e))
                 })?,
-            )),
-            "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
+            ))),
+            "head" => Ok(Some(EventKind::Head(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
-            )?)),
-            "voluntary_exit" => Ok(EventKind::VoluntaryExit(
+            )?))),
+            "voluntary_exit" => Ok(Some(EventKind::VoluntaryExit(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
                 })?,
-            )),
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),

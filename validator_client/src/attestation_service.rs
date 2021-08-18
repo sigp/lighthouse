@@ -122,22 +122,16 @@ impl<T, E: EthSpec> Deref for AttestationService<T, E> {
 }
 
 #[derive(Clone)]
-enum AttTrigger {
-    Head {
-        root: Hash256,
-        attestation_slot: Slot,
-    },
+pub enum SignMessageEvent {
+    Head { root: Hash256, slot: Slot },
     Time(Slot),
 }
 
-impl AttTrigger {
+impl SignMessageEvent {
     pub fn slot(&self) -> Slot {
         match self {
-            AttTrigger::Head {
-                root: _,
-                attestation_slot,
-            } => *attestation_slot,
-            AttTrigger::Time(slot) => *slot,
+            SignMessageEvent::Head { root: _, slot } => *slot,
+            SignMessageEvent::Time(slot) => *slot,
         }
     }
 }
@@ -147,7 +141,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     pub fn start_update_service(
         self,
         spec: &ChainSpec,
-        mut rx: broadcast::Receiver<Hash256>,
+        mut rx_opt: Option<broadcast::Receiver<Hash256>>,
     ) -> Result<(), String> {
         let log = self.context.log().clone();
 
@@ -167,25 +161,30 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let interval_fut = async move {
             loop {
-                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
+                if let (Some(duration_to_next_slot), Some(current_slot)) = (
+                    self.slot_clock.duration_to_next_slot(),
+                    self.slot_clock.now(),
+                ) {
                     let log = self.context.log();
+                    let attestation_slot = current_slot + 1;
 
-                    //TODO: error handling
-                    let attestation_slot = self
-                        .slot_clock
-                        .now()
-                        .map(|s| s + 1)
-                        .ok_or("Failed to read slot clock")
-                        .unwrap();
-                    let trigger: AttTrigger = tokio::select! {
-                        Ok(root) = rx.recv() => {
-                            info!(log, "Head event received"; "head_root" => ?root);
-                            AttTrigger::Head{root, attestation_slot}
-                        },
-                        _ = sleep(duration_to_next_slot + slot_duration / 3) => AttTrigger::Time(attestation_slot),
+                    let event: SignMessageEvent = if let Some(ref mut rx) = rx_opt {
+                        tokio::select! {
+                            Ok(root) = {
+                                sleep(duration_to_next_slot).await;
+                                rx.recv()
+                            } => {
+                                info!(log, "Head event received"; "head_root" => ?root);
+                                SignMessageEvent::Head{root, slot: attestation_slot}
+                            },
+                            _ = sleep(duration_to_next_slot + slot_duration / 3) => SignMessageEvent::Time(attestation_slot),
+                        }
+                    } else {
+                        sleep(duration_to_next_slot + slot_duration / 3).await;
+                        SignMessageEvent::Time(attestation_slot)
                     };
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, trigger) {
+                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, event) {
                         crit!(
                             log,
                             "Failed to spawn attestation tasks";
@@ -215,9 +214,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     fn spawn_attestation_tasks(
         &self,
         slot_duration: Duration,
-        trigger: AttTrigger,
+        event: SignMessageEvent,
     ) -> Result<(), String> {
-        let slot = trigger.slot();
+        let slot = event.slot();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_slot(slot + 1)
@@ -254,7 +253,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         committee_index,
                         validator_duties,
                         aggregate_production_instant,
-                        trigger.clone(),
+                        event.clone(),
                     ),
                     "attestation publish",
                 );
@@ -282,9 +281,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
-        trigger: AttTrigger,
+        event: SignMessageEvent,
     ) -> Result<(), ()> {
-        let slot = trigger.slot();
+        let slot = event.slot();
         let log = self.context.log();
         let attestations_timer = metrics::start_timer_vec(
             &metrics::ATTESTATION_SERVICE_TIMES,
@@ -301,7 +300,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         //
         // Download, sign and publish an `Attestation` for each validator.
         let attestation_opt = self
-            .produce_and_publish_attestations(committee_index, &validator_duties, trigger)
+            .produce_and_publish_attestations(committee_index, &validator_duties, event)
             .await
             .map_err(move |e| {
                 crit!(
@@ -366,10 +365,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         &self,
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
-        trigger: AttTrigger,
+        event: SignMessageEvent,
     ) -> Result<Option<AttestationData>, String> {
         let log = self.context.log();
-        let slot = trigger.slot();
+        let slot = event.slot();
 
         if validator_duties.is_empty() {
             return Ok(None);
@@ -397,10 +396,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
-        match trigger {
-            AttTrigger::Head {
+        match event {
+            SignMessageEvent::Head {
                 root,
-                attestation_slot,
+                slot: attestation_slot,
             } => {
                 info!(log, "Attestation production triggered by event"; "root" => ?root, "attestation_data_root" => ?attestation_data.beacon_block_root);
                 if root != attestation_data.beacon_block_root {
@@ -430,7 +429,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .map_err(|e| e.to_string())?
                 }
             }
-            AttTrigger::Time(_) => {}
+            SignMessageEvent::Time(_) => {}
         }
 
         let mut attestations = Vec::with_capacity(validator_duties.len());

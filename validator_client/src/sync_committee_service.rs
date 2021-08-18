@@ -1,3 +1,4 @@
+use crate::attestation_service::SignMessageEvent;
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
@@ -9,6 +10,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
@@ -83,7 +85,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .unwrap_or(false)
     }
 
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(
+        self,
+        spec: &ChainSpec,
+        mut rx_opt: Option<broadcast::Receiver<Hash256>>,
+    ) -> Result<(), String> {
         let log = self.context.log().clone();
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
@@ -101,17 +107,35 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let interval_fut = async move {
             loop {
-                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    // Wait for contribution broadcast interval 1/3 of the way through the slot.
+                if let (Some(duration_to_next_slot), Some(current_slot)) = (
+                    self.slot_clock.duration_to_next_slot(),
+                    self.slot_clock.now(),
+                ) {
                     let log = self.context.log();
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    let broadcast_slot = current_slot + 1;
+
+                    let event: SignMessageEvent = if let Some(ref mut rx) = rx_opt {
+                        tokio::select! {
+                            Ok(root) = {
+                                sleep(duration_to_next_slot).await;
+                                rx.recv()
+                            } => {
+                                info!(log, "Head event received"; "head_root" => ?root);
+                                SignMessageEvent::Head{root, slot: broadcast_slot}
+                            },
+                            _ = sleep(duration_to_next_slot + slot_duration / 3) => SignMessageEvent::Time(broadcast_slot),
+                        }
+                    } else {
+                        sleep(duration_to_next_slot + slot_duration / 3).await;
+                        SignMessageEvent::Time(broadcast_slot)
+                    };
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks(slot_duration, event).await {
                         crit!(
                             log,
                             "Failed to spawn sync contribution tasks";
@@ -138,9 +162,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    //TODO: how do we handle when we get a head change at > 2/3 through the slot?
+
+    async fn spawn_contribution_tasks(
+        &self,
+        slot_duration: Duration,
+        event: SignMessageEvent,
+    ) -> Result<(), String> {
         let log = self.context.log().clone();
-        let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
+        let slot = event.slot();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()

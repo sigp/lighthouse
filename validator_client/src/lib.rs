@@ -315,7 +315,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         beacon_nodes.set_slot_clock(slot_clock.clone());
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
-        start_event_stream_tasks(context.clone(), beacon_nodes.clone())?;
+
+        if config.enable_event_listenting {
+            start_event_stream_tasks(context.clone(), beacon_nodes.clone())?;
+        }
 
         let doppelganger_service = if config.enable_doppelganger_protection {
             Some(Arc::new(DoppelgangerService::new(
@@ -432,7 +435,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
-        let rx = self.duties_service.beacon_nodes.tx.subscribe();
+        let (attestation_rx, sync_committee_rx) = if self.config.enable_event_listenting {
+            (
+                Some(self.duties_service.beacon_nodes.subscribe()),
+                Some(self.duties_service.beacon_nodes.subscribe()),
+            )
+        } else {
+            (None, None)
+        };
 
         self.block_service
             .clone()
@@ -441,12 +451,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.attestation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec, rx)
+            .start_update_service(&self.context.eth2_config.spec, attestation_rx)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         self.sync_committee_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service(&self.context.eth2_config.spec, sync_committee_rx)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {

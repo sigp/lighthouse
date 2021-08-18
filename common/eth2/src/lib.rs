@@ -14,8 +14,6 @@ pub mod types;
 
 use self::types::{Error as ResponseError, *};
 use eth2_libp2p::PeerId;
-use futures::Stream;
-use futures_util::StreamExt;
 pub use reqwest;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
@@ -25,6 +23,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
 use std::time::Duration;
+use tokio_stream::{Stream, StreamExt};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -1342,10 +1341,9 @@ impl BeaconNodeHttpClient {
             .await
             .map_err(Error::Reqwest)?
             .bytes_stream()
-            //TODO: handle keep alive events
-            .map(|next| match next {
-                Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
-                Err(e) => Err(Error::Reqwest(e)),
+            .filter_map(|next| match next {
+                Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()).transpose(),
+                Err(e) => Some(Err(Error::Reqwest(e))),
             }))
     }
 

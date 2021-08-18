@@ -50,6 +50,9 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    /// If true, enable functionality that triggers attestation and sync committee message
+    /// production on head-change events from the connected beacon node.
+    pub enable_event_listenting: bool,
 }
 
 impl Default for Config {
@@ -80,6 +83,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
+            enable_event_listenting: false,
         }
     }
 }
@@ -270,6 +274,10 @@ impl Config {
 
         if cli_args.is_present("enable-doppelganger-protection") {
             config.enable_doppelganger_protection = true;
+        }
+
+        if cli_args.is_present("enable-event-listening") {
+            config.enable_event_listenting = true;
         }
 
         Ok(config)
