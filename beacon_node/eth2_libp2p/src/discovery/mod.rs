@@ -54,8 +54,10 @@ const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.
 const MAX_DISCOVERY_RETRY: usize = 3;
 /// The maximum number of concurrent subnet discovery queries.
-/// Note: we always allow a single FindPeers query.
-const MAX_CONCURRENT_QUERIES: usize = 2;
+/// Note: we always allow a single FindPeers query, so we would be
+/// running a maximum of `MAX_CONCURRENT_SUBNET_QUERIES + 1`
+/// discovery queries at a time.
+const MAX_CONCURRENT_SUBNET_QUERIES: usize = 2;
 /// The max number of subnets to search for in a single subnet discovery query.
 const MAX_SUBNETS_IN_QUERY: usize = 3;
 /// The number of closest peers to search for when doing a regular peer search.
@@ -87,8 +89,10 @@ impl SubnetQuery {
     pub fn expired(&self) -> bool {
         if let Some(ttl) = self.min_ttl {
             ttl < Instant::now()
-        } else {
-            true
+        }
+        // `None` corresponds to long lived subnet discovery requests.
+        else {
+            false
         }
     }
 }
@@ -321,6 +325,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
         // Immediately start a FindNode query
         debug!(self.log, "Starting a peer discovery request");
+        self.find_peer_active = true;
         self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS, |_| {
             true
         });
@@ -664,7 +669,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         self.active_queries
             .len()
             .saturating_sub(self.find_peer_active as usize) // We only count active subnet queries
-            >= MAX_CONCURRENT_QUERIES
+            >= MAX_CONCURRENT_SUBNET_QUERIES
     }
 
     /// Runs a discovery request for a given group of subnets.
@@ -769,11 +774,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         // General predicate
         let predicate: Box<dyn Fn(&Enr) -> bool + Send> =
             Box::new(move |enr: &Enr| eth2_fork_predicate(enr) && additional_predicate(enr));
-
-        // Indicate that we are starting a `FindPeers` query
-        if let QueryType::FindPeers = &query {
-            self.find_peer_active = true;
-        }
 
         // Build the future
         let query_future = self
