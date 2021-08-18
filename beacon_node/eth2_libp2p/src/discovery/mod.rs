@@ -641,7 +641,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let mut subnet_queries: Vec<SubnetQuery> = Vec::new();
         let mut processed = false;
         // Check that we are within our query concurrency limit
-        while !self.at_capacity() {
+        while !self.at_capacity() && !self.queued_queries.is_empty() {
             // consume and process the query queue
             if let Some(subnet_query) = self.queued_queries.pop_front() {
                 subnet_queries.push(subnet_query);
