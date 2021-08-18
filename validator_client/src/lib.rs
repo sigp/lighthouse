@@ -10,6 +10,7 @@ mod http_metrics;
 mod initialized_validators;
 mod key_cache;
 mod notifier;
+mod signing_method;
 mod sync_committee_service;
 mod validator_store;
 

@@ -1,7 +1,8 @@
 use crate::{
     doppelganger_service::DoppelgangerService,
     http_metrics::metrics,
-    initialized_validators::{InitializedValidators, SigningError, SigningMethod},
+    initialized_validators::InitializedValidators,
+    signing_method::{Error as SigningError, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
