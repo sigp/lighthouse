@@ -92,18 +92,9 @@ pub struct AnchorInfo {
     /// Zero if we know all blocks back to genesis.
     pub oldest_block_parent: Hash256,
     /// The slot from which historical states are available (>=).
-    pub oldest_state_slot: Slot,
-}
-
-impl AnchorInfo {
-    pub fn new(anchor_slot: Slot, anchor_block_parent: Hash256) -> Self {
-        AnchorInfo {
-            anchor_slot,
-            oldest_block_slot: anchor_slot,
-            oldest_block_parent: anchor_block_parent,
-            oldest_state_slot: anchor_slot,
-        }
-    }
+    pub state_upper_limit: Slot,
+    /// The slot before which historical states are available (<=).
+    pub state_lower_limit: Slot,
 }
 
 impl StoreItem for AnchorInfo {

@@ -2404,6 +2404,21 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| blocking_json_task(move || database::info(chain)));
 
+    // GET lighthouse/database/reconstruct
+    let get_lighthouse_database_reconstruct = database_path
+        .and(warp::path("reconstruct"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                chain
+                    .store
+                    .reconstruct_historic_states()
+                    .map_err(Into::into)
+                    .map_err(warp_utils::reject::beacon_chain_error)
+            })
+        });
+
     // POST lighthouse/database/historical_blocks
     let post_lighthouse_database_historical_blocks = database_path
         .and(warp::path("historical_blocks"))
@@ -2537,6 +2552,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
+                .or(get_lighthouse_database_reconstruct.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(

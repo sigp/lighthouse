@@ -632,7 +632,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         } else if request_slot == self.spec.genesis_slot {
             return Ok(Some(self.genesis_state_root));
-        } else if request_slot < self.store.get_oldest_state_slot() {
+        }
+
+        // Check limits w.r.t historic state bounds.
+        let (historic_lower_limit, historic_upper_limit) = self.store.get_historic_state_limits();
+        if request_slot > historic_lower_limit && request_slot < historic_upper_limit {
             return Ok(None);
         }
 

@@ -26,6 +26,14 @@ pub enum Error {
     AnchorInfoConcurrentMutation,
     /// The block or state is unavailable due to weak subjectivity sync.
     HistoryUnavailable,
+    /// State reconstruction cannot commence because not all historic blocks are known.
+    MissingHistoricBlocks {
+        oldest_block_slot: Slot,
+    },
+    /// State reconstruction failed because it didn't reach the upper limit slot.
+    ///
+    /// This should never happen (it's a logic error).
+    StateReconstructionDidNotComplete,
 }
 
 pub trait HandleUnavailable<T> {

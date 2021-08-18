@@ -24,6 +24,7 @@ mod memory_store;
 pub mod metadata;
 pub mod metrics;
 mod partial_beacon_state;
+pub mod reconstruct;
 
 pub mod iter;
 

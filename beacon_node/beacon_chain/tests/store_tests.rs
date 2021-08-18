@@ -1878,7 +1878,8 @@ fn weak_subjectivity_sync() {
     }
 
     // All states from the oldest state slot can be loaded.
-    let oldest_state_slot = store.get_oldest_state_slot();
+    // FIXME(sproul): tweak this
+    let (_, oldest_state_slot) = store.get_historic_state_limits();
     for (state_root, slot) in beacon_chain
         .forwards_iter_state_roots(oldest_state_slot)
         .unwrap()
@@ -1891,6 +1892,10 @@ fn weak_subjectivity_sync() {
 
     // Anchor slot is still set to the starting slot.
     assert_eq!(store.get_anchor_slot(), Some(wss_slot));
+
+    // Reconstruct states.
+    store.clone().reconstruct_historic_states().unwrap();
+    assert_eq!(store.get_anchor_slot(), None);
 }
 
 #[test]

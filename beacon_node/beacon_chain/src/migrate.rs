@@ -154,6 +154,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
     /// Perform the actual work of `process_finalization`.
     fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: MigrationNotification, log: &Logger) {
+        // Try to acquire the migration mutex. The purpose of this mutex is to prevent database
+        // migrations from running while historic states are being reconstructed. This is out of an
+        // abundance of caution, in case the writes made by the state reconstructor conflict with
+        // the writes made by the migrator. In practice they shouldn't, but verifying that is
+        // difficult, so we opt for a conservative approach.
+        let _migration_mutex = if let Some(lock) = db.try_lock_migration_mutex() {
+            lock
+        } else {
+            info!(
+                log,
+                "Deferring database migration";
+                "reason" => "waiting for state reconstruction to finish",
+            );
+            return;
+        };
+
         let finalized_state_root = notif.finalized_state_root;
 
         let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
@@ -216,7 +232,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         // Finally, compact the database so that new free space is properly reclaimed.
         if let Err(e) = Self::run_compaction(
-            db,
+            db.clone(),
             old_finalized_checkpoint.epoch,
             notif.finalized_checkpoint.epoch,
             log,

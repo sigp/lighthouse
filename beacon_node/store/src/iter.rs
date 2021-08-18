@@ -333,7 +333,10 @@ fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: Ite
     // not frozen, this just means we might not jump back by the maximum amount on
     // our first jump (i.e. at most 1 extra state load).
     let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot());
-    if new_state_slot >= store.get_oldest_state_slot() {
+
+    let (_, historic_state_upper_limit) = store.get_historic_state_limits();
+
+    if new_state_slot >= historic_state_upper_limit {
         let new_state_root = current_state.get_state_root(new_state_slot)?;
         Ok(store
             .get_state(new_state_root, Some(new_state_slot))?
