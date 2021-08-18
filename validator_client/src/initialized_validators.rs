@@ -23,7 +23,10 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use types::{
+    ChainSpec, Domain, Epoch, Fork, Graffiti, Hash256, Keypair, PublicKey, PublicKeyBytes,
+    Signature, SignedRoot,
+};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
@@ -76,6 +79,11 @@ pub enum Error {
     UnableToBuildRemoteSignerClient(ReqwestError),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SigningError {
+    Todo,
+}
+
 impl From<LockfileError> for Error {
     fn from(error: LockfileError) -> Self {
         Self::Lockfile(error)
@@ -100,6 +108,29 @@ pub enum SigningMethod {
         http_client: Client,
         voting_public_key: PublicKey,
     },
+}
+
+impl SigningMethod {
+    pub fn get_signature<T: SignedRoot>(
+        &self,
+        domain: Domain,
+        data: &T,
+        epoch: Epoch,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> Result<Signature, SigningError> {
+        let domain = spec.get_domain(epoch, domain, fork, genesis_validators_root);
+
+        let signing_root = data.signing_root(domain);
+
+        match self {
+            SigningMethod::LocalKeystore { voting_keypair, .. } => {
+                Ok(voting_keypair.sk.sign(signing_root))
+            }
+            SigningMethod::RemoteSigner { .. } => todo!(),
+        }
+    }
 }
 
 /// A validator that is ready to sign messages.
@@ -292,14 +323,6 @@ impl InitializedValidator {
             } => voting_public_key,
         }
     }
-
-    /// Returns the voting keypair for this validator.
-    pub fn voting_keypair(&self) -> Option<&Keypair> {
-        match &self.signing_method {
-            SigningMethod::LocalKeystore { voting_keypair, .. } => Some(voting_keypair),
-            SigningMethod::RemoteSigner { .. } => None,
-        }
-    }
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
@@ -390,15 +413,12 @@ impl InitializedValidators {
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
     ///
-    ///  - The validator is known to `self`
-    ///  - The validator is enabled
-    ///  - The validator has a known keypair (e.g., a local keystore validator)
-    ///
-    /// May return `None` if the validator is known and enabled, but uses remote signing.
-    pub fn voting_keypair(&self, voting_public_key: &PublicKeyBytes) -> Option<&Keypair> {
+    ///  - The validator is known to `self`.
+    ///  - The validator is enabled.
+    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<&SigningMethod> {
         self.validators
             .get(voting_public_key)
-            .and_then(|v| v.voting_keypair())
+            .map(|v| &v.signing_method)
     }
 
     /// Add a validator definition to `self`, overwriting the on-disk representation of `self`.

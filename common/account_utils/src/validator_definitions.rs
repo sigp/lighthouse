@@ -65,6 +65,7 @@ pub enum SigningDefinition {
     #[serde(rename = "remote_signer")]
     RemoteSigner {
         url: String,
+        /// Path to a .pem file.
         #[serde(skip_serializing_if = "Option::is_none")]
         root_certificate_path: Option<PathBuf>,
         /// Specifies a request timeout.
