@@ -6991,6 +6991,7 @@ dependencies = [
  "parking_lot",
  "rand 0.7.3",
  "rayon",
+ "reqwest",
  "ring",
  "safe_arith",
  "scrypt",

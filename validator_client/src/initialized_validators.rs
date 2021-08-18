@@ -16,11 +16,13 @@ use account_utils::{
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
+use reqwest::{Certificate, Client, Error as ReqwestError, Url};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
 
 use crate::key_cache;
@@ -66,6 +68,12 @@ pub enum Error {
     ValidatorNotInitialized(PublicKey),
     /// Unable to read the slot clock.
     SlotClock,
+    /// The URL for the remote signer cannot be parsed.
+    InvalidRemoteSignerUrl(String),
+    /// Unable to read the root certificate file for the remote signer.
+    InvalidRemoteSignerRootCertificateFile(io::Error),
+    InvalidRemoteSignerRootCertificate(ReqwestError),
+    UnableToBuildRemoteSignerClient(ReqwestError),
 }
 
 impl From<LockfileError> for Error {
@@ -86,6 +94,12 @@ pub enum SigningMethod {
         voting_keystore: Keystore,
         voting_keypair: Keypair,
     },
+    /// A validator that defers to a HTTP server for signing.
+    RemoteSigner {
+        url: Url,
+        http_client: Client,
+        voting_public_key: PublicKey,
+    },
 }
 
 /// A validator that is ready to sign messages.
@@ -104,6 +118,8 @@ impl InitializedValidator {
                 ref voting_keystore_lockfile,
                 ..
             } => Some(voting_keystore_lockfile),
+            // TODO(paul) consider an artificial lockfile for remote signer validators.
+            SigningMethod::RemoteSigner { .. } => None,
         }
     }
 }
@@ -221,6 +237,49 @@ impl InitializedValidator {
                     index: None,
                 })
             }
+            SigningDefinition::RemoteSigner {
+                url,
+                root_certificate_path,
+                request_timeout_ms,
+            } => {
+                let url =
+                    Url::parse(&url).map_err(|e| Error::InvalidRemoteSignerUrl(e.to_string()))?;
+                let builder = Client::builder();
+
+                let builder = if let Some(timeout) = request_timeout_ms {
+                    builder.timeout(Duration::from_millis(timeout))
+                } else {
+                    builder
+                };
+
+                let builder = if let Some(path) = root_certificate_path {
+                    let mut buf = Vec::new();
+                    File::open(&path)
+                        .map_err(Error::InvalidRemoteSignerRootCertificateFile)?
+                        .read_to_end(&mut buf)
+                        .map_err(Error::InvalidRemoteSignerRootCertificateFile)?;
+                    let certificate = Certificate::from_pem(&buf)
+                        .map_err(Error::InvalidRemoteSignerRootCertificate)?;
+
+                    builder.add_root_certificate(certificate)
+                } else {
+                    builder
+                };
+
+                let http_client = builder
+                    .build()
+                    .map_err(Error::UnableToBuildRemoteSignerClient)?;
+
+                Ok(Self {
+                    signing_method: SigningMethod::RemoteSigner {
+                        url,
+                        http_client,
+                        voting_public_key: def.voting_public_key,
+                    },
+                    graffiti: def.graffiti.map(Into::into),
+                    index: None,
+                })
+            }
         }
     }
 
@@ -228,13 +287,17 @@ impl InitializedValidator {
     pub fn voting_public_key(&self) -> &PublicKey {
         match &self.signing_method {
             SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
+            SigningMethod::RemoteSigner {
+                voting_public_key, ..
+            } => voting_public_key,
         }
     }
 
     /// Returns the voting keypair for this validator.
-    pub fn voting_keypair(&self) -> &Keypair {
+    pub fn voting_keypair(&self) -> Option<&Keypair> {
         match &self.signing_method {
-            SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
+            SigningMethod::LocalKeystore { voting_keypair, .. } => Some(voting_keypair),
+            SigningMethod::RemoteSigner { .. } => None,
         }
     }
 }
@@ -325,12 +388,17 @@ impl InitializedValidators {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
 
-    /// Returns the voting `Keypair` for a given voting `PublicKey`, if that validator is known to
-    /// `self` **and** the validator is enabled.
+    /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
+    ///
+    ///  - The validator is known to `self`
+    ///  - The validator is enabled
+    ///  - The validator has a known keypair (e.g., a local keystore validator)
+    ///
+    /// May return `None` if the validator is known and enabled, but uses remote signing.
     pub fn voting_keypair(&self, voting_public_key: &PublicKeyBytes) -> Option<&Keypair> {
         self.validators
             .get(voting_public_key)
-            .map(|v| v.voting_keypair())
+            .and_then(|v| v.voting_keypair())
     }
 
     /// Add a validator definition to `self`, overwriting the on-disk representation of `self`.
@@ -431,6 +499,8 @@ impl InitializedValidators {
                     };
                     definitions_map.insert(*key_store.uuid(), def);
                 }
+                // Remote signer validators don't interact with the key cache.
+                SigningDefinition::RemoteSigner { .. } => (),
             }
         }
 
@@ -451,13 +521,13 @@ impl InitializedValidators {
         let mut public_keys = Vec::new();
         for uuid in cache.uuids() {
             let def = definitions_map.get(uuid).expect("Existence checked before");
-            let pw = match &def.signing_definition {
+            match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
                     voting_keystore_password_path,
                     voting_keystore_password,
                     voting_keystore_path,
                 } => {
-                    if let Some(p) = voting_keystore_password {
+                    let pw = if let Some(p) = voting_keystore_password {
                         p.as_ref().to_vec().into()
                     } else if let Some(path) = voting_keystore_password_path {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
@@ -468,11 +538,13 @@ impl InitializedValidators {
                             .as_ref()
                             .to_vec()
                             .into()
-                    }
+                    };
+                    passwords.push(pw);
+                    public_keys.push(def.voting_public_key.clone());
                 }
+                // Remote signer validators don't interact with the key cache.
+                SigningDefinition::RemoteSigner { .. } => (),
             };
-            passwords.push(pw);
-            public_keys.push(def.voting_public_key.clone());
         }
 
         //decrypt
@@ -546,6 +618,7 @@ impl InitializedValidators {
                                 info!(
                                     self.log,
                                     "Enabled validator";
+                                    "signing_method" => "local_keystore",
                                     "voting_pubkey" => format!("{:?}", def.voting_public_key),
                                 );
 
@@ -565,6 +638,40 @@ impl InitializedValidators {
                                     self.log,
                                     "Failed to initialize validator";
                                     "error" => format!("{:?}", e),
+                                    "signing_method" => "local_keystore",
+                                    "validator" => format!("{:?}", def.voting_public_key)
+                                );
+
+                                // Exit on an invalid validator.
+                                return Err(e);
+                            }
+                        }
+                    }
+                    SigningDefinition::RemoteSigner { .. } => {
+                        match InitializedValidator::from_definition(
+                            def.clone(),
+                            &mut key_cache,
+                            &mut key_stores,
+                        )
+                        .await
+                        {
+                            Ok(init) => {
+                                self.validators
+                                    .insert(init.voting_public_key().compress(), init);
+
+                                info!(
+                                    self.log,
+                                    "Enabled validator";
+                                    "signing_method" => "remote_signer",
+                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
+                                );
+                            }
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to initialize validator";
+                                    "error" => format!("{:?}", e),
+                                    "signing_method" => "remote_signer",
                                     "validator" => format!("{:?}", def.voting_public_key)
                                 );
 
@@ -585,6 +692,8 @@ impl InitializedValidators {
                             disabled_uuids.insert(*key_store.uuid());
                         }
                     }
+                    // Remote signers do not interact with the key cache.
+                    SigningDefinition::RemoteSigner { .. } => (),
                 }
 
                 info!(
