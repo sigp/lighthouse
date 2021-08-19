@@ -1,6 +1,6 @@
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
-use reqwest::{Client, Url};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{
@@ -8,10 +8,16 @@ use types::{
     DepositMessage, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, PublicKeyBytes,
     Signature, SignedRoot, Slot, SyncAggregatorSelectionData, VoluntaryExit,
 };
+use url::Url;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    Todo,
+    InconsistentDomains {
+        message_type_domain: Domain,
+        domain: Domain,
+    },
+    Web3SignerRequestFailed(String),
+    Web3SignerJsonParsingFailed(String),
 }
 
 /// A method used by a validator to sign messages.
@@ -28,7 +34,7 @@ pub enum SigningMethod {
     },
     /// A validator that defers to a HTTP server for signing.
     RemoteSigner {
-        url: Url,
+        signing_url: Url,
         http_client: Client,
         voting_public_key: PublicKey,
     },
@@ -44,15 +50,61 @@ impl SigningMethod {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<Signature, Error> {
-        let domain = spec.get_domain(epoch, domain, fork, genesis_validators_root);
-
-        let signing_root = pre_image.signing_root(domain);
+        let signing_root =
+            pre_image.signing_root(spec.get_domain(epoch, domain, fork, genesis_validators_root));
 
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
                 Ok(voting_keypair.sk.sign(signing_root))
             }
-            SigningMethod::RemoteSigner { .. } => todo!(),
+            SigningMethod::RemoteSigner {
+                signing_url,
+                http_client,
+                ..
+            } => {
+                let message_type = pre_image.message_type();
+
+                // Sanity check.
+                let message_type_domain = Domain::from(message_type);
+                if message_type_domain != domain {
+                    return Err(Error::InconsistentDomains {
+                        message_type_domain,
+                        domain,
+                    });
+                }
+
+                // The `fork_info` field is not required for deposits since they sign across the
+                // genesis fork version.
+                let fork_info = if let PreImage::Deposit { .. } = &pre_image {
+                    None
+                } else {
+                    Some(ForkInfo {
+                        fork: fork.clone(),
+                        genesis_validators_root,
+                    })
+                };
+
+                let request = SigningRequest {
+                    message_type,
+                    fork_info,
+                    signing_root,
+                    pre_image,
+                };
+
+                let response: SigningResponse = http_client
+                    .post(*signing_url)
+                    .json(&request)
+                    .send()
+                    .await
+                    .map_err(|e| Error::Web3SignerRequestFailed(e.to_string()))?
+                    .error_for_status()
+                    .map_err(|e| Error::Web3SignerRequestFailed(e.to_string()))?
+                    .json()
+                    .await
+                    .map_err(|e| Error::Web3SignerJsonParsingFailed(e.to_string()))?;
+
+                Ok(response.signature)
+            }
         }
     }
 }
@@ -96,6 +148,7 @@ struct ForkInfo {
 }
 
 #[derive(Debug, PartialEq, Serialize)]
+#[serde(bound = "T: EthSpec")]
 pub enum PreImage<'a, T: EthSpec> {
     #[serde(rename = "aggregation_slot")]
     AggregationSlot { slot: Slot },
@@ -174,11 +227,19 @@ impl<'a, T: EthSpec> PreImage<'a, T> {
 }
 
 #[derive(Debug, PartialEq, Serialize)]
+#[serde(bound = "T: EthSpec")]
 struct SigningRequest<'a, T: EthSpec> {
+    #[serde(rename = "type")]
+    message_type: MessageType,
     #[serde(skip_serializing_if = "Option::is_none")]
     fork_info: Option<ForkInfo>,
     #[serde(rename = "signingRoot")]
     signing_root: Hash256,
     #[serde(flatten)]
     pre_image: PreImage<'a, T>,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+struct SigningResponse {
+    signature: Signature,
 }

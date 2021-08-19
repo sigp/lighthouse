@@ -17,7 +17,7 @@ use account_utils::{
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
-use reqwest::{Certificate, Client, Error as ReqwestError, Url};
+use reqwest::{Certificate, Client, Error as ReqwestError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -25,6 +25,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use url::{ParseError, Url};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
@@ -229,8 +230,8 @@ impl InitializedValidator {
                 root_certificate_path,
                 request_timeout_ms,
             } => {
-                let url =
-                    Url::parse(&url).map_err(|e| Error::InvalidRemoteSignerUrl(e.to_string()))?;
+                let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
+                    .map_err(|e| Error::InvalidRemoteSignerUrl(e.to_string()))?;
                 let request_timeout = request_timeout_ms
                     .map(Duration::from_millis)
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
@@ -257,7 +258,7 @@ impl InitializedValidator {
 
                 Ok(Self {
                     signing_method: SigningMethod::RemoteSigner {
-                        url,
+                        signing_url,
                         http_client,
                         voting_public_key: def.voting_public_key,
                     },
@@ -277,6 +278,15 @@ impl InitializedValidator {
             } => voting_public_key,
         }
     }
+}
+
+fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
+    Url::parse(base_url)?
+        .join("api")?
+        .join("v1")?
+        .join("eth1")?
+        .join("sign")?
+        .join(&voting_public_key.to_string())
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.

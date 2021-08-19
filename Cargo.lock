@@ -7010,6 +7010,7 @@ dependencies = [
  "tokio",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types",
+ "url",
  "validator_dir",
  "warp",
  "warp_utils",
