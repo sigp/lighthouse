@@ -2,7 +2,7 @@ use crate::{
     doppelganger_service::DoppelgangerService,
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
-    signing_method::{Error as SigningError, SigningMethod},
+    signing_method::{Error as SigningError, PreImage, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -309,9 +309,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let genesis_validators_root = self.genesis_validators_root;
 
         self.with_validator_signing_method(validator_pubkey, |signing_method| {
-            signing_method.get_signature(
+            signing_method.get_signature::<E>(
                 Domain::Randao,
-                &signing_epoch,
+                PreImage::RandaoReveal {
+                    epoch: signing_epoch,
+                },
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
@@ -369,7 +371,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     self.with_validator_signing_method(validator_pubkey, |signing_method| {
                         signing_method.get_signature(
                             Domain::BeaconProposer,
-                            &block,
+                            PreImage::BeaconBlock(&block),
                             signing_epoch,
                             &fork,
                             genesis_validators_root,
@@ -444,9 +446,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 let signature =
                     self.with_validator_signing_method(validator_pubkey, |signing_method| {
-                        signing_method.get_signature(
+                        signing_method.get_signature::<E>(
                             Domain::BeaconAttester,
-                            &attestation.data,
+                            PreImage::AttestationData(&attestation.data),
                             signing_epoch,
                             &fork,
                             genesis_validators_root,
@@ -525,7 +527,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signature = self.with_validator_signing_method(validator_pubkey, |signing_method| {
             signing_method.get_signature(
                 Domain::AggregateAndProof,
-                &message,
+                PreImage::AggregateAndProof(&message),
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
@@ -562,9 +564,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .ok_or(Error::UnknownPubkey(validator_pubkey))?;
 
         let signature = signing_method
-            .get_signature(
+            .get_signature::<E>(
                 Domain::SelectionProof,
-                &signing_epoch,
+                PreImage::AggregationSlot { slot },
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
@@ -605,9 +607,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         };
 
         let signature = signing_method
-            .get_signature(
+            .get_signature::<E>(
                 Domain::SyncCommitteeSelectionProof,
-                &message,
+                PreImage::SyncAggregatorSelectionData(&message),
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
@@ -636,9 +638,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
 
         let signature = signing_method
-            .get_signature(
+            .get_signature::<E>(
                 Domain::SyncCommittee,
-                &beacon_block_root,
+                PreImage::SyncCommitteeMessage {
+                    beacon_block_root,
+                    slot,
+                },
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
@@ -685,7 +690,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signature = signing_method
             .get_signature(
                 Domain::ContributionAndProof,
-                &message,
+                PreImage::ContributionAndProof(&message),
                 signing_epoch,
                 &fork,
                 genesis_validators_root,

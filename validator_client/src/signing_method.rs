@@ -4,9 +4,9 @@ use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{
-    AggregateAndProof, AttestationData, BeaconBlock, ChainSpec, ContributionAndProof, Deposit,
-    Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, Signature, SignedRoot, Slot,
-    SyncAggregatorSelectionData, VoluntaryExit,
+    AggregateAndProof, AttestationData, BeaconBlock, ChainSpec, ContributionAndProof,
+    DepositMessage, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, PublicKeyBytes,
+    Signature, SignedRoot, Slot, SyncAggregatorSelectionData, VoluntaryExit,
 };
 
 #[derive(Debug, PartialEq)]
@@ -35,10 +35,10 @@ pub enum SigningMethod {
 }
 
 impl SigningMethod {
-    pub fn get_signature<T: SignedRoot>(
+    pub fn get_signature<'a, T: EthSpec>(
         &self,
         domain: Domain,
-        data: &T,
+        pre_image: PreImage<'a, T>,
         epoch: Epoch,
         fork: &Fork,
         genesis_validators_root: Hash256,
@@ -46,7 +46,7 @@ impl SigningMethod {
     ) -> Result<Signature, Error> {
         let domain = spec.get_domain(epoch, domain, fork, genesis_validators_root);
 
-        let signing_root = data.signing_root(domain);
+        let signing_root = pre_image.signing_root(domain);
 
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
@@ -106,7 +106,14 @@ pub enum PreImage<'a, T: EthSpec> {
     #[serde(rename = "block")]
     BeaconBlock(&'a BeaconBlock<T>),
     #[serde(rename = "deposit")]
-    Deposit(&'a Deposit),
+    Deposit {
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
+        #[serde(with = "serde_utils::quoted_u64")]
+        amount: u64,
+        #[serde(with = "serde_utils::bytes_4_hex")]
+        genesis_fork_version: [u8; 4],
+    },
     #[serde(rename = "randao_reveal")]
     RandaoReveal { epoch: Epoch },
     #[serde(rename = "voluntary_exit")]
@@ -129,7 +136,7 @@ impl<'a, T: EthSpec> PreImage<'a, T> {
             PreImage::AggregateAndProof(_) => MessageType::AggregateAndProof,
             PreImage::AttestationData(_) => MessageType::Attestation,
             PreImage::BeaconBlock(_) => MessageType::Block,
-            PreImage::Deposit(_) => MessageType::Deposit,
+            PreImage::Deposit { .. } => MessageType::Deposit,
             PreImage::RandaoReveal { .. } => MessageType::RandaoReveal,
             PreImage::VoluntaryExit(_) => MessageType::VoluntaryExit,
             PreImage::SyncCommitteeMessage { .. } => MessageType::SyncCommitteeMessage,
@@ -137,11 +144,40 @@ impl<'a, T: EthSpec> PreImage<'a, T> {
             PreImage::ContributionAndProof(_) => MessageType::SyncCommitteeContributionAndProof,
         }
     }
+
+    fn signing_root(&self, domain: Hash256) -> Hash256 {
+        match self {
+            PreImage::AggregationSlot { slot } => slot.signing_root(domain),
+            PreImage::AggregateAndProof(a) => a.signing_root(domain),
+            PreImage::AttestationData(a) => a.signing_root(domain),
+            PreImage::BeaconBlock(b) => b.signing_root(domain),
+            PreImage::Deposit {
+                pubkey,
+                withdrawal_credentials,
+                amount,
+                ..
+            } => DepositMessage {
+                pubkey: *pubkey,
+                withdrawal_credentials: *withdrawal_credentials,
+                amount: *amount,
+            }
+            .signing_root(domain),
+            PreImage::RandaoReveal { epoch } => epoch.signing_root(domain),
+            PreImage::VoluntaryExit(e) => e.signing_root(domain),
+            PreImage::SyncCommitteeMessage {
+                beacon_block_root, ..
+            } => beacon_block_root.signing_root(domain),
+            PreImage::SyncAggregatorSelectionData(s) => s.signing_root(domain),
+            PreImage::ContributionAndProof(c) => c.signing_root(domain),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
 struct SigningRequest<'a, T: EthSpec> {
-    fork_info: ForkInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_info: Option<ForkInfo>,
+    #[serde(rename = "signingRoot")]
     signing_root: Hash256,
     #[serde(flatten)]
     pre_image: PreImage<'a, T>,
