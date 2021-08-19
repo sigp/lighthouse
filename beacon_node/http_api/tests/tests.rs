@@ -1190,7 +1190,7 @@ impl ApiTester {
     pub async fn test_get_config_fork_schedule(self) -> Self {
         let result = self.client.get_config_fork_schedule().await.unwrap().data;
 
-        let expected = ForkName::list_all()
+        let expected: Vec<Fork> = ForkName::list_all()
             .into_iter()
             .map(|fork| self.chain.spec.fork_for_name(fork))
             .collect();
