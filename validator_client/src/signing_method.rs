@@ -89,40 +89,40 @@ impl From<MessageType> for Domain {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize)]
 struct ForkInfo {
     fork: Fork,
     genesis_validators_root: Hash256,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-enum PreImage<T: EthSpec> {
+#[derive(Debug, PartialEq, Serialize)]
+pub enum PreImage<'a, T: EthSpec> {
     #[serde(rename = "aggregation_slot")]
     AggregationSlot { slot: Slot },
     #[serde(rename = "aggregate_and_proof")]
-    AggregateAndProof(AggregateAndProof<T>),
+    AggregateAndProof(&'a AggregateAndProof<T>),
     #[serde(rename = "attestation")]
-    AttestationData(AttestationData),
+    AttestationData(&'a AttestationData),
     #[serde(rename = "block")]
-    BeaconBlock(BeaconBlock<T>),
+    BeaconBlock(&'a BeaconBlock<T>),
     #[serde(rename = "deposit")]
-    Deposit(Deposit),
+    Deposit(&'a Deposit),
     #[serde(rename = "randao_reveal")]
     RandaoReveal { epoch: Epoch },
     #[serde(rename = "voluntary_exit")]
-    VoluntaryExit(VoluntaryExit),
+    VoluntaryExit(&'a VoluntaryExit),
     #[serde(rename = "sync_committee_message")]
     SyncCommitteeMessage {
         beacon_block_root: Hash256,
         slot: Slot,
     },
     #[serde(rename = "sync_aggregator_selection_data")]
-    SyncAggregatorSelectionData(SyncAggregatorSelectionData),
+    SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
     #[serde(rename = "contribution_and_proof")]
-    ContributionAndProof(ContributionAndProof<T>),
+    ContributionAndProof(&'a ContributionAndProof<T>),
 }
 
-impl<T: EthSpec> PreImage<T> {
+impl<'a, T: EthSpec> PreImage<'a, T> {
     fn message_type(&self) -> MessageType {
         match self {
             PreImage::AggregationSlot { .. } => MessageType::AggregationSlot,
@@ -139,10 +139,10 @@ impl<T: EthSpec> PreImage<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct SigningRequest<T: EthSpec> {
+#[derive(Debug, PartialEq, Serialize)]
+struct SigningRequest<'a, T: EthSpec> {
     fork_info: ForkInfo,
     signing_root: Hash256,
     #[serde(flatten)]
-    pre_image: PreImage<T>,
+    pre_image: PreImage<'a, T>,
 }
