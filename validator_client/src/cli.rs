@@ -231,4 +231,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     immediately.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("enable-event-listening")
+                .long("enable-event-listening")
+                .value_name("ENABLE_EVENT_LISTENING")
+                .help("If this flag is set, the validator client will listen to events sent by \
+                    all `--beacon-nodes` notifying the VC that the head of the chain has been updated. \
+                    This will trigger the production of attestations and sync committee messages. \
+                    The default functionality is for the validator client to simply wait until 1/3 \
+                    of the way through the slot to publish attestations and sync committee \
+                    messages. Publishing messages based on events could result in a better chance \
+                    of having a message included in the next block.")
+                .takes_value(false),
+        )
 }

@@ -391,3 +391,16 @@ fn no_doppelganger_protection_flag() {
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
+#[test]
+fn no_event_listening_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.enable_event_listening));
+}
+#[test]
+fn event_listening_flag() {
+    CommandLineTest::new()
+        .flag("enable-event-listening", None)
+        .run()
+        .with_config(|config| assert!(config.enable_event_listening));
+}
