@@ -29,6 +29,12 @@ use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use crate::key_cache;
 use crate::key_cache::KeyCache;
 
+/// Default timeout for a request to a remote signer for a signature.
+///
+/// Set to 12 seconds since that's the duration of a slot. A remote signer that cannot sign within
+/// that time is outside the synchronous assumptions of Eth2.
+const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
+
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
 
@@ -225,13 +231,11 @@ impl InitializedValidator {
             } => {
                 let url =
                     Url::parse(&url).map_err(|e| Error::InvalidRemoteSignerUrl(e.to_string()))?;
-                let builder = Client::builder();
+                let request_timeout = request_timeout_ms
+                    .map(Duration::from_millis)
+                    .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
 
-                let builder = if let Some(timeout) = request_timeout_ms {
-                    builder.timeout(Duration::from_millis(timeout))
-                } else {
-                    builder
-                };
+                let builder = Client::builder().timeout(request_timeout);
 
                 let builder = if let Some(path) = root_certificate_path {
                     let mut buf = Vec::new();
