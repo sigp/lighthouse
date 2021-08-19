@@ -1,8 +1,13 @@
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use reqwest::{Client, Url};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use types::{ChainSpec, Domain, Epoch, Fork, Hash256, Keypair, PublicKey, Signature, SignedRoot};
+use types::{
+    AggregateAndProof, AttestationData, BeaconBlock, ChainSpec, ContributionAndProof, Deposit,
+    Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, Signature, SignedRoot, Slot,
+    SyncAggregatorSelectionData, VoluntaryExit,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -50,4 +55,94 @@ impl SigningMethod {
             SigningMethod::RemoteSigner { .. } => todo!(),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MessageType {
+    AggregationSlot,
+    AggregateAndProof,
+    Attestation,
+    Block,
+    Deposit,
+    RandaoReveal,
+    VoluntaryExit,
+    SyncCommitteeMessage,
+    SyncCommitteeSelectionProof,
+    SyncCommitteeContributionAndProof,
+}
+
+impl From<MessageType> for Domain {
+    fn from(message_type: MessageType) -> Self {
+        match message_type {
+            MessageType::AggregationSlot => Domain::SelectionProof,
+            MessageType::AggregateAndProof => Domain::AggregateAndProof,
+            MessageType::Attestation => Domain::BeaconAttester,
+            MessageType::Block => Domain::BeaconProposer,
+            MessageType::Deposit => Domain::Deposit,
+            MessageType::RandaoReveal => Domain::Randao,
+            MessageType::VoluntaryExit => Domain::VoluntaryExit,
+            MessageType::SyncCommitteeMessage => Domain::SyncCommittee,
+            MessageType::SyncCommitteeSelectionProof => Domain::SyncCommitteeSelectionProof,
+            MessageType::SyncCommitteeContributionAndProof => Domain::ContributionAndProof,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct ForkInfo {
+    fork: Fork,
+    genesis_validators_root: Hash256,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+enum PreImage<T: EthSpec> {
+    #[serde(rename = "aggregation_slot")]
+    AggregationSlot { slot: Slot },
+    #[serde(rename = "aggregate_and_proof")]
+    AggregateAndProof(AggregateAndProof<T>),
+    #[serde(rename = "attestation")]
+    AttestationData(AttestationData),
+    #[serde(rename = "block")]
+    BeaconBlock(BeaconBlock<T>),
+    #[serde(rename = "deposit")]
+    Deposit(Deposit),
+    #[serde(rename = "randao_reveal")]
+    RandaoReveal { epoch: Epoch },
+    #[serde(rename = "voluntary_exit")]
+    VoluntaryExit(VoluntaryExit),
+    #[serde(rename = "sync_committee_message")]
+    SyncCommitteeMessage {
+        beacon_block_root: Hash256,
+        slot: Slot,
+    },
+    #[serde(rename = "sync_aggregator_selection_data")]
+    SyncAggregatorSelectionData(SyncAggregatorSelectionData),
+    #[serde(rename = "contribution_and_proof")]
+    ContributionAndProof(ContributionAndProof<T>),
+}
+
+impl<T: EthSpec> PreImage<T> {
+    fn message_type(&self) -> MessageType {
+        match self {
+            PreImage::AggregationSlot { .. } => MessageType::AggregationSlot,
+            PreImage::AggregateAndProof(_) => MessageType::AggregateAndProof,
+            PreImage::AttestationData(_) => MessageType::Attestation,
+            PreImage::BeaconBlock(_) => MessageType::Block,
+            PreImage::Deposit(_) => MessageType::Deposit,
+            PreImage::RandaoReveal { .. } => MessageType::RandaoReveal,
+            PreImage::VoluntaryExit(_) => MessageType::VoluntaryExit,
+            PreImage::SyncCommitteeMessage { .. } => MessageType::SyncCommitteeMessage,
+            PreImage::SyncAggregatorSelectionData(_) => MessageType::SyncCommitteeSelectionProof,
+            PreImage::ContributionAndProof(_) => MessageType::SyncCommitteeContributionAndProof,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct SigningRequest<T: EthSpec> {
+    fork_info: ForkInfo,
+    signing_root: Hash256,
+    #[serde(flatten)]
+    pre_image: PreImage<T>,
 }
