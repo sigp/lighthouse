@@ -28,7 +28,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (finalized_tx, _) = broadcast::channel(capacity);
         let (head_tx, _) = broadcast::channel(capacity);
         let (exit_tx, _) = broadcast::channel(capacity);
-        let (chain_reorg, _) = broadcast::channel(capacity);
+        let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
 
         Self {
@@ -37,7 +37,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             finalized_tx,
             head_tx,
             exit_tx,
-            chain_reorg_tx: chain_reorg,
+            chain_reorg_tx,
             contribution_tx,
             log,
         }
