@@ -19,6 +19,7 @@ pub struct BootNodeConfig<T: EthSpec> {
     pub local_enr: Enr,
     pub local_key: CombinedKey,
     pub auto_update: bool,
+    pub disable_packet_filter: bool,
     phantom: PhantomData<T>,
 }
 
@@ -69,6 +70,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         }
 
         let auto_update = matches.is_present("enable-enr_auto_update");
+        let disable_packet_filter = matches.is_present("disable-packet-filter");
 
         // the address to listen on
         let listen_socket =
@@ -128,6 +130,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             local_enr,
             local_key,
             auto_update,
+            disable_packet_filter,
             phantom: PhantomData,
         })
     }
