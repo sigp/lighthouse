@@ -770,6 +770,7 @@ pub enum EventKind<T: EthSpec> {
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
+    ContributionAndProof(Box<SignedContributionAndProof<T>>),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -781,6 +782,7 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::VoluntaryExit(_) => "voluntary_exit",
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
             EventKind::ChainReorg(_) => "chain_reorg",
+            EventKind::ContributionAndProof(_) => "contribution_and_proof",
         }
     }
 
@@ -825,6 +827,11 @@ impl<T: EthSpec> EventKind<T> {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
                 })?,
             )),
+            "contribution_and_proof" => Ok(EventKind::ContributionAndProof(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -846,6 +853,7 @@ pub enum EventTopic {
     VoluntaryExit,
     FinalizedCheckpoint,
     ChainReorg,
+    ContributionAndProof,
 }
 
 impl FromStr for EventTopic {
@@ -859,6 +867,7 @@ impl FromStr for EventTopic {
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
             "chain_reorg" => Ok(EventTopic::ChainReorg),
+            "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -873,6 +882,7 @@ impl fmt::Display for EventTopic {
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
+            EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
         }
     }
 }

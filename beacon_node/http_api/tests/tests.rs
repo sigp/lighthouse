@@ -1,4 +1,5 @@
 use crate::common::{create_api_server, ApiServer};
+use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -50,6 +51,7 @@ struct ApiTester {
     next_block: SignedBeaconBlock<E>,
     reorg_block: SignedBeaconBlock<E>,
     attestations: Vec<Attestation<E>>,
+    contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
@@ -122,6 +124,17 @@ impl ApiTester {
             "precondition: attestations for testing"
         );
 
+        let contribution_and_proofs = harness
+            .make_sync_contributions(
+                &head.beacon_state,
+                head_state_root,
+                harness.chain.slot().unwrap(),
+                RelativeSyncCommittee::Current,
+            )
+            .into_iter()
+            .filter_map(|(_, contribution)| contribution)
+            .collect::<Vec<_>>();
+
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
@@ -172,6 +185,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
+            contribution_and_proofs,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -215,6 +229,17 @@ impl ApiTester {
             .flatten()
             .collect::<Vec<_>>();
 
+        let contribution_and_proofs = harness
+            .make_sync_contributions(
+                &head.beacon_state,
+                head_state_root,
+                harness.chain.slot().unwrap(),
+                RelativeSyncCommittee::Current,
+            )
+            .into_iter()
+            .filter_map(|(_, contribution)| contribution)
+            .collect::<Vec<_>>();
+
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
@@ -250,6 +275,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
+            contribution_and_proofs,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -2171,6 +2197,7 @@ impl ApiTester {
             EventTopic::Block,
             EventTopic::Head,
             EventTopic::FinalizedCheckpoint,
+            EventTopic::ContributionAndProof,
         ];
         let mut events_future = self
             .client
@@ -2197,6 +2224,29 @@ impl ApiTester {
                 .clone()
                 .into_iter()
                 .map(|attestation| EventKind::Attestation(attestation))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+
+        let expected_contribution_len = self.contribution_and_proofs.len();
+
+        self.client
+            .post_validator_contribution_and_proofs(self.contribution_and_proofs.as_slice())
+            .await
+            .unwrap();
+
+        let contribution_events = poll_events(
+            &mut events_future,
+            expected_contribution_len,
+            Duration::from_millis(10000),
+        )
+        .await;
+        assert_eq!(
+            contribution_events.as_slice(),
+            self.contribution_and_proofs
+                .clone()
+                .into_iter()
+                .map(|contribution| EventKind::ContributionAndProof(Box::new(contribution)))
                 .collect::<Vec<_>>()
                 .as_slice()
         );
