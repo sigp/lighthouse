@@ -516,10 +516,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let fork = self.fork(signing_epoch);
         let genesis_validators_root = self.genesis_validators_root;
 
+        let message = AggregateAndProof {
+            aggregator_index,
+            aggregate,
+            selection_proof: selection_proof.into(),
+        };
+
         let signature = self.with_validator_signing_method(validator_pubkey, |signing_method| {
             signing_method.get_signature(
                 Domain::AggregateAndProof,
-                &signing_epoch,
+                &message,
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
@@ -529,14 +535,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
-        Ok(SignedAggregateAndProof {
-            message: AggregateAndProof {
-                aggregator_index,
-                aggregate,
-                selection_proof: selection_proof.into(),
-            },
-            signature,
-        })
+        Ok(SignedAggregateAndProof { message, signature })
     }
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
