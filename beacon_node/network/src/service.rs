@@ -190,6 +190,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &beacon_chain.spec,
         ));
 
+        debug!(network_log, "Current fork"; "fork_name" => ?fork_context.current_fork());
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(
             executor.clone(),
@@ -600,10 +602,36 @@ fn spawn_service<T: BeaconChainTypes>(
                                 id,
                                 source,
                                 message,
-                                ..
+                                fork_name,
+                                topic,
                             } => {
                                 // Update prometheus metrics.
                                 metrics::expose_receive_metrics(&message);
+
+                                if fork_name != service.fork_context.current_fork() {
+                                    if let Some((_, next_fork_duration)) = service.beacon_chain.duration_to_next_fork() {
+                                        // This implies that the peer is sending messages on post fork topics
+                                        // before the fork. We ignore the message and score down the peer.
+                                        if next_fork_duration > beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY {
+                                            debug!(
+                                                service.log,
+                                                "Peer sent gossip on incorrect fork version topic";
+                                                "peer" => %source,
+                                                "fork_topic" => %topic,
+                                            );
+                                            service.libp2p.report_peer(&source, PeerAction::LowToleranceError, ReportSource::Gossipsub);
+                                            service
+                                                .libp2p
+                                                .swarm
+                                                .behaviour_mut()
+                                                .report_message_validation_result(
+                                                    &source, id, MessageAcceptance::Ignore,
+                                                );
+                                            continue;
+                                        }
+                                    }
+
+                                }
                                 match message {
                                     // attestation information gets processed in the attestation service
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
