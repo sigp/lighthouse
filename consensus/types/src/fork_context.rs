@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, EthSpec, ForkName, Hash256, Slot};
+use crate::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot};
 use std::collections::HashMap;
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
@@ -26,12 +26,18 @@ impl ForkContext {
             ChainSpec::compute_fork_digest(spec.genesis_fork_version, genesis_validators_root),
         )];
 
-        // Only add Altair to list of forks if it's enabled (i.e. spec.altair_fork_epoch != None)
-        if spec.altair_fork_epoch.is_some() {
-            fork_to_digest.push((
-                ForkName::Altair,
-                ChainSpec::compute_fork_digest(spec.altair_fork_version, genesis_validators_root),
-            ))
+        // Only add Altair to list of forks if it's enabled
+        // Note: `altair_fork_epoch = None | Some(Epoch::max_value())` implies altair hasn't been activated yet on the config.
+        if let Some(altair_epoch) = spec.altair_fork_epoch {
+            if altair_epoch != Epoch::max_value() {
+                fork_to_digest.push((
+                    ForkName::Altair,
+                    ChainSpec::compute_fork_digest(
+                        spec.altair_fork_version,
+                        genesis_validators_root,
+                    ),
+                ));
+            }
         }
 
         let fork_to_digest: HashMap<ForkName, [u8; 4]> = fork_to_digest.into_iter().collect();
