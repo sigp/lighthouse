@@ -73,7 +73,7 @@ impl ApiTester {
     pub fn new_from_spec(spec: ChainSpec) -> Self {
         let harness = BeaconChainHarness::new(
             MainnetEthSpec,
-            Some(spec),
+            Some(spec.clone()),
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 
@@ -134,7 +134,8 @@ impl ApiTester {
             .epoch(E::slots_per_epoch());
         let is_altair = spec
             .altair_fork_epoch
-            .map_or_else(false, |epoch| epoch <= current_epoch);
+            .map(|epoch| epoch <= current_epoch)
+            .unwrap_or(false);
         let contribution_and_proofs = if is_altair {
             harness
                 .make_sync_contributions(
@@ -244,17 +245,6 @@ impl ApiTester {
             .flatten()
             .collect::<Vec<_>>();
 
-        let contribution_and_proofs = harness
-            .make_sync_contributions(
-                &head.beacon_state,
-                head_state_root,
-                harness.chain.slot().unwrap(),
-                RelativeSyncCommittee::Current,
-            )
-            .into_iter()
-            .filter_map(|(_, contribution)| contribution)
-            .collect::<Vec<_>>();
-
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
@@ -290,7 +280,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
-            contribution_and_proofs,
+            contribution_and_proofs: vec![],
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -2341,43 +2331,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_events_altair(self) -> Self {
-        // Subscribe to all events
-        let topics = vec![
-            EventTopic::Attestation,
-            EventTopic::VoluntaryExit,
-            EventTopic::Block,
-            EventTopic::Head,
-            EventTopic::FinalizedCheckpoint,
-            EventTopic::ContributionAndProof,
-        ];
+        let topics = vec![EventTopic::ContributionAndProof];
         let mut events_future = self
             .client
             .get_events::<E>(topics.as_slice())
             .await
             .unwrap();
-
-        let expected_attestation_len = self.attestations.len();
-
-        self.client
-            .post_beacon_pool_attestations(self.attestations.as_slice())
-            .await
-            .unwrap();
-
-        let attestation_events = poll_events(
-            &mut events_future,
-            expected_attestation_len,
-            Duration::from_millis(10000),
-        )
-        .await;
-        assert_eq!(
-            attestation_events.as_slice(),
-            self.attestations
-                .clone()
-                .into_iter()
-                .map(|attestation| EventKind::Attestation(attestation))
-                .collect::<Vec<_>>()
-                .as_slice()
-        );
 
         let expected_contribution_len = self.contribution_and_proofs.len();
 
@@ -2401,101 +2360,6 @@ impl ApiTester {
                 .collect::<Vec<_>>()
                 .as_slice()
         );
-
-        // Produce a voluntary exit event
-        self.client
-            .post_beacon_pool_voluntary_exits(&self.voluntary_exit)
-            .await
-            .unwrap();
-
-        let exit_events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
-        assert_eq!(
-            exit_events.as_slice(),
-            &[EventKind::VoluntaryExit(self.voluntary_exit.clone())]
-        );
-
-        // Submit the next block, which is on an epoch boundary, so this will produce a finalized
-        // checkpoint event, head event, and block event
-        let block_root = self.next_block.canonical_root();
-
-        // current_duty_dependent_root = block root because this is the first slot of the epoch
-        let current_duty_dependent_root = self.chain.head_beacon_block_root().unwrap();
-        let current_slot = self.chain.slot().unwrap();
-        let next_slot = self.next_block.slot();
-        let finalization_distance = E::slots_per_epoch() * 2;
-
-        let expected_block = EventKind::Block(SseBlock {
-            block: block_root,
-            slot: next_slot,
-        });
-
-        let expected_head = EventKind::Head(SseHead {
-            block: block_root,
-            slot: next_slot,
-            state: self.next_block.state_root(),
-            current_duty_dependent_root,
-            previous_duty_dependent_root: self
-                .chain
-                .block_root_at_slot(current_slot - E::slots_per_epoch(), WhenSlotSkipped::Prev)
-                .unwrap()
-                .unwrap(),
-            epoch_transition: true,
-        });
-
-        let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-            block: self
-                .chain
-                .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
-                .unwrap()
-                .unwrap(),
-            state: self
-                .chain
-                .state_root_at_slot(next_slot - finalization_distance)
-                .unwrap()
-                .unwrap(),
-            epoch: Epoch::new(3),
-        });
-
-        self.client
-            .post_beacon_blocks(&self.next_block)
-            .await
-            .unwrap();
-
-        let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
-        assert_eq!(
-            block_events.as_slice(),
-            &[expected_block, expected_finalized, expected_head]
-        );
-
-        // Test a reorg event
-        let mut chain_reorg_event_future = self
-            .client
-            .get_events::<E>(&[EventTopic::ChainReorg])
-            .await
-            .unwrap();
-
-        let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-            slot: self.next_block.slot(),
-            depth: 1,
-            old_head_block: self.next_block.canonical_root(),
-            old_head_state: self.next_block.state_root(),
-            new_head_block: self.reorg_block.canonical_root(),
-            new_head_state: self.reorg_block.state_root(),
-            epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
-        });
-
-        self.client
-            .post_beacon_blocks(&self.reorg_block)
-            .await
-            .unwrap();
-
-        let reorg_event = poll_events(
-            &mut chain_reorg_event_future,
-            1,
-            Duration::from_millis(10000),
-        )
-        .await;
-        assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
 
         self
     }

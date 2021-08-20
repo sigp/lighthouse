@@ -60,7 +60,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .map(|count| trace!(self.log, "Registering server-sent voluntary exit event"; "receiver_count" => count)),
             EventKind::ChainReorg(reorg) => self.chain_reorg_tx.send(EventKind::ChainReorg(reorg))
                 .map(|count| trace!(self.log, "Registering server-sent chain reorg event"; "receiver_count" => count)),
-            EventKind::ContributionAndProof(contribution_and_proof) => self.chain_reorg_tx.send(EventKind::ContributionAndProof(contribution_and_proof))
+            EventKind::ContributionAndProof(contribution_and_proof) => self.contribution_tx.send(EventKind::ContributionAndProof(contribution_and_proof))
                 .map(|count| trace!(self.log, "Registering server-sent contribution and proof event"; "receiver_count" => count)),
         };
         if let Err(SendError(event)) = result {
