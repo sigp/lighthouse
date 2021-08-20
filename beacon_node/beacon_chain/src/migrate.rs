@@ -337,6 +337,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             let mut potentially_abandoned_head = Some(head_hash);
             let mut potentially_abandoned_blocks = vec![];
 
+            // FIXME(sproul): need to allow a decode failure here
             let head_state_hash = store
                 .get_block(&head_hash)?
                 .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?

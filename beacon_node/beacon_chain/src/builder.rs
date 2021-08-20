@@ -16,15 +16,16 @@ use crate::{
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
+use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slasher::Slasher;
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{Error as StoreError, HotColdDB, ItemStore};
+use store::{iter::ParentRootBlockIterator, Error as StoreError, HotColdDB, ItemStore};
 use task_executor::ShutdownReason;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
@@ -441,10 +442,46 @@ where
             .get_head(current_slot)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
-        let head_block = store
-            .get_block(&head_block_root)
-            .map_err(|e| descriptive_db_error("head block", &e))?
-            .ok_or("Head block not found in store")?;
+        // Try to decode the head block according to the current fork, if that fails, try
+        // to backtrack to before the most recent fork.
+        let head_block = match store.get_block(&head_block_root) {
+            Ok(Some(block)) => block,
+            Ok(None) => return Err("Head block not found in store".into()),
+            Err(e) => {
+                let current_fork = self.spec.fork_name_at_slot::<TEthSpec>(current_slot);
+                let fork_epoch = self.spec.fork_epoch(current_fork).ok_or_else(|| {
+                    format!("fork '{}' is current, but never activates?", current_fork)
+                })?;
+                warn!(
+                    log,
+                    "Reverting invalid head block";
+                    "error" => ?e,
+                    "target_fork" => %current_fork,
+                    "fork_epoch" => fork_epoch,
+                );
+                let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
+
+                process_results(block_iter, |mut iter| {
+                    iter.find_map(|(block_root, block)| {
+                        if block.slot() < fork_epoch.start_slot(TEthSpec::slots_per_epoch()) {
+                            Some(block)
+                        } else {
+                            // FIXME(sproul): remove from fork choice? delete?
+                            info!(
+                                log,
+                                "Reverting block";
+                                "block_root" => ?block_root,
+                                "slot" => block.slot(),
+                            );
+                            None
+                        }
+                    })
+                })
+                .map_err(|e| descriptive_db_error("blocks to revert", &e))?
+                .ok_or_else(|| "No pre-fork blocks found")?
+            }
+        };
+
         let head_state_root = head_block.state_root();
         let head_state = store
             .get_state(&head_state_root, Some(head_block.slot()))

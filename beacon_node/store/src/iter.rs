@@ -232,6 +232,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
 pub struct ParentRootBlockIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     store: &'a HotColdDB<E, Hot, Cold>,
     next_block_root: Hash256,
+    decode_any_variant: bool,
     _phantom: PhantomData<E>,
 }
 
@@ -242,6 +243,17 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         Self {
             store,
             next_block_root: start_block_root,
+            decode_any_variant: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Block iterator that is tolerant of blocks that have the wrong fork for their slot.
+    pub fn fork_tolerant(store: &'a HotColdDB<E, Hot, Cold>, start_block_root: Hash256) -> Self {
+        Self {
+            store,
+            next_block_root: start_block_root,
+            decode_any_variant: true,
             _phantom: PhantomData,
         }
     }
@@ -253,10 +265,12 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             Ok(None)
         } else {
             let block_root = self.next_block_root;
-            let block = self
-                .store
-                .get_block(&block_root)?
-                .ok_or(Error::BlockNotFound(block_root))?;
+            let block = if self.decode_any_variant {
+                self.store.get_block_any_variant(&block_root)
+            } else {
+                self.store.get_block(&block_root)
+            }?
+            .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message().parent_root();
             Ok(Some((block_root, block)))
         }
