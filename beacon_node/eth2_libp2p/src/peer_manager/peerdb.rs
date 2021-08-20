@@ -233,7 +233,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Checks if the peer's known addresses are currently banned.
     fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> Option<IpAddr> {
         peer.seen_addresses()
-            .find(|ip| self.banned_peers_count.ip_is_banned(&ip))
+            .find(|ip| self.banned_peers_count.ip_is_banned(ip))
     }
 
     /// Returns true if the IP is banned.
