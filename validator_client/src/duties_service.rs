@@ -64,13 +64,14 @@ pub struct DutyAndProof {
 
 impl DutyAndProof {
     /// Instantiate `Self`, computing the selection proof as well.
-    pub fn new<T: SlotClock + 'static, E: EthSpec>(
+    pub async fn new<T: SlotClock + 'static, E: EthSpec>(
         duty: AttesterData,
         validator_store: &ValidatorStore<T, E>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
             .produce_selection_proof(duty.pubkey, duty.slot)
+            .await
             .map_err(Error::FailedToProduceSelectionProof)?;
 
         let selection_proof = selection_proof
@@ -651,23 +652,34 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     );
 
     let mut already_warned = Some(());
-    let mut attesters_map = duties_service.attesters.write();
     for duty in relevant_duties {
-        let attesters_map = attesters_map.entry(duty.pubkey).or_default();
+        // TODO(paul): double check this code during review.
+        let update_required = {
+            let attesters = duties_service.attesters.write();
+
+            if let Some(duties) = attesters.get(&duty.pubkey) {
+                duties
+                    .get(&epoch)
+                    .map_or(true, |(prior, _)| *prior != dependent_root)
+            } else {
+                true
+            }
+        };
 
         // Only update the duties if either is true:
         //
         // - There were no known duties for this epoch.
         // - The dependent root has changed, signalling a re-org.
-        if attesters_map
-            .get(&epoch)
-            .map_or(true, |(prior, _)| *prior != dependent_root)
-        {
+        if update_required {
             let duty_and_proof =
-                DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)?;
+                DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
+                    .await?;
+
+            let mut attesters = duties_service.attesters.write();
+            let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
 
             if let Some((prior_dependent_root, _)) =
-                attesters_map.insert(epoch, (dependent_root, duty_and_proof))
+                attester_map.insert(epoch, (dependent_root, duty_and_proof))
             {
                 // Using `already_warned` avoids excessive logs.
                 if dependent_root != prior_dependent_root && already_warned.take().is_some() {
@@ -682,11 +694,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             }
         }
     }
-    // Drop the write-lock.
-    //
-    // This is strictly unnecessary since the function ends immediately afterwards, but we remain
-    // defensive regardless.
-    drop(attesters_map);
 
     Ok(())
 }

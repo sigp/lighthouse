@@ -377,12 +377,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            if let Err(e) = self.validator_store.sign_attestation(
-                duty.pubkey,
-                duty.validator_committee_index as usize,
-                &mut attestation,
-                current_epoch,
-            ) {
+            if let Err(e) = self
+                .validator_store
+                .sign_attestation(
+                    duty.pubkey,
+                    duty.validator_committee_index as usize,
+                    &mut attestation,
+                    current_epoch,
+                )
+                .await
+            {
                 crit!(
                     log,
                     "Failed to sign attestation";
@@ -494,12 +498,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 continue;
             }
 
-            match self.validator_store.produce_signed_aggregate_and_proof(
-                duty.pubkey,
-                duty.validator_index,
-                aggregated_attestation.clone(),
-                selection_proof.clone(),
-            ) {
+            match self
+                .validator_store
+                .produce_signed_aggregate_and_proof(
+                    duty.pubkey,
+                    duty.validator_index,
+                    aggregated_attestation.clone(),
+                    selection_proof.clone(),
+                )
+                .await
+            {
                 Ok(aggregate) => signed_aggregate_and_proofs.push(aggregate),
                 Err(e) => {
                     crit!(

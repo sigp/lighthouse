@@ -214,28 +214,31 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     ) -> Result<(), ()> {
         let log = self.context.log().clone();
 
-        let committee_signatures = validator_duties
-            .iter()
-            .filter_map(|duty| {
-                self.validator_store
-                    .produce_sync_committee_signature(
-                        slot,
-                        beacon_block_root,
-                        duty.validator_index,
-                        &duty.pubkey,
-                    )
-                    .map_err(|e| {
-                        crit!(
-                            log,
-                            "Failed to sign sync committee signature";
-                            "validator_index" => duty.validator_index,
-                            "slot" => slot,
-                            "error" => ?e,
-                        );
-                    })
-                    .ok()
-            })
-            .collect::<Vec<_>>();
+        let mut committee_signatures = vec![];
+        for duty in &validator_duties {
+            if let Some(signature) = self
+                .validator_store
+                .produce_sync_committee_signature(
+                    slot,
+                    beacon_block_root,
+                    duty.validator_index,
+                    &duty.pubkey,
+                )
+                .await
+                .map_err(|e| {
+                    crit!(
+                        log,
+                        "Failed to sign sync committee signature";
+                        "validator_index" => duty.validator_index,
+                        "slot" => slot,
+                        "error" => ?e,
+                    );
+                })
+                .ok()
+            {
+                committee_signatures.push(signature)
+            }
+        }
 
         let signatures_slice = &committee_signatures;
 
@@ -336,27 +339,30 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .data;
 
         // Make `SignedContributionAndProof`s
-        let signed_contributions = subnet_aggregators
-            .into_iter()
-            .filter_map(|(aggregator_index, aggregator_pk, selection_proof)| {
-                self.validator_store
-                    .produce_signed_contribution_and_proof(
-                        aggregator_index,
-                        &aggregator_pk,
-                        contribution.clone(),
-                        selection_proof,
-                    )
-                    .map_err(|e| {
-                        crit!(
-                            log,
-                            "Unable to sign sync committee contribution";
-                            "slot" => slot,
-                            "error" => ?e,
-                        );
-                    })
-                    .ok()
-            })
-            .collect::<Vec<_>>();
+        let mut signed_contributions = vec![];
+        for (aggregator_index, aggregator_pk, selection_proof) in subnet_aggregators {
+            if let Some(signed_contribution) = self
+                .validator_store
+                .produce_signed_contribution_and_proof(
+                    aggregator_index,
+                    &aggregator_pk,
+                    contribution.clone(),
+                    selection_proof,
+                )
+                .await
+                .map_err(|e| {
+                    crit!(
+                        log,
+                        "Unable to sign sync committee contribution";
+                        "slot" => slot,
+                        "error" => ?e,
+                    );
+                })
+                .ok()
+            {
+                signed_contributions.push(signed_contribution)
+            }
+        }
 
         // Publish to the beacon node.
         let signed_contributions_slice = &signed_contributions;

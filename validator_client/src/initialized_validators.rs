@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
@@ -92,7 +93,7 @@ impl From<LockfileError> for Error {
 
 /// A validator that is ready to sign messages.
 pub struct InitializedValidator {
-    signing_method: SigningMethod,
+    signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
@@ -101,7 +102,7 @@ pub struct InitializedValidator {
 impl InitializedValidator {
     /// Return a reference to this validator's lockfile if it has one.
     pub fn keystore_lockfile(&self) -> Option<&Lockfile> {
-        match self.signing_method {
+        match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore {
                 ref voting_keystore_lockfile,
                 ..
@@ -215,12 +216,12 @@ impl InitializedValidator {
                 let voting_keystore_lockfile = Lockfile::new(lockfile_path)?;
 
                 Ok(Self {
-                    signing_method: SigningMethod::LocalKeystore {
+                    signing_method: Arc::new(SigningMethod::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_lockfile,
                         voting_keystore: voting_keystore.clone(),
-                        voting_keypair,
-                    },
+                        voting_keypair: Arc::new(voting_keypair),
+                    }),
                     graffiti: def.graffiti.map(Into::into),
                     index: None,
                 })
@@ -257,11 +258,11 @@ impl InitializedValidator {
                     .map_err(Error::UnableToBuildRemoteSignerClient)?;
 
                 Ok(Self {
-                    signing_method: SigningMethod::RemoteSigner {
+                    signing_method: Arc::new(SigningMethod::RemoteSigner {
                         signing_url,
                         http_client,
                         voting_public_key: def.voting_public_key,
-                    },
+                    }),
                     graffiti: def.graffiti.map(Into::into),
                     index: None,
                 })
@@ -271,7 +272,7 @@ impl InitializedValidator {
 
     /// Returns the voting public key for this validator.
     pub fn voting_public_key(&self) -> &PublicKey {
-        match &self.signing_method {
+        match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
             SigningMethod::RemoteSigner {
                 voting_public_key, ..
@@ -379,10 +380,10 @@ impl InitializedValidators {
     ///
     ///  - The validator is known to `self`.
     ///  - The validator is enabled.
-    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<&SigningMethod> {
+    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<Arc<SigningMethod>> {
         self.validators
             .get(voting_public_key)
-            .map(|v| &v.signing_method)
+            .map(|v| v.signing_method.clone())
     }
 
     /// Add a validator definition to `self`, overwriting the on-disk representation of `self`.

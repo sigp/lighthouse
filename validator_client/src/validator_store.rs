@@ -13,6 +13,7 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
     Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
@@ -35,6 +36,12 @@ pub enum Error {
     GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
     UnableToSign(SigningError),
+}
+
+impl From<SigningError> for Error {
+    fn from(e: SigningError) -> Self {
+        Error::UnableToSign(e)
+    }
 }
 
 /// Number of epochs of slashing protection history to keep.
@@ -76,6 +83,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     log: Logger,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
+    task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
 
@@ -87,6 +95,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         spec: ChainSpec,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
+        task_executor: TaskExecutor,
         log: Logger,
     ) -> Self {
         Self {
@@ -98,6 +107,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             doppelganger_service,
             slot_clock,
+            task_executor,
             _phantom: PhantomData,
         }
     }
@@ -263,6 +273,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
+    /*
+    async fn doppelganger_checked_signing_method<'a, F, R>(
+        &'a self,
+        validator_pubkey: PublicKeyBytes,
+    ) -> Result<MappedRwLockReadGuard<'a, &Option<&SigningMethod>>, Error> {
+        // If the doppelganger service is active, check to ensure it explicitly permits signing by
+        // this validator.
+        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
+            return Err(Error::DoppelgangerProtected(validator_pubkey));
+        }
+
+        Ok(RwLockReadGuard::map::<Option<&SigningMethod>, _>(
+            self.validators.read(),
+            |validators| &validators.signing_method(&validator_pubkey),
+        ))
+    }
+
     /// Runs `func`, providing it access to the `Keypair` corresponding to `validator_pubkey`.
     ///
     /// This forms the canonical point for accessing the secret key of some validator. It is
@@ -276,13 +303,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ///
     /// This function takes a read-lock on `self.validators`. To prevent deadlocks, it is advised to
     /// never take any sort of concurrency lock inside this function.
-    fn with_validator_signing_method<F, R>(
+    async fn with_validator_signing_method<F, R>(
         &self,
         validator_pubkey: PublicKeyBytes,
         func: F,
     ) -> Result<R, Error>
     where
-        F: FnOnce(&SigningMethod) -> Result<R, SigningError>,
+        F: FnOnce(&SigningMethod) -> dyn Future<Output = Result<R, SigningError>>,
     {
         // If the doppelganger service is active, check to ensure it explicitly permits signing by
         // this validator.
@@ -292,15 +319,43 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let validators_lock = self.validators.read();
 
+        // TODO(paul): consider dragging the validators lock into a future..
+
         func(
             validators_lock
                 .signing_method(&validator_pubkey)
                 .ok_or(Error::UnknownPubkey(validator_pubkey))?,
         )
+        .await
         .map_err(Error::UnableToSign)
     }
+    */
 
-    pub fn randao_reveal(
+    fn doppelganger_checked_signing_method(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+    ) -> Result<Arc<SigningMethod>, Error> {
+        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
+            self.validators
+                .read()
+                .signing_method(&validator_pubkey)
+                .ok_or(Error::UnknownPubkey(validator_pubkey))
+        } else {
+            Err(Error::DoppelgangerProtected(validator_pubkey))
+        }
+    }
+
+    fn doppelganger_bypassed_signing_method(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+    ) -> Result<Arc<SigningMethod>, Error> {
+        self.validators
+            .read()
+            .signing_method(&validator_pubkey)
+            .ok_or(Error::UnknownPubkey(validator_pubkey))
+    }
+
+    pub async fn randao_reveal(
         &self,
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
@@ -308,8 +363,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let fork = self.fork(signing_epoch);
         let genesis_validators_root = self.genesis_validators_root;
 
-        self.with_validator_signing_method(validator_pubkey, |signing_method| {
-            signing_method.get_signature::<E>(
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E>(
                 Domain::Randao,
                 PreImage::RandaoReveal {
                     epoch: signing_epoch,
@@ -318,15 +375,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 &fork,
                 genesis_validators_root,
                 &self.spec,
+                &self.task_executor,
             )
-        })
+            .await?;
+
+        Ok(signature)
     }
 
     pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
-    pub fn sign_block(
+    pub async fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E>,
@@ -367,17 +427,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             // We can safely sign this block without slashing.
             Ok(Safe::Valid) => {
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
-                let signature =
-                    self.with_validator_signing_method(validator_pubkey, |signing_method| {
-                        signing_method.get_signature(
-                            Domain::BeaconProposer,
-                            PreImage::BeaconBlock(&block),
-                            signing_epoch,
-                            &fork,
-                            genesis_validators_root,
-                            &self.spec,
-                        )
-                    })?;
+
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signature = signing_method
+                    .get_signature(
+                        Domain::BeaconProposer,
+                        PreImage::BeaconBlock(&block),
+                        signing_epoch,
+                        &fork,
+                        genesis_validators_root,
+                        &self.spec,
+                        &self.task_executor,
+                    )
+                    .await?;
                 Ok(SignedBeaconBlock::from_block(block, signature))
             }
             Ok(Safe::SameData) => {
@@ -410,7 +472,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub fn sign_attestation(
+    pub async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
@@ -444,17 +506,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                let signature =
-                    self.with_validator_signing_method(validator_pubkey, |signing_method| {
-                        signing_method.get_signature::<E>(
-                            Domain::BeaconAttester,
-                            PreImage::AttestationData(&attestation.data),
-                            signing_epoch,
-                            &fork,
-                            genesis_validators_root,
-                            &self.spec,
-                        )
-                    })?;
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signature = signing_method
+                    .get_signature::<E>(
+                        Domain::BeaconAttester,
+                        PreImage::AttestationData(&attestation.data),
+                        signing_epoch,
+                        &fork,
+                        genesis_validators_root,
+                        &self.spec,
+                        &self.task_executor,
+                    )
+                    .await?;
                 attestation
                     .add_signature(&signature, validator_committee_position)
                     .map_err(Error::UnableToSignAttestation)?;
@@ -507,7 +570,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    pub fn produce_signed_aggregate_and_proof(
+    pub async fn produce_signed_aggregate_and_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         aggregator_index: u64,
@@ -524,16 +587,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             selection_proof: selection_proof.into(),
         };
 
-        let signature = self.with_validator_signing_method(validator_pubkey, |signing_method| {
-            signing_method.get_signature(
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signature = signing_method
+            .get_signature(
                 Domain::AggregateAndProof,
                 PreImage::AggregateAndProof(&message),
                 signing_epoch,
                 &fork,
                 genesis_validators_root,
                 &self.spec,
+                &self.task_executor,
             )
-        })?;
+            .await?;
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
@@ -542,7 +607,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
-    pub fn produce_selection_proof(
+    pub async fn produce_selection_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
@@ -558,10 +623,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         //
         // As long as we disallow `SignedAggregateAndProof` then these selection proofs will never
         // be published on the network.
-        let validators_lock = self.validators.read();
-        let signing_method = validators_lock
-            .signing_method(&validator_pubkey)
-            .ok_or(Error::UnknownPubkey(validator_pubkey))?;
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
             .get_signature::<E>(
@@ -571,7 +633,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 &fork,
                 genesis_validators_root,
                 &self.spec,
+                &self.task_executor,
             )
+            .await
             .map_err(Error::UnableToSign)?;
 
         metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
@@ -580,7 +644,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
-    pub fn produce_sync_selection_proof(
+    pub async fn produce_sync_selection_proof(
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
@@ -591,10 +655,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let genesis_validators_root = self.genesis_validators_root;
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let validators_lock = self.validators.read();
-        let signing_method = validators_lock
-            .signing_method(validator_pubkey)
-            .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         metrics::inc_counter_vec(
             &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
@@ -614,13 +675,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 &fork,
                 genesis_validators_root,
                 &self.spec,
+                &self.task_executor,
             )
+            .await
             .map_err(Error::UnableToSign)?;
 
         Ok(signature.into())
     }
 
-    pub fn produce_sync_committee_signature(
+    pub async fn produce_sync_committee_signature(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -632,10 +695,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let genesis_validators_root = self.genesis_validators_root;
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let validators_lock = self.validators.read();
-        let signing_method = validators_lock
-            .signing_method(validator_pubkey)
-            .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         let signature = signing_method
             .get_signature::<E>(
@@ -648,7 +708,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 &fork,
                 genesis_validators_root,
                 &self.spec,
+                &self.task_executor,
             )
+            .await
             .map_err(Error::UnableToSign)?;
 
         metrics::inc_counter_vec(
@@ -664,7 +726,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
-    pub fn produce_signed_contribution_and_proof(
+    pub async fn produce_signed_contribution_and_proof(
         &self,
         aggregator_index: u64,
         aggregator_pubkey: &PublicKeyBytes,
@@ -676,10 +738,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let genesis_validators_root = self.genesis_validators_root;
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let validators_lock = self.validators.read();
-        let signing_method = validators_lock
-            .signing_method(aggregator_pubkey)
-            .ok_or(Error::UnknownPubkey(*aggregator_pubkey))?;
+        let signing_method = self.doppelganger_bypassed_signing_method(*aggregator_pubkey)?;
 
         let message = ContributionAndProof {
             aggregator_index,
@@ -695,7 +754,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 &fork,
                 genesis_validators_root,
                 &self.spec,
+                &self.task_executor,
             )
+            .await
             .map_err(Error::UnableToSign)?;
 
         metrics::inc_counter_vec(

@@ -3,6 +3,8 @@ use lockfile::Lockfile;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::{
     AggregateAndProof, AttestationData, BeaconBlock, ChainSpec, ContributionAndProof,
     DepositMessage, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, PublicKeyBytes,
@@ -18,6 +20,8 @@ pub enum Error {
     },
     Web3SignerRequestFailed(String),
     Web3SignerJsonParsingFailed(String),
+    ShuttingDown,
+    TokioJoinError(String),
 }
 
 /// A method used by a validator to sign messages.
@@ -30,7 +34,7 @@ pub enum SigningMethod {
         voting_keystore_path: PathBuf,
         voting_keystore_lockfile: Lockfile,
         voting_keystore: Keystore,
-        voting_keypair: Keypair,
+        voting_keypair: Arc<Keypair>,
     },
     /// A validator that defers to a HTTP server for signing.
     RemoteSigner {
@@ -40,8 +44,97 @@ pub enum SigningMethod {
     },
 }
 
+struct Signer<'a, T: EthSpec> {
+    signing_method: Arc<SigningMethod>,
+    domain: Domain,
+    pre_image: PreImage<'a, T>,
+    epoch: Epoch,
+    fork: &'a Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+    executor: &'a TaskExecutor,
+}
+
+/*
+impl<'a, T: EthSpec> Signer<'a, T> {
+    pub async fn sign(self) -> Result<Signature, Error> {
+        // TODO(paul): should this be in a blocking task?
+        let signing_root = self.pre_image.signing_root(self.spec.get_domain(
+            self.epoch,
+            self.domain,
+            self.fork,
+            self.genesis_validators_root,
+        ));
+
+        match self.signing_method.as_ref() {
+            SigningMethod::LocalKeystore { voting_keypair, .. } => {
+                let voting_keypair = voting_keypair.clone();
+                let signature = self
+                    .executor
+                    .spawn_blocking_handle(
+                        move || voting_keypair.sk.sign(signing_root),
+                        "local_keystore_signer",
+                    )
+                    .ok_or(Error::ShuttingDown)?
+                    .await
+                    .map_err(|e| Error::TokioJoinError(e.to_string()))?;
+                Ok(signature)
+            }
+            SigningMethod::RemoteSigner {
+                signing_url,
+                http_client,
+                ..
+            } => {
+                let message_type = self.pre_image.message_type();
+
+                // Sanity check.
+                let message_type_domain = Domain::from(message_type);
+                if message_type_domain != self.domain {
+                    return Err(Error::InconsistentDomains {
+                        message_type_domain,
+                        domain: self.domain,
+                    });
+                }
+
+                // The `fork_info` field is not required for deposits since they sign across the
+                // genesis fork version.
+                let fork_info = if let PreImage::Deposit { .. } = &self.pre_image {
+                    None
+                } else {
+                    Some(ForkInfo {
+                        fork: self.fork.clone(),
+                        genesis_validators_root: self.genesis_validators_root,
+                    })
+                };
+
+                let request = SigningRequest {
+                    message_type,
+                    fork_info,
+                    signing_root,
+                    pre_image: self.pre_image,
+                };
+
+                let response: SigningResponse = http_client
+                    .post(signing_url.clone())
+                    .json(&request)
+                    .send()
+                    .await
+                    .map_err(|e| Error::Web3SignerRequestFailed(e.to_string()))?
+                    .error_for_status()
+                    .map_err(|e| Error::Web3SignerRequestFailed(e.to_string()))?
+                    .json()
+                    .await
+                    .map_err(|e| Error::Web3SignerJsonParsingFailed(e.to_string()))?;
+
+                Ok(response.signature)
+            }
+        }
+    }
+}
+*/
+
 impl SigningMethod {
-    pub fn get_signature<'a, T: EthSpec>(
+    pub async fn get_signature<'a, T: EthSpec>(
         &self,
         domain: Domain,
         pre_image: PreImage<'a, T>,
@@ -49,13 +142,24 @@ impl SigningMethod {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
+        executor: &TaskExecutor,
     ) -> Result<Signature, Error> {
+        // TODO(paul): should this be in a blocking task?
         let signing_root =
             pre_image.signing_root(spec.get_domain(epoch, domain, fork, genesis_validators_root));
 
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
-                Ok(voting_keypair.sk.sign(signing_root))
+                let voting_keypair = voting_keypair.clone();
+                let signature = executor
+                    .spawn_blocking_handle(
+                        move || voting_keypair.sk.sign(signing_root),
+                        "local_keystore_signer",
+                    )
+                    .ok_or(Error::ShuttingDown)?
+                    .await
+                    .map_err(|e| Error::TokioJoinError(e.to_string()))?;
+                Ok(signature)
             }
             SigningMethod::RemoteSigner {
                 signing_url,
@@ -92,7 +196,7 @@ impl SigningMethod {
                 };
 
                 let response: SigningResponse = http_client
-                    .post(*signing_url)
+                    .post(signing_url.clone())
                     .json(&request)
                     .send()
                     .await

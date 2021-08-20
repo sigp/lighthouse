@@ -330,8 +330,8 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
 
     if !new_pre_compute_duties.is_empty() {
         let sub_duties_service = duties_service.clone();
-        duties_service.context.executor.spawn_blocking(
-            move || {
+        duties_service.context.executor.spawn(
+            async move {
                 fill_in_aggregation_proofs(
                     sub_duties_service,
                     &new_pre_compute_duties,
@@ -339,6 +339,7 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
                     current_epoch,
                     current_pre_compute_epoch,
                 )
+                .await
             },
             "duties_service_sync_selection_proofs",
         );
@@ -370,8 +371,8 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
 
         if !new_pre_compute_duties.is_empty() {
             let sub_duties_service = duties_service.clone();
-            duties_service.context.executor.spawn_blocking(
-                move || {
+            duties_service.context.executor.spawn(
+                async move {
                     fill_in_aggregation_proofs(
                         sub_duties_service,
                         &new_pre_compute_duties,
@@ -379,6 +380,7 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
                         current_epoch,
                         pre_compute_epoch,
                     )
+                    .await
                 },
                 "duties_service_sync_selection_proofs",
             );
@@ -468,7 +470,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     Ok(())
 }
 
-pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
+pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
     duties_service: Arc<DutiesService<T, E>>,
     pre_compute_duties: &[(Epoch, SyncDuty)],
     sync_committee_period: u64,
@@ -517,6 +519,7 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                         let proof = duties_service
                             .validator_store
                             .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
+                            .await
                             .map_err(|_| {
                                 warn!(
                                     log,
