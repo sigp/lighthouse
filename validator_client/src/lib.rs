@@ -316,7 +316,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
 
-        if config.enable_event_listenting {
+        if config.enable_event_listening {
             start_event_stream_tasks(context.clone(), beacon_nodes.clone())?;
         }
 
@@ -435,7 +435,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
-        let (attestation_rx, sync_committee_rx) = if self.config.enable_event_listenting {
+        let (attestation_rx, sync_committee_rx) = if self.config.enable_event_listening {
             (
                 Some(self.duties_service.beacon_nodes.subscribe()),
                 Some(self.duties_service.beacon_nodes.subscribe()),

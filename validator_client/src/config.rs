@@ -52,7 +52,7 @@ pub struct Config {
     pub enable_doppelganger_protection: bool,
     /// If true, enable functionality that triggers attestation and sync committee message
     /// production on head-change events from the connected beacon node.
-    pub enable_event_listenting: bool,
+    pub enable_event_listening: bool,
 }
 
 impl Default for Config {
@@ -83,7 +83,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
-            enable_event_listenting: false,
+            enable_event_listening: false,
         }
     }
 }
@@ -277,7 +277,7 @@ impl Config {
         }
 
         if cli_args.is_present("enable-event-listening") {
-            config.enable_event_listenting = true;
+            config.enable_event_listening = true;
         }
 
         Ok(config)
