@@ -302,6 +302,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                    metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
                     warn!(
                         self.log,
                         "Gossip block arrived late";
