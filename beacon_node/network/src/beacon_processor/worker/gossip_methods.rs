@@ -317,7 +317,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "New block received";
                     "slot" => verified_block.block.slot(),
-                    "hash" => %verified_block.block_root
+                    "hash" => ?verified_block.block_root
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -339,7 +339,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Unknown parent for gossip block";
-                    "root" => %block.canonical_root()
+                    "root" => ?block.canonical_root()
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return;
@@ -406,7 +406,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Block arrived early";
                     "block_slot" => %block_slot,
-                    "block_root" => %block_root,
+                    "block_root" => ?block_root,
                     "msg" => "if this happens consistently, check system clock"
                 );
 
@@ -437,7 +437,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         self.log,
                         "Failed to defer block import";
                         "block_slot" => %block_slot,
-                        "block_root" => %block_root,
+                        "block_root" => ?block_root,
                         "location" => "block gossip"
                     )
                 }
@@ -454,7 +454,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Failed to defer block import";
                     "error" => ?e,
                     "block_slot" => %block_slot,
-                    "block_root" => %block_root,
+                    "block_root" => ?block_root,
                     "location" => "block gossip"
                 )
             }
@@ -486,7 +486,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         self.log,
                         "Failed to inform block import";
                         "source" => "gossip",
-                        "block_root" => %block_root,
+                        "block_root" => ?block_root,
                     )
                 };
 
@@ -525,7 +525,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Invalid gossip beacon block";
                     "outcome" => ?other,
-                    "block root" => %block.canonical_root(),
+                    "block root" => ?block.canonical_root(),
                     "block slot" => block.slot()
                 );
                 self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
@@ -857,7 +857,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Attestation is not within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots";
                     "peer_id" => %peer_id,
-                    "block" => %beacon_block_root,
+                    "block" => ?beacon_block_root,
                     "type" => ?attestation_type,
                 );
 
@@ -932,7 +932,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Attestation already known";
                     "peer_id" => %peer_id,
-                    "block" => %beacon_block_root,
+                    "block" => ?beacon_block_root,
                     "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -949,7 +949,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Aggregator already known";
                     "peer_id" => %peer_id,
-                    "block" => %beacon_block_root,
+                    "block" => ?beacon_block_root,
                     "type" => ?attestation_type,
                 );
                 // This is an allowed behaviour.
@@ -970,7 +970,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Prior attestation known";
                     "peer_id" => %peer_id,
-                    "block" => %beacon_block_root,
+                    "block" => ?beacon_block_root,
                     "epoch" => %epoch,
                     "validator_index" => validator_index,
                     "type" => ?attestation_type,
@@ -994,7 +994,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Validation Index too high";
                     "peer_id" => %peer_id,
-                    "block" => %beacon_block_root,
+                    "block" => ?beacon_block_root,
                     "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
@@ -1005,7 +1005,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Attestation for unknown block";
                     "peer_id" => %peer_id,
-                    "block" => %beacon_block_root
+                    "block" => ?beacon_block_root
                 );
                 if let Some(sender) = reprocess_tx {
                     // We don't know the block, get the sync manager to handle the block lookup, and
@@ -1214,7 +1214,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             self.log,
             "Invalid attestation from network";
             "reason" => ?error,
-            "block" => %beacon_block_root,
+            "block" => ?beacon_block_root,
             "peer_id" => %peer_id,
             "type" => ?attestation_type,
         );
