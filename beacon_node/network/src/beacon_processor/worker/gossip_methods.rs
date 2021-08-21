@@ -303,7 +303,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
-                    warn!(
+                    debug!(
                         self.log,
                         "Gossip block arrived late";
                         "msg" => "check system clock if this happens regularly",
