@@ -291,14 +291,28 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) {
+        let block_delay =
+            get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
-            get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock),
+            block_delay,
         );
 
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
+                if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                    warn!(
+                        self.log,
+                        "Gossip block arrived late";
+                        "msg" => "check system clock if this happens regularly",
+                        "block_root" => ?verified_block.block_root,
+                        "proposer_index" => verified_block.block.message().proposer_index(),
+                        "slot" => verified_block.block.slot(),
+                        "delay" => ?block_delay,
+                    );
+                }
+
                 info!(
                     self.log,
                     "New block received";
