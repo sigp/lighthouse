@@ -892,10 +892,34 @@ pub fn serve<T: BeaconChainTypes>(
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
+                            let attestation_deadline = chain.slot_clock.unagg_attestation_production_delay();
+                            if delay >= attestation_deadline {
+                                metrics::inc_counter(&metrics::HTTP_API_BLOCK_PUBLISHED_VERY_LATE_TOTAL);
+                                crit!(
+                                    log,
+                                    "Block published very late";
+                                    "msg" => "ensure VC clock is synced and system is not overloaded",
+                                    "block_root" => ?root,
+                                    "delay" => ?delay,
+                                );
+                            } else if delay >= attestation_deadline / 2 {
+                                metrics::inc_counter(&metrics::HTTP_API_BLOCK_PUBLISHED_LATE_TOTAL);
+                                error!(
+                                    log,
+                                    "Block published late";
+                                    "msg" => "ensure VC clock is synced and system is not overloaded",
+                                    "block_root" => ?root,
+                                    "delay" => ?delay,
+                                );
+                            }
+
                             info!(
                                 log,
                                 "Valid block from HTTP API";
-                                "root" => format!("{}", root)
+                                "delay" => ?delay,
+                                "root" => format!("{}", root),
+                                "proposer_index" => block.message().proposer_index(),
+                                "slot" => block.slot(),
                             );
 
                             // Notify the validator monitor.
