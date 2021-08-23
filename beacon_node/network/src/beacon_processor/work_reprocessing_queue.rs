@@ -46,7 +46,7 @@ pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
-const MAXIMUM_QUEUED_ATTESTATIONS: usize = 2_048;
+const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
