@@ -237,7 +237,8 @@ impl ChainSpec {
         }
     }
 
-    /// Returns a full `Fork` struct for a given `ForkName`.
+    /// Returns a full `Fork` struct for a given `ForkName` or `None` if the fork does not yet have
+    /// an activation epoch.
     pub fn fork_for_name(&self, fork_name: ForkName) -> Option<Fork> {
         let previous_fork_name = fork_name.previous_fork().unwrap_or(ForkName::Base);
         let epoch = self.fork_epoch(fork_name)?;
