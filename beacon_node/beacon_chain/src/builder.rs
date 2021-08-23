@@ -28,8 +28,8 @@ use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, Error as StoreError, HotColdDB, ItemStore};
 use task_executor::ShutdownReason;
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, ForkName, Graffiti, Hash256, PublicKeyBytes,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -134,6 +134,11 @@ where
     pub fn custom_spec(mut self, spec: ChainSpec) -> Self {
         self.spec = spec;
         self
+    }
+
+    /// Get a reference to the builder's spec.
+    pub fn get_spec(&self) -> &ChainSpec {
+        &self.spec
     }
 
     /// Sets the maximum number of blocks that will be skipped when processing
@@ -357,6 +362,13 @@ where
         self
     }
 
+    /// Apply a function to the slot clock.
+    ///
+    /// Mostly useful during testing.
+    pub fn slot_clock_mut(&mut self) -> Option<&mut TSlotClock> {
+        self.slot_clock.as_mut()
+    }
+
     /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
     pub fn shutdown_sender(mut self, sender: Sender<ShutdownReason>) -> Self {
         self.shutdown_sender = Some(sender);
@@ -438,20 +450,25 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let head_block_root = fork_choice
+        let mut head_block_root = fork_choice
             .get_head(current_slot)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
         // Try to decode the head block according to the current fork, if that fails, try
         // to backtrack to before the most recent fork.
-        let head_block = match store.get_block(&head_block_root) {
-            Ok(Some(block)) => block,
+        let (head_block, head_reverted) = match store.get_block(&head_block_root) {
+            Ok(Some(block)) => (block, false),
             Ok(None) => return Err("Head block not found in store".into()),
             Err(e) => {
                 let current_fork = self.spec.fork_name_at_slot::<TEthSpec>(current_slot);
                 let fork_epoch = self.spec.fork_epoch(current_fork).ok_or_else(|| {
                     format!("fork '{}' is current, but never activates?", current_fork)
                 })?;
+
+                if current_fork == ForkName::Base {
+                    return Err("Cannot revert to before phase0 hard fork".into());
+                }
+
                 warn!(
                     log,
                     "Reverting invalid head block";
@@ -461,24 +478,28 @@ where
                 );
                 let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
 
-                process_results(block_iter, |mut iter| {
-                    iter.find_map(|(block_root, block)| {
-                        if block.slot() < fork_epoch.start_slot(TEthSpec::slots_per_epoch()) {
-                            Some(block)
-                        } else {
-                            // FIXME(sproul): remove from fork choice? delete?
-                            info!(
-                                log,
-                                "Reverting block";
-                                "block_root" => ?block_root,
-                                "slot" => block.slot(),
-                            );
-                            None
-                        }
+                let (new_head_block_root, new_head_block) =
+                    process_results(block_iter, |mut iter| {
+                        iter.find_map(|(block_root, block)| {
+                            if block.slot() < fork_epoch.start_slot(TEthSpec::slots_per_epoch()) {
+                                Some((block_root, block))
+                            } else {
+                                // FIXME(sproul): remove from fork choice? delete?
+                                info!(
+                                    log,
+                                    "Reverting block";
+                                    "block_root" => ?block_root,
+                                    "slot" => block.slot(),
+                                );
+                                None
+                            }
+                        })
                     })
-                })
-                .map_err(|e| descriptive_db_error("blocks to revert", &e))?
-                .ok_or_else(|| "No pre-fork blocks found")?
+                    .map_err(|e| descriptive_db_error("blocks to revert", &e))?
+                    .ok_or_else(|| "No pre-fork blocks found")?;
+
+                head_block_root = new_head_block_root;
+                (new_head_block, true)
             }
         };
 
@@ -511,6 +532,9 @@ where
                 && fc_finalized.root == genesis_block_root
             {
                 // This is a legal edge-case encountered during genesis.
+            } else if head_reverted {
+                // If the head was reverted it's possible for the head's finalized checkpoint
+                // to lag fork choice.
             } else {
                 return Err(format!(
                     "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
