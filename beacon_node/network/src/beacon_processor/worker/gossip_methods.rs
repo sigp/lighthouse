@@ -306,11 +306,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     debug!(
                         self.log,
                         "Gossip block arrived late";
-                        "msg" => "check system clock if this happens regularly",
                         "block_root" => ?verified_block.block_root,
                         "proposer_index" => verified_block.block.message().proposer_index(),
                         "slot" => verified_block.block.slot(),
-                        "delay" => ?block_delay,
+                        "block_delay" => ?block_delay,
                     );
                 }
 

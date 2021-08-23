@@ -892,31 +892,10 @@ pub fn serve<T: BeaconChainTypes>(
 
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
-                            let attestation_deadline = chain.slot_clock.unagg_attestation_production_delay();
-                            if delay >= attestation_deadline {
-                                metrics::inc_counter(&metrics::HTTP_API_BLOCK_PUBLISHED_VERY_LATE_TOTAL);
-                                crit!(
-                                    log,
-                                    "Block published very late";
-                                    "msg" => "ensure VC clock is synced and system is not overloaded",
-                                    "block_root" => ?root,
-                                    "delay" => ?delay,
-                                );
-                            } else if delay >= attestation_deadline / 2 {
-                                metrics::inc_counter(&metrics::HTTP_API_BLOCK_PUBLISHED_LATE_TOTAL);
-                                error!(
-                                    log,
-                                    "Block published late";
-                                    "msg" => "ensure VC clock is synced and system is not overloaded",
-                                    "block_root" => ?root,
-                                    "delay" => ?delay,
-                                );
-                            }
-
                             info!(
                                 log,
                                 "Valid block from HTTP API";
-                                "delay" => ?delay,
+                                "block_delay" => ?delay,
                                 "root" => format!("{}", root),
                                 "proposer_index" => block.message().proposer_index(),
                                 "slot" => block.slot(),
@@ -941,25 +920,25 @@ pub fn serve<T: BeaconChainTypes>(
                             //
                             // Check to see the thresholds are non-zero to avoid logging errors with small
                             // slot times (e.g., during testing)
-                            let crit_threshold = chain.spec.seconds_per_slot / 3;
-                            let warn_threshold = chain.spec.seconds_per_slot / 6;
-                            if crit_threshold > 0 && delay.as_secs() > crit_threshold {
+                            let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
+                            let error_threshold = crit_threshold / 2;
+                            if delay >= crit_threshold {
                                 crit!(
                                     log,
                                     "Block was broadcast too late";
-                                    "root" => ?root,
-                                    "slot" => block.slot(),
-                                    "delay_ms" => delay.as_millis(),
                                     "msg" => "system may be overloaded, block likely to be orphaned",
+                                    "delay_ms" => delay.as_millis(),
+                                    "slot" => block.slot(),
+                                    "root" => ?root,
                                 )
-                            } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
-                                warn!(
+                            } else if delay >= error_threshold  {
+                                error!(
                                     log,
                                     "Block broadcast was delayed";
-                                    "root" => ?root,
-                                    "slot" => block.slot(),
-                                    "delay_ms" => delay.as_millis(),
                                     "msg" => "system may be overloaded, block may be orphaned",
+                                    "delay_ms" => delay.as_millis(),
+                                    "slot" => block.slot(),
+                                    "root" => ?root,
                                 )
                             }
 
