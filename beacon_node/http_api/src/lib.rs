@@ -1377,7 +1377,7 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 let forks = ForkName::list_all()
                     .into_iter()
-                    .map(|fork_name| chain.spec.fork_for_name(fork_name))
+                    .filter_map(|fork_name| chain.spec.fork_for_name(fork_name))
                     .collect::<Vec<_>>();
                 Ok(api_types::GenericResponse::from(forks))
             })

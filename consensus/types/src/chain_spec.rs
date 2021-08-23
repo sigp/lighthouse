@@ -225,19 +225,28 @@ impl ChainSpec {
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
-        self.fork_for_name(current_fork_name)
-    }
-
-    /// Returns a full `Fork` struct for a given `ForkName`.
-    pub fn fork_for_name(&self, fork_name: ForkName) -> Fork {
-        let previous_fork_name = fork_name.previous_fork().unwrap_or(ForkName::Base);
-        let epoch = self.fork_epoch(fork_name).unwrap_or_else(|| Epoch::new(0));
+        let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
+        let epoch = self
+            .fork_epoch(current_fork_name)
+            .unwrap_or_else(|| Epoch::new(0));
 
         Fork {
             previous_version: self.fork_version_for_name(previous_fork_name),
-            current_version: self.fork_version_for_name(fork_name),
+            current_version: self.fork_version_for_name(current_fork_name),
             epoch,
         }
+    }
+
+    /// Returns a full `Fork` struct for a given `ForkName`.
+    pub fn fork_for_name(&self, fork_name: ForkName) -> Option<Fork> {
+        let previous_fork_name = fork_name.previous_fork().unwrap_or(ForkName::Base);
+        let epoch = self.fork_epoch(fork_name)?;
+
+        Some(Fork {
+            previous_version: self.fork_version_for_name(previous_fork_name),
+            current_version: self.fork_version_for_name(fork_name),
+            epoch,
+        })
     }
 
     /// Get the domain number, unmodified by the fork.

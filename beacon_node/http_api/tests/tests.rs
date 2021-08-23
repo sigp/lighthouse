@@ -1192,7 +1192,7 @@ impl ApiTester {
 
         let expected: Vec<Fork> = ForkName::list_all()
             .into_iter()
-            .map(|fork| self.chain.spec.fork_for_name(fork))
+            .filter_map(|fork| self.chain.spec.fork_for_name(fork))
             .collect();
 
         assert_eq!(result, expected);
