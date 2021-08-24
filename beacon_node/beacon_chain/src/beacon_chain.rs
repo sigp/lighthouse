@@ -2939,6 +2939,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .previous_epoch()
             .start_slot(T::EthSpec::slots_per_epoch());
+        let head_proposer_index = new_head.beacon_block.message().proposer_index();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -2969,9 +2970,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!(
                 self.log,
                 "Delayed head block";
-                "delay" => ?block_delay,
-                "root" => ?beacon_block_root,
+                "block_root" => ?beacon_block_root,
+                "proposer_index" => head_proposer_index,
                 "slot" => head_slot,
+                "block_delay" => ?block_delay,
             );
         }
 
