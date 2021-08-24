@@ -40,7 +40,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
@@ -1366,7 +1366,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
-     * config/fork_schedule
+     * config
      */
 
     let config_path = eth1_v1.and(warp::path("config"));
@@ -1378,9 +1378,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                StateId::head()
-                    .fork(&chain)
-                    .map(|fork| api_types::GenericResponse::from(vec![fork]))
+                let forks = ForkName::list_all()
+                    .into_iter()
+                    .filter_map(|fork_name| chain.spec.fork_for_name(fork_name))
+                    .collect::<Vec<_>>();
+                Ok(api_types::GenericResponse::from(forks))
             })
         });
 
