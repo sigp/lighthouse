@@ -1342,7 +1342,7 @@ impl BeaconNodeHttpClient {
             .map_err(Error::Reqwest)?
             .bytes_stream()
             .map(|next| {
-                dbg!(next);
+                dbg!(&next);
                 match next {
                     Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
                     Err(e) => Err(Error::Reqwest(e)),
