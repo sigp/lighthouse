@@ -1360,7 +1360,6 @@ impl BeaconNodeHttpClient {
             .map_err(Error::Reqwest)?;
         dbg!(&response);
 
-
         Ok(self
             .client
             .get(path)
