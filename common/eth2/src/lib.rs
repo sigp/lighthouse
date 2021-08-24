@@ -1334,6 +1334,33 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
+        let bytes = self
+            .client
+            .get(path.clone())
+            .send()
+            .await
+            .map_err(Error::Reqwest)?
+            .bytes();
+        dbg!(&bytes);
+
+        let status = self
+            .client
+            .get(path.clone())
+            .send()
+            .await
+            .map_err(Error::Reqwest)?
+            .status();
+        dbg!(&status);
+
+        let response = self
+            .client
+            .get(path.clone())
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        dbg!(&response);
+
+
         Ok(self
             .client
             .get(path)

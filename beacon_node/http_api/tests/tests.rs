@@ -2307,15 +2307,15 @@ impl ApiTester {
             .await
             .unwrap();
 
-        // let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-        //     slot: self.next_block.slot(),
-        //     depth: 1,
-        //     old_head_block: self.next_block.canonical_root(),
-        //     old_head_state: self.next_block.state_root(),
-        //     new_head_block: self.reorg_block.canonical_root(),
-        //     new_head_state: self.reorg_block.state_root(),
-        //     epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
-        // });
+        let expected_reorg = EventKind::ChainReorg(SseChainReorg {
+            slot: self.next_block.slot(),
+            depth: 1,
+            old_head_block: self.next_block.canonical_root(),
+            old_head_state: self.next_block.state_root(),
+            new_head_block: self.reorg_block.canonical_root(),
+            new_head_state: self.reorg_block.state_root(),
+            epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
+        });
 
         self.client
             .post_beacon_blocks(&self.reorg_block)
@@ -2328,7 +2328,7 @@ impl ApiTester {
             Duration::from_millis(10000),
         )
         .await;
-        assert_eq!(reorg_event.as_slice(), &[]);
+        assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
 
         self
     }
