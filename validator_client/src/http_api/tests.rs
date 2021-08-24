@@ -12,12 +12,17 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
-use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*};
+use eth2::{
+    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    types::ErrorMessage as ApiErrorMessage,
+    Error as ApiError,
+};
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -139,12 +144,45 @@ impl ApiTester {
         }
     }
 
-    pub fn invalidate_api_token(mut self) -> Self {
+    pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
         let tmp = tempdir().unwrap();
         let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
         let invalid_pubkey = api_secret.api_token();
+        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey.clone()).unwrap()
+    }
 
-        self.client = ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
+    pub async fn test_with_invalid_auth<F, A, T>(self, func: F) -> Self
+    where
+        F: Fn(ValidatorClientHttpClient) -> A,
+        A: Future<Output = Result<T, ApiError>>,
+    {
+        /*
+         * Test with an invalid Authorization header.
+         */
+        match func(self.invalid_token_client()).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage { code: 403, .. })) => (),
+            Err(other) => panic!("expected authorized error, got {:?}", other),
+            Ok(_) => panic!("expected authorized error, got Ok"),
+        }
+
+        /*
+         * Test with a missing Authorization header.
+         */
+        let mut missing_token_client = self.client.clone();
+        missing_token_client.send_authorization_header(false);
+        match func(missing_token_client).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage {
+                code: 400, message, ..
+            })) if message.contains("missing Authorization header") => (),
+            Err(other) => panic!("expected missing header error, got {:?}", other),
+            Ok(_) => panic!("expected missing header error, got Ok"),
+        }
+
+        self
+    }
+
+    pub fn invalidate_api_token(mut self) -> Self {
+        self.client = self.invalid_token_client();
         self
     }
 
@@ -452,6 +490,76 @@ fn invalid_pubkey() {
             .invalidate_api_token()
             .test_get_lighthouse_version_invalid()
             .await;
+    });
+}
+
+#[test]
+fn routes_with_invalid_auth() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_lighthouse_version().await })
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_lighthouse_health().await })
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_lighthouse_spec().await })
+            .await
+            .test_with_invalid_auth(
+                |client| async move { client.get_lighthouse_validators().await },
+            )
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .post_lighthouse_validators(vec![ValidatorRequest {
+                        enable: <_>::default(),
+                        description: <_>::default(),
+                        graffiti: <_>::default(),
+                        deposit_gwei: <_>::default(),
+                    }])
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
+                        mnemonic: String::default().into(),
+                        key_derivation_path_offset: <_>::default(),
+                        validators: <_>::default(),
+                    })
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                let password = random_password();
+                let keypair = Keypair::random();
+                let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                client
+                    .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
+                        password: String::default().into(),
+                        enable: <_>::default(),
+                        keystore,
+                        graffiti: <_>::default(),
+                    })
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), false)
+                    .await
+            })
+            .await
     });
 }
 

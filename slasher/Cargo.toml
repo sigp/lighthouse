@@ -16,7 +16,7 @@ filesystem = { path = "../common/filesystem" }
 lmdb = "0.8"
 lmdb-sys = "0.8"
 parking_lot = "0.11.0"
-rand = "0.7"
+rand = "0.7.3"
 safe_arith = { path = "../consensus/safe_arith" }
 serde = "1.0"
 serde_derive = "1.0"

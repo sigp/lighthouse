@@ -22,6 +22,7 @@ pub struct ValidatorClientHttpClient {
     server: SensitiveUrl,
     secret: ZeroizeString,
     server_pubkey: PublicKey,
+    send_authorization_header: bool,
 }
 
 /// Parse an API token and return a secp256k1 public key.
@@ -60,6 +61,7 @@ impl ValidatorClientHttpClient {
             server,
             server_pubkey: parse_pubkey(&secret)?,
             secret: secret.into(),
+            send_authorization_header: true,
         })
     }
 
@@ -73,7 +75,16 @@ impl ValidatorClientHttpClient {
             server,
             server_pubkey: parse_pubkey(&secret)?,
             secret: secret.into(),
+            send_authorization_header: true,
         })
+    }
+
+    /// Set to `false` to disable sending the `Authorization` header on requests.
+    ///
+    /// Failing to send the `Authorization` header will cause the VC to reject requests with a 403.
+    /// This function is intended only for testing purposes.
+    pub fn send_authorization_header(&mut self, should_send: bool) {
+        self.send_authorization_header = should_send;
     }
 
     async fn signed_body(&self, response: Response) -> Result<Bytes, Error> {
@@ -108,13 +119,16 @@ impl ValidatorClientHttpClient {
     }
 
     fn headers(&self) -> Result<HeaderMap, Error> {
-        let header_value = HeaderValue::from_str(&format!("Basic {}", self.secret.as_str()))
-            .map_err(|e| {
-                Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
-            })?;
-
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", header_value);
+
+        if self.send_authorization_header {
+            let header_value = HeaderValue::from_str(&format!("Basic {}", self.secret.as_str()))
+                .map_err(|e| {
+                    Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
+                })?;
+
+            headers.insert("Authorization", header_value);
+        }
 
         Ok(headers)
     }

@@ -8,9 +8,9 @@ edition = "2018"
 
 [dependencies]
 rand = "0.7.3"
-hmac = "0.10.1"
-pbkdf2 = { version = "0.6.0", default-features = false }
-scrypt = { version = "0.5.0", default-features = false }
+hmac = "0.11.0"
+pbkdf2 = { version = "0.8.0", default-features = false }
+scrypt = { version = "0.7.0", default-features = false }
 sha2 = "0.9.1"
 uuid = { version = "0.8.1", features = ["serde", "v4"] }
 zeroize = { version = "1.1.1", features = ["zeroize_derive"] }

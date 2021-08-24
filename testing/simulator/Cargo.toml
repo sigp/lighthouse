@@ -13,9 +13,9 @@ types = { path = "../../consensus/types" }
 validator_client = { path = "../../validator_client" }
 parking_lot = "0.11.0"
 futures = "0.3.7"
-tokio = "1.7.1"
+tokio = "1.10.0"
 eth1_test_rig = { path = "../eth1_test_rig" }
-env_logger = "0.8.2"
+env_logger = "0.9.0"
 clap = "2.33.3"
 rayon = "1.4.1"
 sensitive_url  = { path = "../../common/sensitive_url" }

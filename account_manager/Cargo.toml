@@ -27,7 +27,7 @@ eth2_wallet = { path = "../crypto/eth2_wallet" }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 rand = "0.7.3"
 validator_dir = { path = "../common/validator_dir" }
-tokio = { version = "1.7.1", features = ["full"] }
+tokio = { version = "1.10.0", features = ["full"] }
 eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 slashing_protection = { path = "../validator_client/slashing_protection" }

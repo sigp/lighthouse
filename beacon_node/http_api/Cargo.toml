@@ -8,7 +8,7 @@ autotests = false # using a single test binary compiles faster
 [dependencies]
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 serde = { version = "1.0.116", features = ["derive"] }
-tokio = { version = "1.7.1", features = ["macros","sync"] }
+tokio = { version = "1.10.0", features = ["macros","sync"] }
 tokio-stream = { version = "0.1.3", features = ["sync"] }
 tokio-util = "0.6.3"
 parking_lot = "0.11.0"
