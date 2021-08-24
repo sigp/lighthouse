@@ -2327,6 +2327,7 @@ impl ApiTester {
         .await;
         assert_eq!(reorg_event.as_slice(), &[expected_reorg]);
 
+        panic!();
         self
     }
 
