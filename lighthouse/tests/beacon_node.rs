@@ -315,6 +315,12 @@ fn network_shutdown_after_sync_flag() {
         .with_config(|config| assert!(config.network.shutdown_after_sync));
 }
 #[test]
+fn network_shutdown_after_sync_disabled_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.network.shutdown_after_sync));
+}
+#[test]
 fn network_listen_address_flag() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
