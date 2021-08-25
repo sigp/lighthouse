@@ -263,13 +263,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         let block = self.get_block_with(block_root, |bytes| {
-            SignedBeaconBlock::from_ssz_bytes(&bytes, &self.spec)
+            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
         })?;
 
         // Add to cache.
-        block.as_ref().map(|block| {
+        if let Some(ref block) = block {
             self.block_cache.lock().put(*block_root, block.clone());
-        });
+        }
 
         Ok(block)
     }

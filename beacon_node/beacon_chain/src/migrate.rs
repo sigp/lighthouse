@@ -340,7 +340,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             // can be used to reclaim the space, which in practice is likely to be miniscule.
             let head_state_root = match store.get_block(&head_hash) {
                 Ok(Some(block)) => block.state_root(),
-                Ok(None) => Err(BeaconStateError::MissingBeaconBlock(head_hash.into()))?,
+                Ok(None) => {
+                    return Err(BeaconStateError::MissingBeaconBlock(head_hash.into()).into())
+                }
                 Err(Error::SszDecodeError(e)) => {
                     warn!(
                         log,
@@ -351,7 +353,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     abandoned_heads.insert(head_hash);
                     continue;
                 }
-                Err(e) => Err(e)?,
+                Err(e) => return Err(e.into()),
             };
 
             let mut potentially_abandoned_head = Some(head_hash);

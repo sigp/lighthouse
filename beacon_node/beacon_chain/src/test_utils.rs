@@ -233,7 +233,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
             BeaconChainBuilder<EphemeralHarnessType<E>>,
         ) -> BeaconChainBuilder<EphemeralHarnessType<E>>,
     ) -> Self {
-        let spec = spec.unwrap_or(test_spec::<E>());
+        let spec = spec.unwrap_or_else(test_spec::<E>);
         let log = test_logger();
         let store = Arc::new(HotColdDB::open_ephemeral(store_config, spec.clone(), log).unwrap());
         Self::new_with_mutator(
@@ -342,7 +342,7 @@ where
 
         let mut builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(log.clone())
-            .custom_spec(spec.clone())
+            .custom_spec(spec)
             .store(store)
             .store_migrator_config(MigratorConfig::default().blocking())
             .dummy_eth1_backend()
