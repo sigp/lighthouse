@@ -786,7 +786,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Blocks are returned in slot-ascending order, suitable for replaying on a state with slot
     /// equal to `start_slot`, to reach a state with slot equal to `end_slot`.
-    fn load_blocks_to_replay(
+    pub fn load_blocks_to_replay(
         &self,
         start_slot: Slot,
         end_slot: Slot,

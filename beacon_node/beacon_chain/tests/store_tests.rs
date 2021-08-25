@@ -1978,10 +1978,13 @@ fn revert_minority_fork_on_resume() {
     );
 
     // Head should now be just before the fork.
-    assert_eq!(
-        resumed_harness.chain.head_info().unwrap().slot,
-        fork_slot - 1
-    );
+    resumed_harness.chain.fork_choice().unwrap();
+    let head = resumed_harness.chain.head_info().unwrap();
+    assert_eq!(head.slot, fork_slot - 1);
+
+    // Head track should know the canonical head and the rogue head.
+    assert_eq!(resumed_harness.chain.heads().len(), 2);
+    assert!(resumed_harness.chain.knows_head(&head.block_root.into()));
 
     // Apply blocks from the majority chain and trigger finalization.
     let initial_split_slot = resumed_harness.chain.store.get_split_slot();

@@ -1,5 +1,6 @@
 use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -16,20 +17,19 @@ use crate::{
 use eth1::Config as Eth1Config;
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
-use itertools::process_results;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slasher::Slasher;
-use slog::{crit, info, warn, Logger};
+use slog::{crit, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::ParentRootBlockIterator, Error as StoreError, HotColdDB, ItemStore};
+use store::{Error as StoreError, HotColdDB, ItemStore};
 use task_executor::ShutdownReason;
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, ForkName, Graffiti, Hash256, PublicKeyBytes,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
+    SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -440,6 +440,7 @@ where
         let mut validator_monitor = self
             .validator_monitor
             .ok_or("Cannot build without a validator monitor")?;
+        let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -450,64 +451,47 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let mut head_block_root = fork_choice
+        let initial_head_block_root = fork_choice
             .get_head(current_slot)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
         // Try to decode the head block according to the current fork, if that fails, try
         // to backtrack to before the most recent fork.
-        let (head_block, head_reverted) = match store.get_block(&head_block_root) {
-            Ok(Some(block)) => (block, false),
-            Ok(None) => return Err("Head block not found in store".into()),
-            Err(e) => {
-                let current_fork = self.spec.fork_name_at_slot::<TEthSpec>(current_slot);
-                let fork_epoch = self.spec.fork_epoch(current_fork).ok_or_else(|| {
-                    format!("fork '{}' is current, but never activates?", current_fork)
-                })?;
+        let (head_block_root, head_block, head_reverted) =
+            match store.get_block(&initial_head_block_root) {
+                Ok(Some(block)) => (initial_head_block_root, block, false),
+                Ok(None) => return Err("Head block not found in store".into()),
+                Err(_) => {
+                    let (block_root, block) = revert_to_fork_boundary(
+                        current_slot,
+                        initial_head_block_root,
+                        store.clone(),
+                        &self.spec,
+                        &log,
+                    )?;
 
-                if current_fork == ForkName::Base {
-                    return Err("Cannot revert to before phase0 hard fork".into());
+                    // Update head tracker.
+                    head_tracker.register_block(block_root, block.parent_root(), block.slot());
+                    (block_root, block, true)
                 }
-
-                warn!(
-                    log,
-                    "Reverting invalid head block";
-                    "error" => ?e,
-                    "target_fork" => %current_fork,
-                    "fork_epoch" => fork_epoch,
-                );
-                let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
-
-                let (new_head_block_root, new_head_block) =
-                    process_results(block_iter, |mut iter| {
-                        iter.find_map(|(block_root, block)| {
-                            if block.slot() < fork_epoch.start_slot(TEthSpec::slots_per_epoch()) {
-                                Some((block_root, block))
-                            } else {
-                                // FIXME(sproul): remove from fork choice? delete?
-                                info!(
-                                    log,
-                                    "Reverting block";
-                                    "block_root" => ?block_root,
-                                    "slot" => block.slot(),
-                                );
-                                None
-                            }
-                        })
-                    })
-                    .map_err(|e| descriptive_db_error("blocks to revert", &e))?
-                    .ok_or_else(|| "No pre-fork blocks found")?;
-
-                head_block_root = new_head_block_root;
-                (new_head_block, true)
-            }
-        };
+            };
 
         let head_state_root = head_block.state_root();
         let head_state = store
             .get_state(&head_state_root, Some(head_block.slot()))
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
+
+        // If the head reverted then we need to reset fork choice using the new head's finalized
+        // checkpoint.
+        if head_reverted {
+            fork_choice = reset_fork_choice_to_finalization(
+                head_block_root,
+                &head_state,
+                store.clone(),
+                &self.spec,
+            )?;
+        }
 
         let mut canonical_head = BeaconSnapshot {
             beacon_block_root: head_block_root,
@@ -532,9 +516,6 @@ where
                 && fc_finalized.root == genesis_block_root
             {
                 // This is a legal edge-case encountered during genesis.
-            } else if head_reverted {
-                // If the head was reverted it's possible for the head's finalized checkpoint
-                // to lag fork choice.
             } else {
                 return Err(format!(
                     "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
@@ -602,7 +583,7 @@ where
             genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
             event_handler: self.event_handler,
-            head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
+            head_tracker,
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 canonical_head,
