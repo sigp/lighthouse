@@ -33,4 +33,12 @@ lazy_static::lazy_static! {
         "http_api_block_broadcast_delay_times",
         "Time between start of the slot and when the block was broadcast"
     );
+    pub static ref HTTP_API_BLOCK_PUBLISHED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "http_api_block_published_late_total",
+        "The count of times a block was published beyond more than half way to the attestation deadline"
+    );
+    pub static ref HTTP_API_BLOCK_PUBLISHED_VERY_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "http_api_block_published_very_late_total",
+        "The count of times a block was published beyond the attestation deadline"
+    );
 }

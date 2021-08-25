@@ -1,6 +1,6 @@
 # 📦 Installation
 
-Lighthouse runs on Linux, macOS, and Windows (via [WSL][] only).
+Lighthouse runs on Linux, macOS, and Windows (still in beta testing).
 
 There are three core methods to obtain the Lighthouse application:
 
