@@ -64,8 +64,6 @@ impl ForkChoiceTest {
             MainnetEthSpec,
             None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
-            // Ensure we always have an aggregator for each slot.
-            u64::max_value(),
             StoreConfig::default(),
             chain_config,
         );
