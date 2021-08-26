@@ -7317,6 +7317,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "web3signer_tests"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zip",
+]
+
+[[package]]
 name = "webpki"
 version = "0.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

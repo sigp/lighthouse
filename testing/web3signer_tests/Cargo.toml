@@ -1,0 +1,17 @@
+[package]
+name = "web3signer_tests"
+version = "0.1.0"
+edition = "2018"
+
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[build-dependencies]
+reqwest = { version = "0.11.0", features = ["json","stream"] }
+tempfile = "3.1.0"
+tokio = { version = "1.10.0", features = ["rt-multi-thread", "macros"] }
+serde_json = "1.0.58"
+zip = "0.5.13"
