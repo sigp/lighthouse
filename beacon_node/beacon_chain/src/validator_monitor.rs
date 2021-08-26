@@ -124,7 +124,7 @@ impl EpochSummary {
         Self::update_if_lt(&mut self.aggregate_min_delay, delay);
     }
 
-    pub fn register_sync_committee_contribtion(&mut self, delay: Duration) {
+    pub fn register_sync_committee_contribution(&mut self, delay: Duration) {
         self.sync_contributions += 1;
         Self::update_if_lt(&mut self.sync_contribution_min_delay, delay);
     }
@@ -1025,7 +1025,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             );
 
             validator.with_epoch_summary(epoch, |summary| {
-                summary.register_sync_committee_contribtion(delay)
+                summary.register_sync_committee_contribution(delay)
             });
         }
 
