@@ -44,20 +44,42 @@ pub enum SigningMethod {
     },
 }
 
+pub struct SigningContext {
+    pub domain: Domain,
+    pub epoch: Epoch,
+    pub fork: Fork,
+    pub genesis_validators_root: Hash256,
+}
+
+impl SigningContext {
+    pub fn domain_hash(&self, spec: &ChainSpec) -> Hash256 {
+        spec.get_domain(
+            self.epoch,
+            self.domain,
+            &self.fork,
+            self.genesis_validators_root,
+        )
+    }
+}
+
 impl SigningMethod {
     pub async fn get_signature<T: EthSpec>(
         &self,
-        domain: Domain,
         pre_image: PreImage<'_, T>,
-        epoch: Epoch,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
+        signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
     ) -> Result<Signature, Error> {
+        let domain_hash = signing_context.domain_hash(spec);
+        let SigningContext {
+            domain,
+            epoch: _,
+            fork,
+            genesis_validators_root,
+        } = signing_context;
+
         // TODO(paul): should this be in a blocking task?
-        let signing_root =
-            pre_image.signing_root(spec.get_domain(epoch, domain, fork, genesis_validators_root));
+        let signing_root = pre_image.signing_root(domain_hash);
 
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
@@ -94,7 +116,7 @@ impl SigningMethod {
                     None
                 } else {
                     Some(ForkInfo {
-                        fork: *fork,
+                        fork,
                         genesis_validators_root,
                     })
                 };

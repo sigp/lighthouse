@@ -2,7 +2,7 @@ use crate::{
     doppelganger_service::DoppelgangerService,
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
-    signing_method::{Error as SigningError, PreImage, SigningMethod},
+    signing_method::{Error as SigningError, PreImage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -365,15 +365,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
 
+        let signing_context = SigningContext {
+            domain: Domain::Randao,
+            epoch: signing_epoch,
+            fork,
+            genesis_validators_root,
+        };
+
         let signature = signing_method
             .get_signature::<E>(
-                Domain::Randao,
                 PreImage::RandaoReveal {
                     epoch: signing_epoch,
                 },
-                signing_epoch,
-                &fork,
-                genesis_validators_root,
+                signing_context,
                 &self.spec,
                 &self.task_executor,
             )
@@ -406,21 +410,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             });
         }
 
-        // Check for slashing conditions.
         let signing_epoch = block.epoch();
-        let fork = self.fork(block.epoch());
-        let domain = self.spec.get_domain(
-            signing_epoch,
-            Domain::BeaconProposer,
-            &fork,
-            self.genesis_validators_root,
-        );
-        let genesis_validators_root = self.genesis_validators_root;
+        let signing_context = SigningContext {
+            domain: Domain::BeaconProposer,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
+        let domain_hash = signing_context.domain_hash(&self.spec);
 
+        // Check for slashing conditions.
         let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
             &validator_pubkey,
             &block.block_header(),
-            domain,
+            domain_hash,
         );
 
         match slashing_status {
@@ -431,11 +434,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature(
-                        Domain::BeaconProposer,
                         PreImage::BeaconBlock(&block),
-                        signing_epoch,
-                        &fork,
-                        genesis_validators_root,
+                        signing_context,
                         &self.spec,
                         &self.task_executor,
                     )
@@ -489,18 +489,17 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Checking for slashing conditions.
         let signing_epoch = attestation.data.target.epoch;
-        let fork = self.fork(signing_epoch);
-        let genesis_validators_root = self.genesis_validators_root;
-        let domain = self.spec.get_domain(
-            signing_epoch,
-            Domain::BeaconAttester,
-            &fork,
-            self.genesis_validators_root,
-        );
+        let signing_context = SigningContext {
+            domain: Domain::BeaconAttester,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
+        let domain_hash = signing_context.domain_hash(&self.spec);
         let slashing_status = self.slashing_protection.check_and_insert_attestation(
             &validator_pubkey,
             &attestation.data,
-            domain,
+            domain_hash,
         );
 
         match slashing_status {
@@ -509,11 +508,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E>(
-                        Domain::BeaconAttester,
                         PreImage::AttestationData(&attestation.data),
-                        signing_epoch,
-                        &fork,
-                        genesis_validators_root,
+                        signing_context,
                         &self.spec,
                         &self.task_executor,
                     )
@@ -578,8 +574,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         selection_proof: SelectionProof,
     ) -> Result<SignedAggregateAndProof<E>, Error> {
         let signing_epoch = aggregate.data.target.epoch;
-        let fork = self.fork(signing_epoch);
-        let genesis_validators_root = self.genesis_validators_root;
+        let signing_context = SigningContext {
+            domain: Domain::AggregateAndProof,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
 
         let message = AggregateAndProof {
             aggregator_index,
@@ -590,11 +590,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
             .get_signature(
-                Domain::AggregateAndProof,
                 PreImage::AggregateAndProof(&message),
-                signing_epoch,
-                &fork,
-                genesis_validators_root,
+                signing_context,
                 &self.spec,
                 &self.task_executor,
             )
@@ -613,8 +610,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
         let signing_epoch = slot.epoch(E::slots_per_epoch());
-        let fork = self.fork(signing_epoch);
-        let genesis_validators_root = self.genesis_validators_root;
+        let signing_context = SigningContext {
+            domain: Domain::SelectionProof,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
 
         // Bypass the `with_validator_signing_method` function.
         //
@@ -627,11 +628,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature::<E>(
-                Domain::SelectionProof,
                 PreImage::AggregationSlot { slot },
-                signing_epoch,
-                &fork,
-                genesis_validators_root,
+                signing_context,
                 &self.spec,
                 &self.task_executor,
             )
@@ -651,8 +649,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         subnet_id: SyncSubnetId,
     ) -> Result<SyncSelectionProof, Error> {
         let signing_epoch = slot.epoch(E::slots_per_epoch());
-        let fork = self.fork(signing_epoch);
-        let genesis_validators_root = self.genesis_validators_root;
+        let signing_context = SigningContext {
+            domain: Domain::SyncCommitteeSelectionProof,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
         let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
@@ -669,11 +671,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature::<E>(
-                Domain::SyncCommitteeSelectionProof,
                 PreImage::SyncAggregatorSelectionData(&message),
-                signing_epoch,
-                &fork,
-                genesis_validators_root,
+                signing_context,
                 &self.spec,
                 &self.task_executor,
             )
@@ -691,22 +690,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<SyncCommitteeMessage, Error> {
         let signing_epoch = slot.epoch(E::slots_per_epoch());
-        let fork = self.fork(signing_epoch);
-        let genesis_validators_root = self.genesis_validators_root;
+        let signing_context = SigningContext {
+            domain: Domain::SyncCommittee,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
         let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         let signature = signing_method
             .get_signature::<E>(
-                Domain::SyncCommittee,
                 PreImage::SyncCommitteeMessage {
                     beacon_block_root,
                     slot,
                 },
-                signing_epoch,
-                &fork,
-                genesis_validators_root,
+                signing_context,
                 &self.spec,
                 &self.task_executor,
             )
@@ -734,8 +734,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         selection_proof: SyncSelectionProof,
     ) -> Result<SignedContributionAndProof<E>, Error> {
         let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
-        let fork = self.fork(signing_epoch);
-        let genesis_validators_root = self.genesis_validators_root;
+        let signing_context = SigningContext {
+            domain: Domain::ContributionAndProof,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        };
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
         let signing_method = self.doppelganger_bypassed_signing_method(*aggregator_pubkey)?;
@@ -748,11 +752,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature(
-                Domain::ContributionAndProof,
                 PreImage::ContributionAndProof(&message),
-                signing_epoch,
-                &fork,
-                genesis_validators_root,
+                signing_context,
                 &self.spec,
                 &self.task_executor,
             )
