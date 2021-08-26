@@ -734,6 +734,18 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
+        /*TODO:
+        // Register the sync signature with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_unaggregated_attestation(
+                seen_timestamp,
+                attestation.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
+        */
+
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
@@ -788,6 +800,20 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Indicate to the `Network` service that this message is valid and can be
         // propagated on the gossip network.
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        /* TODO
+        // Register the attestation with any monitored validators.
+        self.chain
+            .validator_monitor
+            .read()
+            .register_gossip_aggregated_attestation(
+                seen_timestamp,
+                aggregate.aggregate(),
+                aggregate.indexed_attestation(),
+                &self.chain.slot_clock,
+            );
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
+        */
 
         if let Err(e) = self
             .chain
