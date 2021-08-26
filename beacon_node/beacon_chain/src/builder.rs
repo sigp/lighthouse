@@ -461,7 +461,7 @@ where
             match store.get_block(&initial_head_block_root) {
                 Ok(Some(block)) => (initial_head_block_root, block, false),
                 Ok(None) => return Err("Head block not found in store".into()),
-                Err(_) => {
+                Err(StoreError::SszDecodeError(_)) => {
                     let (block_root, block) = revert_to_fork_boundary(
                         current_slot,
                         initial_head_block_root,
@@ -474,6 +474,7 @@ where
                     head_tracker.register_block(block_root, block.parent_root(), block.slot());
                     (block_root, block, true)
                 }
+                Err(e) => return Err(descriptive_db_error("head block", &e)),
             };
 
         let head_state_root = head_block.state_root();
