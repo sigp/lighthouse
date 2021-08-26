@@ -21,6 +21,20 @@ pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 /// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
 pub const MESH_N_LOW: usize = 6;
 
+/// The cache time is set to accommodate the circulation time of an attestation.
+///
+/// The p2p spec declares that we accept attestations within the following range:
+///
+/// ```ignore
+/// ATTESTATION_PROPAGATION_SLOT_RANGE = 32
+/// attestation.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= attestation.data.slot
+/// ```
+///
+/// Therefore, we must accept attestations across a span of 33 slots (where each slot is 12
+/// seconds). We add an additional second to account for the 500ms gossip clock disparity, and
+/// another 500ms for "fudge factor".
+pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
+
 // We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
 // specification. We leave it here for posterity.
 // const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
@@ -227,8 +241,7 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
         .history_gossip(3)
         .validate_messages() // require validation before propagation
         .validation_mode(ValidationMode::Anonymous)
-        // prevent duplicates for 550 heartbeats(700millis * 550) = 385 secs
-        .duplicate_cache_time(Duration::from_secs(385))
+        .duplicate_cache_time(DUPLICATE_CACHE_TIME)
         .message_id_fn(gossip_message_id)
         .fast_message_id_fn(fast_gossip_message_id)
         .allow_self_origin(true)
