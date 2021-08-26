@@ -276,69 +276,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
-    /*
-    async fn doppelganger_checked_signing_method<'a, F, R>(
-        &'a self,
-        validator_pubkey: PublicKeyBytes,
-    ) -> Result<MappedRwLockReadGuard<'a, &Option<&SigningMethod>>, Error> {
-        // If the doppelganger service is active, check to ensure it explicitly permits signing by
-        // this validator.
-        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
-            return Err(Error::DoppelgangerProtected(validator_pubkey));
-        }
-
-        Ok(RwLockReadGuard::map::<Option<&SigningMethod>, _>(
-            self.validators.read(),
-            |validators| &validators.signing_method(&validator_pubkey),
-        ))
-    }
-
-    /// Runs `func`, providing it access to the `Keypair` corresponding to `validator_pubkey`.
-    ///
-    /// This forms the canonical point for accessing the secret key of some validator. It is
-    /// structured as a `with_...` function since we need to pass-through a read-lock in order to
-    /// access the keypair.
-    ///
-    /// Access to keypairs might be restricted by other internal mechanisms (e.g., doppleganger
-    /// protection).
-    ///
-    /// ## Warning
-    ///
-    /// This function takes a read-lock on `self.validators`. To prevent deadlocks, it is advised to
-    /// never take any sort of concurrency lock inside this function.
-    async fn with_validator_signing_method<F, R>(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        func: F,
-    ) -> Result<R, Error>
-    where
-        F: FnOnce(&SigningMethod) -> dyn Future<Output = Result<R, SigningError>>,
-    {
-        // If the doppelganger service is active, check to ensure it explicitly permits signing by
-        // this validator.
-        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
-            return Err(Error::DoppelgangerProtected(validator_pubkey));
-        }
-
-        let validators_lock = self.validators.read();
-
-        // TODO(paul): consider dragging the validators lock into a future..
-
-        func(
-            validators_lock
-                .signing_method(&validator_pubkey)
-                .ok_or(Error::UnknownPubkey(validator_pubkey))?,
-        )
-        .await
-        .map_err(Error::UnableToSign)
-    }
-    */
-
     fn doppelganger_checked_signing_method(
         &self,
         validator_pubkey: PublicKeyBytes,
     ) -> Result<Arc<SigningMethod>, Error> {
-        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
+        if self.doppelganger_protection_allows_signing(validator_pubkey) {
             self.validators
                 .read()
                 .signing_method(&validator_pubkey)
