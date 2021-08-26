@@ -88,6 +88,9 @@ pub struct ValidatorStore<T, E: EthSpec> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
+    // All arguments are different types. Making the fields `pub` is undesired. A builder seems
+    // unnecessary.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
