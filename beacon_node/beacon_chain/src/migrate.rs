@@ -337,7 +337,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             // Load head block. If it fails with a decode error, it's likely a reverted block,
             // so delete it from the head tracker but leave it and its states in the database
             // This is suboptimal as it wastes disk space, but it's difficult to fix. A re-sync
-            // can be used to reclaim the space, which in practice is likely to be miniscule.
+            // can be used to reclaim the space.
             let head_state_root = match store.get_block(&head_hash) {
                 Ok(Some(block)) => block.state_root(),
                 Ok(None) => {

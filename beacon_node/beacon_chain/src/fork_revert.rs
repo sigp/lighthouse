@@ -8,7 +8,7 @@ use std::sync::Arc;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
-/// Revert all blocks from before the most recent hard fork.
+/// Revert the head to the last block before the most recent hard fork.
 ///
 /// This function is destructive and should only be used if there is no viable alternative. It will
 /// cause the reverted blocks and states to be completely forgotten, lying dormant in the database
