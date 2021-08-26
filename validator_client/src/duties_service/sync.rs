@@ -489,78 +489,75 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
     // Generate selection proofs for each validator at each slot, one epoch at a time.
     for epoch in (current_epoch.as_u64()..=pre_compute_epoch.as_u64()).map(Epoch::new) {
-        // Generate proofs.
-        let validator_proofs: Vec<(u64, Vec<_>)> = pre_compute_duties
-            .iter()
-            .filter_map(|(validator_start_epoch, duty)| {
-                // Proofs are already known at this epoch for this validator.
-                if epoch < *validator_start_epoch {
-                    return None;
-                }
+        let mut validator_proofs = vec![];
+        for (validator_start_epoch, duty) in pre_compute_duties {
+            // Proofs are already known at this epoch for this validator.
+            if epoch < *validator_start_epoch {
+                continue;
+            }
 
-                let subnet_ids = duty
-                    .subnet_ids::<E>()
-                    .map_err(|e| {
-                        crit!(
+            let subnet_ids = match duty.subnet_ids::<E>() {
+                Ok(subnet_ids) => subnet_ids,
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Arithmetic error computing subnet IDs";
+                        "error" => ?e,
+                    );
+                    continue;
+                }
+            };
+
+            let mut proofs = vec![];
+            for (duty_slot, &subnet_id) in epoch
+                .slot_iter(E::slots_per_epoch())
+                .cartesian_product(&subnet_ids)
+            {
+                // Construct proof for prior slot.
+                let slot = duty_slot - 1;
+
+                let proof = if let Ok(proof) = duties_service
+                    .validator_store
+                    .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
+                    .await
+                {
+                    proof
+                } else {
+                    warn!(
+                        log,
+                        "Pubkey missing when signing selection proof";
+                        "pubkey" => ?duty.pubkey,
+                        "slot" => slot,
+                    );
+                    continue;
+                };
+
+                match proof.is_aggregator::<E>() {
+                    Ok(true) => {
+                        debug!(
                             log,
-                            "Arithmetic error computing subnet IDs";
+                            "Validator is sync aggregator";
+                            "validator_index" => duty.validator_index,
+                            "slot" => slot,
+                            "subnet_id" => %subnet_id,
+                        );
+                        proofs.push(((slot, subnet_id), proof));
+                    }
+                    Ok(false) => (),
+                    Err(e) => {
+                        warn!(
+                            log,
+                            "Error determining is_aggregator";
+                            "pubkey" => ?duty.pubkey,
+                            "slot" => slot,
                             "error" => ?e,
                         );
-                    })
-                    .ok()?;
+                    }
+                }
+            }
 
-                let proofs = epoch
-                    .slot_iter(E::slots_per_epoch())
-                    .cartesian_product(&subnet_ids)
-                    .filter_map(|(duty_slot, &subnet_id)| {
-                        // Construct proof for prior slot.
-                        let slot = duty_slot - 1;
-
-                        let proof = duties_service
-                            .validator_store
-                            .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
-                            .await
-                            .map_err(|_| {
-                                warn!(
-                                    log,
-                                    "Pubkey missing when signing selection proof";
-                                    "pubkey" => ?duty.pubkey,
-                                    "slot" => slot,
-                                );
-                            })
-                            .ok()?;
-
-                        let is_aggregator = proof
-                            .is_aggregator::<E>()
-                            .map_err(|e| {
-                                warn!(
-                                    log,
-                                    "Error determining is_aggregator";
-                                    "pubkey" => ?duty.pubkey,
-                                    "slot" => slot,
-                                    "error" => ?e,
-                                );
-                            })
-                            .ok()?;
-
-                        if is_aggregator {
-                            debug!(
-                                log,
-                                "Validator is sync aggregator";
-                                "validator_index" => duty.validator_index,
-                                "slot" => slot,
-                                "subnet_id" => %subnet_id,
-                            );
-                            Some(((slot, subnet_id), proof))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                Some((duty.validator_index, proofs))
-            })
-            .collect();
+            validator_proofs.push((duty.validator_index, proofs));
+        }
 
         // Add to global storage (we add regularly so the proofs can be used ASAP).
         let sync_map = duties_service.sync_duties.committees.read();
