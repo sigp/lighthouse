@@ -62,8 +62,8 @@ pub enum SigningDefinition {
         voting_keystore_password: Option<ZeroizeString>,
     },
     /// A validator that defers to a HTTP server for signing.
-    #[serde(rename = "remote_signer")]
-    RemoteSigner {
+    #[serde(rename = "web3signer")]
+    Web3Signer {
         url: String,
         /// Path to a .pem file.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -185,7 +185,7 @@ impl ValidatorDefinitions {
                     voting_keystore_path,
                     ..
                 } => Some(voting_keystore_path),
-                SigningDefinition::RemoteSigner { .. } => None,
+                SigningDefinition::Web3Signer { .. } => None,
             })
             .collect();
 

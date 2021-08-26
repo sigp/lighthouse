@@ -36,8 +36,10 @@ pub enum SigningMethod {
         voting_keystore: Keystore,
         voting_keypair: Arc<Keypair>,
     },
-    /// A validator that defers to a HTTP server for signing.
-    RemoteSigner {
+    /// A validator that defers to a Web3Signer server for signing.
+    ///
+    /// See: https://docs.web3signer.consensys.net/en/latest/
+    Web3Signer {
         signing_url: Url,
         http_client: Client,
         voting_public_key: PublicKey,
@@ -94,7 +96,7 @@ impl SigningMethod {
                     .map_err(|e| Error::TokioJoin(e.to_string()))?;
                 Ok(signature)
             }
-            SigningMethod::RemoteSigner {
+            SigningMethod::Web3Signer {
                 signing_url,
                 http_client,
                 ..

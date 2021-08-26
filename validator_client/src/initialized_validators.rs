@@ -78,11 +78,11 @@ pub enum Error {
     /// Unable to read the slot clock.
     SlotClock,
     /// The URL for the remote signer cannot be parsed.
-    InvalidRemoteSignerUrl(String),
+    InvalidWeb3SignerUrl(String),
     /// Unable to read the root certificate file for the remote signer.
-    InvalidRemoteSignerRootCertificateFile(io::Error),
-    InvalidRemoteSignerRootCertificate(ReqwestError),
-    UnableToBuildRemoteSignerClient(ReqwestError),
+    InvalidWeb3SignerRootCertificateFile(io::Error),
+    InvalidWeb3SignerRootCertificate(ReqwestError),
+    UnableToBuildWeb3SignerClient(ReqwestError),
 }
 
 impl From<LockfileError> for Error {
@@ -108,7 +108,7 @@ impl InitializedValidator {
                 ..
             } => Some(voting_keystore_lockfile),
             // TODO(paul) consider an artificial lockfile for remote signer validators.
-            SigningMethod::RemoteSigner { .. } => None,
+            SigningMethod::Web3Signer { .. } => None,
         }
     }
 }
@@ -226,13 +226,13 @@ impl InitializedValidator {
                     index: None,
                 })
             }
-            SigningDefinition::RemoteSigner {
+            SigningDefinition::Web3Signer {
                 url,
                 root_certificate_path,
                 request_timeout_ms,
             } => {
                 let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
-                    .map_err(|e| Error::InvalidRemoteSignerUrl(e.to_string()))?;
+                    .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
                 let request_timeout = request_timeout_ms
                     .map(Duration::from_millis)
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
@@ -242,11 +242,11 @@ impl InitializedValidator {
                 let builder = if let Some(path) = root_certificate_path {
                     let mut buf = Vec::new();
                     File::open(&path)
-                        .map_err(Error::InvalidRemoteSignerRootCertificateFile)?
+                        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?
                         .read_to_end(&mut buf)
-                        .map_err(Error::InvalidRemoteSignerRootCertificateFile)?;
+                        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?;
                     let certificate = Certificate::from_pem(&buf)
-                        .map_err(Error::InvalidRemoteSignerRootCertificate)?;
+                        .map_err(Error::InvalidWeb3SignerRootCertificate)?;
 
                     builder.add_root_certificate(certificate)
                 } else {
@@ -255,10 +255,10 @@ impl InitializedValidator {
 
                 let http_client = builder
                     .build()
-                    .map_err(Error::UnableToBuildRemoteSignerClient)?;
+                    .map_err(Error::UnableToBuildWeb3SignerClient)?;
 
                 Ok(Self {
-                    signing_method: Arc::new(SigningMethod::RemoteSigner {
+                    signing_method: Arc::new(SigningMethod::Web3Signer {
                         signing_url,
                         http_client,
                         voting_public_key: def.voting_public_key,
@@ -274,7 +274,7 @@ impl InitializedValidator {
     pub fn voting_public_key(&self) -> &PublicKey {
         match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
-            SigningMethod::RemoteSigner {
+            SigningMethod::Web3Signer {
                 voting_public_key, ..
             } => voting_public_key,
         }
@@ -485,7 +485,7 @@ impl InitializedValidators {
                     definitions_map.insert(*key_store.uuid(), def);
                 }
                 // Remote signer validators don't interact with the key cache.
-                SigningDefinition::RemoteSigner { .. } => (),
+                SigningDefinition::Web3Signer { .. } => (),
             }
         }
 
@@ -528,7 +528,7 @@ impl InitializedValidators {
                     public_keys.push(def.voting_public_key.clone());
                 }
                 // Remote signer validators don't interact with the key cache.
-                SigningDefinition::RemoteSigner { .. } => (),
+                SigningDefinition::Web3Signer { .. } => (),
             };
         }
 
@@ -632,7 +632,7 @@ impl InitializedValidators {
                             }
                         }
                     }
-                    SigningDefinition::RemoteSigner { .. } => {
+                    SigningDefinition::Web3Signer { .. } => {
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
@@ -678,7 +678,7 @@ impl InitializedValidators {
                         }
                     }
                     // Remote signers do not interact with the key cache.
-                    SigningDefinition::RemoteSigner { .. } => (),
+                    SigningDefinition::Web3Signer { .. } => (),
                 }
 
                 info!(
