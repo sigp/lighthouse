@@ -27,6 +27,7 @@ use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
+use task_executor::TaskExecutor;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
@@ -41,6 +42,7 @@ struct ApiTester {
     url: SensitiveUrl,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
+    _runtime_shutdown: exit_future::Signal,
 }
 
 // Builds a runtime to be used in the testing configuration.
@@ -85,6 +87,10 @@ impl ApiTester {
         let slot_clock =
             TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
 
+        let (runtime_shutdown, exit) = exit_future::signal();
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = TaskExecutor::new(runtime.clone(), exit, log.clone(), shutdown_tx);
+
         let validator_store = ValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
@@ -92,6 +98,7 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
+            executor,
             log.clone(),
         );
 
@@ -141,6 +148,7 @@ impl ApiTester {
             client,
             url,
             _server_shutdown: shutdown_tx,
+            _runtime_shutdown: runtime_shutdown,
         }
     }
 
