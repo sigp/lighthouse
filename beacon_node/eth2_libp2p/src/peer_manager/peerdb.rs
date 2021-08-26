@@ -59,10 +59,7 @@ pub enum BanResult {
 #[cfg(test)]
 impl BanResult {
     pub fn is_banned(&self) -> bool {
-        match self {
-            BanResult::NotBanned => false,
-            _ => true,
-        }
+        !matches!(self, BanResult::NotBanned)
     }
 }
 
