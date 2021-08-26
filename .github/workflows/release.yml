@@ -97,7 +97,9 @@ jobs:
                        x86_64-unknown-linux-gnu,
                        x86_64-unknown-linux-gnu-portable,
                        x86_64-apple-darwin,
-                       x86_64-apple-darwin-portable]
+                       x86_64-apple-darwin-portable,
+                       x86_64-windows,
+                       x86_64-windows-portable]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
                         platform: ubuntu-latest
@@ -111,6 +113,10 @@ jobs:
                         platform: macos-latest
                     -   arch: x86_64-apple-darwin-portable
                         platform: macos-latest
+                    -   arch: x86_64-windows
+                        platform: windows-latest
+                    -   arch: x86_64-windows-portable
+                        platform: windows-latest
 
         runs-on:    ${{ matrix.platform }}
         needs: extract-version
@@ -168,7 +174,16 @@ jobs:
               if:   matrix.arch == 'x86_64-apple-darwin'
               run:  cargo install --path lighthouse --force --locked --features modern
 
+            - name: Build Lighthouse for Windows portable
+              if:   matrix.arch == 'x86_64-windows-portable'
+              run:  cargo install --path lighthouse --force --locked --features portable
+
+            - name: Build Lighthouse for Windows modern
+              if:   matrix.arch == 'x86_64-windows'
+              run:  cargo install --path lighthouse --force --locked --features modern
+
             - name: Configure GPG and create artifacts
+              if: startsWith(matrix.arch, 'x86_64-windows') != true
               env:
                   GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
                   GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -181,6 +196,20 @@ jobs:
                   tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   mv *tar.gz* ..
+
+            - name: Configure GPG and create artifacts Windows
+              if: startsWith(matrix.arch, 'x86_64-windows')
+              env:
+                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+              run: |
+                  echo $env:GPG_SIGNING_KEY | gpg --batch --import
+                  mkdir artifacts
+                  move $env:USERPROFILE/.cargo/bin/lighthouse.exe ./artifacts
+                  cd artifacts
+                  tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse.exe
+                  gpg --passphrase "$env:GPG_PASSPHRASE" --batch --pinentry-mode loopback -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  move *tar.gz* ..
 
             # =======================================================================
             # Upload artifacts
@@ -276,6 +305,8 @@ jobs:
                   | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc) |
                   | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
                   | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/windows.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz.asc) |
+                  | <img src="https://simpleicons.org/icons/windows.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-windows-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows-portable.tar.gz.asc) |
                   | | | | |
                   | **System** | **Option** | - | **Resource** |
                   | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |

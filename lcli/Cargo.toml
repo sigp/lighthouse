@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "1.5.0-rc.1"
+version = "1.5.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
