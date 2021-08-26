@@ -437,7 +437,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature(
-                        PreImage::BeaconBlock(&block),
+                        PreImage::beacon_block(&block),
                         signing_context,
                         &self.spec,
                         &self.task_executor,

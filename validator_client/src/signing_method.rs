@@ -6,9 +6,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
-    AggregateAndProof, AttestationData, BeaconBlock, ChainSpec, ContributionAndProof,
-    DepositMessage, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, PublicKeyBytes,
-    Signature, SignedRoot, Slot, SyncAggregatorSelectionData, VoluntaryExit,
+    AggregateAndProof, AttestationData, BeaconBlock, BeaconBlockBase, BeaconBlockRef, ChainSpec,
+    ContributionAndProof, DepositMessage, Domain, Epoch, EthSpec, Fork, Hash256, Keypair,
+    PublicKey, PublicKeyBytes, Signature, SignedRoot, Slot, SyncAggregatorSelectionData,
+    VoluntaryExit,
 };
 use url::Url;
 
@@ -196,7 +197,7 @@ pub enum PreImage<'a, T: EthSpec> {
     #[serde(rename = "attestation")]
     AttestationData(&'a AttestationData),
     #[serde(rename = "block")]
-    BeaconBlock(&'a BeaconBlock<T>),
+    BeaconBlockBase(&'a BeaconBlockBase<T>),
     #[serde(rename = "deposit")]
     Deposit {
         pubkey: PublicKeyBytes,
@@ -222,12 +223,22 @@ pub enum PreImage<'a, T: EthSpec> {
 }
 
 impl<'a, T: EthSpec> PreImage<'a, T> {
+    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Self {
+        match block {
+            BeaconBlock::Base(b) => PreImage::BeaconBlockBase(b),
+            // TODO(paul): implement as per https://github.com/ConsenSys/web3signer/pull/422
+            BeaconBlock::Altair(_) => unimplemented!("altair block"),
+        }
+    }
+}
+
+impl<'a, T: EthSpec> PreImage<'a, T> {
     fn message_type(&self) -> MessageType {
         match self {
             PreImage::AggregationSlot { .. } => MessageType::AggregationSlot,
             PreImage::AggregateAndProof(_) => MessageType::AggregateAndProof,
             PreImage::AttestationData(_) => MessageType::Attestation,
-            PreImage::BeaconBlock(_) => MessageType::Block,
+            PreImage::BeaconBlockBase(_) => MessageType::Block,
             PreImage::Deposit { .. } => MessageType::Deposit,
             PreImage::RandaoReveal { .. } => MessageType::RandaoReveal,
             PreImage::VoluntaryExit(_) => MessageType::VoluntaryExit,
@@ -242,7 +253,7 @@ impl<'a, T: EthSpec> PreImage<'a, T> {
             PreImage::AggregationSlot { slot } => slot.signing_root(domain),
             PreImage::AggregateAndProof(a) => a.signing_root(domain),
             PreImage::AttestationData(a) => a.signing_root(domain),
-            PreImage::BeaconBlock(b) => b.signing_root(domain),
+            PreImage::BeaconBlockBase(b) => BeaconBlockRef::Base(b).signing_root(domain),
             PreImage::Deposit {
                 pubkey,
                 withdrawal_credentials,
