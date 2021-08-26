@@ -14,6 +14,7 @@ GENESIS_FORK_VERSION: 0x00001020
 # Customized for Prater: 1919188 seconds (Mar-23-2021 02:00:00 PM +UTC)
 GENESIS_DELAY: 1919188
 
+
 # Forking
 # ---------------------------------------------------------------
 # Some forks are disabled for now:
@@ -21,13 +22,13 @@ GENESIS_DELAY: 1919188
 #  - Temporarily set to max uint64 value: 2**64 - 1
 
 # Altair
-ALTAIR_FORK_VERSION: 0x01000000
-ALTAIR_FORK_EPOCH: 18446744073709551615
+ALTAIR_FORK_VERSION: 0x01001020
+ALTAIR_FORK_EPOCH: 36660
 # Merge
-MERGE_FORK_VERSION: 0x02000000
+MERGE_FORK_VERSION: 0x02001020
 MERGE_FORK_EPOCH: 18446744073709551615
 # Sharding
-SHARDING_FORK_VERSION: 0x03000000
+SHARDING_FORK_VERSION: 0x03001020
 SHARDING_FORK_EPOCH: 18446744073709551615
 
 # TBD, 2**32 is a placeholder. Merge transition approach is in active R&D.
@@ -60,6 +61,7 @@ EJECTION_BALANCE: 16000000000
 MIN_PER_EPOCH_CHURN_LIMIT: 4
 # 2**16 (= 65,536)
 CHURN_LIMIT_QUOTIENT: 65536
+
 
 # Deposit contract
 # ---------------------------------------------------------------
