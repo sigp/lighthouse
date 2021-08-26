@@ -216,7 +216,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let mut committee_signatures = vec![];
         for duty in &validator_duties {
-            if let Some(signature) = self
+            match self
                 .validator_store
                 .produce_sync_committee_signature(
                     slot,
@@ -225,7 +225,9 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     &duty.pubkey,
                 )
                 .await
-                .map_err(|e| {
+            {
+                Ok(signature) => committee_signatures.push(signature),
+                Err(e) => {
                     crit!(
                         log,
                         "Failed to sign sync committee signature";
@@ -233,10 +235,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         "slot" => slot,
                         "error" => ?e,
                     );
-                })
-                .ok()
-            {
-                committee_signatures.push(signature)
+                }
             }
         }
 
@@ -341,7 +340,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         // Make `SignedContributionAndProof`s
         let mut signed_contributions = vec![];
         for (aggregator_index, aggregator_pk, selection_proof) in subnet_aggregators {
-            if let Some(signed_contribution) = self
+            match self
                 .validator_store
                 .produce_signed_contribution_and_proof(
                     aggregator_index,
@@ -350,17 +349,16 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     selection_proof,
                 )
                 .await
-                .map_err(|e| {
+            {
+                Ok(signed_contribution) => signed_contributions.push(signed_contribution),
+                Err(e) => {
                     crit!(
                         log,
                         "Unable to sign sync committee contribution";
                         "slot" => slot,
                         "error" => ?e,
-                    );
-                })
-                .ok()
-            {
-                signed_contributions.push(signed_contribution)
+                    )
+                }
             }
         }
 

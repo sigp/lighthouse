@@ -21,7 +21,7 @@ pub enum Error {
     Web3SignerRequestFailed(String),
     Web3SignerJsonParsingFailed(String),
     ShuttingDown,
-    TokioJoinError(String),
+    TokioJoin(String),
 }
 
 /// A method used by a validator to sign messages.
@@ -45,10 +45,10 @@ pub enum SigningMethod {
 }
 
 impl SigningMethod {
-    pub async fn get_signature<'a, T: EthSpec>(
+    pub async fn get_signature<T: EthSpec>(
         &self,
         domain: Domain,
-        pre_image: PreImage<'a, T>,
+        pre_image: PreImage<'_, T>,
         epoch: Epoch,
         fork: &Fork,
         genesis_validators_root: Hash256,
@@ -69,7 +69,7 @@ impl SigningMethod {
                     )
                     .ok_or(Error::ShuttingDown)?
                     .await
-                    .map_err(|e| Error::TokioJoinError(e.to_string()))?;
+                    .map_err(|e| Error::TokioJoin(e.to_string()))?;
                 Ok(signature)
             }
             SigningMethod::RemoteSigner {
@@ -94,7 +94,7 @@ impl SigningMethod {
                     None
                 } else {
                     Some(ForkInfo {
-                        fork: fork.clone(),
+                        fork: *fork,
                         genesis_validators_root,
                     })
                 };
