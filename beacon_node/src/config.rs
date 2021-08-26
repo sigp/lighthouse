@@ -612,6 +612,11 @@ pub fn set_network_config(
         config.discv5_config.enr_update = false;
     }
 
+    if cli_args.is_present("disable-packet-filter") {
+        warn!(log, "Discv5 packet filter is disabled");
+        config.discv5_config.enable_packet_filter = false;
+    }
+
     if cli_args.is_present("disable-discovery") {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
