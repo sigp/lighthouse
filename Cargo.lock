@@ -4318,7 +4318,6 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
- "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",
