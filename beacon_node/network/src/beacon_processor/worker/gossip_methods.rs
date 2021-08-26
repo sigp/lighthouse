@@ -975,9 +975,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "validator_index" => validator_index,
                     "type" => ?attestation_type,
                 );
-                // We still penalize the peer slightly. We don't want this to be a recurring
-                // behaviour.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
