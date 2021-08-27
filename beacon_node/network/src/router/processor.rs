@@ -211,6 +211,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 peer_id,
                 request_id: id,
                 beacon_block,
+                seen_timestamp: timestamp_now(),
             });
         } else {
             debug!(

@@ -634,6 +634,13 @@ impl<T: BeaconChainTypes> Worker<T> {
             block_delay,
         );
 
+        // Write the time the block was observed into delay cache.
+        self.chain.block_times_cache.write().set_time_observed(
+            block.canonical_root(),
+            block.slot(),
+            seen_duration,
+        );
+
         let verified_block = match self.chain.verify_block_for_gossip(block) {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
