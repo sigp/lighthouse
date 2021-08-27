@@ -1,15 +1,27 @@
 #[cfg(test)]
 mod tests {
+    use account_utils::validator_definitions::{
+        SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
+    };
     use eth2_keystore::{Keystore, KeystoreBuilder};
+    use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fs::File;
     use std::path::PathBuf;
     use std::process::{Child, Command};
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
+    use task_executor::TaskExecutor;
     use tempfile::TempDir;
     use tokio::time::sleep;
-    use types::{Keypair, SecretKey};
+    use types::{EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKey, SecretKey, Slot};
     use url::Url;
+    use validator_client::{
+        validator_store::ValidatorStore, InitializedValidators, SlashingDatabase,
+        SLASHING_PROTECTION_FILENAME,
+    };
+
+    type E = MainnetEthSpec;
 
     const KEYSTORE_PASSWORD: &[u8] = &[13, 37, 42, 42];
     const WEB3SIGNER_LISTEN_ADDRESS: &str = "127.0.0.1";
@@ -114,8 +126,77 @@ mod tests {
         }
     }
 
+    struct ValidatorStoreRig {
+        validator_store: ValidatorStore<TestingSlotClock, E>,
+        validator_dir: TempDir,
+        _runtime_shutdown: exit_future::Signal,
+    }
+
+    impl ValidatorStoreRig {
+        pub async fn new(remote_signer_url: &Url, voting_public_key: PublicKey) -> Self {
+            let log = environment::null_logger().unwrap();
+            let validator_dir = TempDir::new().unwrap();
+
+            let validator_definition = ValidatorDefinition {
+                enabled: true,
+                voting_public_key,
+                graffiti: None,
+                description: String::default(),
+                signing_definition: SigningDefinition::Web3Signer {
+                    url: remote_signer_url.to_string(),
+                    root_certificate_path: None,
+                    request_timeout_ms: None,
+                },
+            };
+            let validator_definitions = ValidatorDefinitions::from(vec![validator_definition]);
+            let initialized_validators = InitializedValidators::from_definitions(
+                validator_definitions,
+                validator_dir.path().into(),
+                log.clone(),
+            )
+            .await
+            .unwrap();
+
+            let runtime = Arc::new(
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            );
+            let (runtime_shutdown, exit) = exit_future::signal();
+            let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+            let executor =
+                TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+            let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
+            let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
+            let slot_clock =
+                TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            let spec = E::default_spec();
+
+            let validator_store = ValidatorStore::<_, E>::new(
+                initialized_validators,
+                slashing_protection,
+                Hash256::repeat_byte(42),
+                spec,
+                None,
+                slot_clock,
+                executor,
+                log.clone(),
+            );
+
+            Self {
+                validator_store,
+                validator_dir,
+                _runtime_shutdown: runtime_shutdown,
+            }
+        }
+    }
+
     #[tokio::test]
     async fn it_works() {
-        let rig = Web3SignerRig::new(WEB3SIGNER_LISTEN_ADDRESS, WEB3SIGNER_LISTEN_PORT).await;
+        let signer_rig =
+            Web3SignerRig::new(WEB3SIGNER_LISTEN_ADDRESS, WEB3SIGNER_LISTEN_PORT).await;
+        let validator_rig =
+            ValidatorStoreRig::new(&signer_rig.url, signer_rig.keypair.pk.clone()).await;
     }
 }

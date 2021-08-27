@@ -7320,13 +7320,20 @@ dependencies = [
 name = "web3signer_tests"
 version = "0.1.0"
 dependencies = [
+ "account_utils",
+ "environment",
  "eth2_keystore",
+ "exit-future",
+ "futures",
  "reqwest",
  "serde_json",
+ "slot_clock",
+ "task_executor",
  "tempfile",
  "tokio",
  "types",
  "url",
+ "validator_client",
  "zip",
 ]
 

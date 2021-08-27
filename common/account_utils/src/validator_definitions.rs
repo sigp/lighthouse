@@ -129,6 +129,12 @@ impl ValidatorDefinition {
 #[derive(Default, Serialize, Deserialize)]
 pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 
+impl From<Vec<ValidatorDefinition>> for ValidatorDefinitions {
+    fn from(vec: Vec<ValidatorDefinition>) -> Self {
+        Self(vec)
+    }
+}
+
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
