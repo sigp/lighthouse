@@ -71,6 +71,12 @@ fn operations_sync_aggregate() {
 }
 
 #[test]
+fn operations_sync_aggregate_random() {
+    OperationsHandler::<MinimalEthSpec, SyncAggregateRandom<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, SyncAggregateRandom<_>>::default().run();
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();
@@ -80,6 +86,12 @@ fn sanity_blocks() {
 fn sanity_slots() {
     SanitySlotsHandler::<MinimalEthSpec>::default().run();
     SanitySlotsHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn random() {
+    RandomHandler::<MinimalEthSpec>::default().run();
+    RandomHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
@@ -177,7 +189,6 @@ mod ssz_static {
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(beacon_state, SszStaticTHCHandler, BeaconState<_>);
     ssz_static_test!(checkpoint, Checkpoint);
-    // FIXME(altair): add ContributionAndProof
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
@@ -197,10 +208,8 @@ mod ssz_static {
         SignedBeaconBlock<_>
     );
     ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
-    // FIXME(altair): add SignedContributionAndProof
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
-    // FIXME(altair): add SyncCommitteeContribution/Signature/SigningData
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 

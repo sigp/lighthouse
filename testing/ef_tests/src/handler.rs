@@ -37,7 +37,7 @@ pub trait Handler {
         };
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("eth2.0-spec-tests")
+            .join("consensus-spec-tests")
             .join("tests")
             .join(Self::config_name())
             .join(fork_name_str)
@@ -256,12 +256,6 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
     fn handler_name(&self) -> String {
         "blocks".into()
     }
-
-    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
-        // FIXME(altair): v1.1.0-alpha.3 doesn't mark the historical blocks test as
-        // requiring real crypto, so only run these tests with real crypto for now.
-        cfg!(not(feature = "fake_crypto"))
-    }
 }
 
 #[derive(Derivative)]
@@ -281,6 +275,26 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
 
     fn handler_name(&self) -> String {
         "slots".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct RandomHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
+    type Case = cases::SanityBlocks<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "random"
+    }
+
+    fn handler_name(&self) -> String {
+        "random".into()
     }
 }
 

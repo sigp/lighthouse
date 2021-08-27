@@ -4,7 +4,7 @@ pub use cases::{
     EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, InactivityUpdates,
     JustificationAndFinalization, ParticipationFlagUpdates, ParticipationRecordUpdates,
     RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset,
-    SyncCommitteeUpdates,
+    SyncAggregateRandom, SyncCommitteeUpdates,
 };
 pub use decode::log_file_access;
 pub use error::Error;
