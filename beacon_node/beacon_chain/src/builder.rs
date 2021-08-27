@@ -326,10 +326,10 @@ where
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
 
-        let fork_choice = ForkChoice::from_genesis(
+        let fork_choice = ForkChoice::from_anchor(
             fc_store,
             genesis.beacon_block_root,
-            &genesis.beacon_block.deconstruct().0,
+            &genesis.beacon_block,
             &genesis.beacon_state,
         )
         .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
