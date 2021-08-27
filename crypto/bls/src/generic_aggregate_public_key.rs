@@ -1,4 +1,8 @@
-use crate::{generic_public_key::GenericPublicKey, Error};
+use crate::{
+    generic_public_key::{GenericPublicKey, TPublicKey},
+    Error,
+};
+use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 
 /// Implemented on some struct from a BLS library so it may be used internally in this crate.
@@ -33,5 +37,15 @@ where
             point: AggPub::aggregate(pubkeys)?,
             _phantom: PhantomData,
         })
+    }
+}
+
+impl<Pub, AggPub> Debug for GenericAggregatePublicKey<Pub, AggPub>
+where
+    AggPub: TAggregatePublicKey<Pub>,
+    Pub: TPublicKey,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.to_public_key())
     }
 }
