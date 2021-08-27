@@ -2803,6 +2803,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Determine the root of the block that is the head of the chain.
         let beacon_block_root = self.fork_choice.write().get_head(self.slot()?)?;
 
+        let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
+
         let current_head = self.head_info()?;
         let old_finalized_checkpoint = current_head.finalized_checkpoint;
 
@@ -2927,6 +2929,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .previous_epoch()
             .start_slot(T::EthSpec::slots_per_epoch());
         let head_proposer_index = new_head.beacon_block.message().proposer_index();
+
+        drop(lag_timer);
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
