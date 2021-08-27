@@ -49,9 +49,10 @@ superstruct = "0.2.0"
 [dependencies.libp2p]
 #version = "0.39.1"
 #default-features = false
-git = "https://github.com/libp2p/rust-libp2p"
-rev = "ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
+git = "https://github.com/sigp/rust-libp2p"
+branch = "age-gossip-inspect"
+# rev = "ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub-metrics", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "1.10.0", features = ["full"] }

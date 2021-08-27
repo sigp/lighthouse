@@ -86,6 +86,12 @@ lazy_static! {
         &["subnet"]
     );
 
+    pub static ref GOSSIPSUB_MESH_METRICS_BY_TOPIC: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "gossipsub_mesh_metrics_by_topic",
+        "Various gossipsub metrics per topic per mesh slot",
+        &["fork", "topic", "metric", "mesh_slot"]
+    );
+
     pub static ref ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT: Result<IntCounterVec> = try_create_int_counter_vec(
         "gossipsub_attestations_published_per_subnet_per_slot",
         "Failed attestation publishes per subnet",
@@ -637,6 +643,11 @@ pub fn update_gossip_metrics<T: EthSpec>(
         }
     }
 
+    // Mesh slot metrics update
+    for topic_hash in gossipsub.topics() {
+        update_mesh_slot_metrics(gossipsub, topic_hash);
+    }
+
     // Peers per subscribed subnet
     let mut peers_per_topic: HashMap<TopicHash, usize> = HashMap::new();
     for (peer_id, topics) in gossipsub.all_peers() {
@@ -891,6 +902,41 @@ pub fn update_gossip_metrics<T: EthSpec>(
             set_gauge_entry(&MEDIAN_SCORES_PER_CLIENT, c, median);
             set_gauge_entry(&MEAN_SCORES_PER_CLIENT, c, sum / count);
             set_gauge_entry(&MAX_SCORES_PER_CLIENT, c, max);
+        }
+    }
+}
+
+/// For a given topic, updates the mesh slot metrics.
+pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
+    if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+        let kind = match topic.kind() {
+            GossipKind::Attestation(subnet_id) => format!(
+                "beacon_attestation_{:02}",
+                <&types::SubnetId as Into<u64>>::into(subnet_id)
+            ),
+            other => other.to_string(),
+        };
+        let fork = format!("0x{}", &hex::encode(topic.fork_digest));
+        if let Some(metrics_iter) = gossipsub.metrics().slot_metrics_for_topic(&topic_hash) {
+            for (slot, slot_metrics) in metrics_iter.enumerate() {
+                let slot_format = match slot {
+                    0 => format!("non-mesh"),
+                    _ => format!("Slot {:02}", slot),
+                };
+                for (metric_name, value) in slot_metrics.with_names() {
+                    if let Some(v) = get_gauge(
+                        &GOSSIPSUB_MESH_METRICS_BY_TOPIC,
+                        &[
+                            fork.as_str(),
+                            kind.as_str(),
+                            metric_name,
+                            slot_format.as_str(),
+                        ],
+                    ) {
+                        v.set(value as i64)
+                    }
+                }
+            }
         }
     }
 }

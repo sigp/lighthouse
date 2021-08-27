@@ -3306,7 +3306,7 @@ dependencies = [
 [[package]]
 name = "libp2p"
 version = "0.40.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "atomic",
  "bytes 1.0.1",
@@ -3320,6 +3320,7 @@ dependencies = [
  "libp2p-identify",
  "libp2p-kad",
  "libp2p-mdns",
+ "libp2p-metrics",
  "libp2p-mplex",
  "libp2p-noise",
  "libp2p-ping",
@@ -3378,7 +3379,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -3411,7 +3412,7 @@ dependencies = [
 [[package]]
 name = "libp2p-deflate"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "flate2",
  "futures",
@@ -3421,7 +3422,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "async-std-resolver",
  "futures",
@@ -3434,7 +3435,7 @@ dependencies = [
 [[package]]
 name = "libp2p-floodsub"
 version = "0.31.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "cuckoofilter",
  "fnv",
@@ -3451,7 +3452,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.33.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -3469,6 +3470,8 @@ dependencies = [
  "regex",
  "sha2",
  "smallvec",
+ "strum",
+ "strum_macros",
  "unsigned-varint 0.7.0",
  "wasm-timer",
 ]
@@ -3476,7 +3479,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.31.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -3491,7 +3494,7 @@ dependencies = [
 [[package]]
 name = "libp2p-kad"
 version = "0.32.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "arrayvec 0.5.2",
  "asynchronous-codec",
@@ -3516,7 +3519,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.32.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "async-io",
  "data-encoding",
@@ -3534,9 +3537,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-metrics"
+version = "0.1.0"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
+dependencies = [
+ "libp2p-core 0.30.0",
+ "libp2p-identify",
+ "libp2p-kad",
+ "libp2p-ping",
+ "libp2p-swarm",
+ "open-metrics-client",
+]
+
+[[package]]
 name = "libp2p-mplex"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
@@ -3553,7 +3569,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.33.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "bytes 1.0.1",
  "curve25519-dalek",
@@ -3574,7 +3590,7 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.31.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -3588,7 +3604,7 @@ dependencies = [
 [[package]]
 name = "libp2p-plaintext"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
@@ -3604,7 +3620,7 @@ dependencies = [
 [[package]]
 name = "libp2p-pnet"
 version = "0.21.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "futures",
  "log",
@@ -3617,7 +3633,7 @@ dependencies = [
 [[package]]
 name = "libp2p-relay"
 version = "0.4.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.0.1",
@@ -3639,7 +3655,7 @@ dependencies = [
 [[package]]
 name = "libp2p-request-response"
 version = "0.13.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "async-trait",
  "bytes 1.0.1",
@@ -3658,7 +3674,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.31.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "either",
  "futures",
@@ -3673,7 +3689,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.24.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "quote",
  "syn",
@@ -3682,7 +3698,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "async-io",
  "futures",
@@ -3700,7 +3716,7 @@ dependencies = [
 [[package]]
 name = "libp2p-uds"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "async-std",
  "futures",
@@ -3711,7 +3727,7 @@ dependencies = [
 [[package]]
 name = "libp2p-wasm-ext"
 version = "0.30.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "futures",
  "js-sys",
@@ -3724,7 +3740,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.31.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "either",
  "futures",
@@ -3741,7 +3757,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.34.0"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -4252,7 +4268,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.10.4"
-source = "git+https://github.com/libp2p/rust-libp2p?rev=ce23cbe76a0382b6fcb0e49f1b2612df86f6465d#ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#65a892dc8ed55258a7772ee55b1fc2e73275a806"
 dependencies = [
  "bytes 1.0.1",
  "futures",
@@ -4500,6 +4516,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
+name = "open-metrics-client"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7337d80c23c2d8b1349563981bc4fb531220733743ba8115454a67b181173f0d"
+dependencies = [
+ "dtoa",
+ "itoa",
+ "open-metrics-client-derive-text-encode",
+ "owning_ref",
+]
+
+[[package]]
+name = "open-metrics-client-derive-text-encode"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a15c83b586f00268c619c1cb3340ec1a6f59dd9ba1d9833a273a68e6d5cd8ffc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "openssl"
 version = "0.10.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4563,6 +4602,15 @@ dependencies = [
  "store",
  "superstruct",
  "types",
+]
+
+[[package]]
+name = "owning_ref"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ff55baddef9e4ad00f88b6c743a2a8062d4c6ade126c2a528644b8e444d52ce"
+dependencies = [
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -6280,6 +6328,12 @@ checksum = "9dae7e047abc519c96350e9484a96c6bf1492348af912fd3446dd2dc323f6268"
 dependencies = [
  "der",
 ]
+
+[[package]]
+name = "stable_deref_trait"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "standback"
