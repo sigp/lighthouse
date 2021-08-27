@@ -85,7 +85,7 @@ mod tests {
                 listen_port,
             };
 
-            s.wait_until_up(Duration::from_secs(5));
+            s.wait_until_up(Duration::from_secs(5)).await;
 
             s
         }
