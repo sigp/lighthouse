@@ -27,17 +27,12 @@ impl ForkContext {
         )];
 
         // Only add Altair to list of forks if it's enabled
-        // Note: `altair_fork_epoch = None | Some(Epoch::max_value())` implies altair hasn't been activated yet on the config.
-        if let Some(altair_epoch) = spec.altair_fork_epoch {
-            if altair_epoch != Epoch::max_value() {
-                fork_to_digest.push((
-                    ForkName::Altair,
-                    ChainSpec::compute_fork_digest(
-                        spec.altair_fork_version,
-                        genesis_validators_root,
-                    ),
-                ));
-            }
+        // Note: `altair_fork_epoch == None` implies altair hasn't been activated yet on the config.
+        if spec.altair_fork_epoch.is_some() {
+            fork_to_digest.push((
+                ForkName::Altair,
+                ChainSpec::compute_fork_digest(spec.altair_fork_version, genesis_validators_root),
+            ));
         }
 
         let fork_to_digest: HashMap<ForkName, [u8; 4]> = fork_to_digest.into_iter().collect();

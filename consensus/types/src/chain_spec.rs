@@ -1,7 +1,7 @@
 use crate::*;
 use int_to_bytes::int_to_bytes4;
-use serde::Deserializer;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserializer, Serialize, Serializer};
+use serde_derive::Deserialize;
 use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
@@ -545,8 +545,9 @@ pub struct Config {
 
     #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
+    #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
-    altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -581,6 +582,21 @@ impl Default for Config {
     fn default() -> Self {
         let chain_spec = MainnetEthSpec::default_spec();
         Config::from_chain_spec::<MainnetEthSpec>(&chain_spec)
+    }
+}
+
+/// Util function to serialize a `None` fork epoch value
+/// as `Epoch::max_value()`.
+fn serialize_fork_epoch<S>(val: &Option<MaybeQuoted<Epoch>>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match val {
+        None => MaybeQuoted {
+            value: Epoch::max_value(),
+        }
+        .serialize(s),
+        Some(epoch) => epoch.serialize(s),
     }
 }
 

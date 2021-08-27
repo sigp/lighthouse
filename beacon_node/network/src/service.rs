@@ -619,7 +619,8 @@ fn spawn_service<T: BeaconChainTypes>(
                                                 "peer" => %source,
                                                 "fork_topic" => %topic,
                                             );
-                                            service.libp2p.report_peer(&source, PeerAction::LowToleranceError, ReportSource::Gossipsub);
+                                            // Penalize with MidTolerance to account for slight clock skews beyond `MAXIMUM_GOSSIP_CLOCK_DISPARITY`
+                                            service.libp2p.report_peer(&source, PeerAction::MidToleranceError, ReportSource::Gossipsub);
                                             service
                                                 .libp2p
                                                 .swarm
