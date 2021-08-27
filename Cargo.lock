@@ -7320,10 +7320,13 @@ dependencies = [
 name = "web3signer_tests"
 version = "0.1.0"
 dependencies = [
+ "eth2_keystore",
  "reqwest",
  "serde_json",
  "tempfile",
  "tokio",
+ "types",
+ "url",
  "zip",
 ]
 

@@ -34,11 +34,12 @@ pub async fn download_binary(dest_dir: PathBuf) {
         .unwrap();
     let latest_version = latest_response.get("tag_name").unwrap().as_str().unwrap();
 
-    // If the latest version is already downloaded, do nothing.
     if version_file.exists() && fs::read(&version_file).unwrap() == latest_version.as_bytes() {
+        // The latest version is already downloaded, do nothing.
         return;
     } else {
-        fs::remove_file(&version_file).unwrap();
+        // Ignore the result since we don't care if the version file already exists.
+        let _ = fs::remove_file(&version_file);
     }
 
     // Download the latest release zip.
@@ -64,16 +65,12 @@ pub async fn download_binary(dest_dir: PathBuf) {
         .extract(&dest_dir)
         .unwrap();
 
+    // Rename the web3signer directory so it doesn't include the version string.
     let unzipped_dir = dest_dir.join(format!("web3signer-{}", latest_version));
-    let dst_binary_path = dest_dir.join("web3signer");
-    let src_binary_path = unzipped_dir.join("bin").join("web3signer");
-
-    // Copy the binary out of the unzipped dir.
-    fs::remove_file(&dst_binary_path).unwrap();
-    fs::copy(&src_binary_path, &dst_binary_path).unwrap();
+    let renamed_dir = dest_dir.join("web3signer");
+    fs::rename(&unzipped_dir, &renamed_dir).unwrap();
 
     // Clean up zip and unzipped dir.
-    fs::remove_dir_all(unzipped_dir).unwrap();
     fs::remove_file(&zip_path).unwrap();
 
     // Update the version file to avoid duplicate downloads.
