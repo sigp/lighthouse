@@ -89,7 +89,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         bytes: &[u8],
         block_decoder: impl FnOnce(&[u8]) -> Result<BeaconBlock<E>, ssz::DecodeError>,
     ) -> Result<Self, ssz::DecodeError> {
-        // We need to the customer decoder for `BeaconBlock`, which doesn't compose with the other
+        // We need the customer decoder for `BeaconBlock`, which doesn't compose with the other
         // SSZ utils, so we duplicate some parts of `ssz_derive` here.
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 

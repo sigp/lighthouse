@@ -359,7 +359,7 @@ where
         builder = mutator(builder);
 
         // Initialize the slot clock only if it hasn't already been initialized.
-        builder = if builder.slot_clock_mut().is_none() {
+        builder = if builder.get_slot_clock().is_none() {
             builder
                 .testing_slot_clock(HARNESS_SLOT_TIME)
                 .expect("should configure testing slot clock")

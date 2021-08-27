@@ -291,13 +291,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: &Hash256,
         decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E>, ssz::DecodeError>,
     ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
-        match self
-            .hot_db
+        self.hot_db
             .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
-        {
-            Some(block_bytes) => Ok(Some(decoder(&block_bytes)?)),
-            None => Ok(None),
-        }
+            .map(|block_bytes| decoder(&block_bytes))
+            .transpose()
+            .map_err(|e| e.into())
     }
 
     /// Determine whether a block exists in the database.

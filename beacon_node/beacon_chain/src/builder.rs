@@ -362,11 +362,11 @@ where
         self
     }
 
-    /// Apply a function to the slot clock.
+    /// Fetch a reference to the slot clock.
     ///
-    /// Mostly useful during testing.
-    pub fn slot_clock_mut(&mut self) -> Option<&mut TSlotClock> {
-        self.slot_clock.as_mut()
+    /// Can be used for mutation during testing due to `SlotClock`'s internal mutability.
+    pub fn get_slot_clock(&self) -> Option<&TSlotClock> {
+        self.slot_clock.as_ref()
     }
 
     /// Sets a `Sender` to allow the beacon chain to send shutdown signals.

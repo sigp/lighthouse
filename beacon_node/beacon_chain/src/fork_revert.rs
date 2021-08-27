@@ -8,6 +8,9 @@ use std::sync::Arc;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
+const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
+                                  consider deleting it by running with the --purge-db flag.";
+
 /// Revert the head to the last block before the most recent hard fork.
 ///
 /// This function is destructive and should only be used if there is no viable alternative. It will
@@ -28,7 +31,10 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
         .ok_or_else(|| format!("Current fork '{}' never activates", current_fork))?;
 
     if current_fork == ForkName::Base {
-        return Err("Cannot revert to before phase0 hard fork".into());
+        return Err(format!(
+            "Cannot revert to before phase0 hard fork. {}",
+            CORRUPT_DB_MESSAGE
+        ));
     }
 
     warn!(
@@ -54,8 +60,13 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
             }
         })
     })
-    .map_err(|e| format!("Error fetching blocks to revert: {:?}", e))?
-    .ok_or_else(|| "No pre-fork blocks found".into())
+    .map_err(|e| {
+        format!(
+            "Error fetching blocks to revert: {:?}. {}",
+            e, CORRUPT_DB_MESSAGE
+        )
+    })?
+    .ok_or_else(|| format!("No pre-fork blocks found. {}", CORRUPT_DB_MESSAGE))
 }
 
 /// Reset fork choice to the finalized checkpoint of the supplied head state.
@@ -69,6 +80,10 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
 /// See this issue for details: https://github.com/ethereum/consensus-specs/issues/2566
 ///
 /// It will fail if the finalized state or any of the blocks to replay are unavailable.
+///
+/// WARNING: this function is destructive and causes fork choice to permanently forget all
+/// chains other than the chain leading to `head_block_root`. It should only be used in extreme
+/// circumstances when there is no better alternative.
 pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     head_block_root: Hash256,
     head_state: &BeaconState<E>,

@@ -1970,7 +1970,7 @@ fn revert_minority_fork_on_resume() {
                 .testing_slot_clock(HARNESS_SLOT_TIME)
                 .unwrap();
             builder
-                .slot_clock_mut()
+                .get_slot_clock()
                 .unwrap()
                 .set_slot(end_slot.as_u64());
             builder
