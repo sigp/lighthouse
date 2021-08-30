@@ -4,7 +4,7 @@ use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, IndexedAttestation, RelativeEpoch, Slot,
+    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 use crate::ForkChoiceStore;
@@ -38,6 +38,10 @@ pub enum Error<T> {
     ForkChoiceStoreError(T),
     UnableToSetJustifiedCheckpoint(T),
     AfterBlockFailed(T),
+    InvalidAnchor {
+        block_slot: Slot,
+        state_slot: Slot,
+    },
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -237,20 +241,28 @@ where
     T: ForkChoiceStore<E>,
     E: EthSpec,
 {
-    /// Instantiates `Self` from the genesis parameters.
-    pub fn from_genesis(
+    /// Instantiates `Self` from an anchor (genesis or another finalized checkpoint).
+    pub fn from_anchor(
         fc_store: T,
-        genesis_block_root: Hash256,
-        genesis_block: &BeaconBlock<E>,
-        genesis_state: &BeaconState<E>,
+        anchor_block_root: Hash256,
+        anchor_block: &SignedBeaconBlock<E>,
+        anchor_state: &BeaconState<E>,
     ) -> Result<Self, Error<T::Error>> {
-        let finalized_block_slot = genesis_block.slot();
-        let finalized_block_state_root = genesis_block.state_root();
+        // Sanity check: the anchor must lie on an epoch boundary.
+        if anchor_block.slot() % E::slots_per_epoch() != 0 {
+            return Err(Error::InvalidAnchor {
+                block_slot: anchor_block.slot(),
+                state_slot: anchor_state.slot(),
+            });
+        }
+
+        let finalized_block_slot = anchor_block.slot();
+        let finalized_block_state_root = anchor_block.state_root();
         let current_epoch_shuffling_id =
-            AttestationShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Current)
+            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
         let next_epoch_shuffling_id =
-            AttestationShufflingId::new(genesis_block_root, genesis_state, RelativeEpoch::Next)
+            AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
         let proto_array = ProtoArrayForkChoice::new(
