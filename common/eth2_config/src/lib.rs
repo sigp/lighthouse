@@ -98,7 +98,7 @@ pub struct HardcodedNet {
 
 /// Defines an `Eth2NetArchiveAndDirectory` for some network.
 ///
-/// It also defines a `include_<title>_bytes!` macro which provides a wrapper around
+/// It also defines a `include_<title>_file!` macro which provides a wrapper around
 /// `std::include_bytes`, allowing the inclusion of bytes from the specific testnet directory.
 macro_rules! define_archive {
     ($name_ident: ident, $name_str: tt, $genesis_is_known: ident) => {
@@ -137,7 +137,7 @@ macro_rules! define_archive {
 /// Creates a `HardcodedNet` definition for some network.
 #[macro_export]
 macro_rules! define_net {
-    ($this_crate: tt, $mod: ident, $include_file: tt) => {{
+    ($this_crate: ident, $mod: ident, $include_file: tt) => {{
         use $this_crate::$mod::ETH2_NET_DIR;
 
         $this_crate::HardcodedNet {
@@ -191,24 +191,22 @@ macro_rules! define_nets {
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
     ($(($name_ident: ident, $name_str: tt, $genesis_is_known: ident)),+) => {
-        paste! {
-            $(
-            define_archive!($name_ident, $name_str, $genesis_is_known);
-            )+
+        $(
+        define_archive!($name_ident, $name_str, $genesis_is_known);
+        )+
 
-            pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
+        pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
 
-            /// This macro is designed to be called by an external crate. When called, it will
-            /// define in that external crate:
-            ///
-            /// - A `HardcodedNet` for each network.
-            /// - `HARDCODED_NETS`: a list of all the above `HardcodedNet`.
-            /// - `HARDCODED_NET_NAMES`: a list of all the names of the above `HardcodedNet` (as `&str`).
-            #[macro_export]
-            macro_rules! instantiate_hardcoded_nets {
-                ($this_crate: ident) => {
-                    $this_crate::define_nets!($this_crate, $($name_ident, $name_str,)+);
-                }
+        /// This macro is designed to be called by an external crate. When called, it will
+        /// define in that external crate:
+        ///
+        /// - A `HardcodedNet` for each network.
+        /// - `HARDCODED_NETS`: a list of all the above `HardcodedNet`.
+        /// - `HARDCODED_NET_NAMES`: a list of all the names of the above `HardcodedNet` (as `&str`).
+        #[macro_export]
+        macro_rules! instantiate_hardcoded_nets {
+            ($this_crate: ident) => {
+                $this_crate::define_nets!($this_crate, $($name_ident, $name_str,)+);
             }
         }
     };
