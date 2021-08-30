@@ -26,13 +26,15 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
     EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription, Slot, ChainSpec
 };
 
 mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 1;
+/// Number of slots before the fork when we should subscribe to the new fork topics.
+const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 
@@ -129,6 +131,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
+    /// A delay that expires when we need to subscribe to a new fork's topics.
+    next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
     /// Subscribe to all the subnets once synced.
@@ -177,6 +181,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // keep track of when our fork_id needs to be updated
         let next_fork_update = Box::pin(next_fork_delay(&beacon_chain).into());
+        let next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&beacon_chain).into());
         let next_unsubscribe = Box::pin(None.into());
 
         let current_slot = beacon_chain
@@ -254,6 +259,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             upnp_mappings: (None, None),
             discovery_auto_update: config.discv5_config.enr_update,
             next_fork_update,
+            next_fork_subscriptions,
             next_unsubscribe,
             subscribe_all_subnets: config.subscribe_all_subnets,
             metrics_update,
@@ -273,12 +279,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// digests since we should be subscribed to post fork topics before the fork.
     pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
         let fork_context = &self.fork_context;
+        let spec = &self.beacon_chain.spec;
         match fork_context.current_fork() {
             ForkName::Base => {
-                if fork_context.fork_exists(ForkName::Altair) {
-                    fork_context.all_fork_digests()
-                } else {
-                    vec![fork_context.genesis_context_bytes()]
+                // If we are SUBSCRIBE_DELAY_SLOTS before the fork slot, subscribe only to Base,
+                // else subscribe to Base and Altair.
+                let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
+                match spec.next_fork_epoch::<T::EthSpec>(current_slot) {
+                    Some((_, fork_epoch)) => {
+                        if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
+                            >= fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
+                        {
+                            fork_context.all_fork_digests()
+                        } else {
+                            vec![fork_context.genesis_context_bytes()]
+                        }
+                    }
+                    None => vec![fork_context.genesis_context_bytes()],
                 }
             }
             ForkName::Altair => vec![fork_context
@@ -602,7 +619,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 id,
                                 source,
                                 message,
-                                ...
+                                ..
                             } => {
                                 // Update prometheus metrics.
                                 metrics::expose_receive_metrics(&message);
@@ -689,6 +706,16 @@ fn spawn_service<T: BeaconChainTypes>(
                     info!(service.log, "Unsubscribed from old fork topics");
                     service.next_unsubscribe = Box::pin(None.into());
                 }
+                Some(_) = &mut service.next_fork_subscriptions => {
+                    if let Some((fork_name, _)) = service.beacon_chain.duration_to_next_fork() {
+                        let fork_version = service.beacon_chain.spec.fork_version_for_name(fork_name);
+                        let fork_digest = ChainSpec::compute_fork_digest(fork_version, service.beacon_chain.genesis_validators_root);
+                        info!(service.log, "Subscribing to new fork topics");
+                        service.libp2p.swarm.behaviour_mut().subscribe_new_fork_topics(fork_digest);
+                    }
+                    service.next_fork_subscriptions = Box::pin(None.into());
+                }
+                
             }
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
@@ -703,6 +730,18 @@ fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain
         .duration_to_next_fork()
         .map(|(_, until_fork)| tokio::time::sleep(until_fork))
+}
+
+/// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork.
+/// If there is no scheduled fork, `None` is returned.
+fn next_fork_subscriptions_delay<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<tokio::time::Sleep> {
+    beacon_chain.duration_to_next_fork().map(|(_, until_fork)| {
+        tokio::time::sleep(until_fork.saturating_sub(Duration::from_secs(
+            beacon_chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
+        )))
+    })
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {
