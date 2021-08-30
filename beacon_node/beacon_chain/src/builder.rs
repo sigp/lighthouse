@@ -20,7 +20,7 @@ use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slasher::Slasher;
-use slog::{crit, info, Logger};
+use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -462,6 +462,14 @@ where
                 Ok(Some(block)) => (initial_head_block_root, block, false),
                 Ok(None) => return Err("Head block not found in store".into()),
                 Err(StoreError::SszDecodeError(_)) => {
+                    error!(
+                        log,
+                        "Error decoding head block";
+                        "message" => "This node has likely missed a hard fork. \
+                                      It will try to revert the invalid blocks and keep running, \
+                                      but any stray blocks and states will not be deleted. \
+                                      Long-term you should consider re-syncing this node."
+                    );
                     let (block_root, block) = revert_to_fork_boundary(
                         current_slot,
                         initial_head_block_root,
