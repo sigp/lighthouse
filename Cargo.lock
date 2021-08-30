@@ -1846,6 +1846,7 @@ dependencies = [
 name = "eth2_config"
 version = "0.2.0"
 dependencies = [
+ "paste",
  "serde",
  "serde_derive",
  "types",
@@ -4637,6 +4638,12 @@ dependencies = [
  "smallvec",
  "winapi",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acbf547ad0c65e31259204bd90935776d1c693cec2f4ff7abb7a1bbbd40dfe58"
 
 [[package]]
 name = "pbkdf2"
