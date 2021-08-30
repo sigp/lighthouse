@@ -46,6 +46,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("disable-packet-filter")
+                .long("disable-packet-filter")
+                .help("Disables the discovery packet filter. Useful for testing in smaller networks")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("shutdown-after-sync")
                 .long("shutdown-after-sync")
                 .help("Shutdown beacon node as soon as sync is completed")

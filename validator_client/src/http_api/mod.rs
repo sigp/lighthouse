@@ -468,21 +468,26 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let routes = warp::any()
         .and(authorization_header_filter)
+        // Note: it is critical that the `authorization_header_filter` is applied to all routes.
+        // Keeping all the routes inside the following `and` is a reliable way to achieve this.
+        //
+        // When adding a route, don't forget to add it to the `routes_with_invalid_auth` tests!
         .and(
-            warp::get().and(
-                get_node_version
-                    .or(get_lighthouse_health)
-                    .or(get_lighthouse_spec)
-                    .or(get_lighthouse_validators)
-                    .or(get_lighthouse_validators_pubkey),
-            ),
+            warp::get()
+                .and(
+                    get_node_version
+                        .or(get_lighthouse_health)
+                        .or(get_lighthouse_spec)
+                        .or(get_lighthouse_validators)
+                        .or(get_lighthouse_validators_pubkey),
+                )
+                .or(warp::post().and(
+                    post_validators
+                        .or(post_validators_keystore)
+                        .or(post_validators_mnemonic),
+                ))
+                .or(warp::patch().and(patch_validators)),
         )
-        .or(warp::post().and(
-            post_validators
-                .or(post_validators_keystore)
-                .or(post_validators_mnemonic),
-        ))
-        .or(warp::patch().and(patch_validators))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

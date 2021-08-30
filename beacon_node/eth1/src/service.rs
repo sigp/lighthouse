@@ -121,10 +121,12 @@ impl EndpointsCache {
         state
     }
 
+    /// Return the first successful result along with number of previous errors encountered
+    /// or all the errors encountered if every none of the fallback endpoints return required output.
     pub async fn first_success<'a, F, O, R>(
         &'a self,
         func: F,
-    ) -> Result<O, FallbackError<SingleEndpointError>>
+    ) -> Result<(O, usize), FallbackError<SingleEndpointError>>
     where
         F: Fn(&'a SensitiveUrl) -> R,
         R: Future<Output = Result<O, SingleEndpointError>>,
@@ -713,18 +715,24 @@ impl Service {
             e => format!("{:?}", e),
         };
 
-        let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
-            endpoints
-                .first_success(|e| async move {
-                    get_remote_head_and_new_block_ranges(e, self, node_far_behind_seconds).await
-                })
-                .await
-                .map_err(|e| {
-                    format!(
-                        "Failed to update Eth1 service: {:?}",
-                        process_single_err(&e)
-                    )
-                })?;
+        let (
+            (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache),
+            num_errors,
+        ) = endpoints
+            .first_success(|e| async move {
+                get_remote_head_and_new_block_ranges(e, self, node_far_behind_seconds).await
+            })
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed to update Eth1 service: {:?}",
+                    process_single_err(&e)
+                )
+            })?;
+
+        if num_errors > 0 {
+            info!(self.log, "Fetched data from fallback"; "fallback_number" => num_errors);
+        }
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
@@ -884,6 +892,7 @@ impl Service {
                         relevant_new_block_numbers_from_endpoint(e, self, HeadType::Deposit).await
                     })
                     .await
+                    .map(|(res, _)| res)
                     .map_err(Error::FallbackError)?,
             }
         };
@@ -930,6 +939,7 @@ impl Service {
                     .map_err(SingleEndpointError::GetDepositLogsFailed)
                 })
                 .await
+                .map(|(res, _)| res)
                 .map_err(Error::FallbackError)?;
 
             /*
@@ -1038,6 +1048,7 @@ impl Service {
                             .await
                     })
                     .await
+                    .map(|(res, _)| res)
                     .map_err(Error::FallbackError)?,
             }
         };
@@ -1103,6 +1114,7 @@ impl Service {
                     download_eth1_block(e, self.inner.clone(), Some(block_number)).await
                 })
                 .await
+                .map(|(res, _)| res)
                 .map_err(Error::FallbackError)?;
 
             self.inner
