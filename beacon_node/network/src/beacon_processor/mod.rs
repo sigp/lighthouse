@@ -96,7 +96,7 @@ const MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 8_192;
 
 /// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
 /// start dropping them.
-const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 1_024;
+const MAX_AGGREGATED_ATTESTATION_QUEUE_LEN: usize = 4_096;
 
 /// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
 /// start dropping them.

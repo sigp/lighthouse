@@ -9,7 +9,7 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "1.7.1", features = ["time", "rt-multi-thread", "macros"] }
+tokio = { version = "1.10.0", features = ["time", "rt-multi-thread", "macros"] }
 deposit_contract = { path = "../common/deposit_contract" }
 
 [dependencies]
@@ -30,7 +30,7 @@ serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.6.0"
-tokio = { version = "1.7.1", features = ["time"] }
+tokio = { version = "1.10.0", features = ["time"] }
 futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
@@ -57,10 +57,10 @@ warp_utils = { path = "../common/warp_utils" }
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 hyper = "0.14.4"
 serde_utils = { path = "../consensus/serde_utils" }
-libsecp256k1 = "0.5.0"
+libsecp256k1 = "0.6.0"
 ring = "0.16.19"
 rand = "0.7.3"
-scrypt = { version = "0.5.0", default-features = false }
+scrypt = { version = "0.7.0", default-features = false }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 fallback = { path = "../common/fallback" }

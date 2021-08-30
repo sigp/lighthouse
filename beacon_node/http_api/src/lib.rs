@@ -41,7 +41,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
@@ -896,7 +896,10 @@ pub fn serve<T: BeaconChainTypes>(
                             info!(
                                 log,
                                 "Valid block from HTTP API";
-                                "root" => format!("{}", root)
+                                "block_delay" => ?delay,
+                                "root" => format!("{}", root),
+                                "proposer_index" => block.message().proposer_index(),
+                                "slot" => block.slot(),
                             );
 
                             // Notify the validator monitor.
@@ -918,25 +921,25 @@ pub fn serve<T: BeaconChainTypes>(
                             //
                             // Check to see the thresholds are non-zero to avoid logging errors with small
                             // slot times (e.g., during testing)
-                            let crit_threshold = chain.spec.seconds_per_slot / 3;
-                            let warn_threshold = chain.spec.seconds_per_slot / 6;
-                            if crit_threshold > 0 && delay.as_secs() > crit_threshold {
+                            let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
+                            let error_threshold = crit_threshold / 2;
+                            if delay >= crit_threshold {
                                 crit!(
                                     log,
                                     "Block was broadcast too late";
-                                    "root" => ?root,
-                                    "slot" => block.slot(),
-                                    "delay_ms" => delay.as_millis(),
                                     "msg" => "system may be overloaded, block likely to be orphaned",
+                                    "delay_ms" => delay.as_millis(),
+                                    "slot" => block.slot(),
+                                    "root" => ?root,
                                 )
-                            } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
-                                warn!(
+                            } else if delay >= error_threshold  {
+                                error!(
                                     log,
                                     "Block broadcast was delayed";
-                                    "root" => ?root,
-                                    "slot" => block.slot(),
-                                    "delay_ms" => delay.as_millis(),
                                     "msg" => "system may be overloaded, block may be orphaned",
+                                    "delay_ms" => delay.as_millis(),
+                                    "slot" => block.slot(),
+                                    "root" => ?root,
                                 )
                             }
 
@@ -1364,7 +1367,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
-     * config/fork_schedule
+     * config
      */
 
     let config_path = eth1_v1.and(warp::path("config"));
@@ -1376,9 +1379,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                StateId::head()
-                    .fork(&chain)
-                    .map(|fork| api_types::GenericResponse::from(vec![fork]))
+                let forks = ForkName::list_all()
+                    .into_iter()
+                    .filter_map(|fork_name| chain.spec.fork_for_name(fork_name))
+                    .collect::<Vec<_>>();
+                Ok(api_types::GenericResponse::from(forks))
             })
         });
 

@@ -216,8 +216,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 chain_spec.attestation_subnet_count,
                 SYNC_COMMITTEE_SUBNET_COUNT,
             ),
-            max_subscribed_topics: 200, //TODO change this to a constant
-            max_subscriptions_per_request: 100, //this is according to the current go implementation
+            max_subscribed_topics: 200,
+            max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
         };
 
         config.gs_config = gossipsub_config(fork_context.clone());
