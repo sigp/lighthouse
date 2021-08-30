@@ -2985,7 +2985,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if is_epoch_transition || is_reorg {
             self.persist_head_and_fork_choice()?;
             self.op_pool.prune_attestations(self.epoch()?);
-            self.persist_op_pool()?;
         }
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
