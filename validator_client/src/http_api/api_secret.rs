@@ -1,5 +1,5 @@
 use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
-use filesystem::restrict_file_permissions;
+use filesystem::create_with_600_perms;
 use libsecp256k1::{Message, PublicKey, SecretKey};
 use rand::thread_rng;
 use ring::digest::{digest, SHA256};
@@ -57,12 +57,20 @@ impl ApiSecret {
             let sk = SecretKey::random(&mut thread_rng());
             let pk = PublicKey::from_secret_key(&sk);
 
-            fs::write(
+            // Create and write the secret key to file with appropriate permissions
+            create_with_600_perms(
                 &sk_path,
                 serde_utils::hex::encode(&sk.serialize()).as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
-            fs::write(
+            .map_err(|e| {
+                format!(
+                    "Unable to create file with permissions for {:?}: {:?}",
+                    sk_path, e
+                )
+            })?;
+
+            // Create and write the public key to file with appropriate permissions
+            create_with_600_perms(
                 &pk_path,
                 format!(
                     "{}{}",
@@ -71,14 +79,13 @@ impl ApiSecret {
                 )
                 .as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                format!(
+                    "Unable to create file with permissions for {:?}: {:?}",
+                    pk_path, e
+                )
+            })?;
         }
-
-        // Restrict file permissions to allow only current user read-write permissions.
-        restrict_file_permissions(&sk_path)
-            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", sk_path, e))?;
-        restrict_file_permissions(&pk_path)
-            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", pk_path, e))?;
 
         let sk = fs::read(&sk_path)
             .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))

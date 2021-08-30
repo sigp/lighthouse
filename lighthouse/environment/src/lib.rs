@@ -161,12 +161,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             let backup_name = format!("{}_backup_{}", file_stem, timestamp);
             let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
             FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
-            restrict_file_permissions(&backup_path).map_err(|e| {
-                format!(
-                    "Unable to set file permissions for {:?}: {:?}",
-                    backup_path, e
-                )
-            })?;
         }
 
         let file = OpenOptions::new()
