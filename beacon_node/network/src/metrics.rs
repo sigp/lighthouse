@@ -151,6 +151,7 @@ lazy_static! {
             "Number of mesh peers for BeaconAggregateAndProof topic per client",
             &["Client"]
         );
+
 }
 
 lazy_static! {
@@ -404,6 +405,7 @@ lazy_static! {
         "beacon_processor_sync_contribution_verified_total",
         "Total number of sync committee contributions verified for gossip."
     );
+
     pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_sync_contribution_imported_total",
         "Total number of sync committee contributions imported to fork choice, etc."
@@ -412,6 +414,8 @@ lazy_static! {
 }
 
 lazy_static! {
+
+    /// Errors and Debugging Stats
     pub static ref GOSSIP_ATTESTATION_ERRORS_PER_TYPE: Result<IntCounterVec> =
         try_create_int_counter_vec(
             "gossipsub_attestation_errors_per_type",
@@ -424,16 +428,31 @@ lazy_static! {
             "Gossipsub sync_committee errors per error type",
             &["type"]
         );
-    pub static ref INBOUND_LIBP2P_BYTES: Result<IntGauge> =
-        try_create_int_gauge("libp2p_inbound_bytes", "The inbound bandwidth over libp2p");
-    pub static ref OUTBOUND_LIBP2P_BYTES: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_outbound_bytes",
-        "The outbound bandwidth over libp2p"
-    );
-    pub static ref TOTAL_LIBP2P_BANDWIDTH: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_total_bandwidth",
-        "The total inbound/outbound bandwidth over libp2p"
-    );
+
+    /// Number of cache misses (messages we tried to propagate but were expired in the cache).
+    pub static ref GOSSIP_CACHE_MISSES: Result<IntCounter> =
+        try_create_int_counter("gossipsub_cache_misses","Gossipsub cache misses on propagation.");
+
+    /// Number of broken promises we are receiving. This is indicative of being connected to slow
+    /// nodes, or nodes with incorrect message ids.
+    pub static ref GOSSIP_BROKEN_PROMISES: Result<IntCounter> =
+        try_create_int_counter("gossipsub_broken_promises","Gossipsub broken promises.");
+
+    /// Number of IWANT requests. Large number of these indicate a less efficient mess or
+    /// propagation.
+    pub static ref GOSSIP_IWANT_REQUESTS: Result<IntCounter> =
+        try_create_int_counter("gossipsub_iwant_requests","The number of Gossipsub IWANT requests being made.");
+
+    /// Number of messages being sent to us on topics we are not subscribed too (indicative of
+    /// slow or invalid nodes on the network)
+    pub static ref GOSSIP_INVALID_MESSAGES_BY_TOPIC: Result<IntCounter> =
+        try_create_int_counter("gossipsub_invalid_message_topic","The number of Gossipsub IWANT requests being made.");
+
+    /// The number of duplicates being filtered. Potentially indicating an over amplification on
+    /// the mesh.
+    pub static ref GOSSIP_FILTERED_DUPLICATES: Result<IntCounter> =
+        try_create_int_counter("gossipsub_filtered_duplicates","The number of Gossipsub messages that have been filtered.");
+
 }
 
 pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
@@ -446,6 +465,23 @@ pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
 }
 
 lazy_static! {
+
+    /*
+     * Bandwidth metrics
+     */
+    pub static ref INBOUND_LIBP2P_BYTES: Result<IntGauge> =
+        try_create_int_gauge("libp2p_inbound_bytes", "The inbound bandwidth over libp2p");
+
+    pub static ref OUTBOUND_LIBP2P_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_outbound_bytes",
+        "The outbound bandwidth over libp2p"
+    );
+    pub static ref TOTAL_LIBP2P_BANDWIDTH: Result<IntGauge> = try_create_int_gauge(
+        "libp2p_total_bandwidth",
+        "The total inbound/outbound bandwidth over libp2p"
+    );
+
+
     /*
      * Sync related metrics
      */
@@ -487,12 +523,24 @@ lazy_static! {
     );
     pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_reprocessing_queue_expired_attestations",
-        "Number of queued attestations which have expired before a matching block has been found"
+        "Number of queued attestations which have expired before a matching block has been found."
     );
     pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_reprocessing_queue_matched_attestations",
-        "Number of queued attestations where as matching block has been imported"
+        "Number of queued attestations where as matching block has been imported."
     );
+
+    /*
+     * Inbound/Outbound peers
+     */
+    /// The number of peers that dialed us.
+    pub static ref NETWORK_INBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_inbound_peers","The number of peers that are currently connected that have dialed us.");
+
+    /// The number of peers that we dialed us.
+    pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
+
 }
 
 pub fn register_attestation_error(error: &AttnError) {
@@ -630,25 +678,106 @@ pub fn update_gossip_metrics<T: EthSpec>(
         .map(|v| v.set(0));
     }
 
-    // Subnet topics subscribed to
-    for topic_hash in gossipsub.topics() {
-        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
-            if let GossipKind::Attestation(subnet_id) = topic.kind() {
-                let _ = get_int_gauge(
-                    &GOSSIPSUB_SUBSCRIBED_ATTESTATION_SUBNET_TOPIC,
-                    &[subnet_id_to_string(subnet_id.into())],
-                )
-                .map(|v| v.set(1));
-            }
+    // Obtain mapping for peers to a client.
+    let mut peer_to_client = HashMap::new();
+    let mut scores_per_client: HashMap<&'static str, Vec<f64>> = HashMap::new();
+    {
+        let peers = network_globals.peers.read();
+        for (peer_id, _) in gossipsub.all_peers() {
+            let client = peers
+                .peer_info(peer_id)
+                .map(|peer_info| peer_info.client.kind.as_static())
+                .unwrap_or_else(|| "Unknown");
+
+            peer_to_client.insert(peer_id, client);
+            let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
+            scores_per_client.entry(client).or_default().push(score);
         }
     }
 
-    // Mesh slot metrics update
+    // Various topic-based metrics:
+    // - Peers subscribed per topic
+    // - Mesh peers per topic
+    // - Mesh peers per client
     for topic_hash in gossipsub.topics() {
-        update_mesh_slot_metrics(gossipsub, topic_hash);
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            let mesh_peers = gossipsub.mesh_peers(topic_hash).count();
+            match topic.kind() {
+                GossipKind::Attestation(subnet_id) => {
+                    let _ = get_int_gauge(
+                        &GOSSIPSUB_SUBSCRIBED_ATTESTATION_SUBNET_TOPIC,
+                        &[subnet_id_to_string(subnet_id.into())],
+                    )
+                    .map(|v| v.set(1));
+
+                    if let Some(v) = get_int_gauge(
+                        &MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC,
+                        &[subnet_id_to_string(subnet_id.into())],
+                    ) {
+                        v.set(mesh_peers as i64)
+                    };
+                }
+                GossipKind::BeaconBlock => {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) =
+                                get_int_gauge(&BEACON_BLOCK_MESH_PEERS_PER_CLIENT, &[client])
+                            {
+                                v.inc()
+                            };
+                        }
+                    }
+
+                    // Update mesh peers
+                    if let Some(v) = get_int_gauge(
+                        &MESH_PEERS_PER_MAIN_TOPIC,
+                        &[GossipKind::BeaconBlock.as_ref()],
+                    ) {
+                        v.set(mesh_peers as i64)
+                    };
+                }
+                GossipKind::BeaconAggregateAndProof => {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) = get_int_gauge(
+                                &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
+                                &[client],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                    }
+
+                    // Update Mesh peers
+                    if let Some(v) = get_int_gauge(
+                        &MESH_PEERS_PER_MAIN_TOPIC,
+                        &[GossipKind::BeaconAggregateAndProof.as_ref()],
+                    ) {
+                        v.set(mesh_peers as i64)
+                    };
+                }
+                GossipKind::SyncCommitteeMessage(subnet_id) => {
+                    if let Some(v) = get_int_gauge(
+                        &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
+                        &[sync_subnet_id_to_string(subnet_id.into())],
+                    ) {
+                        v.set(mesh_peers as i64)
+                    };
+                }
+                kind => {
+                    // main topics
+                    if let Some(v) = get_int_gauge(&MESH_PEERS_PER_MAIN_TOPIC, &[kind.as_ref()]) {
+                        v.set(mesh_peers as i64)
+                    };
+                }
+            }
+
+            // Mesh slot metrics update
+            update_mesh_slot_metrics(gossipsub, topic_hash);
+        }
     }
 
-    // Peers per subscribed subnet
+    // Peers subscribed to each subnet.
     let mut peers_per_topic: HashMap<TopicHash, usize> = HashMap::new();
     for (peer_id, topics) in gossipsub.all_peers() {
         for topic_hash in topics {
@@ -741,37 +870,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
         }
     }
 
-    // mesh peers
-    for topic_hash in gossipsub.topics() {
-        let peers = gossipsub.mesh_peers(topic_hash).count();
-        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
-            match topic.kind() {
-                GossipKind::Attestation(subnet_id) => {
-                    if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC,
-                        &[subnet_id_to_string(subnet_id.into())],
-                    ) {
-                        v.set(peers as i64)
-                    };
-                }
-                GossipKind::SyncCommitteeMessage(subnet_id) => {
-                    if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
-                        &[sync_subnet_id_to_string(subnet_id.into())],
-                    ) {
-                        v.set(peers as i64)
-                    };
-                }
-                kind => {
-                    // main topics
-                    if let Some(v) = get_int_gauge(&MESH_PEERS_PER_MAIN_TOPIC, &[kind.as_ref()]) {
-                        v.set(peers as i64)
-                    };
-                }
-            }
-        }
-    }
-
     // protocol peers
     let mut peers_per_protocol: HashMap<&'static str, i64> = HashMap::new();
     for (_peer, protocol) in gossipsub.peer_protocol() {
@@ -784,54 +882,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
         if let Some(v) = get_int_gauge(&PEERS_PER_PROTOCOL, &[protocol]) {
             v.set(*peers)
         };
-    }
-
-    let mut peer_to_client = HashMap::new();
-    let mut scores_per_client: HashMap<&'static str, Vec<f64>> = HashMap::new();
-    {
-        let peers = network_globals.peers.read();
-        for (peer_id, _) in gossipsub.all_peers() {
-            let client = peers
-                .peer_info(peer_id)
-                .map(|peer_info| peer_info.client.kind.as_static())
-                .unwrap_or_else(|| "Unknown");
-
-            peer_to_client.insert(peer_id, client);
-            let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
-            scores_per_client.entry(client).or_default().push(score);
-        }
-    }
-
-    // mesh peers per client
-    for topic_hash in gossipsub.topics() {
-        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
-            match topic.kind() {
-                GossipKind::BeaconBlock => {
-                    for peer in gossipsub.mesh_peers(topic_hash) {
-                        if let Some(client) = peer_to_client.get(peer) {
-                            if let Some(v) =
-                                get_int_gauge(&BEACON_BLOCK_MESH_PEERS_PER_CLIENT, &[client])
-                            {
-                                v.inc()
-                            };
-                        }
-                    }
-                }
-                GossipKind::BeaconAggregateAndProof => {
-                    for peer in gossipsub.mesh_peers(topic_hash) {
-                        if let Some(client) = peer_to_client.get(peer) {
-                            if let Some(v) = get_int_gauge(
-                                &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
-                                &[client],
-                            ) {
-                                v.inc()
-                            };
-                        }
-                    }
-                }
-                _ => (),
-            }
-        }
     }
 
     for (client, scores) in scores_per_client.into_iter() {
