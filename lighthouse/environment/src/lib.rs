@@ -9,15 +9,11 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use futures::channel::{
-    mpsc::{channel, Receiver, Sender},
-    oneshot,
-};
+use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
 use slog::{error, info, o, warn, Drain, Level, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
-use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::fs::{rename as FsRename, OpenOptions};
 use std::path::PathBuf;
@@ -26,6 +22,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
+
+#[cfg(target_family = "unix")]
+use {
+    futures::Future,
+    std::{pin::Pin, task::Context, task::Poll},
+    tokio::signal::unix::{signal, Signal, SignalKind},
+};
+
+#[cfg(not(target_family = "unix"))]
+use {futures::channel::oneshot, std::cell::RefCell};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
@@ -340,6 +346,73 @@ impl<E: EthSpec> Environment<E> {
     /// Block the current thread until a shutdown signal is received.
     ///
     /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
+    #[cfg(target_family = "unix")]
+    pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
+        // future of a task requesting to shutdown
+        let mut rx = self
+            .signal_rx
+            .take()
+            .ok_or("Inner shutdown already received")?;
+        let inner_shutdown =
+            async move { rx.next().await.ok_or("Internal shutdown channel exhausted") };
+        futures::pin_mut!(inner_shutdown);
+
+        match self.runtime().block_on(async {
+            let mut handles = vec![];
+
+            // setup for handling SIGTERM
+            match signal(SignalKind::terminate()) {
+                Ok(terminate_stream) => {
+                    let terminate = SignalFuture::new(terminate_stream, "Received SIGTERM");
+                    handles.push(terminate);
+                }
+                Err(e) => error!(self.log, "Could not register SIGTERM handler"; "error" => e),
+            };
+
+            // setup for handling SIGINT
+            match signal(SignalKind::interrupt()) {
+                Ok(interrupt_stream) => {
+                    let interrupt = SignalFuture::new(interrupt_stream, "Received SIGINT");
+                    handles.push(interrupt);
+                }
+                Err(e) => error!(self.log, "Could not register SIGINT handler"; "error" => e),
+            }
+
+            // setup for handling a SIGHUP
+            match signal(SignalKind::hangup()) {
+                Ok(hup_stream) => {
+                    let hup = SignalFuture::new(hup_stream, "Received SIGHUP");
+                    handles.push(hup);
+                }
+                Err(e) => error!(self.log, "Could not register SIGHUP handler"; "error" => e),
+            }
+
+            // setup for handling a SIGPIPE
+            match signal(SignalKind::pipe()) {
+                Ok(pipe_stream) => {
+                    let pipe = SignalFuture::new(pipe_stream, "Received SIGPIPE");
+                    handles.push(pipe);
+                }
+                Err(e) => error!(self.log, "Could not register SIGPIPE handler"; "error" => e),
+            }
+
+            future::select(inner_shutdown, future::select_all(handles.into_iter())).await
+        }) {
+            future::Either::Left((Ok(reason), _)) => {
+                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                Ok(reason)
+            }
+            future::Either::Left((Err(e), _)) => Err(e.into()),
+            future::Either::Right(((res, _, _), _)) => {
+                res.ok_or_else(|| "Handler channel closed".to_string())
+            }
+        }
+    }
+
+    /// Block the current thread until a shutdown signal is received.
+    ///
+    /// This can be either the user Ctrl-C'ing or a task requesting to shutdown.
+    #[cfg(not(target_family = "unix"))]
     pub fn block_until_shutdown_requested(&mut self) -> Result<ShutdownReason, String> {
         // future of a task requesting to shutdown
         let mut rx = self
@@ -418,4 +491,30 @@ pub fn null_logger() -> Result<Logger, String> {
     log_builder
         .build()
         .map_err(|e| format!("Failed to start null logger: {:?}", e))
+}
+
+#[cfg(target_family = "unix")]
+struct SignalFuture {
+    signal: Signal,
+    message: &'static str,
+}
+
+#[cfg(target_family = "unix")]
+impl SignalFuture {
+    pub fn new(signal: Signal, message: &'static str) -> SignalFuture {
+        SignalFuture { signal, message }
+    }
+}
+
+#[cfg(target_family = "unix")]
+impl Future for SignalFuture {
+    type Output = Option<ShutdownReason>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.signal.poll_recv(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Some(_)) => Poll::Ready(Some(ShutdownReason::Success(self.message))),
+            Poll::Ready(None) => Poll::Ready(None),
+        }
+    }
 }
