@@ -52,6 +52,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("shutdown-after-sync")
+                .long("shutdown-after-sync")
+                .help("Shutdown beacon node as soon as sync is completed")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")
