@@ -2540,30 +2540,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
-        //
-        // Store the timestamp of the block being imported into the cache.
         let block_time_imported = timestamp_now();
-        // TODO: Not sure if this should be slot < 64 guarded...
-        self.block_times_cache.write().set_time_imported(
-            block_root,
-            current_slot,
-            block_time_imported,
-        );
-
-        // Observe the delay between when we observed the block and when we imported it.
-        let block_delays = self.block_times_cache.read().get_block_delays(
-            block_root,
-            self.slot_clock
-                .start_of(current_slot)
-                .unwrap_or_else(|| Duration::from_secs(0)),
-        );
-
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
-            block_delays
-                .imported
-                .unwrap_or_else(|| Duration::from_secs(0)),
-        );
 
         let parent_root = block.parent_root();
         let slot = block.slot();
@@ -2607,6 +2584,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(db_write_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+
+        let block_delay_total = get_slot_delay_ms(block_time_imported, slot, &self.slot_clock);
+
+        // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
+        // the cache during sync.
+        if block_delay_total < self.slot_clock.slot_duration() * 64 {
+            // Store the timestamp of the block being imported into the cache.
+            self.block_times_cache.write().set_time_imported(
+                block_root,
+                current_slot,
+                block_time_imported,
+            );
+        }
+
+        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
+        // sync.
+        if block_delay_total < self.slot_clock.slot_duration() * 4 {
+            // Observe the delay between when we observed the block and when we imported it.
+            let block_delays = self.block_times_cache.read().get_block_delays(
+                block_root,
+                self.slot_clock
+                    .start_of(current_slot)
+                    .unwrap_or_else(|| Duration::from_secs(0)),
+            );
+
+            metrics::observe_duration(
+                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
+                block_delays
+                    .imported
+                    .unwrap_or_else(|| Duration::from_secs(0)),
+            );
+        }
 
         Ok(block_root)
     }
@@ -3056,7 +3065,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Don't store metrics if the block was > 4 slots old, this helps prevent noise during
+        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
         // sync.
         if block_delay_total < self.slot_clock.slot_duration() * 4 {
             // Observe the total block delay. This is the delay between the time the slot started
@@ -3066,7 +3075,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block_delay_total,
             );
 
-            // Observe the delay between when we imported the block and when we set the block as head.
+            // Observe the delay between when we imported the block and when we set the block as
+            // head.
             let block_delays = self.block_times_cache.read().get_block_delays(
                 beacon_block_root,
                 self.slot_clock
