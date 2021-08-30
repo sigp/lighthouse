@@ -396,6 +396,17 @@ where
             ));
         }
 
+        // Check that the checkpoint state is for the same network as the genesis state.
+        // This check doesn't do much for security but should prevent mistakes.
+        if weak_subj_state.genesis_validators_root() != genesis_state.genesis_validators_root() {
+            return Err(format!(
+                "Snapshot state appears to be from the wrong network. Genesis validators root \
+                 is {:?} but should be {:?}",
+                weak_subj_state.genesis_validators_root(),
+                genesis_state.genesis_validators_root()
+            ));
+        }
+
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root);
