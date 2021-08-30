@@ -20,34 +20,9 @@ fn error(reason: ExitInvalid) -> BlockOperationError<ExitInvalid> {
 /// Spec v0.12.1
 pub fn verify_exit<T: EthSpec>(
     state: &BeaconState<T>,
-    exit: &SignedVoluntaryExit,
-    verify_signatures: VerifySignatures,
-    spec: &ChainSpec,
-) -> Result<()> {
-    verify_exit_parametric(state, exit, verify_signatures, spec, false)
-}
-
-/// Like `verify_exit` but doesn't run checks which may become true in future states.
-///
-/// Spec v0.12.1
-pub fn verify_exit_time_independent_only<T: EthSpec>(
-    state: &BeaconState<T>,
-    exit: &SignedVoluntaryExit,
-    verify_signatures: VerifySignatures,
-    spec: &ChainSpec,
-) -> Result<()> {
-    verify_exit_parametric(state, exit, verify_signatures, spec, true)
-}
-
-/// Parametric version of `verify_exit` that skips some checks if `time_independent_only` is true.
-///
-/// Spec v0.12.1
-fn verify_exit_parametric<T: EthSpec>(
-    state: &BeaconState<T>,
     signed_exit: &SignedVoluntaryExit,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-    time_independent_only: bool,
 ) -> Result<()> {
     let exit = &signed_exit.message;
 
@@ -70,7 +45,7 @@ fn verify_exit_parametric<T: EthSpec>(
 
     // Exits must specify an epoch when they become valid; they are not valid before then.
     verify!(
-        time_independent_only || state.current_epoch() >= exit.epoch,
+        state.current_epoch() >= exit.epoch,
         ExitInvalid::FutureEpoch {
             state: state.current_epoch(),
             exit: exit.epoch
