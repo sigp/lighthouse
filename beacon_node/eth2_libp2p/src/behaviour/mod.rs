@@ -43,7 +43,6 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, ChainSpec, EnrForkId, EthSpec, ForkContext,
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
@@ -104,8 +103,6 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         topic: TopicHash,
         /// The message itself.
         message: PubsubMessage<TSpec>,
-        /// The fork corresponding to the topic the message was received on.
-        fork_name: ForkName,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
@@ -813,14 +810,13 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                             warn!(self.log, "Failed to report message validation"; "message_id" => %id, "peer_id" => %propagation_source, "error" => ?e);
                         }
                     }
-                    Ok((msg, fork_name)) => {
+                    Ok(msg) => {
                         // Notify the network
                         self.add_event(BehaviourEvent::PubsubMessage {
                             id,
                             source: propagation_source,
                             topic: gs_msg.topic,
                             message: msg,
-                            fork_name,
                         });
                     }
                 }

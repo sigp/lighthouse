@@ -117,8 +117,6 @@ impl<T: EthSpec> PubsubMessage<T> {
     }
 
     /// This decodes `data` into a `PubsubMessage` given a topic.
-    /// Returns the decoded data along with the fork name corresponding to the topic
-    /// the message was received on.
     /* Note: This is assuming we are not hashing topics. If we choose to hash topics, these will
      * need to be modified.
      */
@@ -126,74 +124,83 @@ impl<T: EthSpec> PubsubMessage<T> {
         topic: &TopicHash,
         data: &[u8],
         fork_context: &ForkContext,
-    ) -> Result<(Self, ForkName), String> {
+    ) -> Result<Self, String> {
         match GossipTopic::decode(topic.as_str()) {
             Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
             Ok(gossip_topic) => {
-                let fork_name = fork_context
-                    .from_context_bytes(gossip_topic.fork_digest)
-                    .ok_or(format!(
-                        "Unknown gossipsub fork digest: {:?}",
-                        gossip_topic.fork_digest
-                    ))?;
-
                 // All topics are currently expected to be compressed and decompressed with snappy.
                 // This is done in the `SnappyTransform` struct.
                 // Therefore compression has already been handled for us by the time we are
                 // decoding the objects here.
 
                 // the ssz decoders
-                let msg = match gossip_topic.kind() {
+                match gossip_topic.kind() {
                     GossipKind::BeaconAggregateAndProof => {
                         let agg_and_proof = SignedAggregateAndProof::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::AggregateAndProofAttestation(Box::new(agg_and_proof))
+                        Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
+                            agg_and_proof,
+                        )))
                     }
                     GossipKind::Attestation(subnet_id) => {
                         let attestation =
                             Attestation::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::Attestation(Box::new((*subnet_id, attestation)))
+                        Ok(PubsubMessage::Attestation(Box::new((
+                            *subnet_id,
+                            attestation,
+                        ))))
                     }
                     GossipKind::BeaconBlock => {
-                        let beacon_block = match fork_name {
-                            ForkName::Base => SignedBeaconBlock::<T>::Base(
-                                SignedBeaconBlockBase::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            ForkName::Altair => SignedBeaconBlock::<T>::Altair(
-                                SignedBeaconBlockAltair::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                        };
-                        PubsubMessage::BeaconBlock(Box::new(beacon_block))
+                        let beacon_block =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(ForkName::Base) => SignedBeaconBlock::<T>::Base(
+                                    SignedBeaconBlockBase::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Altair) => SignedBeaconBlock::<T>::Altair(
+                                    SignedBeaconBlockAltair::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
+                        Ok(PubsubMessage::BeaconBlock(Box::new(beacon_block)))
                     }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::VoluntaryExit(Box::new(voluntary_exit))
+                        Ok(PubsubMessage::VoluntaryExit(Box::new(voluntary_exit)))
                     }
                     GossipKind::ProposerSlashing => {
                         let proposer_slashing = ProposerSlashing::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::ProposerSlashing(Box::new(proposer_slashing))
+                        Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
                         let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::AttesterSlashing(Box::new(attester_slashing))
+                        Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
                     GossipKind::SignedContributionAndProof => {
                         let sync_aggregate = SignedContributionAndProof::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::SignedContributionAndProof(Box::new(sync_aggregate))
+                        Ok(PubsubMessage::SignedContributionAndProof(Box::new(
+                            sync_aggregate,
+                        )))
                     }
                     GossipKind::SyncCommitteeMessage(subnet_id) => {
                         let sync_committee = SyncCommitteeMessage::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
-                        PubsubMessage::SyncCommitteeMessage(Box::new((*subnet_id, sync_committee)))
+                        Ok(PubsubMessage::SyncCommitteeMessage(Box::new((
+                            *subnet_id,
+                            sync_committee,
+                        ))))
                     }
-                };
-                Ok((msg, *fork_name))
+                }
             }
         }
     }
