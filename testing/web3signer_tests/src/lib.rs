@@ -35,6 +35,9 @@ mod tests {
     impl SignedObject for SignedBeaconBlock<E> {}
     impl SignedObject for SignedAggregateAndProof<E> {}
     impl SignedObject for SelectionProof {}
+    impl SignedObject for SyncSelectionProof {}
+    impl SignedObject for SyncCommitteeMessage {}
+    impl SignedObject for SignedContributionAndProof<E> {}
 
     #[derive(Serialize)]
     struct Web3SignerKeyConfig {
@@ -328,7 +331,7 @@ mod tests {
             data: AttestationData {
                 slot: <_>::default(),
                 index: <_>::default(),
-                beacon_block_root: Hash256::zero(),
+                beacon_block_root: <_>::default(),
                 source: Checkpoint {
                     epoch: <_>::default(),
                     root: <_>::default(),
@@ -392,6 +395,48 @@ mod tests {
                     .await
                     .unwrap()
             })
+            .await
+            .assert_signatures_match(
+                "sync_selection_proof",
+                |pubkey, validator_store| async move {
+                    validator_store
+                        .produce_sync_selection_proof(&pubkey, Slot::new(0), SyncSubnetId::from(0))
+                        .await
+                        .unwrap()
+                },
+            )
+            .await
+            .assert_signatures_match(
+                "sync_committee_signature",
+                |pubkey, validator_store| async move {
+                    validator_store
+                        .produce_sync_committee_signature(Slot::new(0), Hash256::zero(), 0, &pubkey)
+                        .await
+                        .unwrap()
+                },
+            )
+            .await
+            .assert_signatures_match(
+                "signed_contribution_and_proof",
+                |pubkey, validator_store| async move {
+                    let contribution = SyncCommitteeContribution {
+                        slot: <_>::default(),
+                        beacon_block_root: <_>::default(),
+                        subcommittee_index: <_>::default(),
+                        aggregation_bits: <_>::default(),
+                        signature: AggregateSignature::empty(),
+                    };
+                    validator_store
+                        .produce_signed_contribution_and_proof(
+                            0,
+                            &pubkey,
+                            contribution,
+                            SyncSelectionProof::from(Signature::empty()),
+                        )
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
     }
 }
