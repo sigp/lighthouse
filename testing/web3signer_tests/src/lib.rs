@@ -7,6 +7,7 @@ mod tests {
     use serde::Serialize;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
+    use std::fmt::Debug;
     use std::fs::{self, File};
     use std::future::Future;
     use std::path::PathBuf;
@@ -16,17 +17,24 @@ mod tests {
     use task_executor::TaskExecutor;
     use tempfile::TempDir;
     use tokio::time::sleep;
-    use types::{
-        BeaconBlock, BeaconBlockBase, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec,
-        PublicKeyBytes, SecretKey, Signature, Slot,
-    };
+    use types::*;
     use url::Url;
     use validator_client::{
         validator_store::ValidatorStore, InitializedValidators, SlashingDatabase,
         SLASHING_PROTECTION_FILENAME,
     };
 
+    const UPCHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
     type E = MainnetEthSpec;
+
+    trait SignedObject: PartialEq + Debug {}
+
+    impl SignedObject for Signature {}
+    impl SignedObject for Attestation<E> {}
+    impl SignedObject for SignedBeaconBlock<E> {}
+    impl SignedObject for SignedAggregateAndProof<E> {}
+    impl SignedObject for SelectionProof {}
 
     #[derive(Serialize)]
     struct Web3SignerKeyConfig {
@@ -127,7 +135,7 @@ mod tests {
                 url,
             };
 
-            s.wait_until_up(Duration::from_secs(5)).await;
+            s.wait_until_up(UPCHECK_TIMEOUT).await;
 
             s
         }
@@ -281,10 +289,17 @@ mod tests {
             }
         }
 
-        pub async fn assert_signatures_match<F, R>(self, case_name: &str, generate_sig: F) -> Self
+        pub async fn assert_signatures_match<F, R, S>(
+            self,
+            case_name: &str,
+            generate_sig: F,
+        ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<Output = Signature>,
+            R: Future<Output = S>,
+            // We use the `SignedObject` trait to white-list objects for comparison. This avoids
+            // accidentally comparing something meaningless like a `()`.
+            S: SignedObject,
         {
             let mut prev_signature = None;
             for (i, validator_rig) in self.validator_rigs.iter().enumerate() {
@@ -304,6 +319,26 @@ mod tests {
             }
             assert!(prev_signature.is_some(), "sanity check");
             self
+        }
+    }
+
+    fn get_attestation() -> Attestation<E> {
+        Attestation {
+            aggregation_bits: BitList::with_capacity(1).unwrap(),
+            data: AttestationData {
+                slot: <_>::default(),
+                index: <_>::default(),
+                beacon_block_root: Hash256::zero(),
+                source: Checkpoint {
+                    epoch: <_>::default(),
+                    root: <_>::default(),
+                },
+                target: Checkpoint {
+                    epoch: <_>::default(),
+                    root: <_>::default(),
+                },
+            },
+            signature: AggregateSignature::empty(),
         }
     }
 
@@ -327,8 +362,35 @@ mod tests {
                     .sign_block(pubkey, block, block_slot)
                     .await
                     .unwrap()
-                    .signature()
-                    .clone()
+            })
+            .await
+            .assert_signatures_match("attestation", |pubkey, validator_store| async move {
+                let mut attestation = get_attestation();
+                validator_store
+                    .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
+                    .await
+                    .unwrap();
+                attestation
+            })
+            .await
+            .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
+                let attestation = get_attestation();
+                validator_store
+                    .produce_signed_aggregate_and_proof(
+                        pubkey,
+                        0,
+                        attestation,
+                        SelectionProof::from(Signature::empty()),
+                    )
+                    .await
+                    .unwrap()
+            })
+            .await
+            .assert_signatures_match("selection_proof", |pubkey, validator_store| async move {
+                validator_store
+                    .produce_selection_proof(pubkey, Slot::new(0))
+                    .await
+                    .unwrap()
             })
             .await;
     }
