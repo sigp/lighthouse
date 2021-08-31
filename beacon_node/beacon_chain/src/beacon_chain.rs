@@ -2396,7 +2396,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
             let participant_pubkeys = sync_committee
                 .pubkeys
-                .into_iter()
+                .iter()
                 .zip(sync_aggregate.sync_committee_bits.iter())
                 .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
                 .collect::<Vec<_>>();

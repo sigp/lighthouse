@@ -176,7 +176,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                         .read()
                         .register_api_sync_committee_message(
                             seen_timestamp,
-                            &verified.sync_message(),
+                            verified.sync_message(),
                             &chain.slot_clock,
                         );
 
