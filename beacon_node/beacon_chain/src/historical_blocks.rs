@@ -25,6 +25,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// listed in its successor, then the whole batch will be discarded and `MismatchedBlockRoot`
     /// will be returned.
     ///
+    /// To align with sync we allow the last block provided to match the oldest block in the
+    /// database. It will be checked (via its parent root) and discarded without further processing.
+    ///
     /// This function should not be called concurrently with any other function that mutates
     /// the anchor info (including this function itself). If a concurrent mutation occurs that
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
@@ -45,7 +48,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut cold_batch = Vec::with_capacity(blocks.len());
         let mut hot_batch = Vec::with_capacity(blocks.len());
 
-        for block in blocks.iter().rev() {
+        // If the last block's parent is the same as the `oldest_block_parent` then we drop it.
+        // This is to align with sync on the first batch supplied. Sync likes to fetch batches of
+        // blocks with the last block aligned to an epoch boundary, whereas backfill needs to
+        // start from the block *before* a supplied epoch boundary block.
+        let blocks_to_import = if let Some((last_block, rest)) = blocks.split_last() {
+            if last_block.slot() == prev_block_slot
+                && last_block.parent_root() == expected_block_root
+            {
+                // Skip last block (usually first batch only)
+                rest
+            } else {
+                // Import all (normal case)
+                &blocks
+            }
+        } else {
+            // Empty batch.
+            return Ok(());
+        };
+
+        for block in blocks_to_import.iter().rev() {
             // Check chain integrity.
             let block_root = block.canonical_root();
 
