@@ -3,21 +3,23 @@ use super::{
     base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus},
 };
 use crate::metrics;
+use std::sync::Arc;
+use types::{EthSpec, SyncCommittee};
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
-pub enum EpochProcessingSummary {
+pub enum EpochProcessingSummary<T: EthSpec> {
     Base {
         total_balances: TotalBalances,
         statuses: Vec<ValidatorStatus>,
     },
     Altair {
         participation_cache: ParticipationCache,
-        sync_committee_indices: Vec<usize>,
+        sync_committee: Arc<SyncCommittee<T>>,
     },
 }
 
-impl EpochProcessingSummary {
+impl<T: EthSpec> EpochProcessingSummary<T> {
     /// Updates some Prometheus metrics with some values in `self`.
     #[cfg(feature = "metrics")]
     pub fn observe_metrics(&self) -> Result<(), ParticipationCacheError> {
@@ -42,12 +44,9 @@ impl EpochProcessingSummary {
     }
 
     /// Returns the sync committee indices for the current epoch for altair.
-    pub fn sync_committee_indices(&self) -> Option<&[usize]> {
+    pub fn sync_committee(&self) -> Option<&SyncCommittee<T>> {
         match self {
-            EpochProcessingSummary::Altair {
-                sync_committee_indices,
-                ..
-            } => Some(sync_committee_indices.as_slice()),
+            EpochProcessingSummary::Altair { sync_committee, .. } => Some(sync_committee),
             EpochProcessingSummary::Base { .. } => None,
         }
     }

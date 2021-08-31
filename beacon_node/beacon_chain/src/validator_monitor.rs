@@ -367,10 +367,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn process_validator_statuses(
         &self,
         epoch: Epoch,
-        summary: &EpochProcessingSummary,
+        summary: &EpochProcessingSummary<T>,
         spec: &ChainSpec,
     ) -> Result<(), EpochProcessingError> {
-        for monitored_validator in self.validators.values() {
+        for (pubkey, monitored_validator) in self.validators.iter() {
             // We subtract two from the state of the epoch that generated these summaries.
             //
             // - One to account for it being the previous epoch.
@@ -501,8 +501,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 // immediate next slot. Hence, num included sync aggregates for `state.epoch - 1`
                 // is available right after state transition to state.epoch.
                 let current_epoch = epoch - 1;
-                if let Some(sync_committee_indices) = summary.sync_committee_indices() {
-                    if sync_committee_indices.contains(&i) {
+                if let Some(sync_committee) = summary.sync_committee() {
+                    if sync_committee.contains(pubkey) {
                         metrics::set_int_gauge(
                             &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
                             &[id],
