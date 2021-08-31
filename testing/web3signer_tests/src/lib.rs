@@ -7,6 +7,7 @@ mod tests {
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fs::File;
+    use std::future::Future;
     use std::path::PathBuf;
     use std::process::{Child, Command};
     use std::sync::Arc;
@@ -14,7 +15,10 @@ mod tests {
     use task_executor::TaskExecutor;
     use tempfile::TempDir;
     use tokio::time::sleep;
-    use types::{EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKey, SecretKey, Slot};
+    use types::{
+        Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKeyBytes, SecretKey, Signature,
+        Slot,
+    };
     use url::Url;
     use validator_client::{
         validator_store::ValidatorStore, InitializedValidators, SlashingDatabase,
@@ -23,7 +27,7 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    const KEYSTORE_PASSWORD: &[u8] = &[13, 37, 42, 42];
+    const KEYSTORE_PASSWORD: &str = "hi mum";
     const WEB3SIGNER_LISTEN_ADDRESS: &str = "127.0.0.1";
     const WEB3SIGNER_LISTEN_PORT: u16 = 4242;
 
@@ -66,10 +70,11 @@ mod tests {
         pub async fn new(listen_address: &str, listen_port: u16) -> Self {
             let keystore_dir = TempDir::new().unwrap();
             let keypair = testing_keypair();
-            let keystore = KeystoreBuilder::new(&keypair, KEYSTORE_PASSWORD, "".to_string())
-                .unwrap()
-                .build()
-                .unwrap();
+            let keystore =
+                KeystoreBuilder::new(&keypair, KEYSTORE_PASSWORD.as_bytes(), "".to_string())
+                    .unwrap()
+                    .build()
+                    .unwrap();
             let keystore_path = keystore_dir.path().join("keystore.json");
             let keystore_file = File::create(&keystore_path).unwrap();
             keystore.to_json_writer(&keystore_file).unwrap();
@@ -127,28 +132,21 @@ mod tests {
     }
 
     struct ValidatorStoreRig {
-        validator_store: ValidatorStore<TestingSlotClock, E>,
+        validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
         validator_dir: TempDir,
+        runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: exit_future::Signal,
     }
 
     impl ValidatorStoreRig {
-        pub async fn new(remote_signer_url: &Url, voting_public_key: PublicKey) -> Self {
+        pub async fn new(
+            remote_signer_url: &Url,
+            validator_definitions: Vec<ValidatorDefinition>,
+        ) -> Self {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
-            let validator_definition = ValidatorDefinition {
-                enabled: true,
-                voting_public_key,
-                graffiti: None,
-                description: String::default(),
-                signing_definition: SigningDefinition::Web3Signer {
-                    url: remote_signer_url.to_string(),
-                    root_certificate_path: None,
-                    request_timeout_ms: None,
-                },
-            };
-            let validator_definitions = ValidatorDefinitions::from(vec![validator_definition]);
+            let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
                 validator_dir.path().into(),
@@ -185,18 +183,98 @@ mod tests {
             );
 
             Self {
-                validator_store,
+                validator_store: Arc::new(validator_store),
                 validator_dir,
+                runtime,
                 _runtime_shutdown: runtime_shutdown,
             }
         }
     }
 
+    struct TestingRig {
+        signer_rig: Web3SignerRig,
+        validator_rigs: Vec<ValidatorStoreRig>,
+        validator_pubkey: PublicKeyBytes,
+    }
+
+    impl TestingRig {
+        pub async fn new() -> Self {
+            let signer_rig =
+                Web3SignerRig::new(WEB3SIGNER_LISTEN_ADDRESS, WEB3SIGNER_LISTEN_PORT).await;
+            let validator_pubkey = signer_rig.keypair.pk.clone();
+
+            let local_signer_validator_store = {
+                let validator_definition = ValidatorDefinition {
+                    enabled: true,
+                    voting_public_key: validator_pubkey.clone(),
+                    graffiti: None,
+                    description: String::default(),
+                    signing_definition: SigningDefinition::LocalKeystore {
+                        voting_keystore_path: signer_rig.keystore_path.clone(),
+                        voting_keystore_password_path: None,
+                        voting_keystore_password: Some(KEYSTORE_PASSWORD.to_string().into()),
+                    },
+                };
+                ValidatorStoreRig::new(&signer_rig.url, vec![validator_definition]).await
+            };
+
+            let remote_signer_validator_store = {
+                let validator_definition = ValidatorDefinition {
+                    enabled: true,
+                    voting_public_key: validator_pubkey.clone(),
+                    graffiti: None,
+                    description: String::default(),
+                    signing_definition: SigningDefinition::Web3Signer {
+                        url: signer_rig.url.to_string(),
+                        root_certificate_path: None,
+                        request_timeout_ms: None,
+                    },
+                };
+                ValidatorStoreRig::new(&signer_rig.url, vec![validator_definition]).await
+            };
+
+            Self {
+                signer_rig,
+                validator_rigs: vec![local_signer_validator_store, remote_signer_validator_store],
+                validator_pubkey: PublicKeyBytes::from(&validator_pubkey),
+            }
+        }
+
+        pub async fn assert_signatures_match<F, R>(self, case_name: &str, generate_sig: F) -> Self
+        where
+            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
+            R: Future<Output = Signature>,
+        {
+            let mut prev_signature = None;
+            for (i, validator_rig) in self.validator_rigs.iter().enumerate() {
+                let signature =
+                    generate_sig(self.validator_pubkey, validator_rig.validator_store.clone())
+                        .await;
+
+                if let Some(prev_signature) = &prev_signature {
+                    assert_eq!(
+                        prev_signature, &signature,
+                        "signature mismatch at index {} for case {}",
+                        i, case_name
+                    );
+                }
+
+                prev_signature = Some(signature)
+            }
+            self
+        }
+    }
+
     #[tokio::test]
     async fn it_works() {
-        let signer_rig =
-            Web3SignerRig::new(WEB3SIGNER_LISTEN_ADDRESS, WEB3SIGNER_LISTEN_PORT).await;
-        let validator_rig =
-            ValidatorStoreRig::new(&signer_rig.url, signer_rig.keypair.pk.clone()).await;
+        TestingRig::new()
+            .await
+            .assert_signatures_match("rando_reveal", |pubkey, validator_store| async move {
+                validator_store
+                    .randao_reveal(pubkey, Epoch::new(0))
+                    .await
+                    .unwrap()
+            })
+            .await;
     }
 }
