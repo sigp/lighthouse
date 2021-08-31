@@ -12,6 +12,7 @@ use tree_hash_derive::TreeHash;
 )]
 pub struct SyncAggregatorSelectionData {
     pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
 }
 
