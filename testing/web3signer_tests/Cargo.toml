@@ -26,6 +26,7 @@ account_utils = { path = "../../common/account_utils" }
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_yaml = "0.8.13"
+eth2_network_config = { path = "../../common/eth2_network_config" }
 
 [build-dependencies]
 tokio = { version = "1.10.0", features = ["rt-multi-thread", "macros"] }

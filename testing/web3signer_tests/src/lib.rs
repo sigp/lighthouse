@@ -4,6 +4,7 @@ mod tests {
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
     };
     use eth2_keystore::KeystoreBuilder;
+    use eth2_network_config::Eth2NetworkConfig;
     use serde::Serialize;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
@@ -53,7 +54,6 @@ mod tests {
 
     const KEYSTORE_PASSWORD: &str = "hi mum";
     const WEB3SIGNER_LISTEN_ADDRESS: &str = "127.0.0.1";
-    const WEB3SIGNER_LISTEN_PORT: u16 = 4242;
 
     fn testing_keypair() -> Keypair {
         // Just an arbitrary secret key.
@@ -88,7 +88,7 @@ mod tests {
     }
 
     impl Web3SignerRig {
-        pub async fn new(listen_address: &str, listen_port: u16) -> Self {
+        pub async fn new(network: &str, listen_address: &str, listen_port: u16) -> Self {
             let keystore_dir = TempDir::new().unwrap();
             let keypair = testing_keypair();
             let keystore =
@@ -123,7 +123,7 @@ mod tests {
                 .arg(format!("--http-listen-host={}", listen_address))
                 .arg(format!("--http-listen-port={}", listen_port))
                 .arg("eth2")
-                .arg("--network=mainnet")
+                .arg(format!("--network={}", network))
                 .arg("--slashing-protection-enabled=false")
                 .spawn()
                 .unwrap();
@@ -175,7 +175,7 @@ mod tests {
     }
 
     impl ValidatorStoreRig {
-        pub async fn new(validator_definitions: Vec<ValidatorDefinition>) -> Self {
+        pub async fn new(validator_definitions: Vec<ValidatorDefinition>, spec: ChainSpec) -> Self {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
@@ -209,7 +209,6 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let spec = E::default_spec();
 
             let validator_store = ValidatorStore::<_, E>::new(
                 initialized_validators,
@@ -250,9 +249,9 @@ mod tests {
     }
 
     impl TestingRig {
-        pub async fn new() -> Self {
+        pub async fn new(network: &str, spec: ChainSpec, listen_port: u16) -> Self {
             let signer_rig =
-                Web3SignerRig::new(WEB3SIGNER_LISTEN_ADDRESS, WEB3SIGNER_LISTEN_PORT).await;
+                Web3SignerRig::new(network, WEB3SIGNER_LISTEN_ADDRESS, listen_port).await;
             let validator_pubkey = signer_rig.keypair.pk.clone();
 
             let local_signer_validator_store = {
@@ -267,7 +266,7 @@ mod tests {
                         voting_keystore_password: Some(KEYSTORE_PASSWORD.to_string().into()),
                     },
                 };
-                ValidatorStoreRig::new(vec![validator_definition]).await
+                ValidatorStoreRig::new(vec![validator_definition], spec.clone()).await
             };
 
             let remote_signer_validator_store = {
@@ -282,7 +281,7 @@ mod tests {
                         request_timeout_ms: None,
                     },
                 };
-                ValidatorStoreRig::new(vec![validator_definition]).await
+                ValidatorStoreRig::new(vec![validator_definition], spec).await
             };
 
             Self {
@@ -345,11 +344,11 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn all_signature_types() {
-        let spec = &E::default_spec();
+    async fn test_base_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = &network_config.chain_spec::<E>().unwrap();
 
-        TestingRig::new()
+        TestingRig::new(network, spec.clone(), listen_port)
             .await
             .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
                 validator_store
@@ -395,12 +394,28 @@ mod tests {
                     .await
                     .unwrap()
             })
+            .await;
+    }
+
+    async fn test_altair_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = &network_config.chain_spec::<E>().unwrap();
+        let altair_fork_slot = spec
+            .altair_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new(network, spec.clone(), listen_port)
             .await
             .assert_signatures_match(
                 "sync_selection_proof",
                 |pubkey, validator_store| async move {
                     validator_store
-                        .produce_sync_selection_proof(&pubkey, Slot::new(0), SyncSubnetId::from(0))
+                        .produce_sync_selection_proof(
+                            &pubkey,
+                            altair_fork_slot,
+                            SyncSubnetId::from(0),
+                        )
                         .await
                         .unwrap()
                 },
@@ -410,7 +425,12 @@ mod tests {
                 "sync_committee_signature",
                 |pubkey, validator_store| async move {
                     validator_store
-                        .produce_sync_committee_signature(Slot::new(0), Hash256::zero(), 0, &pubkey)
+                        .produce_sync_committee_signature(
+                            altair_fork_slot,
+                            Hash256::zero(),
+                            0,
+                            &pubkey,
+                        )
                         .await
                         .unwrap()
                 },
@@ -420,7 +440,7 @@ mod tests {
                 "signed_contribution_and_proof",
                 |pubkey, validator_store| async move {
                     let contribution = SyncCommitteeContribution {
-                        slot: <_>::default(),
+                        slot: altair_fork_slot,
                         beacon_block_root: <_>::default(),
                         subcommittee_index: <_>::default(),
                         aggregation_bits: <_>::default(),
@@ -438,5 +458,20 @@ mod tests {
                 },
             )
             .await;
+    }
+
+    #[tokio::test]
+    async fn mainnet_base_types() {
+        test_base_types("mainnet", 4242).await
+    }
+
+    #[tokio::test]
+    async fn pyrmont_base_types() {
+        test_base_types("pyrmont", 4243).await
+    }
+
+    #[tokio::test]
+    async fn pyrmont_altair_types() {
+        test_altair_types("pyrmont", 4244).await
     }
 }
