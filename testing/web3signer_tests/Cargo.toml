@@ -23,6 +23,9 @@ exit-future = "0.2.0"
 task_executor = { path = "../../common/task_executor" }
 environment = { path = "../../lighthouse/environment" }
 account_utils = { path = "../../common/account_utils" }
+serde = "1.0.116"
+serde_derive = "1.0.116"
+serde_yaml = "0.8.13"
 
 [build-dependencies]
 tokio = { version = "1.10.0", features = ["rt-multi-thread", "macros"] }

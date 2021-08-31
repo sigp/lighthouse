@@ -4,9 +4,10 @@ mod tests {
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
     };
     use eth2_keystore::{Keystore, KeystoreBuilder};
+    use serde::{Deserialize, Serialize};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
-    use std::fs::File;
+    use std::fs::{self, File};
     use std::future::Future;
     use std::path::PathBuf;
     use std::process::{Child, Command};
@@ -26,6 +27,18 @@ mod tests {
     };
 
     type E = MainnetEthSpec;
+
+    #[derive(Serialize)]
+    struct Web3SignerKeyConfig {
+        #[serde(rename = "type")]
+        config_type: String,
+        #[serde(rename = "keyType")]
+        key_type: String,
+        #[serde(rename = "keystoreFile")]
+        keystore_file: String,
+        #[serde(rename = "keystorePasswordFile")]
+        keystore_password_file: String,
+    }
 
     const KEYSTORE_PASSWORD: &str = "hi mum";
     const WEB3SIGNER_LISTEN_ADDRESS: &str = "127.0.0.1";
@@ -75,12 +88,30 @@ mod tests {
                     .unwrap()
                     .build()
                     .unwrap();
-            let keystore_path = keystore_dir.path().join("keystore.json");
+            let keystore_filename = "keystore.json";
+            let keystore_path = keystore_dir.path().join(keystore_filename);
             let keystore_file = File::create(&keystore_path).unwrap();
             keystore.to_json_writer(&keystore_file).unwrap();
 
+            let keystore_password_filename = "password.txt";
+            let keystore_password_path = keystore_dir.path().join(keystore_password_filename);
+            fs::write(&keystore_password_path, KEYSTORE_PASSWORD.as_bytes()).unwrap();
+
+            let key_config = Web3SignerKeyConfig {
+                config_type: "file-keystore".to_string(),
+                key_type: "BLS".to_string(),
+                keystore_file: keystore_filename.to_string(),
+                keystore_password_file: keystore_password_filename.to_string(),
+            };
+            let key_config_file =
+                File::create(&keystore_dir.path().join("key-config.yaml")).unwrap();
+            serde_yaml::to_writer(key_config_file, &key_config).unwrap();
+
             let web3signer_child = Command::new(web3signer_binary())
-                .arg(format!("--key-store-path={:?}", keystore_dir.path()))
+                .arg(format!(
+                    "--key-store-path={}",
+                    keystore_dir.path().to_str().unwrap()
+                ))
                 .arg(format!("--http-listen-host={}", listen_address))
                 .arg(format!("--http-listen-port={}", listen_port))
                 .arg("eth2")
@@ -189,12 +220,24 @@ mod tests {
                 _runtime_shutdown: runtime_shutdown,
             }
         }
+
+        pub fn shutdown(self) {
+            Arc::try_unwrap(self.runtime).unwrap().shutdown_background()
+        }
     }
 
     struct TestingRig {
         signer_rig: Web3SignerRig,
         validator_rigs: Vec<ValidatorStoreRig>,
         validator_pubkey: PublicKeyBytes,
+    }
+
+    impl Drop for TestingRig {
+        fn drop(&mut self) {
+            for rig in std::mem::replace(&mut self.validator_rigs, vec![]) {
+                rig.shutdown();
+            }
+        }
     }
 
     impl TestingRig {

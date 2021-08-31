@@ -282,12 +282,10 @@ impl InitializedValidator {
 }
 
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
-    Url::parse(base_url)?
-        .join("api")?
-        .join("v1")?
-        .join("eth1")?
-        .join("sign")?
-        .join(&voting_public_key.to_string())
+    Url::parse(base_url)?.join(&format!(
+        "api/v1/eth2/sign/{}",
+        voting_public_key.to_string()
+    ))
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
