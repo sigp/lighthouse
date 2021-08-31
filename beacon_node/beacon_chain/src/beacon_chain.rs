@@ -2803,14 +2803,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Determine the root of the block that is the head of the chain.
         let beacon_block_root = self.fork_choice.write().get_head(self.slot()?)?;
 
-        let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
-
         let current_head = self.head_info()?;
         let old_finalized_checkpoint = current_head.finalized_checkpoint;
 
         if beacon_block_root == current_head.block_root {
             return Ok(());
         }
+
+        let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
 
         // At this point we know that the new head block is not the same as the previous one
         metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
