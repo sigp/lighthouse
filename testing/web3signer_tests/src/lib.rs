@@ -465,13 +465,42 @@ mod tests {
         test_base_types("mainnet", 4242).await
     }
 
+    /* The Altair fork for mainnet has not been announced, so this test will always fail.
+     *
+     * If this test starts failing, it's likely that the fork has been decided and we should remove
+     * the `#[should_panic]`
+     */
+    #[tokio::test]
+    #[should_panic]
+    async fn mainnet_altair_types() {
+        test_altair_types("mainnet", 4243).await
+    }
+
     #[tokio::test]
     async fn pyrmont_base_types() {
-        test_base_types("pyrmont", 4243).await
+        test_base_types("pyrmont", 4244).await
     }
 
     #[tokio::test]
     async fn pyrmont_altair_types() {
-        test_altair_types("pyrmont", 4244).await
+        test_altair_types("pyrmont", 4245).await
+    }
+
+    #[tokio::test]
+    async fn prater_base_types() {
+        test_base_types("prater", 4246).await
+    }
+
+    /* Web3Signer does not yet support the Altair fork for Prater:
+     *
+     * https://github.com/ConsenSys/web3signer/issues/423
+     *
+     * If this test starts failing, it's likely that support has been added and we should remove the
+     * `#[should_panic]`
+     */
+    #[tokio::test]
+    #[should_panic]
+    async fn prater_altair_types() {
+        test_altair_types("prater", 4247).await
     }
 }
