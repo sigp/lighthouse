@@ -3,8 +3,8 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
     };
-    use eth2_keystore::{Keystore, KeystoreBuilder};
-    use serde::{Deserialize, Serialize};
+    use eth2_keystore::KeystoreBuilder;
+    use serde::Serialize;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fs::{self, File};
@@ -64,13 +64,10 @@ mod tests {
 
     struct Web3SignerRig {
         keypair: Keypair,
-        keystore: Keystore,
-        keystore_dir: TempDir,
+        _keystore_dir: TempDir,
         keystore_path: PathBuf,
         web3signer_child: Child,
         url: Url,
-        listen_address: String,
-        listen_port: u16,
     }
 
     impl Drop for Web3SignerRig {
@@ -124,13 +121,10 @@ mod tests {
 
             let s = Self {
                 keypair,
-                keystore,
-                keystore_dir,
+                _keystore_dir: keystore_dir,
                 keystore_path,
                 web3signer_child,
                 url,
-                listen_address: listen_address.to_string(),
-                listen_port,
             };
 
             s.wait_until_up(Duration::from_secs(5)).await;
@@ -164,16 +158,13 @@ mod tests {
 
     struct ValidatorStoreRig {
         validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
-        validator_dir: TempDir,
+        _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: exit_future::Signal,
     }
 
     impl ValidatorStoreRig {
-        pub async fn new(
-            remote_signer_url: &Url,
-            validator_definitions: Vec<ValidatorDefinition>,
-        ) -> Self {
+        pub async fn new(validator_definitions: Vec<ValidatorDefinition>) -> Self {
             let log = environment::null_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
@@ -215,7 +206,7 @@ mod tests {
 
             Self {
                 validator_store: Arc::new(validator_store),
-                validator_dir,
+                _validator_dir: validator_dir,
                 runtime,
                 _runtime_shutdown: runtime_shutdown,
             }
@@ -227,7 +218,7 @@ mod tests {
     }
 
     struct TestingRig {
-        signer_rig: Web3SignerRig,
+        _signer_rig: Web3SignerRig,
         validator_rigs: Vec<ValidatorStoreRig>,
         validator_pubkey: PublicKeyBytes,
     }
@@ -258,7 +249,7 @@ mod tests {
                         voting_keystore_password: Some(KEYSTORE_PASSWORD.to_string().into()),
                     },
                 };
-                ValidatorStoreRig::new(&signer_rig.url, vec![validator_definition]).await
+                ValidatorStoreRig::new(vec![validator_definition]).await
             };
 
             let remote_signer_validator_store = {
@@ -273,11 +264,11 @@ mod tests {
                         request_timeout_ms: None,
                     },
                 };
-                ValidatorStoreRig::new(&signer_rig.url, vec![validator_definition]).await
+                ValidatorStoreRig::new(vec![validator_definition]).await
             };
 
             Self {
-                signer_rig,
+                _signer_rig: signer_rig,
                 validator_rigs: vec![local_signer_validator_store, remote_signer_validator_store],
                 validator_pubkey: PublicKeyBytes::from(&validator_pubkey),
             }
@@ -304,12 +295,13 @@ mod tests {
 
                 prev_signature = Some(signature)
             }
+            assert!(prev_signature.is_some(), "sanity check");
             self
         }
     }
 
     #[tokio::test]
-    async fn it_works() {
+    async fn all_signature_types() {
         TestingRig::new()
             .await
             .assert_signatures_match("rando_reveal", |pubkey, validator_store| async move {
