@@ -4,7 +4,7 @@ use reqwest::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{ChainSpec, Domain, Epoch, EthSpec, Fork, Hash256, Keypair, PublicKey, Signature};
+use types::*;
 use url::Url;
 use web3signer::{ForkInfo, SigningRequest, SigningResponse};
 
@@ -22,6 +22,38 @@ pub enum Error {
     Web3SignerJsonParsingFailed(String),
     ShuttingDown,
     TokioJoin(String),
+    Web3SignerDoesNotSupportAltairBlocks,
+}
+
+pub enum SignableMessage<'a, T: EthSpec> {
+    RandaoReveal(Epoch),
+    BeaconBlock(&'a BeaconBlock<T>),
+    AttestationData(&'a AttestationData),
+    SignedAggregateAndProof(&'a AggregateAndProof<T>),
+    SelectionProof(Slot),
+    SyncSelectionProof(&'a SyncAggregatorSelectionData),
+    SyncCommitteeSignature {
+        beacon_block_root: Hash256,
+        slot: Slot,
+    },
+    SignedContributionAndProof(&'a ContributionAndProof<T>),
+}
+
+impl<'a, T: EthSpec> SignableMessage<'a, T> {
+    pub fn signing_root(&self, domain: Hash256) -> Hash256 {
+        match self {
+            SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
+            SignableMessage::BeaconBlock(b) => b.signing_root(domain),
+            SignableMessage::AttestationData(a) => a.signing_root(domain),
+            SignableMessage::SignedAggregateAndProof(a) => a.signing_root(domain),
+            SignableMessage::SelectionProof(slot) => slot.signing_root(domain),
+            SignableMessage::SyncSelectionProof(s) => s.signing_root(domain),
+            SignableMessage::SyncCommitteeSignature {
+                beacon_block_root, ..
+            } => beacon_block_root.signing_root(domain),
+            SignableMessage::SignedContributionAndProof(c) => c.signing_root(domain),
+        }
+    }
 }
 
 /// A method used by a validator to sign messages.
@@ -67,7 +99,7 @@ impl SigningContext {
 impl SigningMethod {
     pub async fn get_signature<T: EthSpec>(
         &self,
-        pre_image: PreImage<'_, T>,
+        signable_message: SignableMessage<'_, T>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -81,7 +113,7 @@ impl SigningMethod {
         } = signing_context;
 
         // TODO(paul): should this be in a blocking task?
-        let signing_root = pre_image.signing_root(domain_hash);
+        let signing_root = signable_message.signing_root(domain_hash);
 
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
@@ -101,6 +133,32 @@ impl SigningMethod {
                 http_client,
                 ..
             } => {
+                let pre_image = match signable_message {
+                    SignableMessage::RandaoReveal(epoch) => PreImage::RandaoReveal { epoch },
+                    SignableMessage::BeaconBlock(block) => match block {
+                        BeaconBlock::Base(block) => PreImage::BeaconBlockBase(block),
+                        BeaconBlock::Altair(_) => {
+                            return Err(Error::Web3SignerDoesNotSupportAltairBlocks)
+                        }
+                    },
+                    SignableMessage::AttestationData(a) => PreImage::AttestationData(a),
+                    SignableMessage::SignedAggregateAndProof(a) => PreImage::AggregateAndProof(a),
+                    SignableMessage::SelectionProof(slot) => PreImage::AggregationSlot { slot },
+                    SignableMessage::SyncSelectionProof(s) => {
+                        PreImage::SyncAggregatorSelectionData(s)
+                    }
+                    SignableMessage::SyncCommitteeSignature {
+                        beacon_block_root,
+                        slot,
+                    } => PreImage::SyncCommitteeMessage {
+                        beacon_block_root,
+                        slot,
+                    },
+                    SignableMessage::SignedContributionAndProof(c) => {
+                        PreImage::ContributionAndProof(c)
+                    }
+                };
+
                 let message_type = pre_image.message_type();
 
                 // Sanity check.

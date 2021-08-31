@@ -51,6 +51,7 @@ pub enum PreImage<'a, T: EthSpec> {
     #[serde(rename = "block")]
     BeaconBlockBase(&'a BeaconBlockBase<T>),
     #[serde(rename = "deposit")]
+    #[allow(dead_code)]
     Deposit {
         pubkey: PublicKeyBytes,
         withdrawal_credentials: Hash256,
@@ -62,6 +63,7 @@ pub enum PreImage<'a, T: EthSpec> {
     #[serde(rename = "randao_reveal")]
     RandaoReveal { epoch: Epoch },
     #[serde(rename = "voluntary_exit")]
+    #[allow(dead_code)]
     VoluntaryExit(&'a VoluntaryExit),
     #[serde(rename = "sync_committee_message")]
     SyncCommitteeMessage {
@@ -72,16 +74,6 @@ pub enum PreImage<'a, T: EthSpec> {
     SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
     #[serde(rename = "contribution_and_proof")]
     ContributionAndProof(&'a ContributionAndProof<T>),
-}
-
-impl<'a, T: EthSpec> PreImage<'a, T> {
-    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Self {
-        match block {
-            BeaconBlock::Base(b) => PreImage::BeaconBlockBase(b),
-            // TODO(paul): implement as per https://github.com/ConsenSys/web3signer/pull/422
-            BeaconBlock::Altair(_) => unimplemented!("altair block"),
-        }
-    }
 }
 
 impl<'a, T: EthSpec> PreImage<'a, T> {
@@ -97,33 +89,6 @@ impl<'a, T: EthSpec> PreImage<'a, T> {
             PreImage::SyncCommitteeMessage { .. } => MessageType::SyncCommitteeMessage,
             PreImage::SyncAggregatorSelectionData(_) => MessageType::SyncCommitteeSelectionProof,
             PreImage::ContributionAndProof(_) => MessageType::SyncCommitteeContributionAndProof,
-        }
-    }
-
-    pub fn signing_root(&self, domain: Hash256) -> Hash256 {
-        match self {
-            PreImage::AggregationSlot { slot } => slot.signing_root(domain),
-            PreImage::AggregateAndProof(a) => a.signing_root(domain),
-            PreImage::AttestationData(a) => a.signing_root(domain),
-            PreImage::BeaconBlockBase(b) => BeaconBlockRef::Base(b).signing_root(domain),
-            PreImage::Deposit {
-                pubkey,
-                withdrawal_credentials,
-                amount,
-                ..
-            } => DepositMessage {
-                pubkey: *pubkey,
-                withdrawal_credentials: *withdrawal_credentials,
-                amount: *amount,
-            }
-            .signing_root(domain),
-            PreImage::RandaoReveal { epoch } => epoch.signing_root(domain),
-            PreImage::VoluntaryExit(e) => e.signing_root(domain),
-            PreImage::SyncCommitteeMessage {
-                beacon_block_root, ..
-            } => beacon_block_root.signing_root(domain),
-            PreImage::SyncAggregatorSelectionData(s) => s.signing_root(domain),
-            PreImage::ContributionAndProof(c) => c.signing_root(domain),
         }
     }
 }

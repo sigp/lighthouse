@@ -2,7 +2,7 @@ use crate::{
     doppelganger_service::DoppelgangerService,
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
-    signing_method::{Error as SigningError, PreImage, SigningContext, SigningMethod},
+    signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -319,9 +319,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature::<E>(
-                PreImage::RandaoReveal {
-                    epoch: signing_epoch,
-                },
+                SignableMessage::RandaoReveal(signing_epoch),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -379,7 +377,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature(
-                        PreImage::beacon_block(&block),
+                        SignableMessage::BeaconBlock(&block),
                         signing_context,
                         &self.spec,
                         &self.task_executor,
@@ -453,7 +451,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E>(
-                        PreImage::AttestationData(&attestation.data),
+                        SignableMessage::AttestationData(&attestation.data),
                         signing_context,
                         &self.spec,
                         &self.task_executor,
@@ -535,7 +533,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
             .get_signature(
-                PreImage::AggregateAndProof(&message),
+                SignableMessage::SignedAggregateAndProof(&message),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -573,7 +571,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature::<E>(
-                PreImage::AggregationSlot { slot },
+                SignableMessage::SelectionProof(slot),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -616,7 +614,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature::<E>(
-                PreImage::SyncAggregatorSelectionData(&message),
+                SignableMessage::SyncSelectionProof(&message),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -647,7 +645,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature::<E>(
-                PreImage::SyncCommitteeMessage {
+                SignableMessage::SyncCommitteeSignature {
                     beacon_block_root,
                     slot,
                 },
@@ -697,7 +695,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signature = signing_method
             .get_signature(
-                PreImage::ContributionAndProof(&message),
+                SignableMessage::SignedContributionAndProof(&message),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
