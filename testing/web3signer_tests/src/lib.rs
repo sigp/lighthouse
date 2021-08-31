@@ -242,7 +242,7 @@ mod tests {
 
     impl Drop for TestingRig {
         fn drop(&mut self) {
-            for rig in std::mem::replace(&mut self.validator_rigs, vec![]) {
+            for rig in std::mem::take(&mut self.validator_rigs) {
                 rig.shutdown();
             }
         }
