@@ -3,20 +3,23 @@ use super::{
     base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus},
 };
 use crate::metrics;
+use std::sync::Arc;
+use types::{EthSpec, SyncCommittee};
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
-pub enum EpochProcessingSummary {
+pub enum EpochProcessingSummary<T: EthSpec> {
     Base {
         total_balances: TotalBalances,
         statuses: Vec<ValidatorStatus>,
     },
     Altair {
         participation_cache: ParticipationCache,
+        sync_committee: Arc<SyncCommittee<T>>,
     },
 }
 
-impl EpochProcessingSummary {
+impl<T: EthSpec> EpochProcessingSummary<T> {
     /// Updates some Prometheus metrics with some values in `self`.
     #[cfg(feature = "metrics")]
     pub fn observe_metrics(&self) -> Result<(), ParticipationCacheError> {
@@ -40,12 +43,21 @@ impl EpochProcessingSummary {
         Ok(())
     }
 
+    /// Returns the sync committee indices for the current epoch for altair.
+    pub fn sync_committee(&self) -> Option<&SyncCommittee<T>> {
+        match self {
+            EpochProcessingSummary::Altair { sync_committee, .. } => Some(sync_committee),
+            EpochProcessingSummary::Base { .. } => None,
+        }
+    }
+
     /// Returns the sum of the effective balance of all validators in the current epoch.
     pub fn current_epoch_total_active_balance(&self) -> u64 {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => total_balances.current_epoch(),
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.current_epoch_total_active_balance(),
         }
     }
@@ -59,6 +71,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.current_epoch_target_attesting_balance(),
         }
     }
@@ -69,6 +82,7 @@ impl EpochProcessingSummary {
             EpochProcessingSummary::Base { total_balances, .. } => total_balances.previous_epoch(),
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_total_active_balance(),
         }
     }
@@ -126,6 +140,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_target_attesting_balance(),
         }
     }
@@ -144,6 +159,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_head_attesting_balance(),
         }
     }
@@ -162,6 +178,7 @@ impl EpochProcessingSummary {
             }
             EpochProcessingSummary::Altair {
                 participation_cache,
+                ..
             } => participation_cache.previous_epoch_source_attesting_balance(),
         }
     }

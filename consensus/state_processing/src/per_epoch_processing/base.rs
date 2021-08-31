@@ -18,7 +18,7 @@ pub mod validator_statuses;
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary, Error> {
+) -> Result<EpochProcessingSummary<T>, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;

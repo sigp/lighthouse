@@ -553,6 +553,48 @@ lazy_static! {
             "The number of attester slashings seen in the previous epoch.",
             &["validator"]
         );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_committee_messages_total",
+            "The number of sync committee messages seen in the previous epoch.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS: Result<HistogramVec> =
+        try_create_histogram_vec(
+            "validator_monitor_prev_epoch_sync_committee_messages_min_delay_seconds",
+            "The min delay between when the validator should send the sync committee message and when it was received.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_contribution_inclusions",
+            "The count of times a sync signature was seen inside a sync contribution.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_signature_block_inclusions",
+            "The count of times a sync signature was seen inside a block.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_prev_epoch_sync_contributions_total",
+            "The number of sync contributions seen in the previous epoch.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS: Result<HistogramVec> =
+        try_create_histogram_vec(
+            "validator_monitor_prev_epoch_sync_contribution_min_delay_seconds",
+            "The min delay between when the validator should send the sync contribution and when it was received.",
+            &["validator"]
+        );
+    pub static ref VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "validator_monitor_validator_in_current_sync_committee",
+            "Is the validator in the current sync committee (1 for true and 0 for false)",
+            &["validator"]
+        );
 
     /*
      * Validator Monitor Metrics (real-time)
@@ -571,6 +613,26 @@ lazy_static! {
         "The delay between when the validator should send the attestation and when it was received.",
         &["src", "validator"]
     );
+    pub static ref VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_sync_committee_messages_total",
+        "Number of sync committee messages seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_sync_committee_messages_delay_seconds",
+        "The delay between when the validator should send the sync committee message and when it was received.",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_sync_contributions_total",
+        "Number of sync contributions seen",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_sync_contribtions_delay_seconds",
+        "The delay between when the aggregator should send the sync contribution and when it was received.",
+        &["src", "validator"]
+    );
     pub static ref VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_aggregated_attestation_total",
         "Number of aggregated attestations seen",
@@ -586,6 +648,11 @@ lazy_static! {
         "Number of times an attestation has been seen in an aggregate",
         &["src", "validator"]
     );
+    pub static ref VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_CONTRIBUTION_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_sync_committee_message_in_contribution_total",
+        "Number of times a sync committee message has been seen in a sync contribution",
+        &["src", "validator"]
+    );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
         "validator_monitor_attestation_in_aggregate_delay_seconds",
         "The delay between when the validator should send the aggregate and when it was received.",
@@ -594,6 +661,11 @@ lazy_static! {
     pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "validator_monitor_attestation_in_block_total",
         "Number of times an attestation has been seen in a block",
+        &["src", "validator"]
+    );
+    pub static ref VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_BLOCK_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "validator_monitor_sync_committee_message_in_block_total",
+        "Number of times a validator's sync committee message has been seen in a sync aggregate",
         &["src", "validator"]
     );
     pub static ref VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS: Result<IntGaugeVec> = try_create_int_gauge_vec(

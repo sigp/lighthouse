@@ -27,7 +27,7 @@ pub mod weigh_justification_and_finalization;
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary, Error> {
+) -> Result<EpochProcessingSummary<T>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
     state
         .fork_name(spec)
