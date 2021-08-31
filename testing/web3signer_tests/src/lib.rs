@@ -17,8 +17,8 @@ mod tests {
     use tempfile::TempDir;
     use tokio::time::sleep;
     use types::{
-        Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKeyBytes, SecretKey, Signature,
-        Slot,
+        BeaconBlock, BeaconBlockBase, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec,
+        PublicKeyBytes, SecretKey, Signature, Slot,
     };
     use url::Url;
     use validator_client::{
@@ -177,6 +177,8 @@ mod tests {
             .await
             .unwrap();
 
+            let voting_pubkeys: Vec<_> = initialized_validators.iter_voting_pubkeys().collect();
+
             let runtime = Arc::new(
                 tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
@@ -187,8 +189,13 @@ mod tests {
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
             let executor =
                 TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+
             let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
             let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
+            slashing_protection
+                .register_validators(voting_pubkeys.iter().copied())
+                .unwrap();
+
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
             let spec = E::default_spec();
@@ -302,13 +309,26 @@ mod tests {
 
     #[tokio::test]
     async fn all_signature_types() {
+        let spec = &E::default_spec();
+
         TestingRig::new()
             .await
-            .assert_signatures_match("rando_reveal", |pubkey, validator_store| async move {
+            .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
                 validator_store
                     .randao_reveal(pubkey, Epoch::new(0))
                     .await
                     .unwrap()
+            })
+            .await
+            .assert_signatures_match("beacon_block_base", |pubkey, validator_store| async move {
+                let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
+                let block_slot = block.slot();
+                validator_store
+                    .sign_block(pubkey, block, block_slot)
+                    .await
+                    .unwrap()
+                    .signature()
+                    .clone()
             })
             .await;
     }
