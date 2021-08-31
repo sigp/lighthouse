@@ -2810,6 +2810,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
+        let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
+
         // At this point we know that the new head block is not the same as the previous one
         metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
@@ -2913,12 +2915,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .slot()
                 .epoch(T::EthSpec::slots_per_epoch());
 
-        if is_epoch_transition || is_reorg {
-            self.persist_head_and_fork_choice()?;
-            self.op_pool.prune_attestations(self.epoch()?);
-            self.persist_op_pool()?;
-        }
-
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
         // These fields are used for server-sent events
@@ -2933,6 +2929,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .previous_epoch()
             .start_slot(T::EthSpec::slots_per_epoch());
         let head_proposer_index = new_head.beacon_block.message().proposer_index();
+
+        drop(lag_timer);
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -2983,6 +2981,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "task" => "update head"
                 );
             });
+
+        if is_epoch_transition || is_reorg {
+            self.persist_head_and_fork_choice()?;
+            self.op_pool.prune_attestations(self.epoch()?);
+        }
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
             // Due to race conditions, it's technically possible that the head we load here is
