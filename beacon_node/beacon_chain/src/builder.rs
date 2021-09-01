@@ -1,3 +1,4 @@
+use crate::attestation_gate::AttestationGate;
 use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
@@ -601,7 +602,7 @@ where
             beacon_proposer_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
-            attestation_gate: <_>::default(),
+            attestation_gate: AttestationGate::new(log.clone()),
             disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender

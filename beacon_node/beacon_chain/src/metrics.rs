@@ -735,6 +735,18 @@ lazy_static! {
         "beacon_sync_committee_message_processing_signature_seconds",
         "Time spent on the signature verification of sync message processing"
     );
+
+    /*
+     * Attestation Gate
+     */
+    pub static ref BEACON_ATTESTATION_GATE_UNBLOCKED_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_attestation_gate_unblocked_total",
+        "Count of threads unblocked by unlocking the attestation gate"
+    );
+    pub static ref BEACON_ATTESTATION_GATE_TIMED_OUT_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_attestation_gate_timed_out_total",
+        "Count of times the attestation gate timed out"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
