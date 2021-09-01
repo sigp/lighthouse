@@ -3038,6 +3038,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .previous_epoch()
             .start_slot(T::EthSpec::slots_per_epoch());
         let head_proposer_index = new_head.beacon_block.message().proposer_index();
+        let proposer_graffiti = new_head
+            .beacon_block
+            .message()
+            .body()
+            .graffiti()
+            .as_utf8_lossy();
 
         drop(lag_timer);
 
@@ -3067,13 +3073,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        // If a block comes in from over 4 slots ago, it is most likely a block from sync.
+        let block_from_sync = block_delay_total > self.slot_clock.slot_duration() * 4;
+
         // Determine whether the block has been set as head too late for proper attestation
         // production.
         let late_head = block_delay_total >= self.slot_clock.unagg_attestation_production_delay();
 
         // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
         // sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 4 {
+        if !block_from_sync {
             // Observe the total block delay. This is the delay between the time the slot started
             // and when the block was set as head.
             metrics::observe_duration(
@@ -3220,7 +3229,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }));
             }
 
-            if late_head && event_handler.has_late_head_subscribers() {
+            if !block_from_sync && late_head && event_handler.has_late_head_subscribers() {
                 let block_delays = self.block_times_cache.read().get_block_delays(
                     beacon_block_root,
                     self.slot_clock
@@ -3231,6 +3240,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot: head_slot,
                     block: beacon_block_root,
                     proposer_index: head_proposer_index,
+                    proposer_graffiti,
                     block_delay: block_delay_total,
                     observed_delay: block_delays.observed,
                     imported_delay: block_delays.imported,
