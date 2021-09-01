@@ -243,7 +243,7 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
 
             // Included attestations are no longer available.
             for new_attestation in &attestations_in_block {
-                available_attestations_set.remove(&new_attestation.0);
+                available_attestations_set.remove(new_attestation.0);
             }
 
             // Get all available attestations.
