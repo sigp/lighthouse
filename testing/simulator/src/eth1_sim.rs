@@ -15,9 +15,10 @@ use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{Epoch, EthSpec, MainnetEthSpec};
+use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const FORK_EPOCH: u64 = 2;
+const END_EPOCH: u64 = 16;
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -184,7 +185,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             // Check that a block is produced at every slot.
             checks::verify_full_block_production_up_to(
                 network.clone(),
-                Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
+                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
             ),
             // Check that the chain starts with the expected validator count.
@@ -210,8 +211,10 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             // Check that all sync aggregates are full.
             checks::verify_full_sync_aggregates_up_to(
                 network.clone(),
-                Epoch::new(FORK_EPOCH).start_slot(MainnetEthSpec::slots_per_epoch()),
-                Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
+                // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
+                // inefficiencies in finding subnet peers at the `fork_slot`.
+                Epoch::new(FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
             )
         );
