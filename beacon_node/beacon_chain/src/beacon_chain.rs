@@ -3026,7 +3026,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let update_head_timer = metrics::start_timer(&metrics::UPDATE_HEAD_TIMES);
 
-        // These fields are used for server-sent events
+        // These fields are used for server-sent events.
         let state_root = new_head.beacon_state_root();
         let head_slot = new_head.beacon_state.slot();
         let target_epoch_start_slot = new_head
