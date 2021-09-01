@@ -1,3 +1,4 @@
+use crate::attestation_gate::AttestationGate;
 use crate::attestation_verification::{
     Error as AttestationError, SignatureVerifiedAttestation, VerifiedAggregatedAttestation,
     VerifiedUnaggregatedAttestation,
@@ -296,6 +297,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
+    /// Prevents attesting whilst a head block is being imported.
+    pub(crate) attestation_gate: AttestationGate,
     /// A list of any hard-coded forks that have been disabled.
     pub disabled_forks: Vec<String>,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -1267,6 +1270,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
+
+        self.attestation_gate.block_until_attestation_permitted();
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let request_epoch = request_slot.epoch(slots_per_epoch);
@@ -2389,6 +2394,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        let new_head = self
+            .fork_choice
+            .write()
+            .get_head(self.slot()?)
+            .map_err(BeaconChainError::from)?;
+
+        if new_head == block_root {
+            self.attestation_gate.prevent_attestation();
+        }
+
         for exit in block.body().voluntary_exits() {
             validator_monitor.register_block_voluntary_exit(&exit.message)
         }
@@ -2942,6 +2957,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::CanonicalHeadLockTimeout)? = new_head;
 
         metrics::stop_timer(update_head_timer);
+
+        self.attestation_gate.allow_attestation();
 
         let block_delay = get_slot_delay_ms(timestamp_now(), head_slot, &self.slot_clock);
 
