@@ -123,6 +123,11 @@ pub enum ChainSegmentResult<T: EthSpec> {
     },
 }
 
+pub enum EnableAttestationGate {
+    Yes,
+    No,
+}
+
 /// The accepted clock drift for nodes gossiping blocks and attestations. See:
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/p2p-interface.md#configuration
@@ -2145,6 +2150,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unverified_block: B,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
+        self.process_block_internal(unverified_block, EnableAttestationGate::No)
+    }
+
+    pub fn process_block_with_attestation_gate<B: IntoFullyVerifiedBlock<T>>(
+        &self,
+        unverified_block: B,
+    ) -> Result<Hash256, BlockError<T::EthSpec>> {
+        self.process_block_internal(unverified_block, EnableAttestationGate::Yes)
+    }
+
+    fn process_block_internal<B: IntoFullyVerifiedBlock<T>>(
+        &self,
+        unverified_block: B,
+        gate: EnableAttestationGate,
+    ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
@@ -2157,7 +2177,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let import_block = |unverified_block: B| -> Result<Hash256, BlockError<T::EthSpec>> {
             let fully_verified = unverified_block.into_fully_verified_block(self)?;
-            self.import_block(fully_verified)
+            self.import_block(fully_verified, gate)
         };
 
         // Verify and import the block.
@@ -2206,6 +2226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn import_block(
         &self,
         fully_verified_block: FullyVerifiedBlock<T>,
+        gate: EnableAttestationGate,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let signed_block = fully_verified_block.block;
         let block_root = fully_verified_block.block_root;
@@ -2408,7 +2429,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(validator_monitor);
 
-        if block.slot() + T::EthSpec::slots_per_epoch() >= current_slot {
+        if let EnableAttestationGate::Yes = gate {
             let new_head = fork_choice
                 .get_head(current_slot)
                 .map_err(BeaconChainError::from)?;
