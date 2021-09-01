@@ -556,13 +556,12 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "beacon_chain",
  "clap",
  "clap_utils",
  "client",
- "ctrlc",
  "directory",
  "dirs",
  "environment",
@@ -730,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1847,6 +1846,7 @@ dependencies = [
 name = "eth2_config"
 version = "0.2.0"
 dependencies = [
+ "paste",
  "serde",
  "serde_derive",
  "types",
@@ -3197,7 +3197,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "account_utils",
  "bls",
@@ -3842,7 +3842,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -4318,7 +4318,6 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
- "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -4639,6 +4638,12 @@ dependencies = [
  "smallvec",
  "winapi",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acbf547ad0c65e31259204bd90935776d1c693cec2f4ff7abb7a1bbbd40dfe58"
 
 [[package]]
 name = "pbkdf2"

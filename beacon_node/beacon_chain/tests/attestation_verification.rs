@@ -5,7 +5,9 @@ extern crate lazy_static;
 
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{
+        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    },
     BeaconChain, BeaconChainTypes, WhenSlotSkipped,
 };
 use int_to_bytes::int_to_bytes32;
@@ -33,13 +35,16 @@ lazy_static! {
 
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::new_with_target_aggregators(
+    let mut spec = test_spec::<E>();
+
+    // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
+    // not all.
+    spec.target_aggregators_per_committee = 4;
+
+    let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
-        None,
+        Some(spec),
         KEYPAIRS[0..validator_count].to_vec(),
-        // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
-        // not all.
-        4,
         StoreConfig::default(),
     );
 

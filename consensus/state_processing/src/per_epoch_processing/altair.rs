@@ -22,7 +22,7 @@ pub mod sync_committee_updates;
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary, Error> {
+) -> Result<EpochProcessingSummary<T>, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -30,6 +30,7 @@ pub fn process_epoch<T: EthSpec>(
 
     // Pre-compute participating indices and total balances.
     let participation_cache = ParticipationCache::new(state, spec)?;
+    let sync_committee = state.current_sync_committee()?.clone();
 
     // Justification and finalization.
     process_justification_and_finalization(state, &participation_cache)?;
@@ -75,5 +76,6 @@ pub fn process_epoch<T: EthSpec>(
 
     Ok(EpochProcessingSummary::Altair {
         participation_cache,
+        sync_committee,
     })
 }

@@ -467,6 +467,10 @@ pub fn set_network_config(
         config.import_all_attestations = true;
     }
 
+    if cli_args.is_present("shutdown-after-sync") {
+        config.shutdown_after_sync = true;
+    }
+
     if let Some(listen_address_str) = cli_args.value_of("listen-address") {
         let listen_address = listen_address_str
             .parse()
