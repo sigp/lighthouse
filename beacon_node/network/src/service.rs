@@ -25,8 +25,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    EthSpec, ForkContext, ForkName, RelativeEpoch, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription, Slot, ChainSpec
+    ChainSpec, EthSpec, ForkContext, ForkName, RelativeEpoch, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -733,7 +733,6 @@ fn spawn_service<T: BeaconChainTypes>(
                     }
                     service.next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&service.beacon_chain).into());
                 }
-                
             }
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
         }
