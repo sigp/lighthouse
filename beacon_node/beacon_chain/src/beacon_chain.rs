@@ -2394,16 +2394,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let new_head = self
-            .fork_choice
-            .write()
-            .get_head(self.slot()?)
-            .map_err(BeaconChainError::from)?;
-
-        if new_head == block_root {
-            self.attestation_gate.prevent_attestation();
-        }
-
         for exit in block.body().voluntary_exits() {
             validator_monitor.register_block_voluntary_exit(&exit.message)
         }
@@ -2417,6 +2407,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         drop(validator_monitor);
+
+        if block.slot() + T::EthSpec::slots_per_epoch() >= current_slot {
+            let new_head = self
+                .fork_choice
+                .write()
+                .get_head(current_slot)
+                .map_err(BeaconChainError::from)?;
+
+            if new_head == block_root {
+                self.attestation_gate.prevent_attestation();
+            }
+        }
 
         // Only present some metrics for blocks from the previous epoch or later.
         //
