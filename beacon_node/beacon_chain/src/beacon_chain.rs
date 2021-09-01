@@ -2409,9 +2409,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(validator_monitor);
 
         if block.slot() + T::EthSpec::slots_per_epoch() >= current_slot {
-            let new_head = self
-                .fork_choice
-                .write()
+            let new_head = fork_choice
                 .get_head(current_slot)
                 .map_err(BeaconChainError::from)?;
 
