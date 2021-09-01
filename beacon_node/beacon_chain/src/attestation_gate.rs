@@ -43,7 +43,7 @@ impl AttestationGate {
 
     pub fn block_until_attestation_permitted(&self) {
         let mut ready = self.mutex.lock();
-        while !*ready {
+        if !*ready {
             if self
                 .condvar
                 .wait_for(&mut ready, ATTESTATION_BLOCKING_TIMEOUT)
