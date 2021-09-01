@@ -6,12 +6,22 @@ use types::Slot;
 pub enum SyncState {
     /// The node is performing a long-range (batch) sync over a finalized chain.
     /// In this state, parent lookups are disabled.
-    SyncingFinalized { start_slot: Slot, target_slot: Slot },
+    SyncingFinalized {
+        start_slot: Slot,
+        target_slot: Slot,
+    },
     /// The node is performing a long-range (batch) sync over one or many head chains.
     /// In this state parent lookups are disabled.
-    SyncingHead { start_slot: Slot, target_slot: Slot },
+    SyncingHead {
+        start_slot: Slot,
+        target_slot: Slot,
+    },
     /// The node has identified the need for is sync operations and is transitioning to a syncing
     /// state.
+    BackFillSyncing {
+        completed: usize,
+        remaining: usize,
+    },
     SyncTransition,
     /// The node is up to date with all known peers and is connected to at least one
     /// fully synced peer. In this state, parent lookups are enabled.
@@ -43,6 +53,8 @@ impl SyncState {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => true,
             SyncState::SyncTransition => true,
+            // Backfill doesn't effect any logic, we consider this state, not syncing.
+            SyncState::BackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -62,6 +74,7 @@ impl std::fmt::Display for SyncState {
             SyncState::Synced { .. } => write!(f, "Synced"),
             SyncState::Stalled { .. } => write!(f, "Stalled"),
             SyncState::SyncTransition => write!(f, "Searching syncing peers"),
+            SyncState::BackFillSyncing { .. } => write!(f, "Syncing old blocks."),
         }
     }
 }

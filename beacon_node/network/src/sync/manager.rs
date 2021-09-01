@@ -33,6 +33,7 @@
 //! needs to be searched for (i.e if an attestation references an unknown block) this manager can
 //! search for the block and subsequently search for parents if needed.
 
+use super::backfill_sync::{BackFillSync, SyncStart};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -77,14 +78,14 @@ pub enum SyncMessage<T: EthSpec> {
     /// A useful peer has been discovered.
     AddPeer(PeerId, SyncInfo),
 
-    /// A `BlocksByRange` response has been received.
+    /// A [`BlocksByRange`] response has been received.
     BlocksByRangeResponse {
         peer_id: PeerId,
         request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T>>>,
     },
 
-    /// A `BlocksByRoot` response has been received.
+    /// A [`BlocksByRoot`] response has been received.
     BlocksByRootResponse {
         peer_id: PeerId,
         request_id: RequestId,
@@ -166,6 +167,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// The object handling long-range batch load-balanced syncing.
     range_sync: RangeSync<T>,
 
+    /// Backfill syncing.
+    backfill_sync: BackFillSync<T>,
+
     /// A collection of parent block lookups.
     parent_queue: SmallVec<[ParentRequests<T::EthSpec>; 3]>,
 
@@ -224,6 +228,12 @@ pub fn spawn<T: BeaconChainTypes>(
     let mut sync_manager = SyncManager {
         range_sync: RangeSync::new(
             beacon_chain.clone(),
+            beacon_processor_send.clone(),
+            log.clone(),
+        ),
+        backfill_sync: BackFillSync::new(
+            beacon_chain.clone(),
+            network_globals.clone(),
             beacon_processor_send.clone(),
             log.clone(),
         ),
@@ -638,7 +648,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Updates the global sync state and logs any changes.
+    /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as log any changes.
+    ///
+    /// The logic for which sync should be running is as follows:
+    /// - If there is a range-sync running (or required) pause any backfill and let range-sync
+    /// complete.
+    /// - If there is no current range sync, check for any requirement to backfill and either
+    /// start/resume a backfill sync if required. The global state will be BackFillSync if a
+    /// backfill sync is running.
+    /// - If there is no range sync and no required backfill and we have synced up to the currently
+    /// known peers, we consider ourselves synced.
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
@@ -647,41 +666,73 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             Ok(state) => match state {
                 None => {
-                    // no range sync, decide if we are stalled or synced.
+                    // No range sync, so we decide if we are stalled or synced.
                     // For this we check if there is at least one advanced peer. An advanced peer
                     // with Idle range is possible since a peer's status is updated periodically.
                     // If we synced a peer between status messages, most likely the peer has
                     // advanced and will produce a head chain on re-status. Otherwise it will shift
                     // to being synced
-                    let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
-                    let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
+                    let sync_state = {
+                        let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
+                        let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
-                    let peers = self.network_globals.peers.read();
-                    if current_slot >= head
-                        && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
-                        && head > 0
-                    {
-                        SyncState::Synced
-                    } else if peers.advanced_peers().next().is_some() {
-                        SyncState::SyncTransition
-                    } else if peers.synced_peers().next().is_none() {
-                        SyncState::Stalled
-                    } else {
-                        // There are no peers that require syncing and we have at least one synced
-                        // peer
-                        SyncState::Synced
+                        let peers = self.network_globals.peers.read();
+                        if current_slot >= head
+                            && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
+                            && head > 0
+                        {
+                            SyncState::Synced
+                        } else if peers.advanced_peers().next().is_some() {
+                            SyncState::SyncTransition
+                        } else if peers.synced_peers().next().is_none() {
+                            SyncState::Stalled
+                        } else {
+                            // There are no peers that require syncing and we have at least one synced
+                            // peer
+                            SyncState::Synced
+                        }
+                    };
+
+                    // If we would otherwise be synced, first check if we need to perform or
+                    // complete a backfill sync.
+                    if matches!(sync_state, SyncState::Synced) {
+                        match self.backfill_sync.start(&mut self.network) {
+                            Ok(SyncStart::Syncing {
+                                completed,
+                                remaining,
+                            }) => {
+                                return SyncState::BackFillSyncing {
+                                    completed,
+                                    remaining,
+                                };
+                            }
+                            Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the backfill sync state didn't start.
+                            Err(e) => {
+                                error!(self.log, "Backfill sync failed to start"; "error" => e);
+                            }
+                        }
                     }
+                    // Return the sync state if backfilling is not required.
+                    sync_state
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
+                    // If there is a backfill sync in progress pause it.
+                    self.backfill.pause();
+
                     SyncState::SyncingFinalized {
                         start_slot,
                         target_slot,
                     }
                 }
-                Some((RangeSyncType::Head, start_slot, target_slot)) => SyncState::SyncingHead {
-                    start_slot,
-                    target_slot,
-                },
+                Some((RangeSyncType::Head, start_slot, target_slot)) => {
+                    // If there is a backfill sync in progress pause it.
+                    self.backfill.pause();
+
+                    SyncState::SyncingHead {
+                        start_slot,
+                        target_slot,
+                    }
+                }
             },
         };
 
@@ -827,7 +878,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // This is a peer-specific error and the chain could be continued with another
                 // peer. We don't consider this chain a failure and prevent retries with another
                 // peer.
-                "too many failed attempts"
             } else {
                 if !parent_request.downloaded_blocks.is_empty() {
                     self.failed_chains
@@ -835,7 +885,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 } else {
                     crit!(self.log, "Parent lookup has no blocks");
                 }
-                "reached maximum lookup-depth"
             };
 
             debug!(self.log, "Parent import failed";
