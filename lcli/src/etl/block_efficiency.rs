@@ -53,7 +53,7 @@ async fn get_block_attestations_set<'a, T: EthSpec>(
 ) -> Result<(HashMap<UniqueAttestation, InclusionDistance>, ProposerInfo), String> {
     let mut unique_attestations_set: HashMap<UniqueAttestation, InclusionDistance> = HashMap::new();
 
-    let option_block: Option<GenericResponse<SignedBeaconBlock<T>>> = node
+    let option_block: Option<ForkVersionedResponse<SignedBeaconBlock<T>>> = node
         .get_beacon_blocks(BlockId::Slot(slot))
         .await
         .map_err(|e| format!("{:?}", e))?;
@@ -129,6 +129,11 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
     const SECONDS_PER_SLOT: Duration = Duration::from_secs(12);
     let output_path: PathBuf = clap_utils::parse_required(matches, "output")?;
     let start_epoch: Epoch = clap_utils::parse_required(matches, "start-epoch")?;
+    let offline_window: u64 = matches
+        .value_of("offline_window")
+        .unwrap_or("3")
+        .parse()
+        .map_err(|e| format!("{:?}", e))?;
 
     if start_epoch == 0 {
         return Err("start_epoch cannot be 0.".to_string());
@@ -278,15 +283,14 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
         }
 
         // Calculate offline validators.
-        let offline =
-            if epoch != start_epoch && epoch != start_epoch + 1 && epoch != (start_epoch + 2) {
-                active_validators
-                    .checked_sub(online_validator_set.len())
-                    .ok_or_else(|| "Online set is greater than active set".to_string())?
-                    .to_string()
-            } else {
-                "None".to_string()
-            };
+        let offline = if epoch >= start_epoch + offline_window {
+            active_validators
+                .checked_sub(online_validator_set.len())
+                .ok_or_else(|| "Online set is greater than active set".to_string())?
+                .to_string()
+        } else {
+            "None".to_string()
+        };
 
         // Write epoch data.
         for (slot, proposer, available, included) in epoch_data {
@@ -306,8 +310,8 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
         included_attestations_set
             .retain(|x, _| x.slot >= (epoch - 1).start_slot(T::slots_per_epoch()));
 
-        // Remove old validators from the validator set which are older than 2 epochs.
-        online_validator_set.retain(|_, x| *x >= (epoch - 2));
+        // Remove old validators from the validator set which are outside the offline window.
+        online_validator_set.retain(|_, x| *x >= (epoch - (offline_window - 1)));
     }
     Ok(())
 }

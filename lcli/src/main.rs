@@ -537,6 +537,17 @@ fn main() {
                         )
                         .required(true),
                 )
+                .arg(
+                    Arg::with_name("offline-window")
+                        .long("offline-window")
+                        .takes_value(true)
+                        .help(
+                            "If a validator does not submit an attestion within this many epochs, \
+                            they are deemed offline. For example, for a offline window of 3, if a \
+                            validator does not attest in epochs 4, 5 or 6, it is deemed offline \
+                            during epoch 6. This value defaults to 3."
+                        )
+                )
         )
         .get_matches();
 
