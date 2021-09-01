@@ -691,7 +691,7 @@ fn spawn_service<T: BeaconChainTypes>(
                     if let Some(new_fork_name) = fork_context.from_context_bytes(new_enr_fork_id.fork_digest) {
                         info!(
                             service.log,
-                            "Updating enr fork version";
+                            "Transitioned to new fork";
                             "old_fork" => ?fork_context.current_fork(),
                             "new_fork" => ?new_fork_name,
                         );
@@ -728,7 +728,10 @@ fn spawn_service<T: BeaconChainTypes>(
                         info!(service.log, "Subscribing to new fork topics");
                         service.libp2p.swarm.behaviour_mut().subscribe_new_fork_topics(fork_digest);
                     }
-                    service.next_fork_subscriptions = Box::pin(None.into());
+                    else {
+                        error!(service.log, "Fork subscription scheduled but no fork scheduled");
+                    }
+                    service.next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&service.beacon_chain).into());
                 }
                 
             }
@@ -748,15 +751,19 @@ fn next_fork_delay<T: BeaconChainTypes>(
 }
 
 /// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork.
-/// If there is no scheduled fork, `None` is returned.
+/// Returns `None` if there are no scheduled forks or we are already past `current_slot + SUBSCRIBE_DELAY_SLOTS > fork_slot`.
 fn next_fork_subscriptions_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
-    beacon_chain.duration_to_next_fork().map(|(_, until_fork)| {
-        tokio::time::sleep(until_fork.saturating_sub(Duration::from_secs(
+    if let Some((_, duration_to_fork)) = beacon_chain.duration_to_next_fork() {
+        let duration_to_subscription = duration_to_fork.saturating_sub(Duration::from_secs(
             beacon_chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
-        )))
-    })
+        ));
+        if !duration_to_subscription.is_zero() {
+            return Some(tokio::time::sleep(duration_to_subscription));
+        }
+    }
+    None
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {
