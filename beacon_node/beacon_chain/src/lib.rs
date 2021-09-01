@@ -11,6 +11,7 @@ pub mod chain_config;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
+pub mod fork_revert;
 mod head_tracker;
 mod metrics;
 pub mod migrate;

@@ -17,8 +17,12 @@ impl<T> Fallback<T> {
         Self { servers }
     }
 
-    /// Return the first successful result or all errors encountered.
-    pub async fn first_success<'a, F, O, E, R>(&'a self, func: F) -> Result<O, FallbackError<E>>
+    /// Return the first successful result along with number of previous errors encountered
+    /// or all the errors encountered if every server fails.
+    pub async fn first_success<'a, F, O, E, R>(
+        &'a self,
+        func: F,
+    ) -> Result<(O, usize), FallbackError<E>>
     where
         F: Fn(&'a T) -> R,
         R: Future<Output = Result<O, E>>,
@@ -26,7 +30,7 @@ impl<T> Fallback<T> {
         let mut errors = vec![];
         for server in &self.servers {
             match func(server).await {
-                Ok(val) => return Ok(val),
+                Ok(val) => return Ok((val, errors.len())),
                 Err(e) => errors.push(e),
             }
         }

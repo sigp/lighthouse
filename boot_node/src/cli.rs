@@ -61,6 +61,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 This enables this feature.")
         )
         .arg(
+            Arg::with_name("disable-packet-filter")
+                .long("disable-packet-filter")
+                .help("Disables discv5 packet filter. Useful for testing in smaller networks")
+        )
+        .arg(
             Arg::with_name("network-dir")
             .value_name("NETWORK_DIR")
                 .long("network-dir")
