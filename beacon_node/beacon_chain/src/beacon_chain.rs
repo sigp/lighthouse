@@ -2807,6 +2807,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let result = self.fork_choice_internal();
 
+        self.attestation_gate.allow_attestation();
+
         if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
