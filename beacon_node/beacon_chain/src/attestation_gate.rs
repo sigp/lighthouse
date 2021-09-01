@@ -28,9 +28,9 @@ impl AttestationGate {
         *self.mutex.lock() = true;
         let unblocked = self.condvar.notify_all();
 
-        metrics::set_gauge(
+        metrics::inc_counter_by(
             &metrics::BEACON_ATTESTATION_GATE_UNBLOCKED_TOTAL,
-            unblocked as i64,
+            unblocked as u64,
         );
         if unblocked > 0 {
             debug!(

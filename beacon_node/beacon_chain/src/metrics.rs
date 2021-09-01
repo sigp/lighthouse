@@ -739,7 +739,7 @@ lazy_static! {
     /*
      * Attestation Gate
      */
-    pub static ref BEACON_ATTESTATION_GATE_UNBLOCKED_TOTAL: Result<IntGauge> = try_create_int_gauge(
+    pub static ref BEACON_ATTESTATION_GATE_UNBLOCKED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_attestation_gate_unblocked_total",
         "Count of threads unblocked by unlocking the attestation gate"
     );
