@@ -1,3 +1,14 @@
+//! The `AttestationGate` allows blocking attestation creation whilst a new head block is imported.
+//!
+//! This helps prevent the scenario where a block is received and verified before the attestation
+//! deadline, but lack of system resources (e.g., disk IO) prevents that block being fully imported
+//! (i.e., put in the DB) and set as head before the attestation deadline expires.
+//!
+//! ## Incentives
+//!
+//! Using the `ApplicationGate` means that low-resourced notes will attest late rather than
+//! attesting wrong.
+
 use crate::metrics;
 use parking_lot::{Condvar, Mutex};
 use slog::{debug, warn, Logger};
