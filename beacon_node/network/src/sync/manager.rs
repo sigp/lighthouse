@@ -672,7 +672,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // If we synced a peer between status messages, most likely the peer has
                     // advanced and will produce a head chain on re-status. Otherwise it will shift
                     // to being synced
-                    let sync_state = {
+                    let mut sync_state = {
                         let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
                         let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
@@ -701,7 +701,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 completed,
                                 remaining,
                             }) => {
-                                return SyncState::BackFillSyncing {
+                                sync_state = SyncState::BackFillSyncing {
                                     completed,
                                     remaining,
                                 };
@@ -717,7 +717,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
                     // If there is a backfill sync in progress pause it.
-                    self.backfill.pause();
+                    self.backfill_sync.pause();
 
                     SyncState::SyncingFinalized {
                         start_slot,
@@ -726,7 +726,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Head, start_slot, target_slot)) => {
                     // If there is a backfill sync in progress pause it.
-                    self.backfill.pause();
+                    self.backfill_sync.pause();
 
                     SyncState::SyncingHead {
                         start_slot,

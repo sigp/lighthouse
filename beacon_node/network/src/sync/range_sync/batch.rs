@@ -35,7 +35,7 @@ impl BatchConfig for RangeSyncBatchConfig {
 
 /// Error type of a batch in a wrong state.
 // Such errors should never be encountered.
-pub struct WrongState(pub(super) String);
+pub struct WrongState(pub(crate) String);
 
 /// Auxiliary type alias for readability.
 type IsFailed = bool;
@@ -390,7 +390,7 @@ impl Attempt {
     }
 }
 
-impl<T: EthSpec> slog::KV for &mut BatchInfo<T> {
+impl<T: EthSpec, B: BatchConfig> slog::KV for &mut BatchInfo<T, B> {
     fn serialize(
         &self,
         record: &slog::Record,
@@ -400,7 +400,7 @@ impl<T: EthSpec> slog::KV for &mut BatchInfo<T> {
     }
 }
 
-impl<T: EthSpec> slog::KV for BatchInfo<T> {
+impl<T: EthSpec, B: BatchConfig> slog::KV for BatchInfo<T, B> {
     fn serialize(
         &self,
         record: &slog::Record,
