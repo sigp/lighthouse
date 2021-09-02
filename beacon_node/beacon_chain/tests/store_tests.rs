@@ -1857,10 +1857,10 @@ fn weak_subjectivity_sync() {
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
-    // Resupplying the blocks should fail
+    // Resupplying the blocks should not fail, they can be safely ignored.
     beacon_chain
         .import_historical_block_batch(historical_blocks)
-        .unwrap_err();
+        .unwrap();
 
     // The forwards iterator should now match the original chain
     assert!(beacon_chain

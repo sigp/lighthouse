@@ -1,4 +1,5 @@
 use crate::{errors::BeaconChainError as Error, BeaconChain, BeaconChainTypes};
+use slog::debug;
 use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
 use types::{Hash256, SignedBeaconBlock, Slot};
 
@@ -12,21 +13,22 @@ pub enum HistoricalBlockError {
         slot: Slot,
         oldest_block_slot: Slot,
     },
+    PartitionOutOfBounds,
     NoAnchorInfo,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Store a batch of historical blocks in the database.
     ///
-    /// The `blocks` should be given in slot-ascending order with the last block's root
-    /// corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
+    /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
+    /// root corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
     ///
     /// The integrity of the hash chain *is* verified. If any block doesn't match the parent root
     /// listed in its successor, then the whole batch will be discarded and `MismatchedBlockRoot`
     /// will be returned.
     ///
-    /// To align with sync we allow the last block provided to match the oldest block in the
-    /// database. It will be checked (via its parent root) and discarded without further processing.
+    /// To align with sync we allow some excess blocks with slots greater than or equal to
+    /// `oldest_block_slot` to be provided. They will be ignored without being checked.
     ///
     /// This function should not be called concurrently with any other function that mutates
     /// the anchor info (including this function itself). If a concurrent mutation occurs that
@@ -40,6 +42,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_anchor_info()
             .ok_or(HistoricalBlockError::NoAnchorInfo)?;
 
+        // Take all blocks with slots less than the oldest block slot.
+        let num_relevant =
+            blocks.partition_point(|block| block.slot() < anchor_info.oldest_block_slot);
+        let blocks_to_import = &blocks
+            .get(..num_relevant)
+            .ok_or(HistoricalBlockError::PartitionOutOfBounds)?;
+
+        if blocks_to_import.len() != blocks.len() {
+            debug!(
+                self.log,
+                "Ignoring some historic blocks";
+                "oldest_block_slot" => anchor_info.oldest_block_slot,
+                "total_blocks" => blocks.len(),
+                "ignored" => blocks.len().saturating_sub(blocks_to_import.len()),
+            );
+        }
+
+        if blocks_to_import.is_empty() {
+            return Ok(());
+        }
+
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut chunk_writer =
@@ -47,25 +70,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut cold_batch = Vec::with_capacity(blocks.len());
         let mut hot_batch = Vec::with_capacity(blocks.len());
-
-        // If the last block's parent is the same as the `oldest_block_parent` then we drop it.
-        // This is to align with sync on the first batch supplied. Sync likes to fetch batches of
-        // blocks with the last block aligned to an epoch boundary, whereas backfill needs to
-        // start from the block *before* a supplied epoch boundary block.
-        let blocks_to_import = if let Some((last_block, rest)) = blocks.split_last() {
-            if last_block.slot() == prev_block_slot
-                && last_block.parent_root() == expected_block_root
-            {
-                // Skip last block (usually first batch only)
-                rest
-            } else {
-                // Import all (normal case)
-                &blocks
-            }
-        } else {
-            // Empty batch.
-            return Ok(());
-        };
 
         for block in blocks_to_import.iter().rev() {
             // Check chain integrity.
