@@ -379,6 +379,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 false
             }
             Ok(v) => {
+                // Inform the network
+                self.add_event(BehaviourEvent::UnsubscribedTopic(topic.hash()));
                 debug!(self.log, "Unsubscribed to topic"; "topic" => %topic);
                 v
             }
@@ -832,7 +834,6 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.peer_manager.remove_subscription(&peer_id, subnet_id);
                 }
-                self.add_event(BehaviourEvent::UnsubscribedTopic(topic));
             }
         }
     }
