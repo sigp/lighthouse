@@ -767,6 +767,7 @@ pub struct SseLateHead {
     pub slot: Slot,
     pub block: Hash256,
     pub proposer_index: u64,
+    pub peer_id: Option<String>,
     pub proposer_graffiti: String,
     pub block_delay: Duration,
     pub observed_delay: Option<Duration>,

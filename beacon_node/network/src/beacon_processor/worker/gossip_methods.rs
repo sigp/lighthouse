@@ -639,6 +639,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             block.canonical_root(),
             block.slot(),
             seen_duration,
+            Some(peer_id.to_string()),
         );
 
         let verified_block = match self.chain.verify_block_for_gossip(block) {

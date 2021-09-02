@@ -3230,6 +3230,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             if !block_from_sync && late_head && event_handler.has_late_head_subscribers() {
+                let peer_id = self
+                    .block_times_cache
+                    .read()
+                    .cache
+                    .get(&beacon_block_root)
+                    .and_then(|x| x.peer_id.clone());
                 let block_delays = self.block_times_cache.read().get_block_delays(
                     beacon_block_root,
                     self.slot_clock
@@ -3239,6 +3245,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::LateHead(SseLateHead {
                     slot: head_slot,
                     block: beacon_block_root,
+                    peer_id,
                     proposer_index: head_proposer_index,
                     proposer_graffiti,
                     block_delay: block_delay_total,

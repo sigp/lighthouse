@@ -69,8 +69,9 @@ impl BlockDelays {
 }
 
 pub struct BlockTimesCacheValue {
-    pub timestamps: Timestamps,
     pub slot: Slot,
+    pub timestamps: Timestamps,
+    pub peer_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -80,16 +81,29 @@ pub struct BlockTimesCache {
 
 /// Helper methods to read from and write to the cache.
 impl BlockTimesCache {
-    pub fn set_time_observed(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
+    pub fn set_time_observed(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        timestamp: Duration,
+        peer_id: Option<String>,
+    ) {
         if let Some(mut block_times) = self.cache.get_mut(&block_root) {
             block_times.timestamps.observed = Some(timestamp);
+            block_times.peer_id = peer_id;
         } else {
             let timestamps = Timestamps {
                 observed: Some(timestamp),
                 ..Default::default()
             };
-            self.cache
-                .insert(block_root, BlockTimesCacheValue { timestamps, slot });
+            self.cache.insert(
+                block_root,
+                BlockTimesCacheValue {
+                    slot,
+                    timestamps,
+                    peer_id,
+                },
+            );
         }
     }
 
@@ -101,8 +115,14 @@ impl BlockTimesCache {
                 imported: Some(timestamp),
                 ..Default::default()
             };
-            self.cache
-                .insert(block_root, BlockTimesCacheValue { timestamps, slot });
+            self.cache.insert(
+                block_root,
+                BlockTimesCacheValue {
+                    slot,
+                    timestamps,
+                    peer_id: None,
+                },
+            );
         }
     }
 
@@ -114,8 +134,14 @@ impl BlockTimesCache {
                 set_as_head: Some(timestamp),
                 ..Default::default()
             };
-            self.cache
-                .insert(block_root, BlockTimesCacheValue { timestamps, slot });
+            self.cache.insert(
+                block_root,
+                BlockTimesCacheValue {
+                    slot,
+                    timestamps,
+                    peer_id: None,
+                },
+            );
         }
     }
 
@@ -133,6 +159,7 @@ impl BlockTimesCache {
 
     // Prune the cache to only store the most recent 2 epochs.
     pub fn prune(&mut self, current_slot: Slot) {
-        self.cache.retain(|_, cache| cache.slot < current_slot - 64)
+        self.cache
+            .retain(|_, cache| cache.slot < current_slot.saturating_sub(64_u64));
     }
 }
