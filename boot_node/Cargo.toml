@@ -10,7 +10,7 @@ clap = "2.33.3"
 eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
 types = { path = "../consensus/types" }
 eth2_network_config = { path = "../common/eth2_network_config" }
-eth2_ssz = "0.1.2"
+eth2_ssz = "0.3.0"
 slog = "2.5.2"
 sloggers = "1.0.1"
 tokio = "1.10.0"

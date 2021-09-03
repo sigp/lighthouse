@@ -57,7 +57,7 @@ impl ApiSecret {
 
             fs::write(
                 &sk_path,
-                serde_utils::hex::encode(&sk.serialize()).as_bytes(),
+                eth2_serde_utils::hex::encode(&sk.serialize()).as_bytes(),
             )
             .map_err(|e| e.to_string())?;
             fs::write(
@@ -65,7 +65,7 @@ impl ApiSecret {
                 format!(
                     "{}{}",
                     PK_PREFIX,
-                    serde_utils::hex::encode(&pk.serialize_compressed()[..])
+                    eth2_serde_utils::hex::encode(&pk.serialize_compressed()[..])
                 )
                 .as_bytes(),
             )
@@ -75,7 +75,7 @@ impl ApiSecret {
         let sk = fs::read(&sk_path)
             .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))
             .and_then(|bytes| {
-                serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
+                eth2_serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
                     .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
             })
             .and_then(|bytes| {
@@ -99,7 +99,7 @@ impl ApiSecret {
                 let hex =
                     String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", SK_FILENAME))?;
                 if let Some(stripped) = hex.strip_prefix(PK_PREFIX) {
-                    serde_utils::hex::decode(stripped)
+                    eth2_serde_utils::hex::decode(stripped)
                         .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
                 } else {
                     Err(format!("unable to parse {}", SK_FILENAME))
@@ -138,7 +138,7 @@ impl ApiSecret {
 
     /// Returns the public key of `self` as a 0x-prefixed hex string.
     fn pubkey_string(&self) -> String {
-        serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
+        eth2_serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
     }
 
     /// Returns the API token.
@@ -178,7 +178,7 @@ impl ApiSecret {
             let message =
                 Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
             let (signature, _) = libsecp256k1::sign(&message, &sk);
-            serde_utils::hex::encode(signature.serialize_der().as_ref())
+            eth2_serde_utils::hex::encode(signature.serialize_der().as_ref())
         }
     }
 }

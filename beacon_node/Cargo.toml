@@ -36,7 +36,7 @@ task_executor = { path = "../common/task_executor" }
 genesis = { path = "genesis" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 eth2_libp2p = { path = "./eth2_libp2p" }
-eth2_ssz = "0.1.2"
+eth2_ssz = "0.3.0"
 serde = "1.0.116"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.14.4"

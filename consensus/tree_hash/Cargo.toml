@@ -1,6 +1,6 @@
 [package]
 name = "tree_hash"
-version = "0.1.1"
+version = "0.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -8,14 +8,14 @@ description = "Efficient Merkle-hashing as used in Ethereum 2.0"
 
 [dev-dependencies]
 rand = "0.7.3"
-tree_hash_derive = "0.2.0"
+tree_hash_derive = "0.3.1"
 types = { path = "../types" }
 lazy_static = "1.4.0"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 
 [dependencies]
 ethereum-types = "0.11.0"
-eth2_hashing = "0.1.0"
+eth2_hashing = "0.2.0"
 smallvec = "1.6.1"
 
 [features]

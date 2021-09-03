@@ -152,7 +152,7 @@ pub async fn create_validators<P: AsRef<Path>, T: 'static + SlotClock, E: EthSpe
             description: request.description.clone(),
             graffiti: request.graffiti.clone(),
             voting_pubkey,
-            eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
+            eth1_deposit_tx_data: eth2_serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
         });
     }

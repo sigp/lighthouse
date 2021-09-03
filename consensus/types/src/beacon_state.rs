@@ -198,7 +198,7 @@ where
 {
     // Versioning
     #[superstruct(getter(copy))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
     pub genesis_validators_root: Hash256,
@@ -219,7 +219,7 @@ where
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
     // Registry
