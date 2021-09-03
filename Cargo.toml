@@ -33,7 +33,6 @@ members = [
     "common/logging",
     "common/lru_cache",
     "common/malloc_utils",
-    "common/remote_signer_consumer",
     "common/sensitive_url",
     "common/slot_clock",
     "common/task_executor",
@@ -69,17 +68,12 @@ members = [
     "lighthouse",
     "lighthouse/environment",
 
-    "remote_signer",
-    "remote_signer/backend",
-    "remote_signer/client",
-
     "slasher",
     "slasher/service",
 
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/node_test_rig",
-    "testing/remote_signer_test",
     "testing/simulator",
     "testing/state_transition_vectors",
 

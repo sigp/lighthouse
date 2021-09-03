@@ -164,7 +164,6 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
-        .subcommand(remote_signer::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -392,16 +391,6 @@ fn run<E: EthSpec>(
                 let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
                     "Validator client immediate shutdown triggered.",
                 ));
-            }
-        }
-        ("remote_signer", Some(matches)) => {
-            if let Err(e) = remote_signer::run(&mut environment, matches) {
-                crit!(log, "Failed to start remote signer"; "reason" => e);
-                let _ = environment
-                    .core_context()
-                    .executor
-                    .shutdown_sender()
-                    .try_send(ShutdownReason::Failure("Failed to start remote signer"));
             }
         }
         _ => {
