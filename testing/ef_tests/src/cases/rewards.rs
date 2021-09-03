@@ -123,7 +123,7 @@ impl<E: EthSpec> Case for RewardsTest<E> {
 
                 Ok(convert_all_base_deltas(&deltas))
             } else {
-                let total_active_balance = state.get_total_active_balance(spec)?;
+                let total_active_balance = state.get_total_active_balance()?;
 
                 let source_deltas = compute_altair_flag_deltas(
                     &state,

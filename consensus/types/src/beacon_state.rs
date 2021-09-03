@@ -86,6 +86,11 @@ pub enum Error {
     },
     PreviousCommitteeCacheUninitialized,
     CurrentCommitteeCacheUninitialized,
+    TotalActiveBalanceCacheUninitialized,
+    TotalActiveBalanceCacheInconsistent {
+        initialized_epoch: Epoch,
+        current_epoch: Epoch,
+    },
     RelativeEpochError(RelativeEpochError),
     ExitCacheUninitialized,
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
@@ -275,6 +280,13 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
+    pub total_active_balance: Option<(Epoch, u64)>,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing)]
+    #[ssz(skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
     pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing)]
@@ -353,6 +365,7 @@ impl<T: EthSpec> BeaconState<T> {
             finalized_checkpoint: Checkpoint::default(),
 
             // Caching (not in spec)
+            total_active_balance: None,
             committee_caches: [
                 CommitteeCache::default(),
                 CommitteeCache::default(),
@@ -1226,12 +1239,45 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Implementation of `get_total_active_balance`, matching the spec.
-    pub fn get_total_active_balance(&self, spec: &ChainSpec) -> Result<u64, Error> {
+    ///
+    /// Requires the total active balance cache to be initialised, which is initialised whenever
+    /// the current committee cache is.
+    ///
+    /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
+    pub fn get_total_active_balance(&self) -> Result<u64, Error> {
+        let (initialized_epoch, balance) = self
+            .total_active_balance()
+            .ok_or(Error::TotalActiveBalanceCacheUninitialized)?;
+
+        let current_epoch = self.current_epoch();
+        if initialized_epoch == current_epoch {
+            Ok(balance)
+        } else {
+            Err(Error::TotalActiveBalanceCacheInconsistent {
+                initialized_epoch,
+                current_epoch,
+            })
+        }
+    }
+
+    /// Build the total active balance cache.
+    ///
+    /// This function requires the current committee cache to be already built. It is called
+    /// automatically when `build_committee_cache` is called for the current epoch.
+    fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         // Order is irrelevant, so use the cached indices.
-        self.get_total_balance(
+        let current_epoch = self.current_epoch();
+        let total_active_balance = self.get_total_balance(
             self.get_cached_active_validator_indices(RelativeEpoch::Current)?,
             spec,
-        )
+        )?;
+        *self.total_active_balance_mut() = Some((current_epoch, total_active_balance));
+        Ok(())
+    }
+
+    /// Set the cached total active balance to `None`, representing no known value.
+    pub fn drop_total_active_balance_cache(&mut self) {
+        *self.total_active_balance_mut() = None;
     }
 
     /// Get a mutable reference to the epoch participation flags for `epoch`.
@@ -1294,6 +1340,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Drop all caches on the state.
     pub fn drop_all_caches(&mut self) -> Result<(), Error> {
+        self.drop_total_active_balance_cache();
         self.drop_committee_cache(RelativeEpoch::Previous)?;
         self.drop_committee_cache(RelativeEpoch::Current)?;
         self.drop_committee_cache(RelativeEpoch::Next)?;
@@ -1323,11 +1370,14 @@ impl<T: EthSpec> BeaconState<T> {
             .committee_cache_at_index(i)?
             .is_initialized_at(relative_epoch.into_epoch(self.current_epoch()));
 
-        if is_initialized {
-            Ok(())
-        } else {
-            self.force_build_committee_cache(relative_epoch, spec)
+        if !is_initialized {
+            self.force_build_committee_cache(relative_epoch, spec)?;
         }
+
+        if self.total_active_balance().is_none() && relative_epoch == RelativeEpoch::Current {
+            self.build_total_active_balance_cache(spec)?;
+        }
+        Ok(())
     }
 
     /// Always builds the previous epoch cache, even if it is already initialized.
@@ -1359,9 +1409,35 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// This should be used if the `slot` of this state is advanced beyond an epoch boundary.
     ///
-    /// Note: whilst this function will preserve already-built caches, it will not build any.
-    pub fn advance_caches(&mut self) -> Result<(), Error> {
+    /// Note: this function will not build any new committee caches, but will build the total
+    /// balance cache if the (new) current epoch cache is initialized.
+    pub fn advance_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.committee_caches_mut().rotate_left(1);
+
+        // Re-compute total active balance for current epoch.
+        //
+        // This can only be computed once the state's effective balances have been updated
+        // for the current epoch. I.e. it is not possible to know this value with the same
+        // lookahead as the committee shuffling.
+        let curr = Self::committee_cache_index(RelativeEpoch::Current);
+        let curr_cache = mem::take(self.committee_cache_at_index_mut(curr)?);
+
+        // If current epoch cache is initialized, compute the total active balance from its
+        // indices. We check that the cache is initialized at the _next_ epoch because the slot has
+        // not yet been advanced.
+        let new_current_epoch = self.next_epoch()?;
+        if curr_cache.is_initialized_at(new_current_epoch) {
+            *self.total_active_balance_mut() = Some((
+                new_current_epoch,
+                self.get_total_balance(curr_cache.active_validator_indices(), spec)?,
+            ));
+        }
+        // If the cache is not initialized, then the previous cached value for the total balance is
+        // wrong, so delete it.
+        else {
+            self.drop_total_active_balance_cache();
+        }
+        *self.committee_cache_at_index_mut(curr)? = curr_cache;
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);
         *self.committee_cache_at_index_mut(next)? = CommitteeCache::default();
@@ -1504,6 +1580,7 @@ impl<T: EthSpec> BeaconState<T> {
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
+            *res.total_active_balance_mut() = *self.total_active_balance();
         }
         if config.pubkey_cache {
             *res.pubkey_cache_mut() = self.pubkey_cache().clone();
