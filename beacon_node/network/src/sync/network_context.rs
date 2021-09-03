@@ -1,6 +1,7 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
+use super::manager::SyncRequestType;
 use super::range_sync::{BatchId, ChainId};
 use super::RequestId as SyncRequestId;
 use crate::service::NetworkMessage;
@@ -27,18 +28,10 @@ pub struct SyncNetworkContext<T: EthSpec> {
     request_id: SyncRequestId,
 
     /// BlocksByRange requests made by syncing algorithms.
-    range_requests: FnvHashMap<SyncRequestId, RequestType>,
+    range_requests: FnvHashMap<SyncRequestId, SyncRequestType>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
-}
-
-/// The type of request made
-pub enum RequestType {
-    /// Request was from the backfill sync algorithm.
-    BackFillSync(BatchId),
-    /// The request was from a chain in the range sync algorithm.
-    RangeSync(BatchId, ChainId),
 }
 
 impl<T: EthSpec> SyncNetworkContext<T> {
@@ -106,7 +99,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         );
         let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
         self.range_requests
-            .insert(req_id, RequestType::RangeSync(batch_id, chain_id));
+            .insert(req_id, SyncRequestType::RangeSync(batch_id, chain_id));
         Ok(req_id)
     }
 
@@ -126,7 +119,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         );
         let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
         self.range_requests
-            .insert(req_id, RequestType::BackfillSync(batch_id));
+            .insert(req_id, SyncRequestType::BackfillSync(batch_id));
         Ok(req_id)
     }
 
@@ -135,7 +128,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         request_id: usize,
         remove: bool,
-    ) -> Option<RequestType> {
+    ) -> Option<SyncRequestType> {
         // NOTE: we can't guarantee that the request must be registered as it could receive more
         // than an error, and be removed after receiving the first one.
         // FIXME: https://github.com/sigp/lighthouse/issues/1634

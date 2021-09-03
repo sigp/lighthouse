@@ -107,8 +107,7 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
-        chain_id: ChainId,
-        epoch: Epoch,
+        sync_type: SyncRequestType,
         result: BatchProcessResult,
     },
 
@@ -119,6 +118,15 @@ pub enum SyncMessage<T: EthSpec> {
         /// The peer that instigated the chain lookup.
         peer_id: PeerId,
     },
+}
+
+/// The type of sync request made
+#[derive(Debug)]
+pub enum SyncRequestType {
+    /// Request was from the backfill sync algorithm.
+    BackFillSync(Epoch),
+    /// The request was from a chain in the range sync algorithm.
+    RangeSync(Epoch, ChainId),
 }
 
 /// The result of processing a multiple blocks (a chain segment).
