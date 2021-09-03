@@ -31,6 +31,21 @@ pub enum SyncState {
     Stalled,
 }
 
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+/// The state of the backfill sync.
+pub enum BackFillState {
+    /// The sync is partially completed and currently paused.
+    Paused,
+    /// We are currently backfilling.
+    Syncing,
+    /// A backfill sync has completed.
+    Completed,
+    /// A backfill sync is not required.
+    NotRequired,
+    /// Too many failed attempts at backfilling. Consider it failed.
+    Failed,
+}
+
 impl PartialEq for SyncState {
     fn eq(&self, other: &Self) -> bool {
         matches!(

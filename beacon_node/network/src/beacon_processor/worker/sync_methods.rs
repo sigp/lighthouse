@@ -2,9 +2,11 @@ use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::BlockResultSender;
 use crate::metrics;
-use crate::sync::manager::SyncMessage;
+use crate::sync::manager::{SyncMessage, SyncRequestType};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::{BeaconChainTypes, BlockError, ChainSegmentResult};
+use beacon_chain::{
+    BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
+};
 use eth2_libp2p::PeerId;
 use slog::{crit, debug, error, info, trace, warn};
 use tokio::sync::mpsc;
@@ -209,24 +211,38 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
                 );
-                match error {
-                    HistoricalBlockError::MismatchedBlockRoot {
-                        block_root,
-                        expected_block_root,
-                    } => {
-                        warn!(self.log, "Backfill batch processing error"; "error" => "mismatched_block_root", "block_root" => %block_root, "expected_root" => expected_block_root)
+                let err = match error {
+                    // Handle the historical block errors specifically
+                    BeaconChainError::HistoricalBlockError(e) => match e {
+                        HistoricalBlockError::MismatchedBlockRoot {
+                            block_root,
+                            expected_block_root,
+                        } => {
+                            warn!(self.log, "Backfill batch processing error"; "error" => "mismatched_block_root", "block_root" => %block_root, "expected_root" => %expected_block_root);
+                            String::from("mismatched_block_root")
+                        }
+                        HistoricalBlockError::BlockOutOfRange {
+                            slot,
+                            oldest_block_slot,
+                        } => {
+                            warn!(self.log, "Backfill batch processing error"; "error" => "block_out_of_range", "slot" => %slot, "oldest_block_slot" => %oldest_block_slot);
+                            String::from("oldest_block_slot")
+                        }
+                        HistoricalBlockError::NoAnchorInfo => {
+                            warn!(self.log, "Backfill batch processing error"; "error" => "no_anchor_info");
+                            String::from("no_anchor_info")
+                        }
+                        HistoricalBlockError::PartitionOutOfBounds => {
+                            warn!(self.log, "Backfill batch processing error"; "error" => "partition_out_of_bounds");
+                            String::from("no_anchor_info")
+                        }
+                    },
+                    other => {
+                        warn!(self.log, "Backfill batch processing error"; "error" => ?other);
+                        format!("{:?}", other)
                     }
-                    HistoricalBlockError::BlockOutOfRange {
-                        slot,
-                        oldest_block_slot,
-                    } => {
-                        warn!(self.log, "Backfill batch processing error"; "error" => "block_out_of_range", "slot" => %slot, "oldest_block_slot" => %oldest_block_slot)
-                    }
-                    HistoricalBlockError::NoAnchorInfo => {
-                        warn!(self.log, "Backfill batch processing error"; "error" => "no_anchor_info")
-                    }
-                }
-                (0, error)
+                };
+                (0, Err(err))
             }
         }
     }

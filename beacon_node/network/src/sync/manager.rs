@@ -33,7 +33,7 @@
 //! needs to be searched for (i.e if an attestation references an unknown block) this manager can
 //! search for the block and subsequently search for parents if needed.
 
-use super::backfill_sync::{BackFillSync, SyncStart};
+use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -43,7 +43,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
-use eth2_libp2p::types::{NetworkGlobals, SyncState};
+use eth2_libp2p::types::{BackFillState, NetworkGlobals, SyncState};
 use eth2_libp2p::SyncInfo;
 use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
@@ -121,7 +121,7 @@ pub enum SyncMessage<T: EthSpec> {
 }
 
 /// The type of sync request made
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SyncRequestType {
     /// Request was from the backfill sync algorithm.
     BackFillSync(Epoch),
@@ -594,6 +594,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    /// Handles RPC errors related to requests that were emitted from the sync manager.
     fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId) {
         trace!(self.log, "Sync manager received a failed RPC");
         // remove any single block lookups
@@ -615,14 +616,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             return;
         }
 
-        // otherwise, this is a range sync issue, notify the range sync
-        self.range_sync
-            .inject_error(&mut self.network, peer_id, request_id);
-        self.update_sync_state();
+        // Otherwise this error matches no known request.
+        trace!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
     }
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
+        // Regardless of the outcome, we update the sync status.
+        let _ = self
+            .backfill_sync
+            .peer_disconnected(peer_id, &mut self.network);
         self.update_sync_state();
     }
 
@@ -642,12 +645,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let new_state = sync_type.as_sync_status(remote_sync_info);
             let rpr = new_state.as_str();
-            let was_updated = peer_info.sync_status.update(new_state);
+            let was_updated = peer_info.sync_status.update(new_state.clone());
             if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
                     "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
                     "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
                     "is_connected" => peer_info.is_connected());
+
+                // A peer has transitioned its sync state. If the new state is "synced" and we have
+                // a failed backfill sync, we attempt to restart it as we have a new potential peer
+                // to progress the sync.
+                if new_state.is_synced()
+                    && matches!(self.backfill_sync.state(), BackFillState::Failed)
+                {
+                    debug!(self.log, "Attempting to restart a failed backfill sync");
+                    let _ = self.backfill_sync.restart(&mut self.network);
+                }
             }
             peer_info.is_connected()
         } else {
@@ -716,7 +729,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }
                             Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the backfill sync state didn't start.
                             Err(e) => {
-                                error!(self.log, "Backfill sync failed to start"; "error" => e);
+                                error!(self.log, "Backfill sync failed to start"; "error" => ?e);
                             }
                         }
                     }
@@ -886,13 +899,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // This is a peer-specific error and the chain could be continued with another
                 // peer. We don't consider this chain a failure and prevent retries with another
                 // peer.
+            } else if !parent_request.downloaded_blocks.is_empty() {
+                self.failed_chains
+                    .insert(parent_request.downloaded_blocks[0].canonical_root());
             } else {
-                if !parent_request.downloaded_blocks.is_empty() {
-                    self.failed_chains
-                        .insert(parent_request.downloaded_blocks[0].canonical_root());
-                } else {
-                    crit!(self.log, "Parent lookup has no blocks");
-                }
+                crit!(self.log, "Parent lookup has no blocks");
             };
 
             debug!(self.log, "Parent import failed";
@@ -944,13 +955,44 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         request_id,
                         beacon_block,
                     } => {
-                        self.range_sync.blocks_by_range_response(
-                            &mut self.network,
-                            peer_id,
-                            request_id,
-                            beacon_block.map(|b| *b),
-                        );
-                        self.update_sync_state();
+                        let beacon_block = beacon_block.map(|b| *b);
+                        // Obtain which sync requested these blocks and divert accordingly.
+                        match self
+                            .network
+                            .blocks_by_range_response(request_id, beacon_block.is_none())
+                        {
+                            Some(SyncRequestType::RangeSync(batch_id, chain_id)) => {
+                                self.range_sync.blocks_by_range_response(
+                                    &mut self.network,
+                                    peer_id,
+                                    chain_id,
+                                    batch_id,
+                                    request_id,
+                                    beacon_block,
+                                );
+                                self.update_sync_state();
+                            }
+                            Some(SyncRequestType::BackFillSync(batch_id)) => {
+                                match self.backfill_sync.on_block_response(
+                                    &mut self.network,
+                                    batch_id,
+                                    &peer_id,
+                                    request_id,
+                                    beacon_block,
+                                ) {
+                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                    Ok(ProcessResult::Successful) => {}
+                                    Err(_error) => {
+                                        // The backfill sync has failed, errors are reported
+                                        // within.
+                                        self.update_sync_state();
+                                    }
+                                }
+                            }
+                            None => {
+                                trace!(self.log, "Response/Error for non registered request"; "request_id" => request_id)
+                            }
+                        }
                     }
                     SyncMessage::BlocksByRootResponse {
                         peer_id,
@@ -970,21 +1012,63 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.peer_disconnect(&peer_id);
                     }
                     SyncMessage::RPCError(peer_id, request_id) => {
-                        self.inject_error(peer_id, request_id);
+                        // Redirect to a sync mechanism if the error is related to one of their
+                        // requests.
+                        match self.network.blocks_by_range_response(request_id, true) {
+                            Some(SyncRequestType::RangeSync(batch_id, chain_id)) => {
+                                self.range_sync.inject_error(
+                                    &mut self.network,
+                                    peer_id,
+                                    batch_id,
+                                    chain_id,
+                                    request_id,
+                                );
+                                self.update_sync_state();
+                            }
+                            Some(SyncRequestType::BackFillSync(batch_id)) => {
+                                match self.backfill_sync.inject_error(
+                                    &mut self.network,
+                                    batch_id,
+                                    &peer_id,
+                                    request_id,
+                                ) {
+                                    Ok(_) => {}
+                                    Err(_) => self.update_sync_state(),
+                                }
+                            }
+                            None => {
+                                // This is a request not belonging to a sync algorithm.
+                                // Process internally.
+                                self.inject_error(peer_id, request_id);
+                            }
+                        }
                     }
-                    SyncMessage::BatchProcessed {
-                        chain_id,
-                        epoch,
-                        result,
-                    } => {
-                        self.range_sync.handle_block_process_result(
-                            &mut self.network,
-                            chain_id,
-                            epoch,
-                            result,
-                        );
-                        self.update_sync_state();
-                    }
+                    SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
+                        SyncRequestType::RangeSync(epoch, chain_id) => {
+                            self.range_sync.handle_block_process_result(
+                                &mut self.network,
+                                chain_id,
+                                epoch,
+                                result,
+                            );
+                            self.update_sync_state();
+                        }
+                        SyncRequestType::BackFillSync(epoch) => {
+                            match self.backfill_sync.on_batch_process_result(
+                                &mut self.network,
+                                epoch,
+                                &result,
+                            ) {
+                                Ok(ProcessResult::Successful) => {}
+                                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                Err(error) => {
+                                    error!(self.log, "Backfill sync failed"; "error" => ?error);
+                                    // Update the global status
+                                    self.update_sync_state();
+                                }
+                            }
+                        }
+                    },
                     SyncMessage::ParentLookupFailed {
                         chain_head,
                         peer_id,

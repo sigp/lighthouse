@@ -119,7 +119,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         );
         let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
         self.range_requests
-            .insert(req_id, SyncRequestType::BackfillSync(batch_id));
+            .insert(req_id, SyncRequestType::BackFillSync(batch_id));
         Ok(req_id)
     }
 
@@ -199,7 +199,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     /// Subscribes to core topics.
-    fn subscribe_core_topics(&mut self) {
+    pub fn subscribe_core_topics(&mut self) {
         self.network_send
             .send(NetworkMessage::SubscribeCoreTopics)
             .unwrap_or_else(|e| {

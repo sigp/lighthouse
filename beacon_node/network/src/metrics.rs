@@ -338,9 +338,17 @@ lazy_static! {
         "beacon_processor_chain_segment_success_total",
         "Total number of chain segments successfully processed."
     );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_backfill_chain_segment_success_total",
+        "Total number of chain segments successfully processed."
+    );
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_chain_segment_failed_total",
         "Total number of chain segments that failed processing."
+    );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_backfill_chain_segment_failed_total",
+        "Total number of backfill chain segments that failed processing."
     );
     // Unaggregated attestations.
     pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
