@@ -433,6 +433,40 @@ impl ApiTester {
         self
     }
 
+    pub async fn create_web3signer_validators(self, s: Web3SignerValidatorScenario) -> Self {
+        let initial_vals = self.vals_total();
+        let initial_enabled_vals = self.vals_enabled();
+
+        let request: Vec<_> = (0..s.count)
+            .map(|i| {
+                let kp = Keypair::random();
+                Web3SignerValidatorRequest {
+                    enable: s.enabled,
+                    description: format!("{}", i),
+                    graffiti: None,
+                    voting_public_key: kp.pk,
+                    url: format!("http://signer_{}.com/", i),
+                    root_certificate_path: None,
+                    request_timeout_ms: None,
+                }
+            })
+            .collect();
+
+        self.client
+            .post_lighthouse_validators_web3signer(&request)
+            .await
+            .unwrap_err();
+
+        assert_eq!(self.vals_total(), initial_vals + s.count);
+        if s.enabled {
+            assert_eq!(self.vals_enabled(), initial_enabled_vals + s.count);
+        } else {
+            assert_eq!(self.vals_enabled(), initial_enabled_vals);
+        };
+
+        self
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
@@ -486,6 +520,11 @@ struct HdValidatorScenario {
 struct KeystoreValidatorScenario {
     enabled: bool,
     correct_password: bool,
+}
+
+struct Web3SignerValidatorScenario {
+    count: usize,
+    enabled: bool,
 }
 
 #[test]
@@ -683,5 +722,24 @@ fn keystore_validator_creation() {
             .await
             .assert_enabled_validators_count(1)
             .assert_validators_count(2);
+    });
+}
+
+#[test]
+fn web3signer_validator_creation() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .assert_enabled_validators_count(0)
+            .assert_validators_count(0)
+            .create_web3signer_validators(Web3SignerValidatorScenario {
+                count: 1,
+                enabled: true,
+            })
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(1);
     });
 }
