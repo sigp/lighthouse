@@ -2359,7 +2359,7 @@ impl ApiTester {
             self.contribution_and_proofs
                 .clone()
                 .into_iter()
-                .map(|contribution| EventKind::ContributionAndProof(contribution))
+                .map(|contribution| EventKind::ContributionAndProof(Box::new(contribution)))
                 .collect::<Vec<_>>()
                 .as_slice()
         );

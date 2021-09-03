@@ -1566,9 +1566,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         VerifiedSyncContribution::verify(sync_contribution, self).map(|v| {
             if let Some(event_handler) = self.event_handler.as_ref() {
                 if event_handler.has_contribution_subscribers() {
-                    event_handler.register(EventKind::ContributionAndProof(
+                    event_handler.register(EventKind::ContributionAndProof(Box::new(
                         v.aggregate().clone(),
-                    ));
+                    )));
                 }
             }
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);

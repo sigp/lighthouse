@@ -770,7 +770,7 @@ pub enum EventKind<T: EthSpec> {
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
-    ContributionAndProof(SignedContributionAndProof<T>),
+    ContributionAndProof(Box<SignedContributionAndProof<T>>),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -827,11 +827,11 @@ impl<T: EthSpec> EventKind<T> {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
                 })?,
             )),
-            "contribution_and_proof" => Ok(EventKind::ContributionAndProof(
+            "contribution_and_proof" => Ok(EventKind::ContributionAndProof(Box::new(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))
                 })?,
-            )),
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
