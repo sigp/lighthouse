@@ -160,13 +160,28 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
+        validator_def.enabled = enable;
+
+        self.add_validator(validator_def).await
+    }
+
+    /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
+    /// keystore on the filesystem.
+    ///
+    /// This function includes:
+    ///
+    /// - Add the validator definition to the YAML file, saving it to the filesystem.
+    /// - Enable validator with the slashing protection database.
+    /// - If `enable == true`, start performing duties for the validator.
+    pub async fn add_validator(
+        &self,
+        validator_def: ValidatorDefinition,
+    ) -> Result<ValidatorDefinition, String> {
         let validator_pubkey = validator_def.voting_public_key.compress();
 
         self.slashing_protection
             .register_validator(validator_pubkey)
             .map_err(|e| format!("failed to register validator: {:?}", e))?;
-
-        validator_def.enabled = enable;
 
         if let Some(doppelganger_service) = &self.doppelganger_service {
             doppelganger_service
