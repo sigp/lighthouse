@@ -391,15 +391,6 @@ impl<E: EthSpec> Environment<E> {
                 Err(e) => error!(self.log, "Could not register SIGHUP handler"; "error" => e),
             }
 
-            // setup for handling a SIGPIPE
-            match signal(SignalKind::pipe()) {
-                Ok(pipe_stream) => {
-                    let pipe = SignalFuture::new(pipe_stream, "Received SIGPIPE");
-                    handles.push(pipe);
-                }
-                Err(e) => error!(self.log, "Could not register SIGPIPE handler"; "error" => e),
-            }
-
             future::select(inner_shutdown, future::select_all(handles.into_iter())).await
         }) {
             future::Either::Left((Ok(reason), _)) => {
