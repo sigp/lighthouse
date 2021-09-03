@@ -235,7 +235,7 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
     ) -> Self {
         let spec = spec.unwrap_or_else(test_spec::<E>);
         let log = test_logger();
-        let store = Arc::new(HotColdDB::open_ephemeral(store_config, spec.clone(), log).unwrap());
+        let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log).unwrap();
         Self::new_with_mutator(
             eth_spec_instance,
             spec,
@@ -263,7 +263,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     pub fn new_with_disk_store(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
-        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+        store: HotColdDB<E, LevelDB<E>, LevelDB<E>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let spec = spec.unwrap_or_else(test_spec::<E>);
@@ -294,7 +294,7 @@ impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
-        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+        store: HotColdDB<E, LevelDB<E>, LevelDB<E>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
         let spec = spec.unwrap_or_else(test_spec::<E>);
@@ -329,7 +329,7 @@ where
     pub fn new_with_mutator(
         eth_spec_instance: E,
         spec: ChainSpec,
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         validator_keypairs: Vec<Keypair>,
         chain_config: ChainConfig,
         mutator: impl FnOnce(

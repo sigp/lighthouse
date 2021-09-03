@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_chain::{BeaconStore, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
@@ -63,8 +63,7 @@ where
 ///
 /// See the tests for an example of a complete working example.
 pub struct BeaconChainBuilder<T: BeaconChainTypes> {
-    #[allow(clippy::type_complexity)]
-    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
+    store: Option<BeaconStore<T>>,
     store_migrator_config: Option<MigratorConfig>,
     pub genesis_time: Option<u64>,
     genesis_block_root: Option<Hash256>,
@@ -153,7 +152,7 @@ where
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
-    pub fn store(mut self, store: Arc<HotColdDB<TEthSpec, THotStore, TColdStore>>) -> Self {
+    pub fn store(mut self, store: HotColdDB<TEthSpec, THotStore, TColdStore>) -> Self {
         self.store = Some(store);
         self
     }
@@ -792,7 +791,7 @@ mod test {
 
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
-            .store(Arc::new(store))
+            .store(store)
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()

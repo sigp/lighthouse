@@ -4,7 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    per_block_processing, per_slot_processing, BlockProcessingError, VerificationStrategy,
 };
 use types::{BeaconState, EthSpec, ForkName, RelativeEpoch, SignedBeaconBlock};
 
@@ -81,8 +81,8 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             .try_for_each(|signed_block| {
                 let block = signed_block.message();
                 while bulk_state.slot() < block.slot() {
-                    per_slot_processing(&mut bulk_state, None, spec).unwrap();
-                    per_slot_processing(&mut indiv_state, None, spec).unwrap();
+                    per_slot_processing(&mut bulk_state, None, None, spec).unwrap();
+                    per_slot_processing(&mut indiv_state, None, None, spec).unwrap();
                 }
 
                 bulk_state
@@ -97,7 +97,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     &mut indiv_state,
                     signed_block,
                     None,
-                    BlockSignatureStrategy::VerifyIndividual,
+                    VerificationStrategy::individual_signatures(),
                     spec,
                 )?;
 
@@ -105,7 +105,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     &mut bulk_state,
                     signed_block,
                     None,
-                    BlockSignatureStrategy::VerifyBulk,
+                    VerificationStrategy::bulk_signatures(),
                     spec,
                 )?;
 

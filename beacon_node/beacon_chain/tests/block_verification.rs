@@ -11,7 +11,7 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError,
+    per_slot_processing, BlockProcessingError, VerificationStrategy,
 };
 use std::sync::Arc;
 use store::config::StoreConfig;
@@ -977,13 +977,13 @@ fn add_base_block_to_altair_chain() {
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
         let mut state = state;
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        per_slot_processing(&mut state, None, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &base_block,
                 None,
-                BlockSignatureStrategy::NoVerification,
+                VerificationStrategy::no_signatures(),
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1097,13 +1097,13 @@ fn add_altair_block_to_base_chain() {
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
         let mut state = state;
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        per_slot_processing(&mut state, None, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &altair_block,
                 None,
-                BlockSignatureStrategy::NoVerification,
+                VerificationStrategy::no_signatures(),
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(

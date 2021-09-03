@@ -6,7 +6,7 @@ use crate::{
     subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore};
 use eth2_libp2p::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
     Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
@@ -20,7 +20,6 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
-use store::HotColdDB;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
@@ -118,7 +117,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
     /// A reference to lighthouse's database to persist the DHT.
-    store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    store: BeaconStore<T>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// Stores potentially created UPnP mappings to be removed on shutdown. (TCP port and UDP

@@ -60,7 +60,7 @@ use state_processing::{
     per_block_processing::errors::AttestationValidationError,
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp,
+    SigVerifiedOp, VerificationStrategy,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -205,12 +205,10 @@ pub type BeaconForkChoice<T> = ForkChoice<
     <T as BeaconChainTypes>::EthSpec,
 >;
 
-pub type BeaconStore<T> = Arc<
-    HotColdDB<
-        <T as BeaconChainTypes>::EthSpec,
-        <T as BeaconChainTypes>::HotStore,
-        <T as BeaconChainTypes>::ColdStore,
-    >,
+pub type BeaconStore<T> = HotColdDB<
+    <T as BeaconChainTypes>::EthSpec,
+    <T as BeaconChainTypes>::HotStore,
+    <T as BeaconChainTypes>::ColdStore,
 >;
 
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
@@ -1013,7 +1011,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
-                    match per_slot_processing(&mut state, skip_state_root, &self.spec) {
+                    match per_slot_processing(&mut state, skip_state_root, None, &self.spec) {
                         Ok(_) => (),
                         Err(e) => {
                             warn!(
@@ -2779,7 +2777,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             None,
-            BlockSignatureStrategy::NoVerification,
+            VerificationStrategy::no_signatures(),
             &self.spec,
         )?;
         drop(process_timer);
@@ -3483,7 +3481,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         for (head_hash, _head_slot) in heads {
-            for maybe_pair in ParentRootBlockIterator::new(&*self.store, head_hash) {
+            for maybe_pair in ParentRootBlockIterator::new(&self.store, head_hash) {
                 let (block_hash, signed_beacon_block) = maybe_pair.unwrap();
                 if visited.contains(&block_hash) {
                     break;

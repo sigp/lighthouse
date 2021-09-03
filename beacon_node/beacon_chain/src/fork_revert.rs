@@ -3,8 +3,7 @@ use fork_choice::ForkChoice;
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
-use state_processing::{per_block_processing, per_block_processing::BlockSignatureStrategy};
-use std::sync::Arc;
+use state_processing::{per_block_processing, VerificationStrategy};
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
@@ -21,7 +20,7 @@ const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file 
 pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     current_slot: Slot,
     head_block_root: Hash256,
-    store: Arc<HotColdDB<E, Hot, Cold>>,
+    store: HotColdDB<E, Hot, Cold>,
     spec: &ChainSpec,
     log: &Logger,
 ) -> Result<(Hash256, SignedBeaconBlock<E>), String> {
@@ -87,7 +86,7 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
 pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     head_block_root: Hash256,
     head_state: &BeaconState<E>,
-    store: Arc<HotColdDB<E, Hot, Cold>>,
+    store: HotColdDB<E, Hot, Cold>,
     spec: &ChainSpec,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
@@ -159,7 +158,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
             &mut state,
             &block,
             None,
-            BlockSignatureStrategy::NoVerification,
+            VerificationStrategy::no_verification(),
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;

@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
-use state_processing::{per_block_processing, per_slot_processing, BlockSignatureStrategy};
+use state_processing::{per_block_processing, per_slot_processing, VerificationStrategy};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -64,7 +64,7 @@ fn do_transition<T: EthSpec>(
 
     // Transition the parent state to the block slot.
     for i in pre_state.slot().as_u64()..block.slot().as_u64() {
-        per_slot_processing(&mut pre_state, None, spec)
+        per_slot_processing(&mut pre_state, None, None, spec)
             .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
     }
 
@@ -76,7 +76,7 @@ fn do_transition<T: EthSpec>(
         &mut pre_state,
         &block,
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        VerificationStrategy::individual_signatures(),
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;

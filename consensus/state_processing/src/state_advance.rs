@@ -38,7 +38,7 @@ pub fn complete_state_advance<T: EthSpec>(
         // future iterations.
         let state_root_opt = state_root_opt.take();
 
-        per_slot_processing(state, state_root_opt, spec).map_err(Error::PerSlotProcessing)?;
+        per_slot_processing(state, state_root_opt, None, spec).map_err(Error::PerSlotProcessing)?;
     }
 
     Ok(())
@@ -87,7 +87,8 @@ pub fn partial_state_advance<T: EthSpec>(
         // with the correct state root.
         let state_root = initial_state_root.take().unwrap_or_else(Hash256::zero);
 
-        per_slot_processing(state, Some(state_root), spec).map_err(Error::PerSlotProcessing)?;
+        per_slot_processing(state, Some(state_root), None, spec)
+            .map_err(Error::PerSlotProcessing)?;
     }
 
     Ok(())

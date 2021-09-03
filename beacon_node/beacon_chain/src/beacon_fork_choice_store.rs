@@ -8,7 +8,6 @@ use crate::{metrics, BeaconSnapshot};
 use fork_choice::ForkChoiceStore;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
-use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use types::{BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot};
 
@@ -156,7 +155,7 @@ impl BalancesCache {
 /// `fork_choice::ForkChoice` struct.
 #[derive(Debug)]
 pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    store: Arc<HotColdDB<E, Hot, Cold>>,
+    store: HotColdDB<E, Hot, Cold>,
     balances_cache: BalancesCache,
     time: Slot,
     finalized_checkpoint: Checkpoint,
@@ -201,7 +200,7 @@ where
     ///
     /// It is assumed that `anchor` is already persisted in `store`.
     pub fn get_forkchoice_store(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
         anchor: &BeaconSnapshot<E>,
     ) -> Self {
         let anchor_state = &anchor.beacon_state;
@@ -245,7 +244,7 @@ where
     /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
     pub fn from_persisted(
         persisted: PersistedForkChoiceStore,
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: HotColdDB<E, Hot, Cold>,
     ) -> Result<Self, Error> {
         Ok(Self {
             store,
