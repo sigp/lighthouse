@@ -165,6 +165,9 @@ fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: Clon
         state
             .committee_cache(RelativeEpoch::Next)
             .expect("committee cache exists");
+        state
+            .total_active_balance()
+            .expect("total active balance exists");
     } else {
         state
             .committee_cache(RelativeEpoch::Previous)

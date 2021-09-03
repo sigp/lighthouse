@@ -72,7 +72,7 @@ pub fn process_epoch<T: EthSpec>(
     process_sync_committee_updates(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches()?;
+    state.advance_caches(spec)?;
 
     Ok(EpochProcessingSummary::Altair {
         participation_cache,
