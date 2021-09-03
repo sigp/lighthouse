@@ -1241,9 +1241,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
     pub fn get_total_active_balance(&self) -> Result<u64, Error> {
-        self.total_active_balance()
-            .clone()
-            .ok_or(Error::TotalActiveBalanceCacheUninitialized)
+        (*self.total_active_balance()).ok_or(Error::TotalActiveBalanceCacheUninitialized)
     }
 
     /// Build the total active balance cache.
@@ -1561,7 +1559,7 @@ impl<T: EthSpec> BeaconState<T> {
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
-            *res.total_active_balance_mut() = self.total_active_balance().clone();
+            *res.total_active_balance_mut() = *self.total_active_balance();
         }
         if config.pubkey_cache {
             *res.pubkey_cache_mut() = self.pubkey_cache().clone();
