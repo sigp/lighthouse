@@ -8,7 +8,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -127,7 +127,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["pyrmont", "mainnet", "prater"])
+                .possible_values(HARDCODED_NET_NAMES)
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -164,7 +164,6 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
-        .subcommand(remote_signer::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -392,16 +391,6 @@ fn run<E: EthSpec>(
                 let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
                     "Validator client immediate shutdown triggered.",
                 ));
-            }
-        }
-        ("remote_signer", Some(matches)) => {
-            if let Err(e) = remote_signer::run(&mut environment, matches) {
-                crit!(log, "Failed to start remote signer"; "reason" => e);
-                let _ = environment
-                    .core_context()
-                    .executor
-                    .shutdown_sender()
-                    .try_send(ShutdownReason::Failure("Failed to start remote signer"));
             }
         }
         _ => {

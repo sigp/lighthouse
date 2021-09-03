@@ -21,4 +21,5 @@ exec lighthouse \
 	--enr-tcp-port $2 \
 	--port $2 \
 	--http-port $3 \
+	--disable-packet-filter \
 	--target-peers $((NODE_COUNT - 1))

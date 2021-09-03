@@ -635,7 +635,7 @@ impl DoppelgangerService {
                     self.log,
                     "Found no doppelganger";
                     "further_checks_remaining" => doppelganger_state.remaining_epochs,
-                    "epoch" => response.index,
+                    "epoch" => response.epoch,
                     "validator_index" => response.index
                 );
 

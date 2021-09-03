@@ -133,6 +133,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
     /// Subscribe to all the subnets once synced.
     subscribe_all_subnets: bool,
+    /// Shutdown beacon node after sync is complete.
+    shutdown_after_sync: bool,
     /// A timer for updating various network metrics.
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
@@ -254,6 +256,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             next_fork_update,
             next_unsubscribe,
             subscribe_all_subnets: config.subscribe_all_subnets,
+            shutdown_after_sync: config.shutdown_after_sync,
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
@@ -436,6 +439,18 @@ fn spawn_service<T: BeaconChainTypes>(
                                 }
                         }
                         NetworkMessage::SubscribeCoreTopics => {
+                            if service.shutdown_after_sync {
+                                let _ = shutdown_sender
+                                .send(ShutdownReason::Success(
+                                    "Beacon node completed sync. Shutting down as --shutdown-after-sync flag is enabled"))
+                                .await
+                                .map_err(|e| warn!(
+                                    service.log,
+                                    "failed to send a shutdown signal";
+                                    "error" => %e
+                                ));
+                                return;
+                            }
                             let mut subscribed_topics: Vec<GossipTopic> = vec![];
                             for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter() {
                                 for fork_digest in service.required_gossip_fork_digests() {

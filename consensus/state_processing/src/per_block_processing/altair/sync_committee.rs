@@ -42,7 +42,7 @@ pub fn process_sync_aggregate<T: EthSpec>(
     }
 
     // Compute participant and proposer rewards
-    let total_active_balance = state.get_total_active_balance(spec)?;
+    let total_active_balance = state.get_total_active_balance()?;
     let total_active_increments =
         total_active_balance.safe_div(spec.effective_balance_increment)?;
     let total_base_rewards = get_base_reward_per_increment(total_active_balance, spec)?

@@ -1,9 +1,10 @@
 use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
+use filesystem::create_with_600_perms;
 use libsecp256k1::{Message, PublicKey, SecretKey};
 use rand::thread_rng;
 use ring::digest::{digest, SHA256};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use warp::Filter;
 
 /// The name of the file which stores the secret key.
@@ -37,6 +38,7 @@ pub const PK_FILENAME: &str = "api-token.txt";
 pub struct ApiSecret {
     pk: PublicKey,
     sk: SecretKey,
+    pk_path: PathBuf,
 }
 
 impl ApiSecret {
@@ -55,27 +57,40 @@ impl ApiSecret {
             let sk = SecretKey::random(&mut thread_rng());
             let pk = PublicKey::from_secret_key(&sk);
 
-            fs::write(
+            // Create and write the secret key to file with appropriate permissions
+            create_with_600_perms(
                 &sk_path,
-                serde_utils::hex::encode(&sk.serialize()).as_bytes(),
+                eth2_serde_utils::hex::encode(&sk.serialize()).as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
-            fs::write(
+            .map_err(|e| {
+                format!(
+                    "Unable to create file with permissions for {:?}: {:?}",
+                    sk_path, e
+                )
+            })?;
+
+            // Create and write the public key to file with appropriate permissions
+            create_with_600_perms(
                 &pk_path,
                 format!(
                     "{}{}",
                     PK_PREFIX,
-                    serde_utils::hex::encode(&pk.serialize_compressed()[..])
+                    eth2_serde_utils::hex::encode(&pk.serialize_compressed()[..])
                 )
                 .as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                format!(
+                    "Unable to create file with permissions for {:?}: {:?}",
+                    pk_path, e
+                )
+            })?;
         }
 
         let sk = fs::read(&sk_path)
             .map_err(|e| format!("cannot read {}: {}", SK_FILENAME, e))
             .and_then(|bytes| {
-                serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
+                eth2_serde_utils::hex::decode(&String::from_utf8_lossy(&bytes))
                     .map_err(|_| format!("{} should be 0x-prefixed hex", PK_FILENAME))
             })
             .and_then(|bytes| {
@@ -99,7 +114,7 @@ impl ApiSecret {
                 let hex =
                     String::from_utf8(bytes).map_err(|_| format!("{} is not utf8", SK_FILENAME))?;
                 if let Some(stripped) = hex.strip_prefix(PK_PREFIX) {
-                    serde_utils::hex::decode(stripped)
+                    eth2_serde_utils::hex::decode(stripped)
                         .map_err(|_| format!("{} should be 0x-prefixed hex", SK_FILENAME))
                 } else {
                     Err(format!("unable to parse {}", SK_FILENAME))
@@ -133,17 +148,22 @@ impl ApiSecret {
             ));
         }
 
-        Ok(Self { pk, sk })
+        Ok(Self { pk, sk, pk_path })
     }
 
     /// Returns the public key of `self` as a 0x-prefixed hex string.
     fn pubkey_string(&self) -> String {
-        serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
+        eth2_serde_utils::hex::encode(&self.pk.serialize_compressed()[..])
     }
 
     /// Returns the API token.
     pub fn api_token(&self) -> String {
         format!("{}{}", PK_PREFIX, self.pubkey_string())
+    }
+
+    /// Returns the path for the API token file
+    pub fn api_token_path(&self) -> &PathBuf {
+        &self.pk_path
     }
 
     /// Returns the value of the `Authorization` header which is used for verifying incoming HTTP
@@ -178,7 +198,7 @@ impl ApiSecret {
             let message =
                 Message::parse_slice(digest(&SHA256, input).as_ref()).expect("sha256 is 32 bytes");
             let (signature, _) = libsecp256k1::sign(&message, &sk);
-            serde_utils::hex::encode(signature.serialize_der().as_ref())
+            eth2_serde_utils::hex::encode(signature.serialize_der().as_ref())
         }
     }
 }

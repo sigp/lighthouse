@@ -17,7 +17,7 @@ eth2_libp2p = { path = "../eth2_libp2p" }
 parking_lot = "0.11.0"
 prometheus = "0.11.0"
 types = { path = "../../consensus/types" }
-tree_hash = "0.1.1"
+tree_hash = "0.3.0"
 eth2_config = { path = "../../common/eth2_config" }
 slot_clock = { path = "../../common/slot_clock" }
 serde = "1.0.116"
@@ -35,7 +35,7 @@ eth1 = { path = "../eth1" }
 genesis = { path = "../genesis" }
 task_executor = { path = "../../common/task_executor" }
 environment = { path = "../../lighthouse/environment" }
-eth2_ssz = "0.1.2"
+eth2_ssz = "0.3.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 time = "0.2.22"

@@ -32,7 +32,9 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
 
     let discv5_config = {
         let mut builder = Discv5ConfigBuilder::new();
-        builder.enable_packet_filter();
+        if !config.disable_packet_filter {
+            builder.enable_packet_filter();
+        }
         if !config.auto_update {
             builder.disable_enr_update();
         }

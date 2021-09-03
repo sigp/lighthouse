@@ -21,14 +21,14 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graffiti: Option<GraffitiString>,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateValidatorsMnemonicRequest {
     pub mnemonic: ZeroizeString,
-    #[serde(with = "serde_utils::quoted_u32")]
+    #[serde(with = "eth2_serde_utils::quoted_u32")]
     pub key_derivation_path_offset: u32,
     pub validators: Vec<ValidatorRequest>,
 }
@@ -42,7 +42,7 @@ pub struct CreatedValidator {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graffiti: Option<GraffitiString>,
     pub eth1_deposit_tx_data: String,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
 
