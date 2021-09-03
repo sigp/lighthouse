@@ -1,9 +1,10 @@
 use eth2::lighthouse_vc::{PK_LEN, SECRET_PREFIX as PK_PREFIX};
+use filesystem::create_with_600_perms;
 use libsecp256k1::{Message, PublicKey, SecretKey};
 use rand::thread_rng;
 use ring::digest::{digest, SHA256};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use warp::Filter;
 
 /// The name of the file which stores the secret key.
@@ -37,6 +38,7 @@ pub const PK_FILENAME: &str = "api-token.txt";
 pub struct ApiSecret {
     pk: PublicKey,
     sk: SecretKey,
+    pk_path: PathBuf,
 }
 
 impl ApiSecret {
@@ -55,12 +57,20 @@ impl ApiSecret {
             let sk = SecretKey::random(&mut thread_rng());
             let pk = PublicKey::from_secret_key(&sk);
 
-            fs::write(
+            // Create and write the secret key to file with appropriate permissions
+            create_with_600_perms(
                 &sk_path,
                 eth2_serde_utils::hex::encode(&sk.serialize()).as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
-            fs::write(
+            .map_err(|e| {
+                format!(
+                    "Unable to create file with permissions for {:?}: {:?}",
+                    sk_path, e
+                )
+            })?;
+
+            // Create and write the public key to file with appropriate permissions
+            create_with_600_perms(
                 &pk_path,
                 format!(
                     "{}{}",
@@ -69,7 +79,12 @@ impl ApiSecret {
                 )
                 .as_bytes(),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                format!(
+                    "Unable to create file with permissions for {:?}: {:?}",
+                    pk_path, e
+                )
+            })?;
         }
 
         let sk = fs::read(&sk_path)
@@ -133,7 +148,7 @@ impl ApiSecret {
             ));
         }
 
-        Ok(Self { pk, sk })
+        Ok(Self { pk, sk, pk_path })
     }
 
     /// Returns the public key of `self` as a 0x-prefixed hex string.
@@ -144,6 +159,11 @@ impl ApiSecret {
     /// Returns the API token.
     pub fn api_token(&self) -> String {
         format!("{}{}", PK_PREFIX, self.pubkey_string())
+    }
+
+    /// Returns the path for the API token file
+    pub fn api_token_path(&self) -> &PathBuf {
+        &self.pk_path
     }
 
     /// Returns the value of the `Authorization` header which is used for verifying incoming HTTP
