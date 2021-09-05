@@ -61,7 +61,9 @@ pub enum SigningDefinition {
         #[serde(skip_serializing_if = "Option::is_none")]
         voting_keystore_password: Option<ZeroizeString>,
     },
-    /// A validator that defers to a HTTP server for signing.
+    /// A validator that defers to a Web3Signer HTTP server for signing.
+    ///
+    /// https://github.com/ConsenSys/web3signer
     #[serde(rename = "web3signer")]
     Web3Signer {
         url: String,
@@ -191,6 +193,7 @@ impl ValidatorDefinitions {
                     voting_keystore_path,
                     ..
                 } => Some(voting_keystore_path),
+                // A Web3Signer validator does not use a local keystore file.
                 SigningDefinition::Web3Signer { .. } => None,
             })
             .collect();

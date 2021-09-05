@@ -8,15 +8,15 @@
 Validator Client (VC) out-sources the signing of messages to remote server (e.g., via HTTPS). This
 means that the VC does not hold the validator private keys.
 
-## Caveats
+## Warnings
 
-Before using a remote signer, there are two caveats to understand:
+Using a remote signer comes with risks, please read the following two warnings before proceeding:
 
-### Remote signing complex and risky
+### Remote signing is complex and risky
 
 Remote signing is generally only desirable for enterprise users or users with unique security
 requirements. Most users will find the separation between the Beacon Node (BN) and VC to be
-sufficient without introducing a remote signer.
+sufficient *without* introducing a remote signer.
 
 **Using a remote signer introduces a new set of security and slashing risks and should only be
 undertaken by advanced users who fully understand the risks.**
@@ -24,8 +24,8 @@ undertaken by advanced users who fully understand the risks.**
 ### Web3Signer is not maintained by Lighthouse
 
 The [Web3Signer] tool is maintained by [Consensys], the same team that maintains [Teku]. The
-Lighthouse team (Sigma Prime) provides some input to this tool, however they do not control it or
-make any guarantees about its safety of effectiveness.
+Lighthouse team (Sigma Prime) does not maintain Web3Signer or make any guarantees about its safety
+of effectiveness.
 
 ## Usage
 
@@ -46,8 +46,8 @@ remote signer:
 
 When using this file, the Lighthouse VC will perform duties for the `0xa5566..` validator and defer
 to the `https://my-remote-signer.com:1234` server to obtain any signatures. It will load a
-"self-signed" SSL certificate from `/home/paul/my-certificates/my-remote-signer.pem` to encrypt the
-communications between the VC and Web3Signer.
+"self-signed" SSL certificate from `/home/paul/my-certificates/my-remote-signer.pem` (on the
+filesystem of the VC) to encrypt the communications between the VC and Web3Signer.
 
 > The `request_timeout_ms` key can also be specified. Use this key to override the default time-out
 > with a new timeout in milliseconds. This is the time-out before requests to Web3Signer are
