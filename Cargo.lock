@@ -868,9 +868,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.69"
+version = "1.0.70"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e70cc2f62c6ce1868963827bd677764c62d07c3d9a3e1fb1177ee1a9ab199eb2"
+checksum = "d26a6ce4b6a484fa3edb70f7efa6fc430fd2b87285fe8b84304fd0936faa0dc0"
 
 [[package]]
 name = "cfg-if"
@@ -1247,9 +1247,9 @@ dependencies = [
 
 [[package]]
 name = "ctor"
-version = "0.1.20"
+version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e98e2ad1a782e33928b96fc3948e7c355e5af34ba4de7670fe8bac2a3b2006d"
+checksum = "ccc0a48a9b826acdf4028595adc9db92caea352f7af011a3034acd172a52a0aa"
 dependencies = [
  "quote",
  "syn",
@@ -1873,7 +1873,7 @@ dependencies = [
  "eth2_hashing",
  "hex",
  "lazy_static",
- "num-bigint 0.3.2",
+ "num-bigint",
  "serde",
  "serde_derive",
  "serde_yaml",
@@ -2228,9 +2228,9 @@ checksum = "37ab347416e802de484e4d03c7316c48f1ecb56574dfd4a46a80f173ce1de04d"
 
 [[package]]
 name = "flate2"
-version = "1.0.20"
+version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd3aec53de10fe96d7d8c565eb17f2c687bb5518a2ec453b5b1252964526abe0"
+checksum = "80edafed416a46fb378521624fab1cfa2eb514784fd8921adbe8a8d8321da811"
 dependencies = [
  "cfg-if 1.0.0",
  "crc32fast",
@@ -2304,9 +2304,9 @@ checksum = "fed34cd105917e91daa4da6b3728c47b068749d6a62c59811f06ed2ac71d9da7"
 
 [[package]]
 name = "futures"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1adc00f486adfc9ce99f77d717836f0c5aa84965eb0b4f051f4e83f7cab53f8b"
+checksum = "a12aa0eb539080d55c3f2d45a67c3b58b6b0773c1a3ca2dfec66d58c97fd66ca"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -2319,9 +2319,9 @@ dependencies = [
 
 [[package]]
 name = "futures-channel"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74ed2411805f6e4e3d9bc904c95d5d423b89b3b25dc0250aa74729de20629ff9"
+checksum = "5da6ba8c3bb3c165d3c7319fc1cc8304facf1fb8db99c5de877183c08a273888"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -2329,15 +2329,15 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af51b1b4a7fdff033703db39de8802c673eb91855f2e0d47dcf3bf2c0ef01f99"
+checksum = "88d1c26957f23603395cd326b0ffe64124b818f4449552f960d815cfba83a53d"
 
 [[package]]
 name = "futures-executor"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d0d535a57b87e1ae31437b892713aee90cd2d7b0ee48727cd11fc72ef54761c"
+checksum = "45025be030969d763025784f7f355043dc6bc74093e4ecc5000ca4dc50d8745c"
 dependencies = [
  "futures-core",
  "futures-task",
@@ -2347,9 +2347,9 @@ dependencies = [
 
 [[package]]
 name = "futures-io"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b0e06c393068f3a6ef246c75cdca793d6a46347e75286933e5e75fd2fd11582"
+checksum = "522de2a0fe3e380f1bc577ba0474108faf3f6b18321dbf60b3b9c39a75073377"
 
 [[package]]
 name = "futures-lite"
@@ -2368,9 +2368,9 @@ dependencies = [
 
 [[package]]
 name = "futures-macro"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c54913bae956fb8df7f4dc6fc90362aa72e69148e3f39041fbe8742d21e0ac57"
+checksum = "18e4a4b95cea4b4ccbcf1c5675ca7c4ee4e9e75eb79944d07defde18068f79bb"
 dependencies = [
  "autocfg 1.0.1",
  "proc-macro-hack",
@@ -2392,15 +2392,15 @@ dependencies = [
 
 [[package]]
 name = "futures-sink"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f30aaa67363d119812743aa5f33c201a7a66329f97d1a887022971feea4b53"
+checksum = "36ea153c13024fe480590b3e3d4cad89a0cfacecc24577b68f86c6ced9c2bc11"
 
 [[package]]
 name = "futures-task"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe54a98670017f3be909561f6ad13e810d9a51f3f061b902062ca3da80799f2"
+checksum = "1d3d00f4eddb73e498a54394f228cd55853bdf059259e8e7bc6e69d408892e99"
 
 [[package]]
 name = "futures-timer"
@@ -2410,9 +2410,9 @@ checksum = "e64b03909df88034c26dc1547e8970b91f98bdb65165d6a4e9110d94263dbb2c"
 
 [[package]]
 name = "futures-util"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67eb846bfd58e44a8481a00049e82c43e0ccb5d61f8dc071057cb19249dd4d78"
+checksum = "36568465210a3a6ee45e1f165136d68671471a501e632e9a98d96872222b5481"
 dependencies = [
  "autocfg 1.0.1",
  "futures-channel",
@@ -2894,9 +2894,9 @@ dependencies = [
 
 [[package]]
 name = "if-addrs"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28538916eb3f3976311f5dfbe67b5362d0add1293d0a9cad17debf86f8e3aa48"
+checksum = "c9a83ec4af652890ac713ffd8dc859e650420a5ef47f7b9be29b6664ab50fbc8"
 dependencies = [
  "if-addrs-sys",
  "libc",
@@ -3306,7 +3306,7 @@ dependencies = [
 [[package]]
 name = "libp2p"
 version = "0.40.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "atomic",
  "bytes 1.1.0",
@@ -3379,7 +3379,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -3412,7 +3412,7 @@ dependencies = [
 [[package]]
 name = "libp2p-deflate"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "flate2",
  "futures",
@@ -3422,7 +3422,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "async-std-resolver",
  "futures",
@@ -3435,7 +3435,7 @@ dependencies = [
 [[package]]
 name = "libp2p-floodsub"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "cuckoofilter",
  "fnv",
@@ -3452,7 +3452,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.33.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -3479,7 +3479,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -3494,7 +3494,7 @@ dependencies = [
 [[package]]
 name = "libp2p-kad"
 version = "0.32.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "arrayvec 0.5.2",
  "asynchronous-codec",
@@ -3519,7 +3519,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.32.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "async-io",
  "data-encoding",
@@ -3539,7 +3539,7 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.1.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "libp2p-core 0.30.0",
  "libp2p-identify",
@@ -3552,7 +3552,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.1.0",
@@ -3569,7 +3569,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.33.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "bytes 1.1.0",
  "curve25519-dalek",
@@ -3590,7 +3590,7 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -3604,7 +3604,7 @@ dependencies = [
 [[package]]
 name = "libp2p-plaintext"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.1.0",
@@ -3620,7 +3620,7 @@ dependencies = [
 [[package]]
 name = "libp2p-pnet"
 version = "0.21.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "futures",
  "log",
@@ -3633,7 +3633,7 @@ dependencies = [
 [[package]]
 name = "libp2p-relay"
 version = "0.4.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "asynchronous-codec",
  "bytes 1.1.0",
@@ -3655,7 +3655,7 @@ dependencies = [
 [[package]]
 name = "libp2p-request-response"
 version = "0.13.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "async-trait",
  "bytes 1.1.0",
@@ -3674,7 +3674,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "either",
  "futures",
@@ -3689,7 +3689,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.24.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "quote",
  "syn",
@@ -3698,7 +3698,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "async-io",
  "futures",
@@ -3716,7 +3716,7 @@ dependencies = [
 [[package]]
 name = "libp2p-uds"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "async-std",
  "futures",
@@ -3727,7 +3727,7 @@ dependencies = [
 [[package]]
 name = "libp2p-wasm-ext"
 version = "0.30.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "futures",
  "js-sys",
@@ -3740,7 +3740,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "either",
  "futures",
@@ -3757,7 +3757,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.34.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -4268,7 +4268,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.10.4"
-source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#f9ade83c9ccb549c7ba16138b05d1538bc27321c"
+source = "git+https://github.com/sigp/rust-libp2p?branch=age-gossip-inspect#a8153a51161321bb607ca7a590324276aa8dc5ad"
 dependencies = [
  "bytes 1.1.0",
  "futures",
@@ -4416,35 +4416,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "num"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43db66d1170d347f9a065114077f7dccb00c1b9478c89384490a3425279a4606"
-dependencies = [
- "num-bigint 0.4.1",
- "num-complex",
- "num-integer",
- "num-iter",
- "num-rational",
- "num-traits",
-]
-
-[[package]]
 name = "num-bigint"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d0a3d5e207573f948a9e5376662aa743a2ea13f7c50a554d7af443a73fbfeba"
-dependencies = [
- "autocfg 1.0.1",
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76e97c412795abf6c24ba30055a8f20642ea57ca12875220b854cfa501bf1e48"
+checksum = "5f6f7833f2cbf2360a6cfd58cd41a53aa7a90bd4c202f5b1c7dd2ed73c57b2c3"
 dependencies = [
  "autocfg 1.0.1",
  "num-integer",
@@ -4471,15 +4446,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-complex"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26873667bbbb7c5182d4a37c1add32cdf09f841af72da53318fdb81543c15085"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
 name = "num-integer"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4496,18 +4462,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2021c8337a54d21aca0d59a92577a029af9431cb59b909b03252b9c164fad59"
 dependencies = [
  "autocfg 1.0.1",
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d41702bd167c2df5520b384281bc111a4b5efcf7fbc4c9c222c815b07e0a6a6a"
-dependencies = [
- "autocfg 1.0.1",
- "num-bigint 0.4.1",
  "num-integer",
  "num-traits",
 ]
@@ -5022,9 +4976,9 @@ checksum = "bc881b2c22681370c6a780e47af9840ef841837bc98118431d4e1868bd0c1086"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.28"
+version = "1.0.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c7ed8b8c7b886ea3ed7dde405212185f423ab44682667c8c6dd14aa1d9f6612"
+checksum = "b9f5105d4fdaab20335ca9565e106a5d9b82b6219b5ba735731124ac6711d23d"
 dependencies = [
  "unicode-xid",
 ]
@@ -5786,23 +5740,22 @@ dependencies = [
 
 [[package]]
 name = "security-framework"
-version = "2.4.1"
+version = "2.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c1016a0b396a0e68d6c541a54370e0db49524aead4c9e6aa263d6855d978d78"
+checksum = "525bc1abfda2e1998d152c45cf13e696f76d0a4972310b22fac1658b05df7c87"
 dependencies = [
  "bitflags",
  "core-foundation",
  "core-foundation-sys",
  "libc",
- "num",
  "security-framework-sys",
 ]
 
 [[package]]
 name = "security-framework-sys"
-version = "2.4.1"
+version = "2.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6f179cd85a30f8652b3f8830f73861c76e87e70b939773e72daf38be3afc02"
+checksum = "a9dd14d83160b528b7bfd66439110573efcfbe281b17fc2ca9f39f550d619c7e"
 dependencies = [
  "core-foundation-sys",
  "libc",
@@ -6006,9 +5959,9 @@ dependencies = [
 
 [[package]]
 name = "signal-hook"
-version = "0.3.9"
+version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "470c5a6397076fae0094aaf06a08e6ba6f37acb77d3b1b91ea92b4d6c8650c39"
+checksum = "9c98891d737e271a2954825ef19e46bd16bdb98e2746f2eec4f7a4ef7946efd1"
 dependencies = [
  "libc",
  "signal-hook-registry",
@@ -6066,9 +6019,9 @@ dependencies = [
 
 [[package]]
 name = "siphasher"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "729a25c17d72b06c68cb47955d44fda88ad2d3e7d77e025663fdd69b93dd71a1"
+checksum = "533494a8f9b724d33625ab53c6c4800f7cc445895924a8ef649222dcb76e938b"
 
 [[package]]
 name = "slab"
@@ -6586,9 +6539,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.75"
+version = "1.0.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7f58f7e8eaa0009c5fec437aabf511bd9933e4b2d7407bd05273c01a8906ea7"
+checksum = "c6f107db402c2c2055242dbf4d2af0e69197202e9faacbef9571bbe47f5a1b84"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6697,18 +6650,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.28"
+version = "1.0.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "283d5230e63df9608ac7d9691adc1dfb6e701225436eb64d0b9a7f0a5a04f6ec"
+checksum = "602eca064b2d83369e2b2f34b09c70b605402801927c65c11071ac911d299b88"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.28"
+version = "1.0.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa3884228611f5cd3608e2d409bf7dce832e4eb3135e3f11addbd7e41bd68e71"
+checksum = "bad553cc2c78e8de258400763a647e80e6d1b31ee237275d756f6836d204494c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6858,9 +6811,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.10.1"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92036be488bb6594459f2e03b60e42df6f937fe6ca5c5ffdcb539c6b84dc40f5"
+checksum = "b4efe6fc2395938c8155973d7be49fe8d03a843726e285e100a8a383cc0154ce"
 dependencies = [
  "autocfg 1.0.1",
  "bytes 1.1.0",
@@ -6934,9 +6887,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1caa0b0c8d94a049db56b5acf8cba99dc0623aab1b26d5b5f5e2d945846b3592"
+checksum = "08d3725d3efa29485e87311c5b699de63cde14b00ed4d256b8318aa30ca452cd"
 dependencies = [
  "bytes 1.1.0",
  "futures-core",
@@ -7171,9 +7124,9 @@ dependencies = [
 
 [[package]]
 name = "typenum"
-version = "1.13.0"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879f6906492a7cd215bfa4cf595b600146ccfac0c79bcbd1f3000162af5e8b06"
+checksum = "b63708a265f51345575b27fe43f9500ad611579e764c79edbc2037b1121959ec"
 
 [[package]]
 name = "types"

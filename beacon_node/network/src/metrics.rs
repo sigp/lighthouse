@@ -440,18 +440,13 @@ lazy_static! {
 
     /// Number of IWANT requests. Large number of these indicate a less efficient mess or
     /// propagation.
-    pub static ref GOSSIP_IWANT_REQUESTS: Result<IntGauge> =
-        try_create_int_gauge("gossipsub_iwant_requests","The number of Gossipsub IWANT requests being made.");
+    pub static ref GOSSIP_IWANT_REQUESTS: Result<IntGaugeVec> =
+        try_create_int_gauge_vec("gossipsub_iwant_requests","The number of Gossipsub IWANT requests being made per topic", &["topic"]);
 
     /// Number of messages being sent to us on topics we are not subscribed too (indicative of
     /// slow or invalid nodes on the network)
     pub static ref GOSSIP_INVALID_MESSAGES_BY_TOPIC: Result<IntGauge> =
         try_create_int_gauge("gossipsub_invalid_message_topic","The number of Gossipsub IWANT requests being made.");
-
-    /// The number of duplicates being filtered. Potentially indicating an over amplification on
-    /// the mesh.
-    pub static ref GOSSIP_FILTERED_DUPLICATES: Result<IntGaugeVec> =
-        try_create_int_gauge_vec("gossipsub_filtered_duplicates","The number of Gossipsub messages that have been filtered per topic.", &["topic"]);
 
 }
 
@@ -683,7 +678,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
         let metrics = gossipsub.metrics();
         set_gauge(&GOSSIP_CACHE_MISSES, metrics.memcache_misses as i64);
         set_gauge(&GOSSIP_BROKEN_PROMISES, metrics.broken_promises as i64);
-        set_gauge(&GOSSIP_IWANT_REQUESTS, metrics.iwant_requests as i64);
         set_gauge(
             &GOSSIP_INVALID_MESSAGES_BY_TOPIC,
             metrics.messages_received_on_invalid_topic as i64,
@@ -786,7 +780,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
 
             // Mesh slot metrics update
             update_mesh_slot_metrics(gossipsub, topic_hash);
-            update_duplicate_filter_metrics(gossipsub, topic_hash);
+            update_gossipsub_topic_metrics(gossipsub, topic_hash);
         }
     }
 
@@ -1004,11 +998,11 @@ pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
     }
 }
 
-/// Updates the duplicate filter metrics for a specific topic.
-pub fn update_duplicate_filter_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
-    if let Some(dupes) = gossipsub.metrics().duplicates_filtered.get(topic_hash) {
-        if let Some(v) = get_int_gauge(&GOSSIP_FILTERED_DUPLICATES, &[topic_hash.as_str()]) {
-            v.set(*dupes as i64)
+/// Updates the topic metrics for a specific topic.
+pub fn update_gossipsub_topic_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
+    if let Some(topic_metrics) = gossipsub.metrics().topic_metrics.get(topic_hash) {
+        if let Some(v) = get_gauge(&GOSSIP_IWANT_REQUESTS, &[topic_hash.as_str()]) {
+            v.set(topic_metrics.iwant_requests as i64)
         }
     }
 }
