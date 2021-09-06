@@ -4,7 +4,8 @@
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
-    Config, InitializedValidators, ValidatorDefinitions, ValidatorStore,
+    initialized_validators::InitializedValidators,
+    Config, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
