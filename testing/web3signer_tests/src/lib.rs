@@ -9,7 +9,7 @@
 //! There is a build script in this crate which obtains the latest version of Web3Signer and makes
 //! it available via the `OUT_DIR`.
 
-#[cfg(test)]
+#[cfg(all(test, unix, not(debug_assertions)))]
 mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
