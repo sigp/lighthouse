@@ -20,7 +20,7 @@ Start a local eth1 ganache server
 ./ganache_test_node.sh
 ```
 
-Assuming you are happy with the configuration in `var.env`, deploy the deposit contract, make deposits,
+Assuming you are happy with the configuration in `vars.env`, deploy the deposit contract, make deposits,
 create the testnet directory, genesis state and validator keys with:
 
 ```bash
