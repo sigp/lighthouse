@@ -57,6 +57,10 @@ impl PartialEq for SyncState {
                 | (SyncState::Synced, SyncState::Synced)
                 | (SyncState::Stalled, SyncState::Stalled)
                 | (SyncState::SyncTransition, SyncState::SyncTransition)
+                | (
+                    SyncState::BackFillSyncing { .. },
+                    SyncState::BackFillSyncing { .. }
+                )
         )
     }
 }
@@ -76,8 +80,10 @@ impl SyncState {
     }
 
     /// Returns true if the node is synced.
+    ///
+    /// NOTE: We consider the node synced if it is fetching old historical blocks.
     pub fn is_synced(&self) -> bool {
-        matches!(self, SyncState::Synced)
+        matches!(self, SyncState::Synced | SyncState::BackFillSyncing { .. })
     }
 }
 
@@ -88,8 +94,8 @@ impl std::fmt::Display for SyncState {
             SyncState::SyncingHead { .. } => write!(f, "Syncing Head Chain"),
             SyncState::Synced { .. } => write!(f, "Synced"),
             SyncState::Stalled { .. } => write!(f, "Stalled"),
-            SyncState::SyncTransition => write!(f, "Searching syncing peers"),
-            SyncState::BackFillSyncing { .. } => write!(f, "Syncing old blocks."),
+            SyncState::SyncTransition => write!(f, "Evaluating known peers"),
+            SyncState::BackFillSyncing { .. } => write!(f, "Syncing Historical Blocks"),
         }
     }
 }
