@@ -848,12 +848,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         .as_ref()
                         .map_or(true, |block| block.slot() <= end_slot)
                 })
-                // Include the block at the start slot (if any). Whilst it doesn't need to be applied
-                // to the state, it contains a potentially useful state root.
-                .take_while(|result| {
-                    result
-                        .as_ref()
-                        .map_or(true, |block| block.slot() >= start_slot)
+                // Include the block at the start slot (if any). Whilst it doesn't need to be
+                // applied to the state, it contains a potentially useful state root.
+                //
+                // Return `true` on an `Err` so that the `collect` fails, unless the error is a
+                // `BlockNotFound` error and some blocks are intentionally missing from the DB.
+                // This complexity is unfortunately necessary to avoid loading the parent of the
+                // oldest known block -- we can't know that we have all the required blocks until we
+                // load a block with slot less than the start slot, which is impossible if there are
+                // no blocks with slot less than the start slot.
+                .take_while(|result| match result {
+                    Ok(block) => block.slot() >= start_slot,
+                    Err(Error::BlockNotFound(_)) => {
+                        self.get_oldest_block_slot() == self.spec.genesis_slot
+                    }
+                    Err(_) => true,
                 })
                 .collect::<Result<_, _>>()?;
         blocks.reverse();

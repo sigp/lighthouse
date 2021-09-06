@@ -1816,13 +1816,19 @@ fn weak_subjectivity_sync() {
     assert_eq!(new_blocks[0].beacon_block.slot(), wss_slot + 1);
 
     for snapshot in new_blocks {
-        beacon_chain
-            .slot_clock
-            .set_slot(snapshot.beacon_block.slot().as_u64());
-        beacon_chain
-            .process_block(snapshot.beacon_block.clone())
-            .unwrap();
+        let block = &snapshot.beacon_block;
+        beacon_chain.slot_clock.set_slot(block.slot().as_u64());
+        beacon_chain.process_block(block.clone()).unwrap();
         beacon_chain.fork_choice().unwrap();
+
+        // Check that the new block's state can be loaded correctly.
+        let state_root = block.state_root();
+        let mut state = beacon_chain
+            .store
+            .get_state(&state_root, Some(block.slot()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 
     // Forwards iterator from 0 should fail as we lack blocks.
@@ -1845,7 +1851,7 @@ fn weak_subjectivity_sync() {
 
     // Simulate querying the API for a historic state that is unknown. It should also return
     // `None` rather than erroring.
-    assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None,);
+    assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None);
 
     // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
     let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
