@@ -451,7 +451,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 Ok(received) => {
                     // TODO: Report the total awaiting, not just for this batch.
                     let awaiting_batches =
-                        batch_id.saturating_sub(self.processing_target) / BACKFILL_EPOCHS_PER_BATCH;
+                        self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
                     debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received, "awaiting_batches" => awaiting_batches);
 
                     // pre-emptively request more blocks from peers whilst we process current blocks,
@@ -758,9 +758,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // If this is not observed, add it to the failed state branch above.
                     crit!(self.log, "Chain encountered a robust batch awaiting validation"; "batch" => self.processing_target);
 
-                    self.processing_target += BACKFILL_EPOCHS_PER_BATCH;
-                    if self.to_be_downloaded <= self.processing_target {
-                        self.to_be_downloaded = self.processing_target + BACKFILL_EPOCHS_PER_BATCH;
+                    self.processing_target -= BACKFILL_EPOCHS_PER_BATCH;
+                    if self.to_be_downloaded >= self.processing_target {
+                        self.to_be_downloaded = self.processing_target - BACKFILL_EPOCHS_PER_BATCH;
                     }
                     self.request_batches(network)?;
                 }
@@ -793,8 +793,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return;
         }
 
-        // batches in the range [BatchId, ..) (validated, higher batches are processed)
-        let removed_batches = self.batches.split_off(&validating_epoch);
+        // We can now validate higher batches that the current batch. Here we remove all
+        // batches that are higher than the current batch. We add on an extra
+        // `BACKFILL_EPOCHS_PER_BATCH` as `split_off` is inclusive.
+        let removed_batches = self
+            .batches
+            .split_off(&(validating_epoch + BACKFILL_EPOCHS_PER_BATCH));
 
         for (id, batch) in removed_batches.into_iter() {
             self.validated_batches = self.validated_batches.saturating_add(1);
@@ -891,7 +895,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         for (id, batch) in self
             .batches
             .iter_mut()
-            .filter(|(&id, _batch)| id >= batch_id)
+            .filter(|(&id, _batch)| id > batch_id)
         {
             match batch
                 .validation_failed()
