@@ -143,7 +143,7 @@ impl InitializedValidator {
             return Err(Error::UnableToInitializeDisabledValidator);
         }
 
-        match def.signing_definition {
+        let signing_method = match def.signing_definition {
             // Load the keystore, password, decrypt the keypair and create a lockfile for a
             // EIP-2335 keystore on the local filesystem.
             SigningDefinition::LocalKeystore {
@@ -215,16 +215,12 @@ impl InitializedValidator {
 
                 let voting_keystore_lockfile = Lockfile::new(lockfile_path)?;
 
-                Ok(Self {
-                    signing_method: Arc::new(SigningMethod::LocalKeystore {
-                        voting_keystore_path,
-                        voting_keystore_lockfile,
-                        voting_keystore: voting_keystore.clone(),
-                        voting_keypair: Arc::new(voting_keypair),
-                    }),
-                    graffiti: def.graffiti.map(Into::into),
-                    index: None,
-                })
+                SigningMethod::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_lockfile,
+                    voting_keystore: voting_keystore.clone(),
+                    voting_keypair: Arc::new(voting_keypair),
+                }
             }
             SigningDefinition::Web3Signer {
                 url,
@@ -257,17 +253,19 @@ impl InitializedValidator {
                     .build()
                     .map_err(Error::UnableToBuildWeb3SignerClient)?;
 
-                Ok(Self {
-                    signing_method: Arc::new(SigningMethod::Web3Signer {
-                        signing_url,
-                        http_client,
-                        voting_public_key: def.voting_public_key,
-                    }),
-                    graffiti: def.graffiti.map(Into::into),
-                    index: None,
-                })
+                SigningMethod::Web3Signer {
+                    signing_url,
+                    http_client,
+                    voting_public_key: def.voting_public_key,
+                }
             }
-        }
+        };
+
+        Ok(Self {
+            signing_method: Arc::new(signing_method),
+            graffiti: def.graffiti.map(Into::into),
+            index: None,
+        })
     }
 
     /// Returns the voting public key for this validator.
