@@ -449,7 +449,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
             match batch.download_completed() {
                 Ok(received) => {
-                    // TODO: Report the total awaiting, not just for this batch.
                     let awaiting_batches =
                         self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
                     debug!(self.log, "Completed batch received"; "epoch" => batch_id, "blocks" => received, "awaiting_batches" => awaiting_batches);
