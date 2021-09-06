@@ -120,10 +120,9 @@ impl SigningMethod {
     ) -> Result<Signature, Error> {
         let domain_hash = signing_context.domain_hash(spec);
         let SigningContext {
-            domain,
-            epoch: _,
             fork,
             genesis_validators_root,
+            ..
         } = signing_context;
 
         let signing_root = signable_message.signing_root(domain_hash);
@@ -177,15 +176,6 @@ impl SigningMethod {
 
                 // Determine the Web3Signer message type.
                 let message_type = pre_image.message_type();
-
-                // Sanity check.
-                let message_type_domain = Domain::from(message_type);
-                if message_type_domain != domain {
-                    return Err(Error::InconsistentDomains {
-                        message_type_domain,
-                        domain,
-                    });
-                }
 
                 // The `fork_info` field is not required for deposits since they sign across the
                 // genesis fork version.

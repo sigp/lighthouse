@@ -1,3 +1,5 @@
+//! Contains the types required to make JSON requests to Web3Signer servers.
+
 use serde::{Deserialize, Serialize};
 use types::*;
 
@@ -14,23 +16,6 @@ pub enum MessageType {
     SyncCommitteeMessage,
     SyncCommitteeSelectionProof,
     SyncCommitteeContributionAndProof,
-}
-
-impl From<MessageType> for Domain {
-    fn from(message_type: MessageType) -> Self {
-        match message_type {
-            MessageType::AggregationSlot => Domain::SelectionProof,
-            MessageType::AggregateAndProof => Domain::AggregateAndProof,
-            MessageType::Attestation => Domain::BeaconAttester,
-            MessageType::Block => Domain::BeaconProposer,
-            MessageType::Deposit => Domain::Deposit,
-            MessageType::RandaoReveal => Domain::Randao,
-            MessageType::VoluntaryExit => Domain::VoluntaryExit,
-            MessageType::SyncCommitteeMessage => Domain::SyncCommittee,
-            MessageType::SyncCommitteeSelectionProof => Domain::SyncCommitteeSelectionProof,
-            MessageType::SyncCommitteeContributionAndProof => Domain::ContributionAndProof,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
