@@ -33,7 +33,6 @@
     * [Custom Data Directories](./advanced-datadir.md)
     * [Validator Graffiti](./graffiti.md)
     * [Database Configuration](./advanced_database.md)
-	* [Local Testnets](./local-testnets.md)
     * [Advanced Networking](./advanced_networking.md)
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
