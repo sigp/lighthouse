@@ -9,7 +9,6 @@ pub enum MessageType {
     AggregationSlot,
     AggregateAndProof,
     Attestation,
-    #[serde(rename = "BLOCK_V2")]
     BlockV2,
     Deposit,
     RandaoReveal,
@@ -20,10 +19,9 @@ pub enum MessageType {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ForkName {
-    #[serde(rename = "PHASE0")]
     Phase0,
-    #[serde(rename = "ALTAIR")]
     Altair,
 }
 
@@ -34,20 +32,17 @@ pub struct ForkInfo {
 }
 
 #[derive(Debug, PartialEq, Serialize)]
-#[serde(bound = "T: EthSpec")]
-pub enum PreImage<'a, T: EthSpec> {
-    #[serde(rename = "aggregation_slot")]
-    AggregationSlot { slot: Slot },
-    #[serde(rename = "aggregate_and_proof")]
+#[serde(bound = "T: EthSpec", rename_all = "snake_case")]
+pub enum Web3SignerObject<'a, T: EthSpec> {
+    AggregationSlot {
+        slot: Slot,
+    },
     AggregateAndProof(&'a AggregateAndProof<T>),
-    #[serde(rename = "attestation")]
-    AttestationData(&'a AttestationData),
-    #[serde(rename = "beacon_block")]
+    Attestation(&'a AttestationData),
     BeaconBlock {
         version: ForkName,
         block: &'a BeaconBlock<T>,
     },
-    #[serde(rename = "deposit")]
     #[allow(dead_code)]
     Deposit {
         pubkey: PublicKeyBytes,
@@ -57,44 +52,45 @@ pub enum PreImage<'a, T: EthSpec> {
         #[serde(with = "eth2_serde_utils::bytes_4_hex")]
         genesis_fork_version: [u8; 4],
     },
-    #[serde(rename = "randao_reveal")]
-    RandaoReveal { epoch: Epoch },
-    #[serde(rename = "voluntary_exit")]
+    RandaoReveal {
+        epoch: Epoch,
+    },
     #[allow(dead_code)]
     VoluntaryExit(&'a VoluntaryExit),
-    #[serde(rename = "sync_committee_message")]
     SyncCommitteeMessage {
         beacon_block_root: Hash256,
         slot: Slot,
     },
-    #[serde(rename = "sync_aggregator_selection_data")]
     SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
-    #[serde(rename = "contribution_and_proof")]
     ContributionAndProof(&'a ContributionAndProof<T>),
 }
 
-impl<'a, T: EthSpec> PreImage<'a, T> {
+impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
     pub fn beacon_block(block: &'a BeaconBlock<T>) -> Self {
         let version = match block {
             BeaconBlock::Base(_) => ForkName::Phase0,
             BeaconBlock::Altair(_) => ForkName::Altair,
         };
 
-        PreImage::BeaconBlock { version, block }
+        Web3SignerObject::BeaconBlock { version, block }
     }
 
     pub fn message_type(&self) -> MessageType {
         match self {
-            PreImage::AggregationSlot { .. } => MessageType::AggregationSlot,
-            PreImage::AggregateAndProof(_) => MessageType::AggregateAndProof,
-            PreImage::AttestationData(_) => MessageType::Attestation,
-            PreImage::BeaconBlock { .. } => MessageType::BlockV2,
-            PreImage::Deposit { .. } => MessageType::Deposit,
-            PreImage::RandaoReveal { .. } => MessageType::RandaoReveal,
-            PreImage::VoluntaryExit(_) => MessageType::VoluntaryExit,
-            PreImage::SyncCommitteeMessage { .. } => MessageType::SyncCommitteeMessage,
-            PreImage::SyncAggregatorSelectionData(_) => MessageType::SyncCommitteeSelectionProof,
-            PreImage::ContributionAndProof(_) => MessageType::SyncCommitteeContributionAndProof,
+            Web3SignerObject::AggregationSlot { .. } => MessageType::AggregationSlot,
+            Web3SignerObject::AggregateAndProof(_) => MessageType::AggregateAndProof,
+            Web3SignerObject::Attestation(_) => MessageType::Attestation,
+            Web3SignerObject::BeaconBlock { .. } => MessageType::BlockV2,
+            Web3SignerObject::Deposit { .. } => MessageType::Deposit,
+            Web3SignerObject::RandaoReveal { .. } => MessageType::RandaoReveal,
+            Web3SignerObject::VoluntaryExit(_) => MessageType::VoluntaryExit,
+            Web3SignerObject::SyncCommitteeMessage { .. } => MessageType::SyncCommitteeMessage,
+            Web3SignerObject::SyncAggregatorSelectionData(_) => {
+                MessageType::SyncCommitteeSelectionProof
+            }
+            Web3SignerObject::ContributionAndProof(_) => {
+                MessageType::SyncCommitteeContributionAndProof
+            }
         }
     }
 }
@@ -109,7 +105,7 @@ pub struct SigningRequest<'a, T: EthSpec> {
     #[serde(rename = "signingRoot")]
     pub signing_root: Hash256,
     #[serde(flatten)]
-    pub pre_image: PreImage<'a, T>,
+    pub object: Web3SignerObject<'a, T>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]

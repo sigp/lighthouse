@@ -13,7 +13,7 @@ use types::*;
 use url::Url;
 use web3signer::{ForkInfo, SigningRequest, SigningResponse};
 
-pub use web3signer::PreImage;
+pub use web3signer::Web3SignerObject;
 
 mod web3signer;
 
@@ -147,33 +147,39 @@ impl SigningMethod {
                 ..
             } => {
                 // Map the message into a Web3Signer type.
-                let pre_image = match signable_message {
-                    SignableMessage::RandaoReveal(epoch) => PreImage::RandaoReveal { epoch },
-                    SignableMessage::BeaconBlock(block) => PreImage::beacon_block(block),
-                    SignableMessage::AttestationData(a) => PreImage::AttestationData(a),
-                    SignableMessage::SignedAggregateAndProof(a) => PreImage::AggregateAndProof(a),
-                    SignableMessage::SelectionProof(slot) => PreImage::AggregationSlot { slot },
+                let object = match signable_message {
+                    SignableMessage::RandaoReveal(epoch) => {
+                        Web3SignerObject::RandaoReveal { epoch }
+                    }
+                    SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block),
+                    SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
+                    SignableMessage::SignedAggregateAndProof(a) => {
+                        Web3SignerObject::AggregateAndProof(a)
+                    }
+                    SignableMessage::SelectionProof(slot) => {
+                        Web3SignerObject::AggregationSlot { slot }
+                    }
                     SignableMessage::SyncSelectionProof(s) => {
-                        PreImage::SyncAggregatorSelectionData(s)
+                        Web3SignerObject::SyncAggregatorSelectionData(s)
                     }
                     SignableMessage::SyncCommitteeSignature {
                         beacon_block_root,
                         slot,
-                    } => PreImage::SyncCommitteeMessage {
+                    } => Web3SignerObject::SyncCommitteeMessage {
                         beacon_block_root,
                         slot,
                     },
                     SignableMessage::SignedContributionAndProof(c) => {
-                        PreImage::ContributionAndProof(c)
+                        Web3SignerObject::ContributionAndProof(c)
                     }
                 };
 
                 // Determine the Web3Signer message type.
-                let message_type = pre_image.message_type();
+                let message_type = object.message_type();
 
                 // The `fork_info` field is not required for deposits since they sign across the
                 // genesis fork version.
-                let fork_info = if let PreImage::Deposit { .. } = &pre_image {
+                let fork_info = if let Web3SignerObject::Deposit { .. } = &object {
                     None
                 } else {
                     Some(ForkInfo {
@@ -186,7 +192,7 @@ impl SigningMethod {
                     message_type,
                     fork_info,
                     signing_root,
-                    pre_image,
+                    object,
                 };
 
                 // Request a signature from the Web3Signer instance via HTTP(S).
