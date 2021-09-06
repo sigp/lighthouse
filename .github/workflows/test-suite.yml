@@ -110,16 +110,6 @@ jobs:
       run: rustup update stable
     - name: Build the root Dockerfile
       run: docker build .
-  web3signer-ubuntu:
-    name: web3signer-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v1
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Run integration tests against Web3Signer by Consensys
-      run: cargo test --release --manifest-path=testing/web3signer_tests/Cargo.toml
   eth1-simulator-ubuntu:
     name: eth1-simulator-ubuntu
     runs-on: ubuntu-latest
