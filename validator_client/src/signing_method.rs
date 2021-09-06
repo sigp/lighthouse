@@ -27,7 +27,6 @@ pub enum Error {
     Web3SignerJsonParsingFailed(String),
     ShuttingDown,
     TokioJoin(String),
-    Web3SignerDoesNotSupportAltairBlocks,
 }
 
 /// Enumerates all messages that can be signed by a validator.
@@ -150,12 +149,7 @@ impl SigningMethod {
                 // Map the message into a Web3Signer type.
                 let pre_image = match signable_message {
                     SignableMessage::RandaoReveal(epoch) => PreImage::RandaoReveal { epoch },
-                    SignableMessage::BeaconBlock(block) => match block {
-                        BeaconBlock::Base(block) => PreImage::BeaconBlockBase(block),
-                        BeaconBlock::Altair(_) => {
-                            return Err(Error::Web3SignerDoesNotSupportAltairBlocks)
-                        }
-                    },
+                    SignableMessage::BeaconBlock(block) => PreImage::beacon_block(block),
                     SignableMessage::AttestationData(a) => PreImage::AttestationData(a),
                     SignableMessage::SignedAggregateAndProof(a) => PreImage::AggregateAndProof(a),
                     SignableMessage::SelectionProof(slot) => PreImage::AggregationSlot { slot },

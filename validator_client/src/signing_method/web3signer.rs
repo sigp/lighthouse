@@ -9,13 +9,22 @@ pub enum MessageType {
     AggregationSlot,
     AggregateAndProof,
     Attestation,
-    Block,
+    #[serde(rename = "BLOCK_V2")]
+    BlockV2,
     Deposit,
     RandaoReveal,
     VoluntaryExit,
     SyncCommitteeMessage,
     SyncCommitteeSelectionProof,
     SyncCommitteeContributionAndProof,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, Serialize)]
+pub enum ForkName {
+    #[serde(rename = "PHASE0")]
+    Phase0,
+    #[serde(rename = "ALTAIR")]
+    Altair,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -33,8 +42,11 @@ pub enum PreImage<'a, T: EthSpec> {
     AggregateAndProof(&'a AggregateAndProof<T>),
     #[serde(rename = "attestation")]
     AttestationData(&'a AttestationData),
-    #[serde(rename = "block")]
-    BeaconBlockBase(&'a BeaconBlockBase<T>),
+    #[serde(rename = "beacon_block")]
+    BeaconBlock {
+        version: ForkName,
+        block: &'a BeaconBlock<T>,
+    },
     #[serde(rename = "deposit")]
     #[allow(dead_code)]
     Deposit {
@@ -62,12 +74,21 @@ pub enum PreImage<'a, T: EthSpec> {
 }
 
 impl<'a, T: EthSpec> PreImage<'a, T> {
+    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Self {
+        let version = match block {
+            BeaconBlock::Base(_) => ForkName::Phase0,
+            BeaconBlock::Altair(_) => ForkName::Altair,
+        };
+
+        PreImage::BeaconBlock { version, block }
+    }
+
     pub fn message_type(&self) -> MessageType {
         match self {
             PreImage::AggregationSlot { .. } => MessageType::AggregationSlot,
             PreImage::AggregateAndProof(_) => MessageType::AggregateAndProof,
             PreImage::AttestationData(_) => MessageType::Attestation,
-            PreImage::BeaconBlockBase(_) => MessageType::Block,
+            PreImage::BeaconBlock { .. } => MessageType::BlockV2,
             PreImage::Deposit { .. } => MessageType::Deposit,
             PreImage::RandaoReveal { .. } => MessageType::RandaoReveal,
             PreImage::VoluntaryExit(_) => MessageType::VoluntaryExit,

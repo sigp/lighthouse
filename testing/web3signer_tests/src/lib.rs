@@ -523,15 +523,7 @@ mod tests {
         test_base_types("prater", 4246).await
     }
 
-    /* Web3Signer does not yet support the Altair fork for Prater:
-     *
-     * https://github.com/ConsenSys/web3signer/issues/423
-     *
-     * If this test starts failing, it's likely that support has been added and we should remove the
-     * `#[should_panic]`
-     */
     #[tokio::test]
-    #[should_panic]
     async fn prater_altair_types() {
         test_altair_types("prater", 4247).await
     }
