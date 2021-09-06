@@ -653,9 +653,14 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     let mut already_warned = Some(());
     for duty in relevant_duties {
-        // TODO(paul): double check this code during review.
+        // Only update the duties if either is true:
+        //
+        // - There were no known duties for this epoch.
+        // - The dependent root has changed, signalling a re-org.
         let update_required = {
-            let attesters = duties_service.attesters.write();
+            // It is important to ensure that this read-lock is dropped before taking a write-lock
+            // later in the function.
+            let attesters = duties_service.attesters.read();
 
             if let Some(duties) = attesters.get(&duty.pubkey) {
                 duties
@@ -666,10 +671,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             }
         };
 
-        // Only update the duties if either is true:
-        //
-        // - There were no known duties for this epoch.
-        // - The dependent root has changed, signalling a re-org.
         if update_required {
             let duty_and_proof =
                 DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
