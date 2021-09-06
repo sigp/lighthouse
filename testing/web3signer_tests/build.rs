@@ -1,3 +1,6 @@
+//! This build script downloads the latest Web3Signer release and places it in the `OUT_DIR` so it
+//! can be used for integration testing.
+
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
@@ -57,19 +60,22 @@ pub async fn download_binary(dest_dir: PathBuf) {
     // Write the zip to a file.
     let zip_path = dest_dir.join(format!("{}.zip", latest_version));
     fs::write(&zip_path, zip_response).unwrap();
-    // Extract the zip from the file.
+    // Unzip the zip.
     let mut zip_file = fs::File::open(&zip_path).unwrap();
     ZipArchive::new(&mut zip_file)
         .unwrap()
         .extract(&dest_dir)
         .unwrap();
 
-    // Rename the web3signer directory so it doesn't include the version string.
-    let unzipped_dir = dest_dir.join(format!("web3signer-{}", latest_version));
-    let renamed_dir = dest_dir.join("web3signer");
-    fs::rename(&unzipped_dir, &renamed_dir).unwrap();
+    // Rename the web3signer directory so it doesn't include the version string. This ensures the
+    // path to the binary is predictable.
+    fs::rename(
+        dest_dir.join(format!("web3signer-{}", latest_version)),
+        dest_dir.join("web3signer"),
+    )
+    .unwrap();
 
-    // Clean up zip and unzipped dir.
+    // Delete zip and unzipped dir.
     fs::remove_file(&zip_path).unwrap();
 
     // Update the version file to avoid duplicate downloads.
