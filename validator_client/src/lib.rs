@@ -7,7 +7,6 @@ mod config;
 mod duties_service;
 mod graffiti_file;
 mod http_metrics;
-mod initialized_validators;
 mod key_cache;
 mod notifier;
 mod signing_method;
@@ -15,11 +14,12 @@ mod sync_committee_service;
 
 mod doppelganger_service;
 pub mod http_api;
+pub mod initialized_validators;
 pub mod validator_store;
 
 pub use cli::cli_app;
 pub use config::Config;
-pub use initialized_validators::InitializedValidators;
+use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};

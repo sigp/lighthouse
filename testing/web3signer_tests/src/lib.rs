@@ -16,6 +16,7 @@ mod tests {
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use reqwest::Client;
     use serde::Serialize;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
@@ -32,8 +33,9 @@ mod tests {
     use types::*;
     use url::Url;
     use validator_client::{
-        validator_store::ValidatorStore, InitializedValidators, SlashingDatabase,
-        SLASHING_PROTECTION_FILENAME,
+        initialized_validators::{load_pem_certificate, InitializedValidators},
+        validator_store::ValidatorStore,
+        SlashingDatabase, SLASHING_PROTECTION_FILENAME,
     };
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
@@ -93,12 +95,22 @@ mod tests {
             .join("web3signer")
     }
 
+    /// The location of a directory where we keep some files for testing TLS.
+    fn tls_dir() -> PathBuf {
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("tls")
+    }
+
+    fn root_certificate_path() -> PathBuf {
+        tls_dir().join("cert.pem")
+    }
+
     /// A testing rig which holds a live Web3Signer process.
     struct Web3SignerRig {
         keypair: Keypair,
         _keystore_dir: TempDir,
         keystore_path: PathBuf,
         web3signer_child: Child,
+        http_client: Client,
         url: Url,
     }
 
@@ -136,6 +148,9 @@ mod tests {
                 File::create(&keystore_dir.path().join("key-config.yaml")).unwrap();
             serde_yaml::to_writer(key_config_file, &key_config).unwrap();
 
+            let tls_keystore_file = tls_dir().join("key.p12");
+            let tls_keystore_password_file = tls_dir().join("password.txt");
+
             let web3signer_child = Command::new(web3signer_binary())
                 .arg(format!(
                     "--key-store-path={}",
@@ -143,19 +158,35 @@ mod tests {
                 ))
                 .arg(format!("--http-listen-host={}", listen_address))
                 .arg(format!("--http-listen-port={}", listen_port))
+                .arg("--tls-allow-any-client=true")
+                .arg(format!(
+                    "--tls-keystore-file={}",
+                    tls_keystore_file.to_str().unwrap()
+                ))
+                .arg(format!(
+                    "--tls-keystore-password-file={}",
+                    tls_keystore_password_file.to_str().unwrap()
+                ))
                 .arg("eth2")
                 .arg(format!("--network={}", network))
                 .arg("--slashing-protection-enabled=false")
                 .spawn()
                 .unwrap();
 
-            let url = Url::parse(&format!("http://{}:{}", listen_address, listen_port)).unwrap();
+            let url = Url::parse(&format!("https://{}:{}", listen_address, listen_port)).unwrap();
+
+            let certificate = load_pem_certificate(root_certificate_path()).unwrap();
+            let http_client = Client::builder()
+                .add_root_certificate(certificate)
+                .build()
+                .unwrap();
 
             let s = Self {
                 keypair,
                 _keystore_dir: keystore_dir,
                 keystore_path,
                 web3signer_child,
+                http_client,
                 url,
             };
 
@@ -179,7 +210,9 @@ mod tests {
 
         pub async fn upcheck(&self) -> Result<(), ()> {
             let url = self.url.join("upcheck").unwrap();
-            reqwest::get(url)
+            self.http_client
+                .get(url)
+                .send()
                 .await
                 .map_err(|_| ())?
                 .error_for_status()
@@ -304,7 +337,7 @@ mod tests {
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer {
                         url: signer_rig.url.to_string(),
-                        root_certificate_path: None,
+                        root_certificate_path: Some(root_certificate_path()),
                         request_timeout_ms: None,
                     },
                 };

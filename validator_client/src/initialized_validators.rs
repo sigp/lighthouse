@@ -236,14 +236,7 @@ impl InitializedValidator {
                 let builder = Client::builder().timeout(request_timeout);
 
                 let builder = if let Some(path) = root_certificate_path {
-                    let mut buf = Vec::new();
-                    File::open(&path)
-                        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?
-                        .read_to_end(&mut buf)
-                        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?;
-                    let certificate = Certificate::from_pem(&buf)
-                        .map_err(Error::InvalidWeb3SignerRootCertificate)?;
-
+                    let certificate = load_pem_certificate(path)?;
                     builder.add_root_certificate(certificate)
                 } else {
                     builder
@@ -277,6 +270,15 @@ impl InitializedValidator {
             } => voting_public_key,
         }
     }
+}
+
+pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, Error> {
+    let mut buf = Vec::new();
+    File::open(&pem_path)
+        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?
+        .read_to_end(&mut buf)
+        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?;
+    Certificate::from_pem(&buf).map_err(Error::InvalidWeb3SignerRootCertificate)
 }
 
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
