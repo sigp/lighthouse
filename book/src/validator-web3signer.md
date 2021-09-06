@@ -30,7 +30,8 @@ of effectiveness.
 ## Usage
 
 A remote signing validator is added to Lighthouse in much the same way as one that uses a local
-keystore, via the [`validator_definitions.yml`](./validator-management.md) file.
+keystore, via the [`validator_definitions.yml`](./validator-management.md) file or via the `POST
+/lighthouse/validators/web3signer` API endpoint.
 
 Here is an example of a `validator_definitions.yml` file containing one validator which uses a
 remote signer:

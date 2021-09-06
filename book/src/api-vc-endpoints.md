@@ -471,7 +471,6 @@ The following fields may be omitted or nullified to obtain default values:
 - `root_certificate_path`
 - `request_timeout_ms`
 
-
 ### Example Response Body
 
-*No data is included in the response.*
+*No data is included in the response body.*

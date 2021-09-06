@@ -140,12 +140,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
     /// keystore on the filesystem.
-    ///
-    /// This function includes:
-    ///
-    /// - Add the validator definition to the YAML file, saving it to the filesystem.
-    /// - Enable validator with the slashing protection database.
-    /// - If `enable == true`, start performing duties for the validator.
     pub async fn add_validator_keystore<P: AsRef<Path>>(
         &self,
         voting_keystore_path: P,
@@ -165,14 +159,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.add_validator(validator_def).await
     }
 
-    /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
-    /// keystore on the filesystem.
+    /// Insert a new validator to `self`.
     ///
     /// This function includes:
     ///
-    /// - Add the validator definition to the YAML file, saving it to the filesystem.
-    /// - Enable validator with the slashing protection database.
-    /// - If `enable == true`, start performing duties for the validator.
+    /// - Adding the validator definition to the YAML file, saving it to the filesystem.
+    /// - Enabling the validator with the slashing protection database.
+    /// - If `enable == true`, starting to perform duties for the validator.
     pub async fn add_validator(
         &self,
         validator_def: ValidatorDefinition,
