@@ -440,6 +440,18 @@ mod tests {
         TestingRig::new(network, spec.clone(), listen_port)
             .await
             .assert_signatures_match(
+                "beacon_block_altair",
+                |pubkey, validator_store| async move {
+                    let mut altair_block = BeaconBlockAltair::empty(spec);
+                    altair_block.slot = altair_fork_slot;
+                    validator_store
+                        .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
+                        .await
+                        .unwrap()
+                },
+            )
+            .await
+            .assert_signatures_match(
                 "sync_selection_proof",
                 |pubkey, validator_store| async move {
                     validator_store
