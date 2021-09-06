@@ -214,7 +214,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     ) -> Result<(), ()> {
         let log = self.context.log().clone();
 
-        let mut committee_signatures = vec![];
+        let mut committee_signatures = Vec::with_capacity(validator_duties.len());
         for duty in &validator_duties {
             match self
                 .validator_store
@@ -338,7 +338,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .data;
 
         // Make `SignedContributionAndProof`s
-        let mut signed_contributions = vec![];
+        let mut signed_contributions = Vec::with_capacity(subnet_aggregators.len());
         for (aggregator_index, aggregator_pk, selection_proof) in subnet_aggregators {
             match self
                 .validator_store
