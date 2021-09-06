@@ -460,7 +460,7 @@ Typical Responses | 200, 400
         "voting_public_key": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
         "url": "http://path-to-web3signer.com",
         "root_certificate_path": "/path/on/vc/filesystem/to/certificate.pem",
-        "request_timeout_ms": 1500
+        "request_timeout_ms": 12000
     }
 ]
 ```

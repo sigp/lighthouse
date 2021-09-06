@@ -107,7 +107,7 @@ impl InitializedValidator {
                 ref voting_keystore_lockfile,
                 ..
             } => Some(voting_keystore_lockfile),
-            // TODO(paul) consider an artificial lockfile for remote signer validators.
+            // Web3Signer validators do not have any lockfiles.
             SigningMethod::Web3Signer { .. } => None,
         }
     }

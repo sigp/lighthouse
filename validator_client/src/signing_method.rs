@@ -1,3 +1,8 @@
+//! Provides methods for obtaining validator signatures, including:
+//!
+//! - Via a local `Keypair`.
+//! - Via a remote signer (Web3Signer)
+
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use reqwest::Client;
@@ -25,6 +30,7 @@ pub enum Error {
     Web3SignerDoesNotSupportAltairBlocks,
 }
 
+/// Enumerates all messages that can be signed by a validator.
 pub enum SignableMessage<'a, T: EthSpec> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T>),
@@ -40,6 +46,10 @@ pub enum SignableMessage<'a, T: EthSpec> {
 }
 
 impl<'a, T: EthSpec> SignableMessage<'a, T> {
+    /// Returns the `SignedRoot` for the contained message.
+    ///
+    /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
+    /// not required here.
     pub fn signing_root(&self, domain: Hash256) -> Hash256 {
         match self {
             SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
@@ -78,6 +88,8 @@ pub enum SigningMethod {
     },
 }
 
+/// The additional information used to construct a signature. Mostly used for protection from replay
+/// attacks.
 pub struct SigningContext {
     pub domain: Domain,
     pub epoch: Epoch,
@@ -86,6 +98,7 @@ pub struct SigningContext {
 }
 
 impl SigningContext {
+    /// Returns the `Hash256` to be mixed-in with the signature.
     pub fn domain_hash(&self, spec: &ChainSpec) -> Hash256 {
         spec.get_domain(
             self.epoch,
@@ -97,6 +110,7 @@ impl SigningContext {
 }
 
 impl SigningMethod {
+    /// Return the signature of `signable_message`, with respect to the `signing_context`.
     pub async fn get_signature<T: EthSpec>(
         &self,
         signable_message: SignableMessage<'_, T>,
@@ -112,12 +126,13 @@ impl SigningMethod {
             genesis_validators_root,
         } = signing_context;
 
-        // TODO(paul): should this be in a blocking task?
         let signing_root = signable_message.signing_root(domain_hash);
 
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
                 let voting_keypair = voting_keypair.clone();
+                // Spawn a blocking task to produce the signature. This avoids blocking the core
+                // tokio executor.
                 let signature = executor
                     .spawn_blocking_handle(
                         move || voting_keypair.sk.sign(signing_root),
@@ -133,6 +148,7 @@ impl SigningMethod {
                 http_client,
                 ..
             } => {
+                // Map the message into a Web3Signer type.
                 let pre_image = match signable_message {
                     SignableMessage::RandaoReveal(epoch) => PreImage::RandaoReveal { epoch },
                     SignableMessage::BeaconBlock(block) => match block {
@@ -159,6 +175,7 @@ impl SigningMethod {
                     }
                 };
 
+                // Determine the Web3Signer message type.
                 let message_type = pre_image.message_type();
 
                 // Sanity check.
@@ -188,6 +205,7 @@ impl SigningMethod {
                     pre_image,
                 };
 
+                // Request a signature from the Web3Signer instance via HTTP(S).
                 let response: SigningResponse = http_client
                     .post(signing_url.clone())
                     .json(&request)
