@@ -1847,9 +1847,10 @@ fn weak_subjectivity_sync() {
     // `None` rather than erroring.
     assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None,);
 
-    // Supply blocks backwards to reach genesis
+    // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
     let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
         .iter()
+        .filter(|s| s.beacon_block.slot() != 0)
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
     beacon_chain
@@ -1863,15 +1864,18 @@ fn weak_subjectivity_sync() {
         .unwrap();
 
     // The forwards iterator should now match the original chain
-    assert!(beacon_chain
+    let forwards = beacon_chain
         .forwards_iter_block_roots(Slot::new(0))
         .unwrap()
         .map(Result::unwrap)
-        .eq(harness
-            .chain
-            .forwards_iter_block_roots(Slot::new(0))
-            .unwrap()
-            .map(Result::unwrap)));
+        .collect::<Vec<_>>();
+    let expected = harness
+        .chain
+        .forwards_iter_block_roots(Slot::new(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+    assert_eq!(forwards, expected);
 
     // All blocks can be loaded.
     for (block_root, slot) in beacon_chain
