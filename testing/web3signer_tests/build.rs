@@ -81,9 +81,11 @@ pub async fn download_binary(dest_dir: PathBuf) {
 
     // Rename the web3signer directory so it doesn't include the version string. This ensures the
     // path to the binary is predictable.
+    let web3signer_dir = dest_dir.join("web3signer");
+    fs::remove_dir_all(&web3signer_dir).unwrap();
     fs::rename(
         dest_dir.join(format!("web3signer-{}", version)),
-        dest_dir.join("web3signer"),
+        web3signer_dir,
     )
     .unwrap();
 
