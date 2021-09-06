@@ -124,7 +124,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Success(sent_blocks > 0)
                     }
                     (_, Err(e)) => {
-                        debug!(self.log, "Backfill Batch processing failed";
+                        debug!(self.log, "Backfill batch processing failed";
                             "batch_epoch" => epoch,
                             "first_block_slot" => start_slot,
                             "last_block_slot" => end_slot,

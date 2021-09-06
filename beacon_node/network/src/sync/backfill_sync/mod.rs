@@ -633,7 +633,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     self.advance_chain(network, batch_id);
                 }
 
-                if batch_id == self.processing_target && !self.last_batch_downloaded {
+                if batch_id == self.processing_target {
                     self.processing_target = self
                         .processing_target
                         .saturating_sub(BACKFILL_EPOCHS_PER_BATCH);
@@ -888,7 +888,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // validation
         let mut redownload_queue = Vec::new();
 
-        for (id, batch) in self.batches.range_mut(..batch_id) {
+        for (id, batch) in self
+            .batches
+            .iter_mut()
+            .filter(|(&id, _batch)| id >= batch_id)
+        {
             match batch
                 .validation_failed()
                 .map_err(|e| BackFillError::BatchInvalidState(batch_id, e.0))?
