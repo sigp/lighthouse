@@ -17,12 +17,6 @@ async fn main() {
     download_binary(out_dir.into()).await;
 }
 
-#[cfg(not(unix))]
-pub async fn download_binary(_: PathBuf) {
-    // Do nothing
-}
-
-#[cfg(unix)]
 pub async fn download_binary(dest_dir: PathBuf) {
     let version_file = dest_dir.join("version");
 
