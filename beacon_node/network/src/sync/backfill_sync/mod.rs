@@ -35,7 +35,7 @@ use types::{Epoch, EthSpec, SignedBeaconBlock};
 pub const BACKFILL_EPOCHS_PER_BATCH: u64 = 2;
 
 /// The maximum number of batches to queue before requesting more.
-const BACKFILL_BATCH_BUFFER_SIZE: u8 = 5;
+const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
