@@ -2408,7 +2408,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(validator_monitor);
 
-        if block.slot() + T::EthSpec::slots_per_epoch() >= current_slot {
+        // If the block being imported is for the current slot, it's possible that we want to delay
+        // attestation if the block will become the head but has not yet been fully imported at set
+        // as `self.canonical_head`.
+        if block.slot() == current_slot {
             let new_head = fork_choice
                 .get_head(current_slot)
                 .map_err(BeaconChainError::from)?;
