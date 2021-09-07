@@ -550,7 +550,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             RPCError::ErrorResponse(code, _) => match code {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ResourceUnavailable => {
-
                     // NOTE: This error only makes sense for the `BlocksByRange` and `BlocksByRoot`
                     // protocols.
                     //

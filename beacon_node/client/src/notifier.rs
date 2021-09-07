@@ -1,6 +1,6 @@
 use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{NetworkGlobals, types::SyncState};
+use eth2_libp2p::{types::SyncState, NetworkGlobals};
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -44,10 +44,13 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
     // Specifically, if we switch between a sync and a backfill sync, reset the speedo.
-    let mut current_sync_state = network.sync_state(); 
+    let mut current_sync_state = network.sync_state();
 
     // Store info if we are required to do a backfill sync.
-    let original_anchor_slot = beacon_chain.store.get_anchor_info().map(|ai| ai.oldest_block_slot);
+    let original_anchor_slot = beacon_chain
+        .store
+        .get_anchor_info()
+        .map(|ai| ai.oldest_block_slot);
 
     let interval_future = async move {
         // Perform pre-genesis logging.
@@ -78,12 +81,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             // Determine if we have switched syncing chains
             if sync_state != current_sync_state {
                 match (current_sync_state, &sync_state) {
-                    (_, SyncState::BackFillSyncing {..} ) => {
+                    (_, SyncState::BackFillSyncing { .. }) => {
                         // We have transitioned to a backfill sync. Reset the speedo.
                         let mut speedo = speedo.lock();
                         speedo.clear();
-                    },
-                    (SyncState::BackFillSyncing { .. }, _)  => {
+                    }
+                    (SyncState::BackFillSyncing { .. }, _) => {
                         // We have transitioned from a backfill sync, reset the speedo
                         let mut speedo = speedo.lock();
                         speedo.clear();
@@ -92,7 +95,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 }
                 current_sync_state = sync_state;
             }
-
 
             let head_info = match beacon_chain.head_info() {
                 Ok(head_info) => head_info,
@@ -132,13 +134,20 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
                     if let Some(oldest_slot) = original_anchor_slot {
-                        if let Some(current_slot) = beacon_chain.store.get_anchor_info().map(|ai| ai.oldest_block_slot) {
+                        if let Some(current_slot) = beacon_chain
+                            .store
+                            .get_anchor_info()
+                            .map(|ai| ai.oldest_block_slot)
+                        {
                             sync_distance = current_slot;
-                            speedo.observe(oldest_slot.saturating_sub(current_slot), Instant::now());
+                            speedo
+                                .observe(oldest_slot.saturating_sub(current_slot), Instant::now());
                         }
                     }
-                },
-                SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } | SyncState:: SyncTransition => {
+                }
+                SyncState::SyncingFinalized { .. }
+                | SyncState::SyncingHead { .. }
+                | SyncState::SyncTransition => {
                     speedo.observe(head_slot, Instant::now());
                 }
                 SyncState::Stalled | SyncState::Synced => {}
@@ -151,7 +160,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 &metrics::SYNC_SLOTS_PER_SECOND,
                 speedo.slots_per_second().unwrap_or(0_f64) as i64,
             );
-
 
             if connected_peer_count <= WARN_PEER_COUNT {
                 warn!(log, "Low peer count"; "peer_count" => peer_count_pretty(connected_peer_count));
@@ -199,7 +207,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
                     );
                 }
-            } else if matches!(current_sync_state, SyncState::BackFillSyncing { .. } ) {
+            } else if matches!(current_sync_state, SyncState::BackFillSyncing { .. }) {
                 let distance = format!(
                     "{} slots ({})",
                     sync_distance.as_u64(),

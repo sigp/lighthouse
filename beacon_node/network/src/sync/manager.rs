@@ -652,10 +652,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
                     "is_connected" => peer_info.is_connected());
 
-                // A peer has transitioned its sync state. If the new state is "synced" we 
+                // A peer has transitioned its sync state. If the new state is "synced" we
                 // inform the backfill sync that a new synced peer has joined us.
-                if new_state.is_synced()
-                {
+                if new_state.is_synced() {
                     self.backfill_sync.fully_synced_peer_joined();
                 }
             }
@@ -714,7 +713,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // If we would otherwise be synced, first check if we need to perform or
                     // complete a backfill sync.
                     if matches!(sync_state, SyncState::Synced) {
-
                         // Determine if we need to start/resume/restart a backfill sync.
                         match self.backfill_sync.start(&mut self.network) {
                             Ok(SyncStart::Syncing {
@@ -732,7 +730,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }
                         }
                     }
-
 
                     // Return the sync state if backfilling is not required.
                     sync_state
@@ -765,7 +762,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // If we have become synced - Subscribe to all the core subnet topics
             // We don't need to subscribe if the old state is a state that would have already
             // invoked this call.
-            if new_state.is_synced() && !matches!(old_state, SyncState::Synced { .. } | SyncState::BackFillSyncing { .. })  {
+            if new_state.is_synced()
+                && !matches!(
+                    old_state,
+                    SyncState::Synced { .. } | SyncState::BackFillSyncing { .. }
+                )
+            {
                 self.network.subscribe_core_topics();
             }
         }

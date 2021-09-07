@@ -66,7 +66,7 @@ pub enum NetworkMessage<T: EthSpec> {
         peer_id: PeerId,
         error: RPCResponseErrorCode,
         reason: String,
-        id: PeerRequestId
+        id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },
