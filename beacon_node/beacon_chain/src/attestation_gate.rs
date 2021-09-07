@@ -21,7 +21,7 @@
 //! ```ignore
 //! MIN_ATTESTATION_INCLUSION_DELAY = 1
 //! if is_matching_head and inclusion_delay == MIN_ATTESTATION_INCLUSION_DELAY:
-        participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX)
+//!     participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX)
 //! ```
 //!
 //! If we consider the scenario where we attest to a block that we *know* is not the head, then
