@@ -9,6 +9,7 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
+use filesystem::restrict_file_permissions;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
@@ -168,6 +169,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .truncate(true)
             .open(&path)
             .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
+
+        restrict_file_permissions(&path)
+            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", path, e))?;
 
         // Setting up the initial logger format and building it.
         let drain = if let Some(format) = log_format {
@@ -385,15 +389,6 @@ impl<E: EthSpec> Environment<E> {
                     handles.push(hup);
                 }
                 Err(e) => error!(self.log, "Could not register SIGHUP handler"; "error" => e),
-            }
-
-            // setup for handling a SIGPIPE
-            match signal(SignalKind::pipe()) {
-                Ok(pipe_stream) => {
-                    let pipe = SignalFuture::new(pipe_stream, "Received SIGPIPE");
-                    handles.push(pipe);
-                }
-                Err(e) => error!(self.log, "Could not register SIGPIPE handler"; "error" => e),
             }
 
             future::select(inner_shutdown, future::select_all(handles.into_iter())).await

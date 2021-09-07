@@ -15,7 +15,10 @@ use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{Epoch, EthSpec, MainnetEthSpec};
+use types::{Epoch, EthSpec, MinimalEthSpec};
+
+const FORK_EPOCH: u64 = 2;
+const END_EPOCH: u64 = 16;
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -59,6 +62,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = &mut env.eth2_config.spec;
 
     let total_validator_count = validators_per_node * node_count;
+    let altair_fork_version = spec.altair_fork_version;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -67,6 +71,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = 1;
+    spec.altair_fork_epoch = Some(Epoch::new(FORK_EPOCH));
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
@@ -174,13 +179,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * tests start at the right time. Whilst this is works well for now, it's subject to
          * breakage by changes to the VC.
          */
-        let (finalization, block_prod, validator_count, onboarding) = futures::join!(
+        let (finalization, block_prod, validator_count, onboarding, fork, sync_aggregate) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
             // Check that a block is produced at every slot.
             checks::verify_full_block_production_up_to(
                 network.clone(),
-                Epoch::new(4).start_slot(MainnetEthSpec::slots_per_epoch()),
+                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
             ),
             // Check that the chain starts with the expected validator count.
@@ -195,6 +200,22 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 network.clone(),
                 slot_duration,
                 total_validator_count,
+            ),
+            // Check that all nodes have transitioned to the new fork.
+            checks::verify_fork_version(
+                network.clone(),
+                Epoch::new(FORK_EPOCH),
+                slot_duration,
+                altair_fork_version
+            ),
+            // Check that all sync aggregates are full.
+            checks::verify_full_sync_aggregates_up_to(
+                network.clone(),
+                // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
+                // inefficiencies in finding subnet peers at the `fork_slot`.
+                Epoch::new(FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
+                slot_duration,
             )
         );
 
@@ -202,6 +223,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         finalization?;
         validator_count?;
         onboarding?;
+        fork?;
+        sync_aggregate?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.

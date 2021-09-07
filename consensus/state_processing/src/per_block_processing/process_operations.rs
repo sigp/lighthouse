@@ -127,7 +127,7 @@ pub mod altair {
             get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
-        let total_active_balance = state.get_total_active_balance(spec)?;
+        let total_active_balance = state.get_total_active_balance()?;
         let mut proposer_reward_numerator = 0;
         for index in &indexed_attestation.attesting_indices {
             let index = *index as usize;
