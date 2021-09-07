@@ -474,10 +474,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let block = Box::new(verified_block.block.clone());
 
-        match self
-            .chain
-            .process_block_with_attestation_gate(verified_block)
-        {
+        match self.chain.process_block(verified_block) {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
