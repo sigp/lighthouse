@@ -7,7 +7,32 @@
 //! ## Incentives
 //!
 //! Using the `ApplicationGate` means that low-resourced notes will attest late rather than
-//! attesting wrong.
+//! attesting wrong. Whilst this doesn't strictly follow the "honest validator guide", it's also
+//! arguably not a blatant violation of it. Given a physically-bounded computer, there's always the
+//! potential for delays whilst a node is processing information.
+//!
+//! This behaviour also falls well within the incentives of the Beacon Chain rewards/penalties
+//! system. We will only consider Altair, since it is soon to be the only rewards system that
+//! matters.
+//!
+//! This blocking behaviour deals with achieving the `TIMELY_HEAD_FLAG_INDEX` reward. It is awarded
+//! based on this logic:
+//!
+//! ```ignore
+//! MIN_ATTESTATION_INCLUSION_DELAY = 1
+//! if is_matching_head and inclusion_delay == MIN_ATTESTATION_INCLUSION_DELAY:
+        participation_flag_indices.append(TIMELY_HEAD_FLAG_INDEX)
+//! ```
+//!
+//! If we consider the scenario where we attest to a block that we *know* is not the head, then
+//! we're certainly going to miss the timely head reward. If we decide to wait until that block is
+//! imported, then we risk getting an inclusion delay > 1. It's clear that in the former case we
+//! have *no* chance of getting the reward whilst we have *some* chance in the later.
+//!
+//! There is of course the scenario where our inclusion delay becomes so great that we start to miss
+//! the other "timely" flags. We mitigate this by applying the `ATTESTATION_BLOCKING_TIMEOUT` to
+//! ensure we don't start attesting *so* late that we risk losing more rewards or jeopardising
+//! finality.
 
 use crate::metrics;
 use parking_lot::{Condvar, Mutex};
