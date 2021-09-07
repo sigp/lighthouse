@@ -79,19 +79,18 @@ impl AttestationGate {
 
     pub fn block_until_attestation_permitted(&self) {
         let mut ready = self.mutex.lock();
-        if !*ready {
-            if self
+        if !*ready
+            && self
                 .condvar
                 .wait_for(&mut ready, ATTESTATION_BLOCKING_TIMEOUT)
                 .timed_out()
-            {
-                warn!(
-                    self.log,
-                    "Attestation gate timed out";
-                    "timeout" => ?ATTESTATION_BLOCKING_TIMEOUT
-                );
-                metrics::inc_counter(&metrics::BEACON_ATTESTATION_GATE_TIMED_OUT_TOTAL);
-            }
+        {
+            warn!(
+                self.log,
+                "Attestation gate timed out";
+                "timeout" => ?ATTESTATION_BLOCKING_TIMEOUT
+            );
+            metrics::inc_counter(&metrics::BEACON_ATTESTATION_GATE_TIMED_OUT_TOTAL);
         }
     }
 }
