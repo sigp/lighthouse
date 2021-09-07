@@ -61,14 +61,12 @@ pub enum NetworkMessage<T: EthSpec> {
         response: Response<T>,
         id: PeerRequestId,
     },
-    /// Respond to a peer's request with an error.
-    SendError {
-        // NOTE: Currently this is never used, we just say goodbye without nicely closing the
-        // stream assigned to the request
+    /// Sends an error response to an RPC request.
+    SendErrorResponse {
         peer_id: PeerId,
         error: RPCResponseErrorCode,
         reason: String,
-        id: PeerRequestId,
+        id: PeerRequestId
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<T>> },
@@ -364,7 +362,7 @@ fn spawn_service<T: BeaconChainTypes>(
                         NetworkMessage::SendResponse{ peer_id, response, id } => {
                             service.libp2p.send_response(peer_id, id, response);
                         }
-                        NetworkMessage::SendError{ peer_id, error, id, reason } => {
+                        NetworkMessage::SendErrorResponse{ peer_id, error, id, reason } => {
                             service.libp2p.respond_with_error(peer_id, id, error, reason);
                         }
                         NetworkMessage::UPnPMappingEstablished { tcp_socket, udp_socket} => {

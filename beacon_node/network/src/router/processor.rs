@@ -418,7 +418,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.inform_network(NetworkMessage::SendError {
+        self.inform_network(NetworkMessage::SendErrorResponse {
             peer_id,
             error,
             id,
