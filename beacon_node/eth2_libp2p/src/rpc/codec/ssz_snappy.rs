@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase,
+    SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -375,7 +375,7 @@ fn handle_error<T>(
 }
 
 /// Returns `Some(context_bytes)` for encoding RPC responses that require context bytes.
-/// Returns `None` when context bytes are not required.  
+/// Returns `None` when context bytes are not required.
 fn context_bytes<T: EthSpec>(
     protocol: &ProtocolId,
     fork_context: &ForkContext,
@@ -383,23 +383,25 @@ fn context_bytes<T: EthSpec>(
 ) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
     if protocol.has_context_bytes() {
-        if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(res)) = resp {
-            if let SignedBeaconBlock::Altair { .. } = **res {
-                // Altair context being `None` implies that "altair never happened".
-                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                return fork_context.to_context_bytes(ForkName::Altair);
-            } else if let SignedBeaconBlock::Base { .. } = **res {
-                return Some(fork_context.genesis_context_bytes());
-            }
-        }
-
-        if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = resp {
-            if let SignedBeaconBlock::Altair { .. } = **res {
-                // Altair context being `None` implies that "altair never happened".
-                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                return fork_context.to_context_bytes(ForkName::Altair);
-            } else if let SignedBeaconBlock::Base { .. } = **res {
-                return Some(fork_context.genesis_context_bytes());
+        if let RPCCodedResponse::Success(rpc_variant) = resp {
+            if let RPCResponse::BlocksByRange(ref_box_block)
+            | RPCResponse::BlocksByRoot(ref_box_block) = rpc_variant
+            {
+                return match **ref_box_block {
+                    // NOTE: If you are adding another fork type here, be sure to modify the
+                    //       `fork_context.to_context_bytes()` function to support it as well!
+                    SignedBeaconBlock::Merge { .. } => {
+                        // TODO: check this
+                        // Merge context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Merge)
+                    }
+                    SignedBeaconBlock::Altair { .. } => {
+                        // Altair context being `None` implies that "altair never happened".
+                        // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                        fork_context.to_context_bytes(ForkName::Altair)
+                    }
+                    SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
+                };
             }
         }
     }
@@ -559,6 +561,12 @@ fn handle_v2_response<T: EthSpec>(
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
+                // TODO: check this (though it seems okay)
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
@@ -568,6 +576,12 @@ fn handle_v2_response<T: EthSpec>(
                 )))),
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+                )))),
+                // TODO: check this (though it seems right)
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
                 )))),
             },
             _ => Err(RPCError::ErrorResponse(

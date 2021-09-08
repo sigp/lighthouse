@@ -1,6 +1,6 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
+use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Log};
 use eth1::{Config, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
@@ -571,8 +571,9 @@ mod deposit_tree {
 mod http {
     use super::*;
     use eth1::http::BlockQuery;
+    use types::PowBlock;
 
-    async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> Block {
+    async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> PowBlock {
         eth1::http::get_block(
             &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
             BlockQuery::Number(block_number),
@@ -639,7 +640,7 @@ mod http {
                 // Check the block hash.
                 let new_block = get_block(&eth1, block_number).await;
                 assert_ne!(
-                    new_block.hash, old_block.hash,
+                    new_block.block_hash, old_block.block_hash,
                     "block hash should change with each deposit"
                 );
 
@@ -661,7 +662,7 @@ mod http {
                 // Check to ensure the block root is changing
                 assert_ne!(
                     new_root,
-                    Some(new_block.hash),
+                    Some(new_block.block_hash),
                     "the deposit root should be different to the block hash"
                 );
             }

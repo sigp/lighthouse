@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, Unsigned};
+use types::{ChainSpec, EthSpec, ExecutionPayload, Unsigned};
 
 /// Indicates the default eth1 network id we use for the deposit contract.
 pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
@@ -331,6 +331,8 @@ pub enum SingleEndpointError {
     GetDepositCountFailed(String),
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
+    /// Failed to run engine_ExecutePayload
+    EngineExecutePayloadFailed,
 }
 
 #[derive(Debug, PartialEq)]
@@ -667,6 +669,21 @@ impl Service {
             drop(endpoints_cache);
             self.init_endpoints()
         }
+    }
+
+    /// This is were we call out to engine_executePayload to determine if payload is valid
+    pub async fn on_payload<T: EthSpec>(
+        &self,
+        _execution_payload: ExecutionPayload<T>,
+    ) -> Result<bool, Error> {
+        let endpoints = self.init_endpoints();
+
+        // TODO: call engine_executePayload and figure out how backup endpoint works..
+        endpoints
+            .first_success(|_e| async move { Ok(true) })
+            .await
+            .map(|(res, _)| res)
+            .map_err(Error::FallbackError)
     }
 
     /// Update the deposit and block cache, returning an error if either fail.
@@ -1242,7 +1259,7 @@ async fn download_eth1_block(
     });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
-    let http_block = get_block(
+    let pow_block = get_block(
         endpoint,
         block_number_opt
             .map(BlockQuery::Number)
@@ -1253,9 +1270,9 @@ async fn download_eth1_block(
     .await?;
 
     Ok(Eth1Block {
-        hash: http_block.hash,
-        number: http_block.number,
-        timestamp: http_block.timestamp,
+        hash: pow_block.block_hash,
+        number: pow_block.block_number,
+        timestamp: pow_block.timestamp,
         deposit_root,
         deposit_count,
     })
