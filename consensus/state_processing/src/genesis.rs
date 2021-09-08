@@ -52,6 +52,8 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         state.fork_mut().previous_version = spec.altair_fork_version;
     }
 
+    // TODO: handle upgrade_to_merge() here
+
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
 
