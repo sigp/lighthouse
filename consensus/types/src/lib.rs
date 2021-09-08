@@ -37,6 +37,8 @@ pub mod deposit_message;
 pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
+pub mod execution_payload;
+pub mod execution_payload_header;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
@@ -109,6 +111,8 @@ pub use crate::deposit_message::DepositMessage;
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
+pub use crate::execution_payload::ExecutionPayload;
+pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
@@ -150,6 +154,7 @@ pub use crate::voluntary_exit::VoluntaryExit;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
+pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 

@@ -80,3 +80,8 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 ]
+
+# TODO: publish new versions once testing is done and remove this
+[patch.crates-io]
+eth2_ssz = { path = "consensus/ssz" }
+tree_hash = { path = "consensus/tree_hash" }
