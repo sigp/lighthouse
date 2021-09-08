@@ -1,20 +1,40 @@
 use crate::{errors::BeaconChainError as Error, BeaconChain, BeaconChainTypes};
+use itertools::Itertools;
 use slog::debug;
+use state_processing::{
+    per_block_processing::ParallelSignatureSets,
+    signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
+};
+use std::borrow::Cow;
+use std::iter;
+use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
 use types::{Hash256, SignedBeaconBlock, Slot};
 
+/// Use a longer timeout on the pubkey cache.
+///
+/// It's ok if historical sync is stalled due to writes from forwards block processing.
+const PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Debug)]
 pub enum HistoricalBlockError {
+    /// Block is not available (only returned when fetching historic blocks).
+    BlockOutOfRange { slot: Slot, oldest_block_slot: Slot },
+    /// Block root mismatch, caller should retry with different blocks.
     MismatchedBlockRoot {
         block_root: Hash256,
         expected_block_root: Hash256,
     },
-    BlockOutOfRange {
-        slot: Slot,
-        oldest_block_slot: Slot,
-    },
-    PartitionOutOfBounds,
+    /// Bad signature, caller should retry with different blocks.
+    SignatureSet(SignatureSetError),
+    /// Bad signature, caller should retry with different blocks.
+    InvalidSignature,
+    /// Transitory error, caller should retry with the same blocks.
+    ValidatorPubkeyCacheTimeout,
+    /// No historical sync needed.
     NoAnchorInfo,
+    /// Logic error: should never occur.
+    IndexOutOfBounds,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -23,9 +43,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
     /// root corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
     ///
-    /// The integrity of the hash chain *is* verified. If any block doesn't match the parent root
-    /// listed in its successor, then the whole batch will be discarded and `MismatchedBlockRoot`
-    /// will be returned.
+    /// The block roots and proposer signatures are verified. If any block doesn't match the parent
+    /// root listed in its successor, then the whole batch will be discarded and
+    /// `MismatchedBlockRoot` will be returned. If any proposer signature is invalid then
+    /// `SignatureSetError` or `InvalidSignature` will be returned.
     ///
     /// To align with sync we allow some excess blocks with slots greater than or equal to
     /// `oldest_block_slot` to be provided. They will be ignored without being checked.
@@ -49,7 +70,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             blocks.partition_point(|block| block.slot() < anchor_info.oldest_block_slot);
         let blocks_to_import = &blocks
             .get(..num_relevant)
-            .ok_or(HistoricalBlockError::PartitionOutOfBounds)?;
+            .ok_or(HistoricalBlockError::IndexOutOfBounds)?;
 
         if blocks_to_import.len() != blocks.len() {
             debug!(
@@ -111,6 +132,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         chunk_writer.write(&mut cold_batch)?;
+
+        // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
+        // possible. For each block fetch the parent root from its successor. Slicing from index 1
+        // is safe because we've already checked that `blocks_to_import` is non-empty.
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(HistoricalBlockError::ValidatorPubkeyCacheTimeout)?;
+        let block_roots = blocks_to_import
+            .get(1..)
+            .ok_or(HistoricalBlockError::IndexOutOfBounds)?
+            .iter()
+            .map(|block| block.parent_root())
+            .chain(iter::once(anchor_info.oldest_block_parent));
+        let signature_set = blocks_to_import
+            .iter()
+            .zip_eq(block_roots)
+            .map(|(block, block_root)| {
+                block_proposal_signature_set_from_parts(
+                    block,
+                    Some(block_root),
+                    block.message().proposer_index(),
+                    &self.spec.fork_at_epoch(block.message().epoch()),
+                    self.genesis_validators_root,
+                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    &self.spec,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(HistoricalBlockError::SignatureSet)
+            .map(ParallelSignatureSets::from)?;
+        if !signature_set.verify() {
+            return Err(HistoricalBlockError::InvalidSignature.into());
+        }
+        drop(pubkey_cache);
 
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
