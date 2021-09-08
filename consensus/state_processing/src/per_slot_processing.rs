@@ -1,4 +1,4 @@
-use crate::upgrade::upgrade_to_altair;
+use crate::upgrade::{upgrade_to_altair, upgrade_to_merge};
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
@@ -44,11 +44,17 @@ pub fn per_slot_processing<T: EthSpec>(
 
     state.slot_mut().safe_add_assign(1)?;
 
-    // If the Altair fork epoch is reached, perform an irregular state upgrade.
-    if state.slot().safe_rem(T::slots_per_epoch())? == 0
-        && spec.altair_fork_epoch == Some(state.current_epoch())
-    {
-        upgrade_to_altair(state, spec)?;
+    // Process fork upgrades here. Note that multiple upgrades can potentially run
+    // in sequence if they are scheduled in the same Epoch (common in testnets)
+    if state.slot().safe_rem(T::slots_per_epoch())? == 0 {
+        // If the Altair fork epoch is reached, perform an irregular state upgrade.
+        if spec.altair_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_altair(state, spec)?;
+        }
+        // If the Merge fork epoch is reached, perform an irregular state upgrade.
+        if spec.merge_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_merge(state, spec)?;
+        }
     }
 
     Ok(summary)

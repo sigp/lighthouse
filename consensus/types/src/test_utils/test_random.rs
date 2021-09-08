@@ -14,6 +14,7 @@ mod public_key_bytes;
 mod secret_key;
 mod signature;
 mod signature_bytes;
+mod uint256;
 
 pub fn test_random_instance<T: TestRandom>() -> T {
     let mut rng = XorShiftRng::from_seed([0x42; 16]);

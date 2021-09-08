@@ -1,10 +1,10 @@
 use super::*;
-use crate::Hash256;
+use crate::Uint256;
 
-impl TestRandom for Hash256 {
+impl TestRandom for Uint256 {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let mut key_bytes = vec![0; 32];
+        let mut key_bytes = [0; 32];
         rng.fill_bytes(&mut key_bytes);
-        Hash256::from_slice(&key_bytes[..])
+        Self::from_little_endian(&key_bytes[..])
     }
 }
