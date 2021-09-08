@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
@@ -26,7 +26,9 @@ use tree_hash_derive::TreeHash;
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
-    )
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -41,8 +43,10 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub sync_aggregate: SyncAggregate<T>,
+    #[superstruct(only(Merge))]
+    pub execution_payload: ExecutionPayload<T>,
 }
 
 impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
@@ -51,6 +55,25 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
         match self {
             BeaconBlockBodyRef::Base(_) => None,
             BeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
+            BeaconBlockBodyRef::Merge(inner) => Some(&inner.sync_aggregate),
+        }
+    }
+
+    /// Access the execution payload from the block's body, if one exists.
+    pub fn execution_payload(self) -> Option<&'a ExecutionPayload<T>> {
+        match self {
+            BeaconBlockBodyRef::Base(_) => None,
+            BeaconBlockBodyRef::Altair(_) => None,
+            BeaconBlockBodyRef::Merge(inner) => Some(&inner.execution_payload),
+        }
+    }
+
+    /// Get the fork_name of this object
+    pub fn fork_name(self) -> ForkName {
+        match self {
+            BeaconBlockBodyRef::Base { .. } => ForkName::Base,
+            BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
+            BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
         }
     }
 }

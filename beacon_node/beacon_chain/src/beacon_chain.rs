@@ -2385,7 +2385,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             fork_choice
-                .on_block(current_slot, &block, block_root, &state)
+                .on_block(current_slot, &block, block_root, &state, &self.spec)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
@@ -2786,6 +2786,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     SyncAggregate::new()
                 }))
         };
+        // Closure to fetch a sync aggregate in cases where it is required.
+        let get_execution_payload = || -> Result<ExecutionPayload<_>, BlockProductionError> {
+            // TODO: actually get the payload from eth1 node..
+            Ok(ExecutionPayload::default())
+        };
 
         let inner_block = match state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
@@ -2821,6 +2826,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         deposits,
                         voluntary_exits,
                         sync_aggregate,
+                    },
+                })
+            }
+            BeaconState::Merge(_) => {
+                let sync_aggregate = get_sync_aggregate()?;
+                let execution_payload = get_execution_payload()?;
+                BeaconBlock::Merge(BeaconBlockMerge {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyMerge {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations,
+                        deposits,
+                        voluntary_exits,
+                        sync_aggregate,
+                        execution_payload,
                     },
                 })
             }
