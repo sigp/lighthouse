@@ -302,6 +302,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             ForkName::Altair => vec![fork_context
                 .to_context_bytes(ForkName::Altair)
                 .expect("Altair fork bytes should exist as it's initialized in ForkContext")],
+            // TODO: check this.. what even is this?
+            ForkName::Merge => vec![fork_context
+                .to_context_bytes(ForkName::Merge)
+                .expect("Merge fork bytes should exist as it's initialized in ForkContext")],
         }
     }
 }
