@@ -149,6 +149,10 @@ pub fn per_block_processing<T: EthSpec>(
         )?;
     }
 
+    if is_execution_enabled(state, block.body()) {
+        process_execution_payload(state, block.body().execution_payload().unwrap(), spec)?
+    }
+
     Ok(())
 }
 
@@ -282,4 +286,136 @@ pub fn get_new_eth1_data<T: EthSpec>(
     } else {
         Ok(None)
     }
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_valid_gas_limit
+pub fn is_valid_gas_limit<T: EthSpec>(
+    payload: &ExecutionPayload<T>,
+    parent: &ExecutionPayloadHeader<T>,
+) -> bool {
+    // check if payload used too much gas
+    if payload.gas_used > payload.gas_limit {
+        return false;
+    }
+    // check if payload changed the gas limit too much
+    if payload.gas_limit >= parent.gas_limit + parent.gas_limit / T::gas_limit_denominator() {
+        return false;
+    }
+    if payload.gas_limit <= parent.gas_limit - parent.gas_limit / T::gas_limit_denominator() {
+        return false;
+    }
+    // check if the gas limit is at least the minimum gas limit
+    if payload.gas_limit < T::min_gas_limit() {
+        return false;
+    }
+
+    return true;
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#process_execution_payload
+pub fn process_execution_payload<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    payload: &ExecutionPayload<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    if is_merge_complete(state) {
+        block_verify!(
+            payload.parent_hash == state.latest_execution_payload_header()?.block_hash,
+            BlockProcessingError::ExecutionHashChainIncontiguous {
+                expected: state.latest_execution_payload_header()?.block_hash,
+                found: payload.parent_hash,
+            }
+        );
+        block_verify!(
+            payload.block_number
+                == state
+                    .latest_execution_payload_header()?
+                    .block_number
+                    .safe_add(1)?,
+            BlockProcessingError::ExecutionBlockNumberIncontiguous {
+                expected: state
+                    .latest_execution_payload_header()?
+                    .block_number
+                    .safe_add(1)?,
+                found: payload.block_number,
+            }
+        );
+        block_verify!(
+            payload.random == *state.get_randao_mix(state.current_epoch())?,
+            BlockProcessingError::ExecutionRandaoMismatch {
+                expected: *state.get_randao_mix(state.current_epoch())?,
+                found: payload.random,
+            }
+        );
+        block_verify!(
+            is_valid_gas_limit(payload, state.latest_execution_payload_header()?),
+            BlockProcessingError::ExecutionInvalidGasLimit {
+                used: payload.gas_used,
+                limit: payload.gas_limit,
+            }
+        );
+    }
+
+    let timestamp = compute_timestamp_at_slot(state, spec)?;
+    block_verify!(
+        payload.timestamp == timestamp,
+        BlockProcessingError::ExecutionInvalidTimestamp {
+            expected: timestamp,
+            found: payload.timestamp,
+        }
+    );
+
+    *state.latest_execution_payload_header_mut()? = ExecutionPayloadHeader {
+        parent_hash: payload.parent_hash,
+        coinbase: payload.coinbase,
+        state_root: payload.state_root,
+        receipt_root: payload.receipt_root,
+        logs_bloom: payload.logs_bloom.clone(),
+        random: payload.random,
+        block_number: payload.block_number,
+        gas_limit: payload.gas_limit,
+        gas_used: payload.gas_used,
+        timestamp: payload.timestamp,
+        base_fee_per_gas: payload.base_fee_per_gas,
+        block_hash: payload.block_hash,
+        transactions_root: payload.transactions.tree_hash_root(),
+    };
+
+    Ok(())
+}
+
+/// These functions will definitely be called before the merge. Their entire purpose is to check if
+/// the merge has happened or if we're on the transition block. Thus we don't want to propagate
+/// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
+/// repeaetedly write code to treat these errors as false.
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_complete
+pub fn is_merge_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
+    state
+        .latest_execution_payload_header()
+        .map(|header| *header != <ExecutionPayloadHeader<T>>::default())
+        .unwrap_or(false)
+}
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_block
+pub fn is_merge_block<T: EthSpec>(state: &BeaconState<T>, body: BeaconBlockBodyRef<T>) -> bool {
+    body.execution_payload()
+        .map(|payload| !is_merge_complete(state) && *payload != <ExecutionPayload<T>>::default())
+        .unwrap_or(false)
+}
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
+pub fn is_execution_enabled<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: BeaconBlockBodyRef<T>,
+) -> bool {
+    is_merge_block(state, body) || is_merge_complete(state)
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
+pub fn compute_timestamp_at_slot<T: EthSpec>(
+    state: &BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<u64, ArithError> {
+    let slots_since_genesis = state.slot().as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+    slots_since_genesis
+        .safe_mul(spec.seconds_per_slot)
+        .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }

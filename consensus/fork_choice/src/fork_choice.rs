@@ -2,9 +2,11 @@ use std::marker::PhantomData;
 
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
+use state_processing::per_block_processing::is_merge_block;
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, Hash256, IndexedAttestation, PowBlock, RelativeEpoch, SignedBeaconBlock, Slot,
+    Uint256,
 };
 
 use crate::ForkChoiceStore;
@@ -59,6 +61,10 @@ pub enum InvalidBlock {
     NotFinalizedDescendant {
         finalized_root: Hash256,
         block_ancestor: Option<Hash256>,
+    },
+    InvalidTerminalPowBlock {
+        block_total_difficulty: Uint256,
+        parent_total_difficulty: Uint256,
     },
 }
 
@@ -229,6 +235,14 @@ where
             && self.proto_array == other.proto_array
             && self.queued_attestations == other.queued_attestations
     }
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/fork-choice.md#is_valid_terminal_pow_block
+fn is_valid_terminal_pow_block(block: &PowBlock, parent: &PowBlock, spec: &ChainSpec) -> bool {
+    let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
+    let is_parent_total_difficulty_valid = parent.total_difficulty < spec.terminal_total_difficulty;
+
+    is_total_difficulty_reached && is_parent_total_difficulty_valid
 }
 
 impl<T, E> ForkChoice<T, E>
@@ -487,6 +501,19 @@ where
                 finalized_root,
                 block_ancestor,
             }));
+        }
+
+        // https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/fork-choice.md#on_block
+        if is_merge_block(state, block.body()) {
+            // TODO: get POW blocks from eth1 chain here as indicated in the merge spec link ^
+            let pow_block = PowBlock::default();
+            let pow_parent = PowBlock::default();
+            if !is_valid_terminal_pow_block(&pow_block, &pow_parent, spec) {
+                return Err(Error::InvalidBlock(InvalidBlock::InvalidTerminalPowBlock {
+                    block_total_difficulty: pow_block.total_difficulty,
+                    parent_total_difficulty: pow_parent.total_difficulty,
+                }));
+            }
         }
 
         // Update justified checkpoint.

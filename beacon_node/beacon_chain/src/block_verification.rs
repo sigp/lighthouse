@@ -48,7 +48,7 @@ use crate::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    eth1_chain, metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
@@ -56,6 +56,7 @@ use proto_array::Block as ProtoBlock;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::{is_execution_enabled, is_merge_complete};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -68,9 +69,9 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
-    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
+    ExecutionPayload, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -223,6 +224,66 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is invalid and the peer is faulty.
     InconsistentFork(InconsistentFork),
+    /// There was an error while validating the ExecutionPayload
+    ///
+    /// ## Peer scoring
+    ///
+    /// See `ExecutionPayloadError` for scoring information
+    ExecutionPayloadError(ExecutionPayloadError),
+}
+
+/// Returned when block validation failed due to some issue verifying
+/// the execution payload.
+#[derive(Debug)]
+pub enum ExecutionPayloadError {
+    /// There's no eth1 connection (mandatory after merge)
+    ///
+    /// ## Peer scoring
+    ///
+    /// As this is our fault, do not penalize the peer
+    NoEth1Connection,
+    /// Error occurred during engine_executePayload
+    ///
+    /// ## Peer scoring
+    ///
+    /// Some issue with our configuration, do not penalize peer
+    Eth1VerificationError(eth1_chain::Error),
+    /// The execution engine returned INVALID for the payload
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    RejectedByExecutionEngine,
+    /// The execution payload is empty when is shouldn't be
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    PayloadEmpty,
+    /// The execution payload timestamp does not match the slot
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    InvalidPayloadTimestamp,
+    /// The gas used in the block exceeds the gas limit
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    GasUsedExceedsLimit,
+    /// The payload block hash equals the parent hash
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    BlockHashEqualsParentHash,
+    /// The execution payload transaction list data exceeds size limits
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    TransactionDataExceedsSizeLimit,
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
@@ -668,6 +729,18 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
+        // TODO: avoid this by adding field to fork-choice to determine if merge-block has been imported
+        let (parent, block) = if let Some(snapshot) = parent {
+            (Some(snapshot), block)
+        } else {
+            let (snapshot, block) = load_parent(block, chain)?;
+            (Some(snapshot), block)
+        };
+        let state = &parent.as_ref().unwrap().pre_state;
+
+        // validate the block's execution_payload
+        validate_execution_payload(block.message(), state)?;
+
         Ok(Self {
             block,
             block_root,
@@ -989,6 +1062,34 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             }
         }
 
+        // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
+        if is_execution_enabled(&state, block.message().body()) {
+            let eth1_chain = chain
+                .eth1_chain
+                .as_ref()
+                .ok_or(BlockError::ExecutionPayloadError(
+                    ExecutionPayloadError::NoEth1Connection,
+                ))?;
+
+            if !eth1_chain
+                .on_payload(block.message().body().execution_payload().ok_or(
+                    BlockError::InconsistentFork(InconsistentFork {
+                        fork_at_slot: eth2::types::ForkName::Merge,
+                        object_fork: block.message().body().fork_name(),
+                    }),
+                )?)
+                .map_err(|e| {
+                    BlockError::ExecutionPayloadError(ExecutionPayloadError::Eth1VerificationError(
+                        e,
+                    ))
+                })?
+            {
+                return Err(BlockError::ExecutionPayloadError(
+                    ExecutionPayloadError::RejectedByExecutionEngine,
+                ));
+            }
+        }
+
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
@@ -1095,6 +1196,38 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             confirmation_db_batch,
         })
     }
+}
+
+/// Validate the gossip block's execution_payload according to the checks described here:
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
+fn validate_execution_payload<E: EthSpec>(
+    block: BeaconBlockRef<'_, E>,
+    state: &BeaconState<E>,
+) -> Result<(), BlockError<E>> {
+    if !is_execution_enabled(state, block.body()) {
+        return Ok(());
+    }
+    let execution_payload = block
+        .body()
+        .execution_payload()
+        // TODO: this really should never error so maybe
+        //       we should make this simpler..
+        .ok_or(BlockError::InconsistentFork(InconsistentFork {
+            fork_at_slot: eth2::types::ForkName::Merge,
+            object_fork: block.body().fork_name(),
+        }))?;
+
+    if is_merge_complete(state) {
+        if *execution_payload == <ExecutionPayload<E>>::default() {
+            return Err(BlockError::ExecutionPayloadError(
+                ExecutionPayloadError::PayloadEmpty,
+            ));
+        }
+    }
+
+    // TODO: finish these
+
+    Ok(())
 }
 
 /// Check that the count of skip slots between the block and its parent does not exceed our maximum

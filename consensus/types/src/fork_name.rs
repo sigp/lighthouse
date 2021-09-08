@@ -10,6 +10,7 @@ use std::str::FromStr;
 pub enum ForkName {
     Base,
     Altair,
+    Merge,
 }
 
 impl ForkName {
@@ -24,10 +25,17 @@ impl ForkName {
         match self {
             ForkName::Base => {
                 spec.altair_fork_epoch = None;
+                spec.merge_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.merge_fork_epoch = None;
+                spec
+            }
+            ForkName::Merge => {
+                spec.altair_fork_epoch = None;
+                spec.merge_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }
@@ -40,6 +48,7 @@ impl ForkName {
         match self {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
+            ForkName::Merge => Some(ForkName::Altair),
         }
     }
 
@@ -49,7 +58,8 @@ impl ForkName {
     pub fn next_fork(self) -> Option<ForkName> {
         match self {
             ForkName::Base => Some(ForkName::Altair),
-            ForkName::Altair => None,
+            ForkName::Altair => Some(ForkName::Merge),
+            ForkName::Merge => None,
         }
     }
 }
@@ -98,6 +108,7 @@ impl FromStr for ForkName {
         Ok(match fork_name.to_lowercase().as_ref() {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
+            "merge" => ForkName::Merge,
             _ => return Err(()),
         })
     }
@@ -108,6 +119,7 @@ impl Display for ForkName {
         match self {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
+            ForkName::Merge => "merge".fmt(f),
         }
     }
 }
@@ -139,7 +151,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Altair.next_fork(), None);
+        assert_eq!(ForkName::Merge.next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
