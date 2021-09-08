@@ -2439,11 +2439,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 + block.slot().as_u64()
                 >= current_slot.as_u64()
             {
-                validator_monitor.register_attestation_in_block(
-                    &indexed_attestation,
-                    block.to_ref(),
-                    &self.spec,
-                );
+                match self.store.get_block(&block.parent_root()) {
+                    Ok(Some(parent_block)) => validator_monitor.register_attestation_in_block(
+                        &indexed_attestation,
+                        parent_block.slot(),
+                        &self.spec,
+                    ),
+                    _ => warn!(self.log, "Failed to get parent block"; "slot" => %block.slot()),
+                }
             }
         }
 

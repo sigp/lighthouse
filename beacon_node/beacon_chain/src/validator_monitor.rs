@@ -480,7 +480,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     if inclusion_info.delay > spec.min_attestation_inclusion_delay {
                         warn!(
                             self.log,
-                            "Sub-optimal inclusion delay";
+                            "Potential sub-optimal inclusion delay";
                             "optimal" => spec.min_attestation_inclusion_delay,
                             "delay" => inclusion_info.delay,
                             "epoch" => prev_epoch,
@@ -828,14 +828,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Register that the `indexed_attestation` was included in a *valid* `BeaconBlock`.
+    /// `parent_slot` is the slot corresponding to the parent of the beacon block in which
+    /// the attestation was included.
+    /// We use the parent slot instead of block slot to ignore skip slots when calculating inclusion distance.
+    ///
+    /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: &IndexedAttestation<T>,
-        block: BeaconBlockRef<'_, T>,
+        parent_slot: Slot,
         spec: &ChainSpec,
     ) {
         let data = &indexed_attestation.data;
-        let delay = (block.slot() - data.slot) - spec.min_attestation_inclusion_delay;
+        let mut delay = parent_slot
+            .saturating_sub(data.slot)
+            // Subtracting 1 to account for using the parent slot instead of block slot.
+            .saturating_sub(spec.min_attestation_inclusion_delay.saturating_sub(1));
+
         let epoch = data.slot.epoch(T::slots_per_epoch());
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
