@@ -21,8 +21,8 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, EthSpec, ForkContext, Hash256, MainnetEthSpec,
-    Signature, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec, ForkContext,
+    Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -53,6 +53,20 @@ lazy_static! {
     )
     .as_ssz_bytes()
     .len();
+
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Merge(BeaconBlockMerge::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Merge(BeaconBlockMerge::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
@@ -253,12 +267,18 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => RpcLimits::new(
                 std::cmp::min(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    std::cmp::min(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                        *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    ),
+                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
                 ),
                 std::cmp::max(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                    *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    std::cmp::max(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                        *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    ),
+                    *SIGNED_BEACON_BLOCK_MERGE_MAX,
                 ),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(
