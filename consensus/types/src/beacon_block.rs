@@ -1,5 +1,6 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyRefMut,
 };
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -14,7 +15,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
@@ -55,6 +56,8 @@ pub struct BeaconBlock<T: EthSpec> {
     pub body: BeaconBlockBodyBase<T>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
     pub body: BeaconBlockBodyAltair<T>,
+    #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
+    pub body: BeaconBlockBodyMerge<T>,
 }
 
 impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
@@ -63,7 +66,9 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
+        if spec.merge_fork_epoch == Some(T::genesis_epoch()) {
+            Self::Merge(BeaconBlockMerge::empty(spec))
+        } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {
             Self::Base(BeaconBlockBase::empty(spec))
@@ -171,6 +176,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         let object_fork = match self {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
+            BeaconBlockRef::Merge { .. } => ForkName::Merge,
         };
 
         if fork_at_slot == object_fork {
@@ -188,6 +194,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         match self {
             BeaconBlockRef::Base(block) => BeaconBlockBodyRef::Base(&block.body),
             BeaconBlockRef::Altair(block) => BeaconBlockBodyRef::Altair(&block.body),
+            BeaconBlockRef::Merge(block) => BeaconBlockBodyRef::Merge(&block.body),
         }
     }
 
@@ -196,6 +203,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         match self {
             BeaconBlockRef::Base(block) => block.body.tree_hash_root(),
             BeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
+            BeaconBlockRef::Merge(block) => block.body.tree_hash_root(),
         }
     }
 
@@ -230,6 +238,7 @@ impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {
         match self {
             BeaconBlockRefMut::Base(block) => BeaconBlockBodyRefMut::Base(&mut block.body),
             BeaconBlockRefMut::Altair(block) => BeaconBlockBodyRefMut::Altair(&mut block.body),
+            BeaconBlockRefMut::Merge(block) => BeaconBlockBodyRefMut::Merge(&mut block.body),
         }
     }
 }
@@ -406,6 +415,61 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
+            },
+        }
+    }
+}
+
+impl<T: EthSpec> BeaconBlockMerge<T> {
+    /// Returns an empty Merge block to be used during genesis.
+    pub fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockMerge {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyMerge {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: ExecutionPayload::empty(),
+            },
+        }
+    }
+
+    /// Return an Merge block where the block has maximum size.
+    pub fn full(spec: &ChainSpec) -> Self {
+        let altair_block = BeaconBlockAltair::full(spec);
+        BeaconBlockMerge {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyMerge {
+                proposer_slashings: altair_block.body.proposer_slashings,
+                attester_slashings: altair_block.body.attester_slashings,
+                attestations: altair_block.body.attestations,
+                deposits: altair_block.body.deposits,
+                voluntary_exits: altair_block.body.voluntary_exits,
+                sync_aggregate: altair_block.body.sync_aggregate,
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                execution_payload: ExecutionPayload::default(),
             },
         }
     }

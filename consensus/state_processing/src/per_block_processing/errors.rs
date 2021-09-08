@@ -57,6 +57,26 @@ pub enum BlockProcessingError {
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
     InconsistentStateFork(InconsistentFork),
+    ExecutionHashChainIncontiguous {
+        expected: Hash256,
+        found: Hash256,
+    },
+    ExecutionBlockNumberIncontiguous {
+        expected: u64,
+        found: u64,
+    },
+    ExecutionRandaoMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    ExecutionInvalidGasLimit {
+        used: u64,
+        limit: u64,
+    },
+    ExecutionInvalidTimestamp {
+        expected: u64,
+        found: u64,
+    },
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

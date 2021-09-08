@@ -34,6 +34,7 @@ pub trait Handler {
         let fork_name_str = match fork_name {
             ForkName::Base => "phase0",
             ForkName::Altair => "altair",
+            ForkName::Merge => "merge", // TODO: check this
         };
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
