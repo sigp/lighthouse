@@ -218,23 +218,44 @@ impl<T: BeaconChainTypes> Worker<T> {
                             block_root,
                             expected_block_root,
                         } => {
-                            warn!(self.log, "Backfill batch processing error"; "error" => "mismatched_block_root", "block_root" => %block_root, "expected_root" => %expected_block_root);
+                            warn!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => "mismatched_block_root",
+                                "block_root" => ?block_root,
+                                "expected_root" => ?expected_block_root
+                            );
                             String::from("mismatched_block_root")
                         }
-                        HistoricalBlockError::BlockOutOfRange {
-                            slot,
-                            oldest_block_slot,
-                        } => {
-                            warn!(self.log, "Backfill batch processing error"; "error" => "block_out_of_range", "slot" => %slot, "oldest_block_slot" => %oldest_block_slot);
-                            String::from("oldest_block_slot")
+                        HistoricalBlockError::InvalidSignature
+                        | HistoricalBlockError::SignatureSet(_) => {
+                            warn!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => ?e
+                            );
+                            "invalid_signature".into()
+                        }
+                        HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
+                            warn!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => "pubkey_cache_timeout"
+                            );
+                            "pubkey_cache_timeout".into()
                         }
                         HistoricalBlockError::NoAnchorInfo => {
-                            warn!(self.log, "Backfill batch processing error"; "error" => "no_anchor_info");
+                            warn!(self.log, "Backfill not required");
                             String::from("no_anchor_info")
                         }
-                        HistoricalBlockError::PartitionOutOfBounds => {
-                            warn!(self.log, "Backfill batch processing error"; "error" => "partition_out_of_bounds");
-                            String::from("no_anchor_info")
+                        HistoricalBlockError::IndexOutOfBounds
+                        | HistoricalBlockError::BlockOutOfRange { .. } => {
+                            error!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => ?e,
+                            );
+                            String::from("logic_error")
                         }
                     },
                     other => {
