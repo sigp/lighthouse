@@ -2416,11 +2416,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                chain
-                    .store
-                    .reconstruct_historic_states()
-                    .map_err(Into::into)
-                    .map_err(warp_utils::reject::beacon_chain_error)
+                chain.store_migrator.process_reconstruction();
+                Ok(())
             })
         });
 
