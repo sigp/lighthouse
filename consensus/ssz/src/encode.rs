@@ -2,23 +2,6 @@ use super::*;
 
 mod impls;
 
-#[derive(Copy, Clone)]
-pub struct UnionSelector(u8);
-
-impl From<UnionSelector> for u8 {
-    fn from(union_selector: UnionSelector) -> u8 {
-        union_selector.0
-    }
-}
-
-impl UnionSelector {
-    pub fn new(selector: u8) -> Option<Self> {
-        Some(selector)
-            .filter(|_| selector <= MAX_UNION_SELECTOR)
-            .map(Self)
-    }
-}
-
 /// Provides SSZ encoding (serialization) via the `as_ssz_bytes(&self)` method.
 ///
 /// See `examples/` for manual implementations or the crate root for implementations using

@@ -242,6 +242,7 @@ impl Decode for NonZeroUsize {
     }
 }
 
+/*
 /// The SSZ union type.
 impl<T: Decode> Decode for Option<T> {
     fn is_ssz_fixed_len() -> bool {
@@ -271,6 +272,7 @@ impl<T: Decode> Decode for Option<T> {
         }
     }
 }
+*/
 
 impl<T: Decode> Decode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
