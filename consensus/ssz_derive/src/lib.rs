@@ -505,3 +505,70 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     };
     output.into()
 }
+
+fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+
+    let (patterns, var_types): (Vec<_>, Vec<_>) = enum_data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name = &variant.ident;
+
+            if variant.fields.len() != 1 {
+                panic!("ssz::Encode can only be derived for enums with 1 field per variant");
+            }
+
+            let pattern = quote! {
+                #name::#variant_name(ref inner)
+            };
+
+            let ty = &(&variant.fields).into_iter().next().unwrap().ty;
+            (pattern, ty)
+        })
+        .unzip();
+
+    let union_selectors = (0..patterns.len())
+        .map(|i| i.try_into().expect("union selector exceeds u8::max_value"))
+        .collect::<Vec<u8>>();
+    let highest_selector = union_selectors
+        .last()
+        .copied()
+        .expect("cannot encode 0-variant union");
+    assert!(
+        highest_selector <= MAX_UNION_SELECTOR,
+        "union selector {} exceeds limit of {}",
+        highest_selector,
+        MAX_UNION_SELECTOR
+    );
+
+    let output = quote! {
+        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                match self {
+                    #(
+                        #patterns => inner.ssz_bytes_len() + 1,
+                    )*
+                }
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+                let (selector, body) = ssz::decode::split_union_bytes(bytes)?;
+
+                match selector {
+                    #(
+                        #union_selectors => {
+                            Ok($patterns($var_types::from_ssz_bytes()?))
+                        },
+                    )*
+                }
+            }
+        }
+    };
+    output.into()
+}
