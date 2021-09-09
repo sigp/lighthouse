@@ -471,6 +471,7 @@ impl Service {
                     config.deposit_contract_deploy_block,
                 )),
                 endpoints_cache: RwLock::new(None),
+                endpoint_index: RwLock::new(None),
                 remote_head_block: RwLock::new(None),
                 config: RwLock::new(config),
                 spec,
@@ -717,7 +718,7 @@ impl Service {
 
         let (
             (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache),
-            num_errors,
+            cur_index,
         ) = endpoints
             .first_success(|e| async move {
                 get_remote_head_and_new_block_ranges(e, self, node_far_behind_seconds).await
@@ -730,9 +731,29 @@ impl Service {
                 )
             })?;
 
-        if num_errors > 0 {
-            info!(self.log, "Fetched data from fallback"; "fallback_number" => num_errors);
-        }
+        let prev_index = self.inner.update_endpoint_index(cur_index);
+        match prev_index {
+            Some(prev_index) => {
+                if cur_index != prev_index {
+                    info!(
+                        self.log,
+                        "New endpoint: idx={} url={} Old endpoint: idx={} url={}",
+                        cur_index,
+                        &endpoints.fallback.servers[cur_index].endpoint.as_ref(),
+                        prev_index,
+                        &endpoints.fallback.servers[prev_index].endpoint.as_ref()
+                    );
+                }
+            }
+            None => {
+                info!(
+                    self.log,
+                    "New endpoint: idx={} url={} Old endpoint: None",
+                    cur_index,
+                    &endpoints.fallback.servers[cur_index].endpoint.as_ref()
+                );
+            }
+        };
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 

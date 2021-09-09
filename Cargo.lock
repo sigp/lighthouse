@@ -1644,6 +1644,7 @@ dependencies = [
  "hex",
  "lazy_static",
  "lighthouse_metrics",
+ "logging",
  "merkle_proof",
  "parking_lot",
  "reqwest",

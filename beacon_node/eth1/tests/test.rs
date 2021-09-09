@@ -4,6 +4,7 @@ use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root,
 use eth1::{Config, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
+use logging::test_logger;
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
@@ -839,7 +840,7 @@ mod fallbacks {
     #[tokio::test]
     async fn test_fallback_when_offline() {
         async {
-            let log = null_logger();
+            let log = test_logger();
             let endpoint2 = new_ganache_instance()
                 .await
                 .expect("should start eth1 environment");

@@ -36,6 +36,7 @@ pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
     pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
+    pub endpoint_index: RwLock<Option<usize>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,
     pub spec: ChainSpec,
@@ -49,6 +50,15 @@ impl Inner {
         if let Some(block_cache_truncation) = self.config.read().block_cache_truncation {
             self.block_cache.write().truncate(block_cache_truncation);
         }
+    }
+
+    /// Update the endpoint_index to index
+    /// Returns previous value
+    pub fn update_endpoint_index(&self, index: usize) -> Option<usize> {
+        let mut rw_ref = self.endpoint_index.write();
+        let prev_index = *rw_ref;
+        *rw_ref = Some(index);
+        prev_index
     }
 
     /// Encode the eth1 block and deposit cache as bytes.
@@ -97,6 +107,7 @@ impl SszEth1Cache {
                 last_processed_block: self.last_processed_block,
             }),
             endpoints_cache: RwLock::new(None),
+            endpoint_index: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
             // present and future eth1 nodes.
             remote_head_block: RwLock::new(None),
