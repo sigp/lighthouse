@@ -145,8 +145,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signed_block.signature(),
-        get_pubkey(proposer_index as usize)
-            .ok_or_else(|| Error::ValidatorUnknown(proposer_index))?,
+        get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
         message,
     ))
 }

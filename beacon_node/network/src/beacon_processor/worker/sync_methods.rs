@@ -113,7 +113,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                let result = match self.process_backfill_blocks(downloaded_blocks.iter()) {
+                let result = match self.process_backfill_blocks(&downloaded_blocks) {
                     (_, Ok(_)) => {
                         debug!(self.log, "Backfill batch processed";
                             "batch_epoch" => epoch,
@@ -194,11 +194,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
-    fn process_backfill_blocks<'a>(
+    fn process_backfill_blocks(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
+        blocks: &[SignedBeaconBlock<T::EthSpec>],
     ) -> (usize, Result<(), String>) {
-        let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
         match self.chain.import_historical_block_batch(blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
