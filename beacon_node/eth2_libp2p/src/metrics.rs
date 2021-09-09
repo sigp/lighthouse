@@ -67,6 +67,18 @@ lazy_static! {
             "Gossipsub messages that we did not accept, per client",
             &["client", "validation_result"]
         );
+
+    /*
+     * Inbound/Outbound peers
+     */
+    /// The number of peers that dialed us.
+    pub static ref NETWORK_INBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_inbound_peers","The number of peers that are currently connected that have dialed us.");
+
+    /// The number of peers that we dialed us.
+    pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
+
 }
 
 pub fn scrape_discovery_metrics() {

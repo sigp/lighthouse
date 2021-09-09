@@ -387,18 +387,41 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
 
-        // increment prometheus metrics
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
+        // Update the metrics
+        if num_established == std::num::NonZeroU32::new(1).expect("valid") {
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+            metrics::set_gauge(
+                &metrics::PEERS_CONNECTED,
+                self.network_globals.connected_peers() as i64,
+            );
+
+            // Increment the PEERS_PER_CLIENT metric
+            if let Some(kind) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map(|peer_info| peer_info.client.kind.clone())
+            {
+                if let Some(v) =
+                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                {
+                    v.inc()
+                };
+            }
+
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+            metrics::set_gauge(
+                &metrics::PEERS_CONNECTED,
+                self.network_globals.connected_peers() as i64,
+            );
+        }
     }
 
     pub fn inject_connection_closed(
         &mut self,
         peer_id: PeerId,
-        _endpoint: ConnectedPoint,
+        endpoint: ConnectedPoint,
         num_established: u32,
     ) {
         if num_established == 0 {
@@ -421,19 +444,34 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .push(PeerManagerEvent::PeerDisconnected(peer_id));
                 debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
 
-                // Decrement the PEERS_PER_CLIENT metric
-                if let Some(kind) = self
-                    .network_globals
-                    .peers
-                    .read()
-                    .peer_info(&peer_id)
-                    .map(|info| info.client.kind.clone())
-                {
-                    if let Some(v) =
-                        metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                // We dont register connected banned peers, or peers we are dropping because we
+                // have reached our peer limit, therefore we don't decrement the metrics for these
+                // peers.
+                if self.network_globals.peers.read().is_connected(&peer_id) {
+                    // Decrement the INBOUND/OUTBOUND peer metric
+                    match endpoint {
+                        ConnectedPoint::Listener { .. } => {
+                            metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
+                        }
+                        ConnectedPoint::Dialer { .. } => {
+                            metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
+                        }
+                    }
+
+                    // Decrement the PEERS_PER_CLIENT metric
+                    if let Some(kind) = self
+                        .network_globals
+                        .peers
+                        .read()
+                        .peer_info(&peer_id)
+                        .map(|info| info.client.kind.clone())
                     {
-                        v.dec()
-                    };
+                        if let Some(v) =
+                            metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+                        {
+                            v.dec()
+                        };
+                    }
                 }
             }
 
@@ -752,6 +790,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         multiaddr: Multiaddr,
         enr: Option<Enr>,
     ) -> bool {
+        metrics::inc_gauge(&metrics::NETWORK_INBOUND_PEERS);
         self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
     }
 
@@ -763,6 +802,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         multiaddr: Multiaddr,
         enr: Option<Enr>,
     ) -> bool {
+        metrics::inc_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
         self.inject_peer_connection(
             peer_id,
             ConnectingType::OutgoingConnected { multiaddr },
@@ -828,28 +868,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
-
-        // increment prometheus metrics
-        metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
-
-        // Increment the PEERS_PER_CLIENT metric
-        if let Some(kind) = self
-            .network_globals
-            .peers
-            .read()
-            .peer_info(peer_id)
-            .map(|peer_info| peer_info.client.kind.clone())
-        {
-            if let Some(v) =
-                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-            {
-                v.inc()
-            };
-        }
 
         true
     }
