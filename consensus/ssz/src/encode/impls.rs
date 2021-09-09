@@ -202,6 +202,7 @@ impl_encode_for_tuples! {
     }
 }
 
+/*
 /// The SSZ "union" type.
 impl<T: Encode> Encode for Option<T> {
     fn is_ssz_fixed_len() -> bool {
@@ -231,6 +232,7 @@ impl<T: Encode> Encode for Option<T> {
         }
     }
 }
+*/
 
 impl<T: Encode> Encode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
@@ -456,6 +458,7 @@ mod tests {
         );
     }
 
+    /*
     #[test]
     fn ssz_encode_option_u16() {
         assert_eq!(Some(65535_u16).as_ssz_bytes(), vec![1, 0, 0, 0, 255, 255]);
@@ -474,6 +477,7 @@ mod tests {
         let none: Option<Vec<u16>> = None;
         assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
     }
+    */
 
     #[test]
     fn ssz_encode_u8() {
