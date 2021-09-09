@@ -504,9 +504,9 @@ fn main() {
                         .long("endpoint")
                         .short("e")
                         .takes_value(true)
+                        .default_value("http://localhost:5052")
                         .help(
-                            "The endpoint of the Beacon Node API. Defaults to \
-                            http://localhost:5052/",
+                            "The endpoint of the Beacon Node API."
                         ),
                 )
                 .arg(
@@ -541,11 +541,12 @@ fn main() {
                     Arg::with_name("offline-window")
                         .long("offline-window")
                         .takes_value(true)
+                        .default_value("3")
                         .help(
                             "If a validator does not submit an attestion within this many epochs, \
                             they are deemed offline. For example, for a offline window of 3, if a \
                             validator does not attest in epochs 4, 5 or 6, it is deemed offline \
-                            during epoch 6. This value defaults to 3."
+                            during epoch 6. A value of 0 will skip these checks."
                         )
                 )
         )

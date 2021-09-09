@@ -1,6 +1,7 @@
 use clap::ArgMatches;
 use eth2::types::*;
 use eth2::{BeaconNodeHttpClient, Timeouts};
+use log::{error, info};
 use sensitive_url::SensitiveUrl;
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
@@ -36,21 +37,22 @@ async fn get_validator_set_len<T: EthSpec>(
     node: &BeaconNodeHttpClient,
     slot: Slot,
 ) -> Result<usize, String> {
-    let mut active_validator_set = node
+    let active_validator_set = node
         .get_beacon_states_validators(StateId::Slot(slot), None, None)
         .await
         .map_err(|e| format!("{:?}", e))?
         .ok_or_else(|| "No validators found".to_string())?
         .data;
-    active_validator_set.retain(|x| x.status.superstatus() == ValidatorStatus::Active);
-
-    Ok(active_validator_set.len())
+    Ok(active_validator_set
+        .iter()
+        .filter(|x| x.status.superstatus() == ValidatorStatus::Active)
+        .count())
 }
 
 async fn get_block_attestations_set<'a, T: EthSpec>(
     node: &BeaconNodeHttpClient,
     slot: Slot,
-) -> Result<(HashMap<UniqueAttestation, InclusionDistance>, ProposerInfo), String> {
+) -> Result<Option<(HashMap<UniqueAttestation, InclusionDistance>, ProposerInfo)>, String> {
     let mut unique_attestations_set: HashMap<UniqueAttestation, InclusionDistance> = HashMap::new();
 
     let option_block: Option<ForkVersionedResponse<SignedBeaconBlock<T>>> = node
@@ -60,7 +62,8 @@ async fn get_block_attestations_set<'a, T: EthSpec>(
 
     let block = match option_block {
         Some(block) => block.data,
-        None => return Err(format!("No block found in slot {}.", slot)),
+        // No block was proposed for this slot.
+        None => return Ok(None),
     };
 
     let proposer = ProposerInfo {
@@ -95,7 +98,7 @@ async fn get_block_attestations_set<'a, T: EthSpec>(
         }
     }
 
-    Ok((unique_attestations_set, proposer))
+    Ok(Some((unique_attestations_set, proposer)))
 }
 
 async fn get_epoch_committee_data<T: EthSpec>(
@@ -117,8 +120,7 @@ async fn get_epoch_committee_data<T: EthSpec>(
     let committee_info = CommitteeInfo {
         number_of_committees: committee_data.len(),
         // FIXME: validators.len() isn't consistent between different committees in the
-        // same epoch. We probably need a better way to do this.
-        // We might be able to just do `active_validator_set.len()`?
+        // same epoch.
         validators_per_committee: committee_data[0].validators.len(),
     };
 
@@ -130,10 +132,11 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
     let output_path: PathBuf = clap_utils::parse_required(matches, "output")?;
     let start_epoch: Epoch = clap_utils::parse_required(matches, "start-epoch")?;
     let offline_window: u64 = matches
-        .value_of("offline_window")
+        .value_of("offline-window")
         .unwrap_or("3")
         .parse()
         .map_err(|e| format!("{:?}", e))?;
+    let calculate_offline_vals = offline_window != 0;
 
     if start_epoch == 0 {
         return Err("start_epoch cannot be 0.".to_string());
@@ -144,10 +147,6 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
     if end_epoch < start_epoch {
         return Err("start_epoch must be smaller than end_epoch".to_string());
     }
-
-    let relevant_epochs: Vec<Epoch> = (initialization_epoch.as_u64()..=end_epoch.as_u64())
-        .map(Epoch::new)
-        .collect();
 
     let mut available_attestations_set: HashSet<UniqueAttestation> = HashSet::new();
     let mut included_attestations_set: HashMap<UniqueAttestation, InclusionDistance> =
@@ -177,41 +176,92 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
         Timeouts::set_all(SECONDS_PER_SLOT),
     );
 
+    // Check we can connect to the API.
+    let version =
+        match node.get_node_version().await {
+            Ok(version_response) => version_response.data.version,
+            Err(_) => return Err(
+                "Error: A working HTTP API server is required. Ensure one is synced and available."
+                    .to_string(),
+            ),
+        };
+
+    // Check we are synced past the required epoch range.
+    let head_slot_synced =
+        match node.get_node_syncing().await {
+            Ok(synced_response) => synced_response.data.head_slot,
+            Err(_) => return Err(
+                "Error: A working HTTP API server is required. Ensure one is synced and available."
+                    .to_string(),
+            ),
+        };
+
+    if head_slot_synced < end_epoch.end_slot(T::slots_per_epoch()) {
+        return Err(
+            "Error: The beacon node is not sufficiently synced. Make sure your node is synced \
+            past the desired `end-epoch` and that you aren't requesting future epochs."
+                .to_string(),
+        );
+    }
+
+    // Whether the beacon node is responding to requests. This is helpful for logging.
+    let mut connected: bool = true;
+    info!("Connected to endpoint at: {:?} - {:?}", endpoint, version);
+
     // Loop over epochs.
-    for epoch in relevant_epochs {
+    for epoch in (initialization_epoch.as_u64()..=end_epoch.as_u64()).map(Epoch::new) {
         if epoch != initialization_epoch {
-            eprintln!("Analysing epoch {}...", epoch);
+            info!("Analysing epoch {}...", epoch);
         } else {
-            eprintln!("Initializing...");
+            info!("Initializing...");
         }
         let mut epoch_data: Vec<(Slot, Option<ProposerInfo>, usize, usize)> = Vec::new();
 
         // Current epochs available attestations set
-        let committee_data = match get_epoch_committee_data::<T>(&node, epoch).await {
-            Ok((committee_data, committee_info)) => (committee_data, committee_info),
-            Err(e) => return Err(e),
+        let (committee_data, committee_info) = loop {
+            if let Ok(committee_result) = get_epoch_committee_data::<T>(&node, epoch).await {
+                if !connected {
+                    info!("Connected to endpoint at: {:?} - {:?}", endpoint, version);
+                    connected = true;
+                }
+                break committee_result;
+            }
+
+            if connected {
+                connected = false;
+                error!("A request to the Beacon Node API failed. Check connectivity.");
+            }
         };
 
         // Ensure available attestations don't exceed the possible amount of attestations
         // as determined by the committee size/number.
         // This is unlikely to happen, but not impossible.
         let max_possible_attesations =
-            committee_data.1.validators_per_committee * committee_data.1.number_of_committees;
+            committee_info.validators_per_committee * committee_info.number_of_committees;
 
         // Get number of active validators.
         let active_validators =
             get_validator_set_len::<T>(&node, epoch.start_slot(T::slots_per_epoch())).await?;
 
-        let start_slot = epoch.start_slot(T::slots_per_epoch());
-        for step in 0..32 {
-            let slot = start_slot + step;
-
+        for slot in epoch.slot_iter(T::slots_per_epoch()) {
             // Get all included attestations.
-            let (mut attestations_in_block, proposer) =
-                match get_block_attestations_set::<T>(&node, slot).await {
-                    Ok(output) => (output.0, Some(output.1)),
-                    Err(_) => (HashMap::new(), None),
+            let block_result = loop {
+                if let Ok(block_result) = get_block_attestations_set::<T>(&node, slot).await {
+                    if !connected {
+                        info!("Connected to endpoint at: {:?} - {:?}", endpoint, version);
+                        connected = true;
+                    }
+                    break block_result;
                 };
+                if connected {
+                    connected = false;
+                    error!("A request to the Beacon Node API failed. Check connectivity.");
+                }
+            };
+            let (mut attestations_in_block, proposer) = match block_result {
+                Some(output) => (output.0, Some(output.1)),
+                None => (HashMap::new(), None),
+            };
 
             // Insert block proposer into proposer_map.
             if let Some(proposer_info) = proposer {
@@ -247,7 +297,7 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
             }
 
             // Get all available attestations.
-            for committee in &committee_data.0 {
+            for committee in &committee_data {
                 if committee.slot == slot {
                     for position in 0..committee.validators.len() {
                         let unique_attestation = UniqueAttestation {
@@ -261,36 +311,39 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
             }
 
             // Remove expired available attestations.
-            available_attestations_set.retain(|x| x.slot >= (slot - 32));
+            available_attestations_set.retain(|x| x.slot >= (slot.as_u64().saturating_sub(32)));
         }
 
-        // Get all online validators for the epoch.
-        for committee in &committee_data.0 {
-            for position in 0..committee.validators.len() {
-                let unique_attestation = UniqueAttestation {
-                    slot: committee.slot,
-                    committee_index: committee.index,
-                    committee_position: position,
-                };
-                let index = committee.validators.get(position).ok_or_else(|| {
-                    "Error parsing validator indices from committee data".to_string()
-                })?;
+        let mut offline = "None".to_string();
+        if calculate_offline_vals {
+            // Get all online validators for the epoch.
+            for committee in &committee_data {
+                for position in 0..committee.validators.len() {
+                    let unique_attestation = UniqueAttestation {
+                        slot: committee.slot,
+                        committee_index: committee.index,
+                        committee_position: position,
+                    };
+                    let index = committee.validators.get(position).ok_or_else(|| {
+                        "Error parsing validator indices from committee data".to_string()
+                    })?;
 
-                if included_attestations_set.get(&unique_attestation).is_some() {
-                    online_validator_set.insert(*index, epoch);
+                    if included_attestations_set.get(&unique_attestation).is_some() {
+                        online_validator_set.insert(*index, epoch);
+                    }
                 }
             }
-        }
 
-        // Calculate offline validators.
-        let offline = if epoch >= start_epoch + offline_window {
-            active_validators
-                .checked_sub(online_validator_set.len())
-                .ok_or_else(|| "Online set is greater than active set".to_string())?
-                .to_string()
-        } else {
-            "None".to_string()
-        };
+            // Calculate offline validators.
+            offline = if epoch >= start_epoch + offline_window {
+                active_validators
+                    .checked_sub(online_validator_set.len())
+                    .ok_or_else(|| "Online set is greater than active set".to_string())?
+                    .to_string()
+            } else {
+                "None".to_string()
+            };
+        }
 
         // Write epoch data.
         for (slot, proposer, available, included) in epoch_data {
@@ -307,11 +360,20 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
         }
 
         // Free some memory by removing included attestations older than 1 epoch.
-        included_attestations_set
-            .retain(|x, _| x.slot >= (epoch - 1).start_slot(T::slots_per_epoch()));
+        included_attestations_set.retain(|x, _| {
+            x.slot >= Epoch::new(epoch.as_u64().saturating_sub(1)).start_slot(T::slots_per_epoch())
+        });
 
-        // Remove old validators from the validator set which are outside the offline window.
-        online_validator_set.retain(|_, x| *x >= (epoch - (offline_window - 1)));
+        if calculate_offline_vals {
+            // Remove old validators from the validator set which are outside the offline window.
+            online_validator_set.retain(|_, x| {
+                *x >= Epoch::new(
+                    epoch
+                        .as_u64()
+                        .saturating_sub(offline_window.saturating_sub(1)),
+                )
+            });
+        }
     }
     Ok(())
 }
