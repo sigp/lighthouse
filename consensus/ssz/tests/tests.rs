@@ -292,6 +292,7 @@ mod round_trip {
         );
     }
 
+    /*
     #[derive(Debug, PartialEq, Encode, Decode)]
     struct TwoVariableLenOptions {
         a: u16,
@@ -353,6 +354,7 @@ mod round_trip {
 
         round_trip(vec);
     }
+    */
 
     #[test]
     fn tuple_u8_u16() {
