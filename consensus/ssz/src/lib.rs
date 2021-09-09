@@ -50,6 +50,12 @@ pub const MAX_LENGTH_VALUE: usize = (std::u32::MAX >> (8 * (4 - BYTES_PER_LENGTH
 #[cfg(target_pointer_width = "64")]
 pub const MAX_LENGTH_VALUE: usize = (std::u64::MAX >> (8 * (8 - BYTES_PER_LENGTH_OFFSET))) as usize;
 
+/// The number of bytes used to indicate the variant of a union.
+pub const BYTES_PER_UNION_SELECTOR: usize = 1;
+/// The highest possible union selector value (higher values are reserved for backwards compatible
+/// extensions).
+pub const MAX_UNION_SELECTOR: u8 = 127;
+
 /// Convenience function to SSZ encode an object supporting ssz::Encode.
 ///
 /// Equivalent to `val.as_ssz_bytes()`.

@@ -3,9 +3,46 @@
 //!
 //! Supports field attributes, see each derive macro for more information.
 
+use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::quote;
+use std::convert::TryInto;
 use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput};
+
+/// The highest possible union selector value (higher values are reserved for backwards compatible
+/// extensions).
+const MAX_UNION_SELECTOR: u8 = 127;
+
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(ssz))]
+struct StructOpts {
+    #[darling(default)]
+    enum_behaviour: Option<String>,
+}
+
+const ENUM_TRANSPARENT: &str = "transparent";
+const ENUM_UNION: &str = "union";
+const ENUM_VARIANTS: &[&str] = &[ENUM_TRANSPARENT, ENUM_UNION];
+const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require an \"enum_behaviour\" attribute, \
+    e.g., #[ssz(enum_behaviour = \"transparent\")]";
+
+enum EnumBehaviour {
+    Transparent,
+    Union,
+}
+
+impl EnumBehaviour {
+    pub fn new(s: Option<String>) -> Option<Self> {
+        s.map(|s| match s.as_ref() {
+            ENUM_TRANSPARENT => EnumBehaviour::Transparent,
+            ENUM_UNION => EnumBehaviour::Union,
+            other => panic!(
+                "{} is an invalid enum_behaviour, use either {:?}",
+                other, ENUM_VARIANTS
+            ),
+        })
+    }
+}
 
 /// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
 /// that should not be serialized.
@@ -65,10 +102,20 @@ fn should_skip_serializing(field: &syn::Field) -> bool {
 #[proc_macro_derive(Encode, attributes(ssz))]
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
+    let opts = StructOpts::from_derive_input(&item).unwrap();
+    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
 
     match &item.data {
-        syn::Data::Struct(s) => ssz_encode_derive_struct(&item, s),
-        syn::Data::Enum(s) => ssz_encode_derive_enum(&item, s),
+        syn::Data::Struct(s) => {
+            if enum_opt.is_some() {
+                panic!("enum_behaviour is invalid for structs");
+            }
+            ssz_encode_derive_struct(&item, s)
+        }
+        syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
+            EnumBehaviour::Transparent => ssz_encode_derive_enum_transparent(&item, s),
+            EnumBehaviour::Union => ssz_encode_derive_enum_union(&item, s),
+        },
         _ => panic!("ssz_derive only supports structs and enums"),
     }
 }
@@ -161,7 +208,10 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
 ///
 /// Will panic at compile-time if the single field requirement isn't met, but will panic *at run
 /// time* if the variable-size requirement isn't met.
-fn ssz_encode_derive_enum(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+fn ssz_encode_derive_enum_transparent(
+    derive_input: &DeriveInput,
+    enum_data: &DataEnum,
+) -> TokenStream {
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
 
@@ -211,6 +261,72 @@ fn ssz_encode_derive_enum(derive_input: &DeriveInput, enum_data: &DataEnum) -> T
                 match self {
                     #(
                         #patterns => inner.ssz_append(buf),
+                    )*
+                }
+            }
+        }
+    };
+    output.into()
+}
+
+fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+
+    let patterns: Vec<_> = enum_data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name = &variant.ident;
+
+            if variant.fields.len() != 1 {
+                panic!("ssz::Encode can only be derived for enums with 1 field per variant");
+            }
+
+            let pattern = quote! {
+                #name::#variant_name(ref inner)
+            };
+            pattern
+        })
+        .collect();
+
+    let union_selectors = (0..patterns.len())
+        .map(|i| i.try_into().expect("union selector exceeds u8::max_value"))
+        .collect::<Vec<u8>>();
+    let highest_selector = union_selectors
+        .last()
+        .copied()
+        .expect("cannot encode 0-variant union");
+    assert!(
+        highest_selector <= MAX_UNION_SELECTOR,
+        "union selector {} exceeds limit of {}",
+        highest_selector,
+        MAX_UNION_SELECTOR
+    );
+
+    let output = quote! {
+        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                match self {
+                    #(
+                        #patterns => inner.ssz_bytes_len() + 1,
+                    )*
+                }
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                match self {
+                    #(
+                        #patterns => {
+                            let union_selector: u8 = #union_selectors;
+                            debug_assert!(union_selector <= ssz::MAX_UNION_SELECTOR);
+                            buf.push(union_selector);
+                            inner.ssz_append(buf)
+                        },
                     )*
                 }
             }
