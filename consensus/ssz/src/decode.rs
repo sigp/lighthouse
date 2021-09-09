@@ -48,6 +48,8 @@ pub enum DecodeError {
     ZeroLengthItem,
     /// The given bytes were invalid for some application-level reason.
     BytesInvalid(String),
+    /// The given union selector is out of bounds.
+    UnionSelectorInvalid(u8),
 }
 
 /// Performs checks on the `offset` based upon the other parameters provided.
@@ -312,11 +314,25 @@ impl<'a> SszDecoder<'a> {
     }
 }
 
+pub fn split_union_bytes(bytes: &[u8]) -> Result<(UnionSelector, &[u8]), DecodeError> {
+    let selector = bytes
+        .first()
+        .copied()
+        .ok_or(DecodeError::OutOfBoundsByte { i: 0 })
+        .and_then(UnionSelector::new)?;
+    let body = bytes
+        .get(1..)
+        .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+    Ok((selector, body))
+}
+
+/*
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte union index from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.
 pub fn read_union_index(bytes: &[u8]) -> Result<usize, DecodeError> {
     read_offset(bytes)
 }
+*/
 
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.

@@ -1,18 +1,19 @@
-use ssz::Encode;
-use ssz_derive::Encode;
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 
-fn assert_encoding<T: Encode>(item: &T, bytes: &[u8]) {
-    assert_eq!(item.as_ssz_bytes(), bytes)
+fn assert_encoding<T: Encode + Decode + PartialEq>(item: &T, bytes: &[u8]) {
+    assert_eq!(item.as_ssz_bytes(), bytes);
+    assert_eq!(T::from_ssz_bytes(bytes).unwrap(), *item);
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 enum TwoFixedUnion {
     U8(u8),
     U16(u16),
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 struct TwoFixedUnionStruct {
     a: TwoFixedUnion,
 }
@@ -29,38 +30,38 @@ fn two_fixed_union() {
     assert_encoding(&TwoFixedUnionStruct { a: sixteen }, &[4, 0, 0, 0, 1, 1, 0]);
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 struct VariableA {
     a: u8,
     b: Vec<u8>,
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 struct VariableB {
     a: Vec<u8>,
     b: u8,
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 #[ssz(enum_behaviour = "transparent")]
 enum TwoVariableTrans {
     A(VariableA),
     B(VariableB),
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 struct TwoVariableTransStruct {
     a: TwoVariableTrans,
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 enum TwoVariableUnion {
     A(VariableA),
     B(VariableB),
 }
 
-#[derive(Encode)]
+#[derive(PartialEq, Debug, Encode, Decode)]
 struct TwoVariableUnionStruct {
     a: TwoVariableUnion,
 }
