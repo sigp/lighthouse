@@ -2,6 +2,23 @@ use super::*;
 
 mod impls;
 
+#[derive(Copy, Clone)]
+pub struct UnionSelector(u8);
+
+impl From<UnionSelector> for u8 {
+    fn from(union_selector: UnionSelector) -> u8 {
+        union_selector.0
+    }
+}
+
+impl UnionSelector {
+    pub fn new(selector: u8) -> Option<Self> {
+        Some(selector)
+            .filter(|_| selector <= MAX_UNION_SELECTOR)
+            .map(Self)
+    }
+}
+
 /// Provides SSZ encoding (serialization) via the `as_ssz_bytes(&self)` method.
 ///
 /// See `examples/` for manual implementations or the crate root for implementations using
@@ -114,6 +131,17 @@ impl<'a> SszEncoder<'a> {
         }
     }
 
+    /// Write a SSZ "union" type to `self`.
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0-beta.3/ssz/simple-serialize.md#union
+    pub fn append_union<T: Encode>(&mut self, selector: UnionSelector, item: &T) {
+        self.buf
+            .extend_from_slice(&encode_length(self.offset + self.variable_bytes.len()));
+
+        self.variable_bytes.push(selector.into());
+        item.ssz_append(&mut self.variable_bytes);
+    }
+
     /// Write the variable bytes to `self.bytes`.
     ///
     /// This method must be called after the final `append(..)` call when serializing
@@ -123,13 +151,6 @@ impl<'a> SszEncoder<'a> {
 
         &mut self.buf
     }
-}
-
-/// Encode `index` as a little-endian byte array of `BYTES_PER_LENGTH_OFFSET` length.
-///
-/// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
-pub fn encode_union_index(index: usize) -> [u8; BYTES_PER_LENGTH_OFFSET] {
-    encode_length(index)
 }
 
 /// Encode `len` as a little-endian byte array of `BYTES_PER_LENGTH_OFFSET` length.
