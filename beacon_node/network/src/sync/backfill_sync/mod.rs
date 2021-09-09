@@ -960,6 +960,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         } else {
             // If we are here the chain has no more synced peers
             info!(self.log, "Backfill sync paused"; "reason" => "insufficient_synced_peers");
+            // Clear the failed batch.
+            self.batches.remove(&batch_id);
+
             self.state = BackFillState::Paused;
             Err(BackFillError::Paused)
         }
