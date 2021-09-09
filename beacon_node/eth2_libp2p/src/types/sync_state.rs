@@ -6,22 +6,18 @@ use types::Slot;
 pub enum SyncState {
     /// The node is performing a long-range (batch) sync over a finalized chain.
     /// In this state, parent lookups are disabled.
-    SyncingFinalized {
-        start_slot: Slot,
-        target_slot: Slot,
-    },
+    SyncingFinalized { start_slot: Slot, target_slot: Slot },
     /// The node is performing a long-range (batch) sync over one or many head chains.
     /// In this state parent lookups are disabled.
-    SyncingHead {
-        start_slot: Slot,
-        target_slot: Slot,
-    },
-    /// The node has identified the need for is sync operations and is transitioning to a syncing
+    SyncingHead { start_slot: Slot, target_slot: Slot },
+    /// The node is undertaking a backfill sync. This occurs when a user has specified a trusted
+    /// state. The node first syncs "forward" by downloading blocks up to the current head as
+    /// specified by its peers. Once completed, the node enters this sync state and attempts to
+    /// download all required historical blocks to complete its chain.
+    BackFillSyncing { completed: usize, remaining: usize },
+    /// The node has completed syncing a finalized chain and is in the process of re-evaluating
+    /// which sync state to progress to.
     /// state.
-    BackFillSyncing {
-        completed: usize,
-        remaining: usize,
-    },
     SyncTransition,
     /// The node is up to date with all known peers and is connected to at least one
     /// fully synced peer. In this state, parent lookups are enabled.

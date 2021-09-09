@@ -134,14 +134,18 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
                     if let Some(oldest_slot) = original_anchor_slot {
-                        if let Some(current_slot) = beacon_chain
+                        if let Some(current_anchor_slot) = beacon_chain
                             .store
                             .get_anchor_info()
                             .map(|ai| ai.oldest_block_slot)
                         {
-                            sync_distance = current_slot;
+                            sync_distance = current_anchor_slot;
                             speedo
-                                .observe(oldest_slot.saturating_sub(current_slot), Instant::now());
+                                // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
+                                .observe(
+                                    oldest_slot.saturating_sub(current_anchor_slot),
+                                    Instant::now(),
+                                );
                         }
                     }
                 }
@@ -224,7 +228,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "peers" => peer_count_pretty(connected_peer_count),
                         "distance" => distance,
                         "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
                     );
                 } else {
                     info!(
@@ -232,7 +236,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "Synced - Downloading historical blocks";
                         "peers" => peer_count_pretty(connected_peer_count),
                         "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
                     );
                 }
             } else if current_sync_state.is_synced() {

@@ -2204,7 +2204,7 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    // GET lighthouse/syncing
+    // GET lighthouse/backfill
     let get_lighthouse_backfill = warp::path("lighthouse")
         .and(warp::path("backfill"))
         .and(warp::path::end())
