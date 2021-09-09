@@ -4,49 +4,45 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-// TODO: move this into `EthSpec`.
-pub type BytesPerLogsBloom = ssz_types::typenum::U256;
-pub type MaxExecutionTransactions = ssz_types::typenum::U16384;
-pub type MaxBytesPerOpaqueTransaction = ssz_types::typenum::U1048576;
-pub type Transactions =
-    VariableList<VariableList<u8, MaxBytesPerOpaqueTransaction>, MaxExecutionTransactions>;
-
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
-pub struct ExecutionPayload {
-    pub block_hash: Hash256,
+pub struct ExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,
     pub coinbase: Address,
     pub state_root: Hash256,
+    pub receipt_root: Hash256,
+    #[serde(with = "serde_logs_bloom")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub random: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
-    pub number: u64,
+    pub block_number: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub gas_limit: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub gas_used: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub timestamp: u64,
-    pub receipt_root: Hash256,
-    #[serde(with = "serde_logs_bloom")]
-    pub logs_bloom: FixedVector<u8, BytesPerLogsBloom>,
+    pub base_fee_per_gas: Hash256,
+    pub block_hash: Hash256,
     #[serde(with = "serde_transactions")]
-    pub transactions: Transactions,
+    pub transactions: VariableList<
+        VariableList<u8, T::MaxBytesPerOpaqueTransaction>,
+        T::MaxTransactionsPerPayload,
+    >,
 }
 
 /// Serializes the `logs_bloom` field.
 pub mod serde_logs_bloom {
     use super::*;
-    use serde::{Deserializer, Serializer};
     use eth2_serde_utils::hex::PrefixedHexVisitor;
+    use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S>(
-        bytes: &FixedVector<u8, BytesPerLogsBloom>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, U>(bytes: &FixedVector<u8, U>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
+        U: Unsigned,
     {
         let mut hex_string: String = "0x".to_string();
         hex_string.push_str(&hex::encode(&bytes[..]));
@@ -54,11 +50,10 @@ pub mod serde_logs_bloom {
         serializer.serialize_str(&hex_string)
     }
 
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<FixedVector<u8, BytesPerLogsBloom>, D::Error>
+    pub fn deserialize<'de, D, U>(deserializer: D) -> Result<FixedVector<u8, U>, D::Error>
     where
         D: Deserializer<'de>,
+        U: Unsigned,
     {
         let vec = deserializer.deserialize_string(PrefixedHexVisitor)?;
 
@@ -70,13 +65,22 @@ pub mod serde_logs_bloom {
 /// Serializes the `transactions` field.
 pub mod serde_transactions {
     use super::*;
+    use eth2_serde_utils::hex;
     use serde::ser::SerializeSeq;
     use serde::{de, Deserializer, Serializer};
-    use eth2_serde_utils::hex;
+    use std::marker::PhantomData;
 
-    pub struct ListOfBytesListVisitor;
-    impl<'a> serde::de::Visitor<'a> for ListOfBytesListVisitor {
-        type Value = Transactions;
+    pub struct ListOfBytesListVisitor<U, V> {
+        _u: PhantomData<U>,
+        _v: PhantomData<V>,
+    }
+
+    impl<'a, U, V> serde::de::Visitor<'a> for ListOfBytesListVisitor<U, V>
+    where
+        U: Unsigned,
+        V: Unsigned,
+    {
+        type Value = VariableList<VariableList<u8, U>, V>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(formatter, "a list of 0x-prefixed byte lists")
@@ -102,9 +106,14 @@ pub mod serde_transactions {
         }
     }
 
-    pub fn serialize<S>(value: &Transactions, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, U, V>(
+        value: &VariableList<VariableList<u8, U>, V>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
+        U: Unsigned,
+        V: Unsigned,
     {
         let mut seq = serializer.serialize_seq(Some(value.len()))?;
         for val in value {
@@ -113,11 +122,17 @@ pub mod serde_transactions {
         seq.end()
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Transactions, D::Error>
+    pub fn deserialize<'de, D, U, V>(
+        deserializer: D,
+    ) -> Result<VariableList<VariableList<u8, U>, V>, D::Error>
     where
         D: Deserializer<'de>,
+        U: Unsigned,
+        V: Unsigned,
     {
-        deserializer.deserialize_any(ListOfBytesListVisitor)
+        deserializer.deserialize_any(ListOfBytesListVisitor {
+            _u: PhantomData,
+            _v: PhantomData,
+        })
     }
 }
-
