@@ -97,6 +97,13 @@ pub struct AnchorInfo {
     pub state_lower_limit: Slot,
 }
 
+impl AnchorInfo {
+    /// Returns true if the block backfill has completed.
+    pub fn block_backfill_complete(&self) -> bool {
+        self.oldest_block_slot == 0
+    }
+}
+
 impl StoreItem for AnchorInfo {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
