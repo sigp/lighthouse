@@ -202,38 +202,6 @@ impl_encode_for_tuples! {
     }
 }
 
-/*
-/// The SSZ "union" type.
-impl<T: Encode> Encode for Option<T> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        if let Some(some) = self {
-            let len = if <T as Encode>::is_ssz_fixed_len() {
-                <T as Encode>::ssz_fixed_len()
-            } else {
-                some.ssz_bytes_len()
-            };
-            len + BYTES_PER_LENGTH_OFFSET
-        } else {
-            BYTES_PER_LENGTH_OFFSET
-        }
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        match self {
-            None => buf.extend_from_slice(&encode_union_index(0)),
-            Some(t) => {
-                buf.extend_from_slice(&encode_union_index(1));
-                t.ssz_append(buf);
-            }
-        }
-    }
-}
-*/
-
 impl<T: Encode> Encode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
