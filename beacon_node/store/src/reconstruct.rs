@@ -14,11 +14,6 @@ where
     Cold: KeyValueStore<E> + ItemStore<E>,
 {
     pub fn reconstruct_historic_states(self: &Arc<Self>) -> Result<(), Error> {
-        // Do not run historic state reconstruction in parallel with the database migration
-        // that is triggered upon finalization. It simplifies our reasoning if the split point is
-        // assumed not to advance for the duration of this function.
-        let _migration_mutex = self.lock_migration_mutex();
-
         let mut anchor = if let Some(anchor) = self.get_anchor_info() {
             anchor
         } else {
