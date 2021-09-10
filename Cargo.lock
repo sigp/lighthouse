@@ -6675,6 +6675,7 @@ dependencies = [
 name = "tree_hash_derive"
 version = "0.3.1"
 dependencies = [
+ "darling 0.13.0",
  "quote",
  "syn",
 ]
