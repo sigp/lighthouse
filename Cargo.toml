@@ -82,6 +82,8 @@ members = [
 ]
 
 # TODO: publish new versions once testing is done and remove this
+[patch]
 [patch.crates-io]
 eth2_ssz = { path = "consensus/ssz" }
+eth2_ssz_derive = { path = "consensus/ssz_derive" }
 tree_hash = { path = "consensus/tree_hash" }
