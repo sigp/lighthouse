@@ -39,10 +39,10 @@ mod encode;
 mod union_selector;
 
 pub use decode::{
-    impls::decode_list_of_variable_length_items, split_union_bytes, Decode, DecodeError,
-    SszDecoder, SszDecoderBuilder,
+    impls::decode_list_of_variable_length_items, read_offset, split_union_bytes, Decode,
+    DecodeError, SszDecoder, SszDecoderBuilder,
 };
-pub use encode::{Encode, SszEncoder};
+pub use encode::{encode_length, Encode, SszEncoder};
 pub use union_selector::UnionSelector;
 
 /// The number of bytes used to represent an offset.

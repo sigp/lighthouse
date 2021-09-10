@@ -328,7 +328,7 @@ pub fn split_union_bytes(bytes: &[u8]) -> Result<(UnionSelector, &[u8]), DecodeE
 
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.
-fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
+pub fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
     decode_offset(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or_else(|| {
         DecodeError::InvalidLengthPrefix {
             len: bytes.len(),
