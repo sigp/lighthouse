@@ -1,7 +1,44 @@
 #![recursion_limit = "256"]
+use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::quote;
+use std::convert::TryInto;
 use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Meta};
+
+/// The highest possible union selector value (higher values are reserved for backwards compatible
+/// extensions).
+const MAX_UNION_SELECTOR: u8 = 127;
+
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(ssz))]
+struct StructOpts {
+    #[darling(default)]
+    enum_behaviour: Option<String>,
+}
+
+const ENUM_TRANSPARENT: &str = "transparent";
+const ENUM_UNION: &str = "union";
+const ENUM_VARIANTS: &[&str] = &[ENUM_TRANSPARENT, ENUM_UNION];
+const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require an \"enum_behaviour\" attribute, \
+    e.g., #[ssz(enum_behaviour = \"transparent\")]";
+
+enum EnumBehaviour {
+    Transparent,
+    Union,
+}
+
+impl EnumBehaviour {
+    pub fn new(s: Option<String>) -> Option<Self> {
+        s.map(|s| match s.as_ref() {
+            ENUM_TRANSPARENT => EnumBehaviour::Transparent,
+            ENUM_UNION => EnumBehaviour::Union,
+            other => panic!(
+                "{} is an invalid enum_behaviour, use either {:?}",
+                other, ENUM_VARIANTS
+            ),
+        })
+    }
+}
 
 /// Return a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
 /// that should not be hashed.
@@ -82,11 +119,21 @@ fn should_skip_hashing(field: &syn::Field) -> bool {
 #[proc_macro_derive(TreeHash, attributes(tree_hash))]
 pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
+    let opts = StructOpts::from_derive_input(&item).unwrap();
+    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
 
     match &item.data {
-        syn::Data::Struct(s) => tree_hash_derive_struct(&item, s),
-        syn::Data::Enum(e) => tree_hash_derive_enum(&item, e),
-        _ => panic!("tree_hash_derive only supports structs."),
+        syn::Data::Struct(s) => {
+            if enum_opt.is_some() {
+                panic!("enum_behaviour is invalid for structs");
+            }
+            tree_hash_derive_struct(&item, s)
+        }
+        syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
+            EnumBehaviour::Transparent => tree_hash_derive_enum_transparent(&item, s),
+            EnumBehaviour::Union => tree_hash_derive_enum_union(&item, s),
+        },
+        _ => panic!("tree_hash_derive only supports structs and enums."),
     }
 }
 
@@ -134,7 +181,10 @@ fn tree_hash_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Toke
 ///
 /// Will panic at compile-time if the single field requirement isn't met, but will panic *at run
 /// time* if the container type requirement isn't met.
-fn tree_hash_derive_enum(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+fn tree_hash_derive_enum_transparent(
+    derive_input: &DeriveInput,
+    enum_data: &DataEnum,
+) -> TokenStream {
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
 
@@ -191,4 +241,76 @@ fn tree_hash_derive_enum(derive_input: &DeriveInput, enum_data: &DataEnum) -> To
         }
     };
     output.into()
+}
+
+fn tree_hash_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+
+    let patterns: Vec<_> = enum_data
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_name = &variant.ident;
+
+            quote! {
+                #name::#variant_name(ref inner)
+            }
+        })
+        .collect();
+
+    let union_selectors = compute_union_selectors(patterns.len());
+
+    let output = quote! {
+        impl #impl_generics tree_hash::TreeHash for #name #ty_generics #where_clause {
+            fn tree_hash_type() -> tree_hash::TreeHashType {
+                tree_hash::TreeHashType::Container
+            }
+
+            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+                unreachable!("Enum should never be packed")
+            }
+
+            fn tree_hash_packing_factor() -> usize {
+                unreachable!("Enum should never be packed")
+            }
+
+            fn tree_hash_root(&self) -> Hash256 {
+                match self {
+                    #(
+                        #patterns => {
+                            let root = inner.tree_hash_root();
+                            let selector = #union_selectors;
+                            tree_hash::mix_in_selector(root, selector)
+                                .expect("derive macro should prevent out-of-bounds selectors")
+                        },
+                    )*
+                }
+            }
+        }
+    };
+    output.into()
+}
+
+fn compute_union_selectors(num_variants: usize) -> Vec<u8> {
+    let union_selectors = (0..num_variants)
+        .map(|i| {
+            i.try_into()
+                .expect("union selector exceeds u8::max_value, union has too many variants")
+        })
+        .collect::<Vec<u8>>();
+
+    let highest_selector = union_selectors
+        .last()
+        .copied()
+        .expect("0-variant union is not permitted");
+
+    assert!(
+        highest_selector <= MAX_UNION_SELECTOR,
+        "union selector {} exceeds limit of {}, enum has too many variants",
+        highest_selector,
+        MAX_UNION_SELECTOR
+    );
+
+    union_selectors
 }
