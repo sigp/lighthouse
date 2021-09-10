@@ -326,14 +326,6 @@ pub fn split_union_bytes(bytes: &[u8]) -> Result<(UnionSelector, &[u8]), DecodeE
     Ok((selector, body))
 }
 
-/*
-/// Reads a `BYTES_PER_LENGTH_OFFSET`-byte union index from `bytes`, where `bytes.len() >=
-/// BYTES_PER_LENGTH_OFFSET`.
-pub fn read_union_index(bytes: &[u8]) -> Result<usize, DecodeError> {
-    read_offset(bytes)
-}
-*/
-
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.
 fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
