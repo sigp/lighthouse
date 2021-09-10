@@ -39,7 +39,8 @@ mod encode;
 mod union_selector;
 
 pub use decode::{
-    impls::decode_list_of_variable_length_items, Decode, DecodeError, SszDecoder, SszDecoderBuilder,
+    impls::decode_list_of_variable_length_items, split_union_bytes, Decode, DecodeError,
+    SszDecoder, SszDecoderBuilder,
 };
 pub use encode::{Encode, SszEncoder};
 pub use union_selector::UnionSelector;

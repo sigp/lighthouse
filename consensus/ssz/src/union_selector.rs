@@ -9,6 +9,12 @@ impl From<UnionSelector> for u8 {
     }
 }
 
+impl PartialEq<u8> for UnionSelector {
+    fn eq(&self, other: &u8) -> bool {
+        self.0 == *other
+    }
+}
+
 impl UnionSelector {
     pub fn new(selector: u8) -> Result<Self, DecodeError> {
         Some(selector)
