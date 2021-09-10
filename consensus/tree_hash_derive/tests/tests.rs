@@ -51,8 +51,10 @@ enum VariableTrans {
     B(VariableList<u8, U1>),
 }
 
+/*
 #[test]
-fn fixed_trans() {
-    assert_eq!(FixedTrans::A(2).tree_hash_root(), u8_to_hash256(2));
-    assert_eq!(FixedTrans::B(2).tree_hash_root(), u8_to_hash256(2));
+fn variable_trans() {
+    assert_eq!(VariableTrans::A(2).tree_hash_root(), u8_to_hash256(2));
+    assert_eq!(VariableTrans::B(2).tree_hash_root(), u8_to_hash256(2));
 }
+*/

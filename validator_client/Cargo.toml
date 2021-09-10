@@ -15,7 +15,7 @@ deposit_contract = { path = "../common/deposit_contract" }
 [dependencies]
 eth2_ssz = "0.3.0"
 eth2_config = { path = "../common/eth2_config" }
-tree_hash = "0.3.0"
+tree_hash = "0.4.0"
 clap = "2.33.3"
 eth2_interop_keypairs = { path = "../common/eth2_interop_keypairs" }
 slashing_protection = { path = "./slashing_protection" }
