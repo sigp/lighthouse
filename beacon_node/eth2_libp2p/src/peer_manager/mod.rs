@@ -333,6 +333,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
 
+        // Increment the PEERS_PER_CLIENT metric
+        if let Some(kind) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(&peer_id)
+            .map(|peer_info| peer_info.client.kind.clone())
+        {
+            metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]); 
+        }
+
         // Should not be able to connect to a banned peer. Double check here
         if self.is_banned(&peer_id) {
             warn!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
@@ -395,26 +406,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 self.network_globals.connected_peers() as i64,
             );
 
-            // Increment the PEERS_PER_CLIENT metric
-            if let Some(kind) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(&peer_id)
-                .map(|peer_info| peer_info.client.kind.clone())
-            {
-                if let Some(v) =
-                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                {
-                    v.inc()
-                };
-            }
-
-            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-            metrics::set_gauge(
-                &metrics::PEERS_CONNECTED,
-                self.network_globals.connected_peers() as i64,
-            );
         }
     }
 
@@ -444,35 +435,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .push(PeerManagerEvent::PeerDisconnected(peer_id));
                 debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
 
-                // We dont register connected banned peers, or peers we are dropping because we
-                // have reached our peer limit, therefore we don't decrement the metrics for these
-                // peers.
-                if self.network_globals.peers.read().is_connected(&peer_id) {
-                    // Decrement the INBOUND/OUTBOUND peer metric
-                    match endpoint {
-                        ConnectedPoint::Listener { .. } => {
-                            metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
-                        }
-                        ConnectedPoint::Dialer { .. } => {
-                            metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
-                        }
-                    }
-
-                    // Decrement the PEERS_PER_CLIENT metric
-                    if let Some(kind) = self
-                        .network_globals
-                        .peers
-                        .read()
-                        .peer_info(&peer_id)
-                        .map(|info| info.client.kind.clone())
-                    {
-                        if let Some(v) =
-                            metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                        {
-                            v.dec()
-                        };
-                    }
-                }
             }
 
             // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
@@ -486,6 +448,27 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &metrics::PEERS_CONNECTED,
                 self.network_globals.connected_peers() as i64,
             );
+
+            // Decrement the PEERS_PER_CLIENT metric
+            if let Some(kind) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map(|info| info.client.kind.clone())
+            {
+                metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
+            }
+
+            // Decrement the INBOUND/OUTBOUND peer metric
+            match endpoint {
+                ConnectedPoint::Listener { .. } => {
+                    metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
+                }
+                ConnectedPoint::Dialer { .. } => {
+                    metrics::dec_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
+                }
+            }
         }
     }
 
@@ -1072,6 +1055,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Updates peer's scores.
         self.update_peer_scores();
 
+        // Update peer score metrics;
+        self.update_peer_score_metrics();
+
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
 
@@ -1113,6 +1099,51 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 peer_id,
                 GoodbyeReason::TooManyPeers,
             ));
+        }
+    }
+
+    // Update metrics related to peer scoring.
+    fn update_peer_score_metrics(&self) {
+        // reset the gauges
+        let _ = metrics::PEER_SCORE_DISTRIBUTION
+            .as_ref()
+            .map(|gauge| gauge.reset());
+        let _ = metrics::PEER_SCORE_PER_CLIENT
+            .as_ref()
+            .map(|gauge| gauge.reset());
+
+        let mut avg_score_per_client: HashMap<String,(f64,usize)> = HashMap::with_capacity(5);
+        {
+            let peers_db_read_lock = self.network_globals.peers.read();
+            let connected_peers = peers_db_read_lock.best_peers_by_status(PeerInfo::is_connected);
+            let total_peers = connected_peers.len();
+            for (id, (_peer, peer_info)) in connected_peers.into_iter().enumerate() {
+
+                // First quartile
+                if id == 0 {
+                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["1st"], peer_info.score().score() as i64);
+                }
+                else if id == (total_peers*3/4)-1 {
+                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["3/4"], peer_info.score().score() as i64);
+                }
+                else if id == (total_peers/2)-1 {
+                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["1/2"], peer_info.score().score() as i64);
+                }
+                else if id == (total_peers/4)-1 {
+                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["1/4"], peer_info.score().score() as i64);
+                }
+                else if id == total_peers -1 {
+                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["last"], peer_info.score().score() as i64);
+                }
+
+                let score_peers = avg_score_per_client.entry(peer_info.client.kind.to_string()).or_default();
+                score_peers.0 += peer_info.score().score();
+                score_peers.1 +=1;
+            }
+        } // read lock ended
+
+        for (client, (score,peers)) in avg_score_per_client {
+            metrics::set_gauge_vec(&metrics::PEER_SCORE_PER_CLIENT, &[&client.to_string()], (score/(peers as f64))as i64);
         }
     }
 }

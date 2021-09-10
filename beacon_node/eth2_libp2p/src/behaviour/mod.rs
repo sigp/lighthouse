@@ -712,6 +712,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Convenience function to propagate a request.
     fn propagate_request(&mut self, id: PeerRequestId, peer_id: PeerId, request: Request) {
+        // Increment metrics
+        match &request {
+            Request::Status(_) => metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"]),
+            Request::BlocksByRange { .. } => metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"]),
+            Request::BlocksByRoot { .. } => metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]),
+        }
         self.add_event(BehaviourEvent::RequestReceived {
             peer_id,
             id,

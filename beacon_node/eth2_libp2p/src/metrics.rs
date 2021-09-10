@@ -55,6 +55,11 @@ lazy_static! {
         "RPC errors per client",
         &["client", "rpc_error", "direction"]
     );
+    pub static ref TOTAL_RPC_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "libp2p_rpc_requests_total",
+        "RPC requests total",
+        &["type"]
+    );
     pub static ref PEER_ACTION_EVENTS_PER_CLIENT: Result<IntCounterVec> =
         try_create_int_counter_vec(
             "libp2p_peer_actions_per_client",
@@ -66,6 +71,20 @@ lazy_static! {
             "gossipsub_unaccepted_messages_per_client",
             "Gossipsub messages that we did not accept, per client",
             &["client", "validation_result"]
+        );
+
+    pub static ref PEER_SCORE_DISTRIBUTION: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "peer_score_distribution",
+            "The distribution of connected peer scores",
+            &["position"]
+        );
+
+    pub static ref PEER_SCORE_PER_CLIENT: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "peer_score_per_client",
+            "Average score per client",
+            &["client"]
         );
 
     /*

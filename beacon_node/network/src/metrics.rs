@@ -525,17 +525,6 @@ lazy_static! {
         "Number of queued attestations where as matching block has been imported."
     );
 
-    /*
-     * Inbound/Outbound peers
-     */
-    /// The number of peers that dialed us.
-    pub static ref NETWORK_INBOUND_PEERS: Result<IntGauge> =
-        try_create_int_gauge("network_inbound_peers","The number of peers that are currently connected that have dialed us.");
-
-    /// The number of peers that we dialed us.
-    pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
-        try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
-
 }
 
 pub fn register_attestation_error(error: &AttnError) {
@@ -974,10 +963,10 @@ pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
             other => other.to_string(),
         };
         let fork = format!("0x{}", &hex::encode(topic.fork_digest));
-        if let Some(metrics_iter) = gossipsub.metrics().slot_metrics_for_topic(&topic_hash) {
+        if let Some(metrics_iter) = gossipsub.metrics().slot_metrics_for_topic(topic_hash) {
             for (slot, slot_metrics) in metrics_iter.enumerate() {
                 let slot_format = match slot {
-                    0 => format!("non-mesh"),
+                    0 => "non-mesh".to_string(),
                     _ => format!("Slot {:02}", slot),
                 };
                 for (metric_name, value) in slot_metrics.with_names() {
