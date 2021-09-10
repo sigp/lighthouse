@@ -197,6 +197,7 @@ impl From<BeaconStateHash> for Hash256 {
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[tree_hash(enum_behaviour = "transparent")]
 pub struct BeaconState<T>
 where
     T: EthSpec,
