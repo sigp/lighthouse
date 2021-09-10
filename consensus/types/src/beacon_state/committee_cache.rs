@@ -15,9 +15,9 @@ mod tests;
 /// read the committees for the given epoch.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct CommitteeCache {
-    initialized_epoch: Option<Epoch>,
+    initialized_epoch: FourByteSszOption<Epoch>,
     shuffling: Vec<usize>,
-    shuffling_positions: Vec<Option<NonZeroUsize>>,
+    shuffling_positions: Vec<FourByteSszOption<NonZeroUsize>>,
     committees_per_slot: u64,
     slots_per_epoch: u64,
 }
@@ -63,15 +63,15 @@ impl CommitteeCache {
             return Err(Error::TooManyValidators);
         }
 
-        let mut shuffling_positions = vec![None; state.validators().len()];
+        let mut shuffling_positions = vec![FourByteSszOption::none(); state.validators().len()];
         for (i, &v) in shuffling.iter().enumerate() {
             *shuffling_positions
                 .get_mut(v)
-                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1);
+                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1).into();
         }
 
         Ok(CommitteeCache {
-            initialized_epoch: Some(epoch),
+            initialized_epoch: Some(epoch).into(),
             shuffling,
             shuffling_positions,
             committees_per_slot,
@@ -83,7 +83,7 @@ impl CommitteeCache {
     ///
     /// An non-initialized cache does not provide any useful information.
     pub fn is_initialized_at(&self, epoch: Epoch) -> bool {
-        Some(epoch) == self.initialized_epoch
+        self.initialized_epoch == Some(epoch)
     }
 
     /// Returns the **shuffled** list of active validator indices for the initialized epoch.
@@ -154,6 +154,7 @@ impl CommitteeCache {
     pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee>, Error> {
         let initialized_epoch = self
             .initialized_epoch
+            .as_ref()
             .ok_or(Error::CommitteeCacheUninitialized(None))?;
 
         initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
@@ -202,7 +203,10 @@ impl CommitteeCache {
         &self,
         global_committee_index: u64,
     ) -> Option<(Slot, CommitteeIndex)> {
-        let epoch_start_slot = self.initialized_epoch?.start_slot(self.slots_per_epoch);
+        let epoch_start_slot = self
+            .initialized_epoch
+            .as_ref()?
+            .start_slot(self.slots_per_epoch);
         let slot_offset = global_committee_index / self.committees_per_slot;
         let index = global_committee_index % self.committees_per_slot;
         Some((epoch_start_slot.safe_add(slot_offset).ok()?, index))
@@ -258,7 +262,8 @@ impl CommitteeCache {
     pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?
-            .and_then(|p| Some(p.get() - 1))
+            .as_ref()
+            .map(|p| p.get() - 1)
     }
 }
 
