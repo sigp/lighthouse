@@ -1,8 +1,13 @@
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::fmt::Debug;
 
-fn assert_encoding<T: Encode + Decode + PartialEq>(item: &T, bytes: &[u8]) {
+fn assert_encode<T: Encode>(item: &T, bytes: &[u8]) {
     assert_eq!(item.as_ssz_bytes(), bytes);
+}
+
+fn assert_encode_decode<T: Encode + Decode + PartialEq + Debug>(item: &T, bytes: &[u8]) {
+    assert_encode(item, bytes);
     assert_eq!(T::from_ssz_bytes(bytes).unwrap(), *item);
 }
 
@@ -23,11 +28,11 @@ fn two_fixed_union() {
     let eight = TwoFixedUnion::U8(1);
     let sixteen = TwoFixedUnion::U16(1);
 
-    assert_encoding(&eight, &[0, 1]);
-    assert_encoding(&sixteen, &[1, 1, 0]);
+    assert_encode_decode(&eight, &[0, 1]);
+    assert_encode_decode(&sixteen, &[1, 1, 0]);
 
-    assert_encoding(&TwoFixedUnionStruct { a: eight }, &[4, 0, 0, 0, 0, 1]);
-    assert_encoding(&TwoFixedUnionStruct { a: sixteen }, &[4, 0, 0, 0, 1, 1, 0]);
+    assert_encode_decode(&TwoFixedUnionStruct { a: eight }, &[4, 0, 0, 0, 0, 1]);
+    assert_encode_decode(&TwoFixedUnionStruct { a: sixteen }, &[4, 0, 0, 0, 1, 1, 0]);
 }
 
 #[derive(PartialEq, Debug, Encode, Decode)]
@@ -42,14 +47,14 @@ struct VariableB {
     b: u8,
 }
 
-#[derive(PartialEq, Debug, Encode, Decode)]
+#[derive(PartialEq, Debug, Encode)]
 #[ssz(enum_behaviour = "transparent")]
 enum TwoVariableTrans {
     A(VariableA),
     B(VariableB),
 }
 
-#[derive(PartialEq, Debug, Encode, Decode)]
+#[derive(PartialEq, Debug, Encode)]
 struct TwoVariableTransStruct {
     a: TwoVariableTrans,
 }
@@ -77,14 +82,14 @@ fn two_variable_trans() {
         b: 3,
     });
 
-    assert_encoding(&trans_a, &[1, 5, 0, 0, 0, 2, 3]);
-    assert_encoding(&trans_b, &[5, 0, 0, 0, 3, 1, 2]);
+    assert_encode(&trans_a, &[1, 5, 0, 0, 0, 2, 3]);
+    assert_encode(&trans_b, &[5, 0, 0, 0, 3, 1, 2]);
 
-    assert_encoding(
+    assert_encode(
         &TwoVariableTransStruct { a: trans_a },
         &[4, 0, 0, 0, 1, 5, 0, 0, 0, 2, 3],
     );
-    assert_encoding(
+    assert_encode(
         &TwoVariableTransStruct { a: trans_b },
         &[4, 0, 0, 0, 5, 0, 0, 0, 3, 1, 2],
     );
@@ -101,14 +106,14 @@ fn two_variable_union() {
         b: 3,
     });
 
-    assert_encoding(&union_a, &[0, 1, 5, 0, 0, 0, 2, 3]);
-    assert_encoding(&union_b, &[1, 5, 0, 0, 0, 3, 1, 2]);
+    assert_encode_decode(&union_a, &[0, 1, 5, 0, 0, 0, 2, 3]);
+    assert_encode_decode(&union_b, &[1, 5, 0, 0, 0, 3, 1, 2]);
 
-    assert_encoding(
+    assert_encode_decode(
         &TwoVariableUnionStruct { a: union_a },
         &[4, 0, 0, 0, 0, 1, 5, 0, 0, 0, 2, 3],
     );
-    assert_encoding(
+    assert_encode_decode(
         &TwoVariableUnionStruct { a: union_b },
         &[4, 0, 0, 0, 1, 5, 0, 0, 0, 3, 1, 2],
     );

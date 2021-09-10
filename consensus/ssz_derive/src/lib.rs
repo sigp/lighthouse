@@ -290,19 +290,7 @@ fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
         })
         .collect();
 
-    let union_selectors = (0..patterns.len())
-        .map(|i| i.try_into().expect("union selector exceeds u8::max_value"))
-        .collect::<Vec<u8>>();
-    let highest_selector = union_selectors
-        .last()
-        .copied()
-        .expect("cannot encode 0-variant union");
-    assert!(
-        highest_selector <= MAX_UNION_SELECTOR,
-        "union selector {} exceeds limit of {}",
-        highest_selector,
-        MAX_UNION_SELECTOR
-    );
+    let union_selectors = compute_union_selectors(patterns.len());
 
     let output = quote! {
         impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
@@ -345,6 +333,30 @@ fn should_skip_deserializing(field: &syn::Field) -> bool {
     })
 }
 
+#[proc_macro_derive(Decode, attributes(ssz))]
+pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as DeriveInput);
+    let opts = StructOpts::from_derive_input(&item).unwrap();
+    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
+
+    match &item.data {
+        syn::Data::Struct(s) => {
+            if enum_opt.is_some() {
+                panic!("enum_behaviour is invalid for structs");
+            }
+            ssz_decode_derive_struct(&item, s)
+        }
+        syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
+            EnumBehaviour::Transparent => panic!(
+                "Decode cannot be derived for enum_behaviour \"{}\", only \"{}\" is valid.",
+                ENUM_TRANSPARENT, ENUM_UNION
+            ),
+            EnumBehaviour::Union => ssz_decode_derive_enum_union(&item, s),
+        },
+        _ => panic!("ssz_derive only supports structs and enums"),
+    }
+}
+
 /// Implements `ssz::Decode` for some `struct`.
 ///
 /// Fields are decoded in the order they are defined.
@@ -354,17 +366,9 @@ fn should_skip_deserializing(field: &syn::Field) -> bool {
 /// - `#[ssz(skip_deserializing)]`: during de-serialization the field will be instantiated from a
 /// `Default` implementation. The decoder will assume that the field was not serialized at all
 /// (e.g., if it has been serialized, an error will be raised instead of `Default` overriding it).
-#[proc_macro_derive(Decode)]
-pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
-    let item = parse_macro_input!(input as DeriveInput);
-
+fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> TokenStream {
     let name = &item.ident;
     let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
-
-    let struct_data = match &item.data {
-        syn::Data::Struct(s) => s,
-        _ => panic!("ssz_derive only supports structs."),
-    };
 
     let mut register_types = vec![];
     let mut field_names = vec![];
@@ -510,7 +514,7 @@ fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
 
-    let (patterns, var_types): (Vec<_>, Vec<_>) = enum_data
+    let (constructors, var_types): (Vec<_>, Vec<_>) = enum_data
         .variants
         .iter()
         .map(|variant| {
@@ -520,22 +524,50 @@ fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
                 panic!("ssz::Encode can only be derived for enums with 1 field per variant");
             }
 
-            let pattern = quote! {
-                #name::#variant_name(ref inner)
+            let constructor = quote! {
+                #name::#variant_name
             };
 
             let ty = &(&variant.fields).into_iter().next().unwrap().ty;
-            (pattern, ty)
+            (constructor, ty)
         })
         .unzip();
 
-    let union_selectors = (0..patterns.len())
+    let union_selectors = compute_union_selectors(constructors.len());
+
+    let output = quote! {
+        impl #impl_generics ssz::Decode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                false
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+                let (selector, body) = ssz::split_union_bytes(bytes)?;
+
+                match selector.into() {
+                    #(
+                        #union_selectors => {
+                            Ok(#constructors(#var_types::from_ssz_bytes(body)?))
+                        },
+                    )*
+                    other => Err(ssz::DecodeError::UnionSelectorInvalid(other))
+                }
+            }
+        }
+    };
+    output.into()
+}
+
+fn compute_union_selectors(num_variants: usize) -> Vec<u8> {
+    let union_selectors = (0..num_variants)
         .map(|i| i.try_into().expect("union selector exceeds u8::max_value"))
         .collect::<Vec<u8>>();
+
     let highest_selector = union_selectors
         .last()
         .copied()
         .expect("cannot encode 0-variant union");
+
     assert!(
         highest_selector <= MAX_UNION_SELECTOR,
         "union selector {} exceeds limit of {}",
@@ -543,32 +575,5 @@ fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
         MAX_UNION_SELECTOR
     );
 
-    let output = quote! {
-        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
-            fn is_ssz_fixed_len() -> bool {
-                false
-            }
-
-            fn ssz_bytes_len(&self) -> usize {
-                match self {
-                    #(
-                        #patterns => inner.ssz_bytes_len() + 1,
-                    )*
-                }
-            }
-
-            fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-                let (selector, body) = ssz::decode::split_union_bytes(bytes)?;
-
-                match selector {
-                    #(
-                        #union_selectors => {
-                            Ok($patterns($var_types::from_ssz_bytes()?))
-                        },
-                    )*
-                }
-            }
-        }
-    };
-    output.into()
+    union_selectors
 }
