@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "eth2_ssz_types"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "arbitrary 0.4.7",
  "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
