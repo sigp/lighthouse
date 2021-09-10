@@ -138,7 +138,8 @@ where
         })??;
 
         // Check that the split point wasn't mutated during the state reconstruction process.
-        // It shouldn't, due to the migration mutex, so this is just a paranoid check.
+        // It shouldn't, due to the serialization of requests through the store migrator, so this is
+        // just a paranoid check.
         let latest_split = self.get_split_info();
         if split != latest_split {
             return Err(Error::SplitPointModified(latest_split.slot, split.slot));

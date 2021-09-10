@@ -282,7 +282,7 @@ where
         Ok(self)
     }
 
-    /// Store the genesis state & block in the DB, and derive
+    /// Store the genesis state & block in the DB.
     ///
     /// Do *not* initialize fork choice, or do anything that assumes starting from genesis.
     ///
