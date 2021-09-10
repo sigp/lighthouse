@@ -114,17 +114,6 @@ impl<'a> SszEncoder<'a> {
         }
     }
 
-    /// Write a SSZ "union" type to `self`.
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0-beta.3/ssz/simple-serialize.md#union
-    pub fn append_union<T: Encode>(&mut self, selector: UnionSelector, item: &T) {
-        self.buf
-            .extend_from_slice(&encode_length(self.offset + self.variable_bytes.len()));
-
-        self.variable_bytes.push(selector.into());
-        item.ssz_append(&mut self.variable_bytes);
-    }
-
     /// Write the variable bytes to `self.bytes`.
     ///
     /// This method must be called after the final `append(..)` call when serializing
