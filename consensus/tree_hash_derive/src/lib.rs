@@ -173,11 +173,19 @@ fn tree_hash_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Toke
     output.into()
 }
 
-/// Derive `TreeHash` for a restricted subset of all possible enum types.
+/// Derive `TreeHash` for an enum in the "transparent" method.
+///
+/// The "transparent" method is distinct from the "union" method specified in the SSZ specification.
+/// When using "transparent", the enum will be ignored and the contained field will be hashed as if
+/// the enum does not exist.
+///
+///## Limitations
 ///
 /// Only supports:
 /// - Enums with a single field per variant, where
 ///     - All fields are "container" types.
+///
+/// ## Panics
 ///
 /// Will panic at compile-time if the single field requirement isn't met, but will panic *at run
 /// time* if the container type requirement isn't met.
@@ -243,6 +251,15 @@ fn tree_hash_derive_enum_transparent(
     output.into()
 }
 
+/// Derive `TreeHash` for an `enum` following the "union" SSZ spec.
+///
+/// The union selector will be determined based upon the order in which the enum variants are
+/// defined. E.g., the top-most variant in the enum will have a selector of `0`, the variant
+/// beneath it will have a selector of `1` and so on.
+///
+/// # Limitations
+///
+/// Only supports enums where each variant has a single field.
 fn tree_hash_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
