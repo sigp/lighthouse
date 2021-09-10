@@ -82,8 +82,11 @@ pub fn mix_in_selector(root: &Hash256, selector: u8) -> Option<Hash256> {
         return None;
     }
 
-    let root = Hash256::from_slice(&eth2_hashing::hash32_concat(root.as_bytes(), &[selector])[..]);
-    Some(root)
+    let mut chunk = [0; BYTES_PER_CHUNK];
+    chunk[0] = selector;
+
+    let root = eth2_hashing::hash32_concat(root.as_bytes(), &chunk);
+    Some(Hash256::from_slice(&root))
 }
 
 /// Returns a cached padding node for a given height.

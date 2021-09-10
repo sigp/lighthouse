@@ -10,7 +10,7 @@ use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Meta}
 const MAX_UNION_SELECTOR: u8 = 127;
 
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(ssz))]
+#[darling(attributes(tree_hash))]
 struct StructOpts {
     #[darling(default)]
     enum_behaviour: Option<String>,
@@ -20,7 +20,7 @@ const ENUM_TRANSPARENT: &str = "transparent";
 const ENUM_UNION: &str = "union";
 const ENUM_VARIANTS: &[&str] = &[ENUM_TRANSPARENT, ENUM_UNION];
 const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require an \"enum_behaviour\" attribute, \
-    e.g., #[ssz(enum_behaviour = \"transparent\")]";
+    e.g., #[tree_hash(enum_behaviour = \"transparent\")]";
 
 enum EnumBehaviour {
     Transparent,
@@ -239,7 +239,7 @@ fn tree_hash_derive_enum_transparent(
                 unreachable!("Enum should never be packed")
             }
 
-            fn tree_hash_root(&self) -> Hash256 {
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
                 match self {
                     #(
                         #patterns => inner.tree_hash_root(),
@@ -292,13 +292,13 @@ fn tree_hash_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum)
                 unreachable!("Enum should never be packed")
             }
 
-            fn tree_hash_root(&self) -> Hash256 {
+            fn tree_hash_root(&self) -> tree_hash::Hash256 {
                 match self {
                     #(
                         #patterns => {
                             let root = inner.tree_hash_root();
                             let selector = #union_selectors;
-                            tree_hash::mix_in_selector(root, selector)
+                            tree_hash::mix_in_selector(&root, selector)
                                 .expect("derive macro should prevent out-of-bounds selectors")
                         },
                     )*
