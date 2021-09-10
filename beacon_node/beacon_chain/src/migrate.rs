@@ -258,7 +258,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         // Finally, compact the database so that new free space is properly reclaimed.
         if let Err(e) = Self::run_compaction(
-            db.clone(),
+            db,
             old_finalized_checkpoint.epoch,
             notif.finalized_checkpoint.epoch,
             log,
