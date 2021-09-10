@@ -30,6 +30,7 @@
 		* [Signature Header](./api-vc-sig-header.md)
 	* [Prometheus Metrics](./advanced_metrics.md)
 * [Advanced Usage](./advanced.md)
+    * [Checkpoint Sync](./checkpoint-sync.md)
     * [Custom Data Directories](./advanced-datadir.md)
     * [Validator Graffiti](./graffiti.md)
     * [Database Configuration](./advanced_database.md)

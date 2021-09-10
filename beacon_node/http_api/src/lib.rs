@@ -2041,7 +2041,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("contribution_and_proofs"))
         .and(warp::path::end())
-        .and(not_while_syncing_filter)
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
@@ -2409,15 +2409,16 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| blocking_json_task(move || database::info(chain)));
 
-    // GET lighthouse/database/reconstruct
-    let get_lighthouse_database_reconstruct = database_path
+    // POST lighthouse/database/reconstruct
+    let post_lighthouse_database_reconstruct = database_path
         .and(warp::path("reconstruct"))
         .and(warp::path::end())
+        .and(not_while_syncing_filter)
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 chain.store_migrator.process_reconstruction();
-                Ok(())
+                Ok("success")
             })
         });
 
@@ -2554,7 +2555,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
-                .or(get_lighthouse_database_reconstruct.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
@@ -2572,6 +2572,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
                 .or(post_lighthouse_liveness.boxed())
+                .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)

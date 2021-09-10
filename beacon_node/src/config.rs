@@ -296,8 +296,8 @@ pub fn get_config<E: EthSpec>(
         if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
             // Set up weak subjectivity sync, or start from the hardcoded genesis state.
             if let (Some(initial_state_path), Some(initial_block_path)) = (
-                cli_args.value_of("initial-state"),
-                cli_args.value_of("initial-block"),
+                cli_args.value_of("checkpoint-state"),
+                cli_args.value_of("checkpoint-block"),
             ) {
                 let read = |path: &str| {
                     use std::fs::File;
@@ -344,6 +344,10 @@ pub fn get_config<E: EthSpec>(
             }
             ClientGenesis::DepositContract
         };
+
+    if cli_args.is_present("reconstruct-historic-states") {
+        client_config.chain.reconstruct_historic_states = true;
+    }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
         if graffiti.len() > GRAFFITI_BYTES_LEN {

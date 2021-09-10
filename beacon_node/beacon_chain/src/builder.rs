@@ -779,6 +779,11 @@ where
             "head_slot" => format!("{}", head.beacon_block.slot()),
         );
 
+        // Check for states to reconstruct (in the background).
+        if beacon_chain.config.reconstruct_historic_states {
+            beacon_chain.store_migrator.process_reconstruction();
+        }
+
         Ok(beacon_chain)
     }
 }
