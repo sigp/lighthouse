@@ -41,6 +41,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
