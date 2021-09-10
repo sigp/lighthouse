@@ -93,12 +93,6 @@ fn should_skip_serializing(field: &syn::Field) -> bool {
 }
 
 /// Implements `ssz::Encode` for some `struct` or `enum`.
-///
-/// Fields are encoded in the order they are defined.
-///
-/// ## Field attributes
-///
-/// - `#[ssz(skip_serializing)]`: the field will not be serialized.
 #[proc_macro_derive(Encode, attributes(ssz))]
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
@@ -120,6 +114,13 @@ pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Derive `ssz::Encode` for a struct.
+///
+/// Fields are encoded in the order they are defined.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_serializing)]`: the field will not be serialized.
 fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct) -> TokenStream {
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
@@ -200,11 +201,20 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
     output.into()
 }
 
-/// Derive `Encode` for a restricted subset of all possible enum types.
+/// Derive `ssz::Encode` for an enum in the "transparent" method.
+///
+/// The "transparent" method is distinct from the "union" method specified in the SSZ specification.
+/// When using "transparent", the enum will be ignored and the contained field will be serialized as
+/// if the enum does not exist. Since an union variant "selector" is not serialized, it is not
+/// possible to reliably decode an enum that is serialized transparently.
+///
+/// ## Limitations
 ///
 /// Only supports:
 /// - Enums with a single field per variant, where
 ///     - All fields are variably sized from an SSZ-perspective (not fixed size).
+///
+/// ## Panics
 ///
 /// Will panic at compile-time if the single field requirement isn't met, but will panic *at run
 /// time* if the variable-size requirement isn't met.
@@ -269,6 +279,15 @@ fn ssz_encode_derive_enum_transparent(
     output.into()
 }
 
+/// Derive `ssz::Encode` for an `enum` following the "union" SSZ spec.
+///
+/// The union selector will be determined based upon the order in which the enum variants are
+/// defined. E.g., the top-most variant in the enum will have a selector of `0`, the variant
+/// beneath it will have a selector of `1` and so on.
+///
+/// # Limitations
+///
+/// Only supports enums where each variant has a single field.
 fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
@@ -333,6 +352,7 @@ fn should_skip_deserializing(field: &syn::Field) -> bool {
     })
 }
 
+/// Derive `ssz::Decode` for a struct or enum.
 #[proc_macro_derive(Decode, attributes(ssz))]
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
@@ -510,6 +530,7 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
     output.into()
 }
 
+/// Derive `ssz::Decode` for an `enum` following the "union" SSZ spec.
 fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum) -> TokenStream {
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
@@ -542,12 +563,16 @@ fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
             }
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+                // Sanity check to ensure the definition here does not drift from the one defined in
+                // `ssz`.
+                debug_assert_eq!(#MAX_UNION_SELECTOR, ssz::MAX_UNION_SELECTOR);
+
                 let (selector, body) = ssz::split_union_bytes(bytes)?;
 
                 match selector.into() {
                     #(
                         #union_selectors => {
-                            Ok(#constructors(#var_types::from_ssz_bytes(body)?))
+                            #var_types::from_ssz_bytes(body).map(#constructors)
                         },
                     )*
                     other => Err(ssz::DecodeError::UnionSelectorInvalid(other))
@@ -560,17 +585,20 @@ fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
 
 fn compute_union_selectors(num_variants: usize) -> Vec<u8> {
     let union_selectors = (0..num_variants)
-        .map(|i| i.try_into().expect("union selector exceeds u8::max_value"))
+        .map(|i| {
+            i.try_into()
+                .expect("union selector exceeds u8::max_value, union has too many variants")
+        })
         .collect::<Vec<u8>>();
 
     let highest_selector = union_selectors
         .last()
         .copied()
-        .expect("cannot encode 0-variant union");
+        .expect("0-variant union is not permitted");
 
     assert!(
         highest_selector <= MAX_UNION_SELECTOR,
-        "union selector {} exceeds limit of {}",
+        "union selector {} exceeds limit of {}, enum has too many variants",
         highest_selector,
         MAX_UNION_SELECTOR
     );
