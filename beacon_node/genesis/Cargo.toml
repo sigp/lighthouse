@@ -16,9 +16,9 @@ eth1 = { path = "../eth1"}
 rayon = "1.4.1"
 state_processing = { path = "../../consensus/state_processing" }
 merkle_proof = { path = "../../consensus/merkle_proof" }
-eth2_ssz = "0.1.2"
-eth2_hashing = "0.1.0"
-tree_hash = "0.1.1"
+eth2_ssz = "0.3.0"
+eth2_hashing = "0.2.0"
+tree_hash = "0.3.0"
 tokio = { version = "1.10.0", features = ["full"] }
 parking_lot = "0.11.0"
 slog = "2.5.2"

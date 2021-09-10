@@ -1,7 +1,7 @@
 use crate::*;
+use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
 use serde_derive::{Deserialize, Serialize};
-use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -533,44 +533,44 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_time: u64,
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     genesis_fork_version: [u8; 4],
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     genesis_delay: u64,
 
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
     altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_validator_withdrawability_delay: Epoch,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     shard_committee_period: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     inactivity_score_recovery_rate: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     ejection_balance: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_chain_id: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
 }

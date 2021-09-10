@@ -26,7 +26,7 @@ use tree_hash_derive::TreeHash;
 )]
 pub struct Eth1Data {
     pub deposit_root: Hash256,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub deposit_count: u64,
     pub block_hash: Hash256,
 }
