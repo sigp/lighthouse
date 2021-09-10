@@ -493,7 +493,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -639,7 +639,7 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "serde_derive",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "zeroize",
 ]
 
@@ -781,7 +781,7 @@ dependencies = [
  "quickcheck",
  "quickcheck_macros",
  "smallvec",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
 ]
 
 [[package]]
@@ -924,7 +924,7 @@ dependencies = [
  "timer",
  "tokio",
  "toml",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
  "url",
 ]
@@ -1337,7 +1337,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -1558,8 +1558,8 @@ dependencies = [
  "snap",
  "state_processing",
  "swap_or_not_shuffle",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
+ "tree_hash_derive",
  "types",
 ]
 
@@ -1709,7 +1709,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "toml",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
  "web3",
 ]
@@ -1969,8 +1969,8 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
+ "tree_hash_derive",
  "typenum",
 ]
 
@@ -1985,7 +1985,7 @@ dependencies = [
  "eth2_ssz 0.3.0",
  "serde",
  "serde_derive",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.3.0",
  "typenum",
 ]
 
@@ -2254,7 +2254,7 @@ dependencies = [
  "slot_clock",
  "state_processing",
  "store",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -2442,7 +2442,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -2745,7 +2745,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
  "warp",
  "warp_utils",
@@ -3123,7 +3123,7 @@ dependencies = [
  "simple_logger",
  "state_processing",
  "tokio",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
  "validator_dir",
  "web3",
@@ -4194,7 +4194,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -5727,8 +5727,8 @@ dependencies = [
  "slog",
  "sloggers",
  "tempfile",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
+ "tree_hash_derive",
  "types",
 ]
 
@@ -5766,7 +5766,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -6006,8 +6006,8 @@ dependencies = [
  "serde_derive",
  "serde_yaml",
  "smallvec",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
+ "tree_hash_derive",
  "types",
 ]
 
@@ -6098,7 +6098,7 @@ dependencies = [
  "sloggers",
  "state_processing",
  "tempfile",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 
@@ -6650,20 +6650,6 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.3.0"
-dependencies = [
- "beacon_chain",
- "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ethereum-types 0.11.0",
- "lazy_static",
- "rand 0.7.3",
- "smallvec",
- "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "types",
-]
-
-[[package]]
-name = "tree_hash"
-version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0092991b5664c725f0fbf30ed7eba2163e36cb22a789e1e371e9575eaff580e0"
 dependencies = [
@@ -6673,20 +6659,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree_hash_derive"
-version = "0.3.1"
+name = "tree_hash"
+version = "0.4.0"
 dependencies = [
- "darling 0.13.0",
- "quote",
- "syn",
+ "beacon_chain",
+ "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ethereum-types 0.11.0",
+ "lazy_static",
+ "rand 0.7.3",
+ "smallvec",
+ "tree_hash_derive",
+ "types",
 ]
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbadff2b79dbe7e28bf382fc51c511552d3b8054b200a2e8cd973f61b3ae7603"
+version = "0.4.0"
 dependencies = [
+ "darling 0.13.0",
  "quote",
  "syn",
 ]
@@ -6817,8 +6807,8 @@ dependencies = [
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
+ "tree_hash_derive",
 ]
 
 [[package]]
@@ -7021,7 +7011,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
  "url",
  "validator_dir",
@@ -7044,7 +7034,7 @@ dependencies = [
  "rayon",
  "slog",
  "tempfile",
- "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash 0.4.0",
  "types",
 ]
 

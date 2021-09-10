@@ -13,3 +13,8 @@ proc-macro = true
 syn = "1.0.42"
 quote = "1.0.7"
 darling = "0.13.0"
+
+[dev-dependencies]
+tree_hash = "0.4.0"
+eth2_ssz_types = "0.2.0"
+eth2_hashing = "0.2.0"
