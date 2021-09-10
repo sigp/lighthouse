@@ -1953,6 +1953,7 @@ name = "eth2_ssz_derive"
 version = "0.3.0"
 dependencies = [
  "darling 0.13.0",
+ "eth2_ssz 0.4.0",
  "proc-macro2",
  "quote",
  "syn",
