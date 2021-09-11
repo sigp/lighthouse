@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "1.0.1"
+sloggers = "2.0.2"
 toml = "0.5.6"
 
 [dependencies]

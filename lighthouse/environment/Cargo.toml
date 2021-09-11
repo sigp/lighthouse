@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 tokio = { version = "1.10.0", features = ["macros", "rt", "rt-multi-thread", "signal" ] }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "1.0.1"
+sloggers = "2.0.2"
 types = { path = "../../consensus/types" }
 eth2_config = { path = "../../common/eth2_config" }
 task_executor = { path = "../../common/task_executor" }

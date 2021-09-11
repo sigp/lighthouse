@@ -31,7 +31,7 @@ serde_derive = "1.0.116"
 serde_yaml = "0.8.13"
 serde_json = "1.0.58"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "1.0.1"
+sloggers = "2.0.2"
 slot_clock = { path = "../../common/slot_clock" }
 eth2_hashing = "0.2.0"
 eth2_ssz = "0.3.0"
