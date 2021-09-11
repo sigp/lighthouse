@@ -58,7 +58,7 @@ impl FromStr for ForkName {
     type Err = ();
 
     fn from_str(fork_name: &str) -> Result<Self, ()> {
-        Ok(match fork_name {
+        Ok(match fork_name.to_lowercase().as_ref() {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
             _ => return Err(()),
@@ -109,5 +109,23 @@ mod test {
             assert_eq!(prev_fork.next_fork(), Some(fork));
             assert_eq!(fork.previous_fork(), Some(prev_fork));
         }
+    }
+
+    #[test]
+    fn fork_name_case_insensitive_match() {
+        assert_eq!(ForkName::from_str("BASE"), Ok(ForkName::Base));
+        assert_eq!(ForkName::from_str("BaSe"), Ok(ForkName::Base));
+        assert_eq!(ForkName::from_str("base"), Ok(ForkName::Base));
+
+        assert_eq!(ForkName::from_str("PHASE0"), Ok(ForkName::Base));
+        assert_eq!(ForkName::from_str("PhAsE0"), Ok(ForkName::Base));
+        assert_eq!(ForkName::from_str("phase0"), Ok(ForkName::Base));
+
+        assert_eq!(ForkName::from_str("ALTAIR"), Ok(ForkName::Altair));
+        assert_eq!(ForkName::from_str("AlTaIr"), Ok(ForkName::Altair));
+        assert_eq!(ForkName::from_str("altair"), Ok(ForkName::Altair));
+
+        assert_eq!(ForkName::from_str("NO_NAME"), Err(()));
+        assert_eq!(ForkName::from_str("no_name"), Err(()));
     }
 }
