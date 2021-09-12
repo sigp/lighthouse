@@ -26,7 +26,9 @@ use tree_hash_derive::TreeHash;
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
-    )
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -46,7 +48,6 @@ pub struct BeaconBlockBody<T: EthSpec> {
     #[superstruct(only(Merge))]
     pub execution_payload: ExecutionPayload<T>,
 }
-
 
 impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     /// Access the sync aggregate from the block's body, if one exists.

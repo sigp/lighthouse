@@ -841,6 +841,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         &mut block.message.state_root,
                         &mut block.message.parent_root,
                     ),
+                    SignedBeaconBlock::Merge(block) => (
+                        &mut block.message.state_root,
+                        &mut block.message.parent_root,
+                    ),
                 };
 
                 *state_root = Hash256::zero();

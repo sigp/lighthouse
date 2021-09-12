@@ -29,3 +29,9 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub transactions_root: Hash256,
 }
 
+impl<T: EthSpec> ExecutionPayloadHeader<T> {
+    // TODO: check this whole thing later
+    pub fn empty() -> Self {
+        Self::default()
+    }
+}

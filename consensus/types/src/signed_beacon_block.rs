@@ -37,7 +37,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
@@ -62,6 +62,8 @@ pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlockBase<E>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E>,
+    #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
+    pub message: BeaconBlockMerge<E>,
     pub signature: Signature,
 }
 
@@ -114,6 +116,9 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
             BeaconBlock::Altair(message) => {
                 SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
             }
+            BeaconBlock::Merge(message) => {
+                SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            }
         }
     }
 
@@ -127,6 +132,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
             SignedBeaconBlock::Altair(block) => {
                 (BeaconBlock::Altair(block.message), block.signature)
             }
+            SignedBeaconBlock::Merge(block) => (BeaconBlock::Merge(block.message), block.signature),
         }
     }
 
@@ -135,6 +141,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRef::Base(&inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRef::Altair(&inner.message),
+            SignedBeaconBlock::Merge(inner) => BeaconBlockRef::Merge(&inner.message),
         }
     }
 
@@ -143,6 +150,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRefMut::Base(&mut inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRefMut::Altair(&mut inner.message),
+            SignedBeaconBlock::Merge(inner) => BeaconBlockRefMut::Merge(&mut inner.message),
         }
     }
 

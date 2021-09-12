@@ -126,6 +126,9 @@ pub struct ChainSpec {
     pub altair_fork_version: [u8; 4],
     /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
     pub altair_fork_epoch: Option<Epoch>,
+    pub merge_fork_version: [u8; 4],
+    /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
+    pub merge_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -200,9 +203,12 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.altair_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-            _ => ForkName::Base,
+        match self.merge_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+            _ => match self.altair_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                _ => ForkName::Base,
+            },
         }
     }
 
@@ -211,6 +217,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
+            ForkName::Merge => self.merge_fork_version,
         }
     }
 
@@ -219,6 +226,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
+            ForkName::Merge => self.merge_fork_epoch,
         }
     }
 
@@ -468,6 +476,8 @@ impl ChainSpec {
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
             altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            merge_fork_version: [0x02, 0x00, 0x00, 0x00],
+            merge_fork_epoch: Some(Epoch::new(u64::MAX)),
 
             /*
              * Network specific

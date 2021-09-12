@@ -172,7 +172,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Derivative,
@@ -248,9 +248,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -264,14 +264,18 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
+
+    // Execution
+    #[superstruct(only(Merge))]
+    pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -386,6 +390,7 @@ impl<T: EthSpec> BeaconState<T> {
         let object_fork = match self {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
         };
 
         if fork_at_slot == object_fork {
@@ -1094,6 +1099,7 @@ impl<T: EthSpec> BeaconState<T> {
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
         }
     }
 
@@ -1289,11 +1295,13 @@ impl<T: EthSpec> BeaconState<T> {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1577,6 +1585,7 @@ impl<T: EthSpec> BeaconState<T> {
         let mut res = match self {
             BeaconState::Base(inner) => BeaconState::Base(inner.clone()),
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
+            BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();

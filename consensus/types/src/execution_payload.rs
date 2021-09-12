@@ -33,6 +33,27 @@ pub struct ExecutionPayload<T: EthSpec> {
     >,
 }
 
+impl<T: EthSpec> ExecutionPayload<T> {
+    // TODO: check this whole thing later
+    pub fn empty() -> Self {
+        Self {
+            parent_hash: Hash256::zero(),
+            coinbase: Address::default(),
+            state_root: Hash256::zero(),
+            receipt_root: Hash256::zero(),
+            logs_bloom: FixedVector::default(),
+            random: Hash256::zero(),
+            block_number: 0,
+            gas_limit: 0,
+            gas_used: 0,
+            timestamp: 0,
+            base_fee_per_gas: Hash256::zero(),
+            block_hash: Hash256::zero(),
+            transactions: VariableList::empty(),
+        }
+    }
+}
+
 /// Serializes the `logs_bloom` field.
 pub mod serde_logs_bloom {
     use super::*;

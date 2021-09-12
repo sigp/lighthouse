@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase,
+    SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -375,7 +375,7 @@ fn handle_error<T>(
 }
 
 /// Returns `Some(context_bytes)` for encoding RPC responses that require context bytes.
-/// Returns `None` when context bytes are not required.  
+/// Returns `None` when context bytes are not required.
 fn context_bytes<T: EthSpec>(
     protocol: &ProtocolId,
     fork_context: &ForkContext,
@@ -559,6 +559,12 @@ fn handle_v2_response<T: EthSpec>(
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
+                // TODO: check this (though it seems okay)
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
@@ -568,6 +574,12 @@ fn handle_v2_response<T: EthSpec>(
                 )))),
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+                )))),
+                // TODO: check this (though it seems right)
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
                 )))),
             },
             _ => Err(RPCError::ErrorResponse(
