@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use zip::ZipArchive;
 
 /// Set to `None` to download the latest Github release.
-const FIXED_VERSION_STRING: Option<&str> = Some("21.8.1-rc1");
+const FIXED_VERSION_STRING: Option<&str> = None;
 
 #[tokio::main]
 async fn main() {
