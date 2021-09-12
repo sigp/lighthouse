@@ -28,3 +28,4 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub block_hash: Hash256,
     pub transactions_root: Hash256,
 }
+

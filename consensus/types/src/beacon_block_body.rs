@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
@@ -41,9 +41,12 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub sync_aggregate: SyncAggregate<T>,
+    #[superstruct(only(Merge))]
+    pub execution_payload: ExecutionPayload<T>,
 }
+
 
 impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     /// Access the sync aggregate from the block's body, if one exists.
@@ -51,6 +54,7 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
         match self {
             BeaconBlockBodyRef::Base(_) => None,
             BeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
+            BeaconBlockBodyRef::Merge(inner) => Some(&inner.sync_aggregate),
         }
     }
 }
