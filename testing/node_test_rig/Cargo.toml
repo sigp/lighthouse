@@ -8,13 +8,7 @@ edition = "2018"
 environment = { path = "../../lighthouse/environment" }
 beacon_node = { path = "../../beacon_node" }
 types = { path = "../../consensus/types" }
-eth2_config = { path = "../../common/eth2_config" }
 tempfile = "3.1.0"
-reqwest = { version = "0.11.0", features = ["native-tls-vendored"] }
-url = "2.1.1"
-serde = "1.0.116"
-futures = "0.3.7"
-genesis = { path = "../../beacon_node/genesis" }
 eth2 = { path = "../../common/eth2" }
 validator_client = { path = "../../validator_client" }
 validator_dir = { path = "../../common/validator_dir", features = ["insecure_keys"] }

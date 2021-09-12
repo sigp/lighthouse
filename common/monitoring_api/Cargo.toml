@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 reqwest = { version = "0.11.0", features = ["json","stream"] }
-futures = "0.3.7"
 task_executor = { path = "../task_executor" }
 tokio = "1.10.0"
 eth2 = {path = "../eth2"}
