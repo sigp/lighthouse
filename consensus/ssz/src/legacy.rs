@@ -1,3 +1,26 @@
+//! Provides a "legacy" version of SSZ encoding for `Option<T> where T: Encode + Decode`.
+//!
+//! The SSZ specification changed in 2021 to use a 1-byte union selector, instead of a 4-byte one
+//! which was used in the Lighthouse database.
+//!
+//! Users can use the `four_byte_option_impl` macro to define a module that can be used with the
+//! `#[ssz(with = "module")]`.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use ssz_derive::{Encode, Decode};
+//! use ssz::four_byte_option_impl;
+//!
+//! four_byte_option_impl!(impl_for_u64, u64);
+//!
+//! #[derive(Encode, Decode)]
+//! struct Foo {
+//!     #[ssz(with = "impl_for_u64")]
+//!     a: Option<u64>,
+//! }
+//! ```
+
 use crate::*;
 
 #[macro_export]
