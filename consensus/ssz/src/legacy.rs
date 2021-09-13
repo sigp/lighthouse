@@ -4,7 +4,10 @@ use crate::*;
 macro_rules! four_byte_option_impl {
     ($mod_name: ident, $type: tt) => {
         mod $mod_name {
+            use super::*;
+
             pub mod encode {
+                use super::*;
                 use ssz::*;
 
                 pub fn is_ssz_fixed_len() -> bool {
@@ -40,6 +43,7 @@ macro_rules! four_byte_option_impl {
             }
 
             pub mod decode {
+                use super::*;
                 use ssz::*;
 
                 pub fn is_ssz_fixed_len() -> bool {
