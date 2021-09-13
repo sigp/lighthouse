@@ -8,7 +8,8 @@ use std::fs;
 use std::path::PathBuf;
 use zip::ZipArchive;
 
-/// Set to `None` to download the latest Github release.
+/// Use `None` to download the latest Github release.
+/// Use `Some("21.8.1")` to download a specific version.
 const FIXED_VERSION_STRING: Option<&str> = None;
 
 #[tokio::main]
