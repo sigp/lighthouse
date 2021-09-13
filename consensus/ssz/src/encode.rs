@@ -107,7 +107,7 @@ impl<'a> SszEncoder<'a> {
         self.append_parameterized(T::is_ssz_fixed_len(), |buf| item.ssz_append(buf))
     }
 
-    /// Append some `item` to the SSZ bytes.
+    /// Uses `ssz_append` to append the encoding of some item to the SSZ bytes.
     pub fn append_parameterized<F>(&mut self, is_ssz_fixed_len: bool, ssz_append: F)
     where
         F: Fn(&mut Vec<u8>),
