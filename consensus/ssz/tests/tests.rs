@@ -444,4 +444,23 @@ mod derive_macro {
             &[4, 0, 0, 0, 1, 5, 0, 0, 0, 3, 1, 2],
         );
     }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(enum_behaviour = "union")]
+    enum TwoVecUnion {
+        A(Vec<u8>),
+        B(Vec<u8>),
+    }
+
+    #[test]
+    fn two_vec_union() {
+        assert_encode_decode(&TwoVecUnion::A(vec![]), &[0]);
+        assert_encode_decode(&TwoVecUnion::B(vec![]), &[1]);
+
+        assert_encode_decode(&TwoVecUnion::A(vec![0]), &[0, 0]);
+        assert_encode_decode(&TwoVecUnion::B(vec![0]), &[1, 0]);
+
+        assert_encode_decode(&TwoVecUnion::A(vec![0, 1]), &[0, 0, 1]);
+        assert_encode_decode(&TwoVecUnion::B(vec![0, 1]), &[1, 0, 1]);
+    }
 }
