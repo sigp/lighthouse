@@ -444,27 +444,6 @@ mod tests {
         );
     }
 
-    /*
-    #[test]
-    fn ssz_encode_option_u16() {
-        assert_eq!(Some(65535_u16).as_ssz_bytes(), vec![1, 0, 0, 0, 255, 255]);
-
-        let none: Option<u16> = None;
-        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn ssz_encode_option_vec_u16() {
-        assert_eq!(
-            Some(vec![0_u16, 1]).as_ssz_bytes(),
-            vec![1, 0, 0, 0, 0, 0, 1, 0]
-        );
-
-        let none: Option<Vec<u16>> = None;
-        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
-    }
-    */
-
     #[test]
     fn ssz_encode_u8() {
         assert_eq!(0_u8.as_ssz_bytes(), vec![0]);
