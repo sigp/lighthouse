@@ -66,17 +66,21 @@ fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ide
                 _ => panic!("ssz_derive only supports named struct fields."),
             };
 
-            let field_opts = field
+            let field_opts_candidates = field
                 .attrs
                 .iter()
-                .filter(|attr| {
-                    attr.path
-                        .get_ident()
-                        .map_or(false, |ident| ident.to_string() == "ssz")
-                })
-                .find_map(|attr| {
+                .filter(|attr| attr.path.get_ident().map_or(false, |ident| *ident == "ssz"))
+                .collect::<Vec<_>>();
+
+            if field_opts_candidates.len() > 1 {
+                panic!("more than one field-level \"ssz\" attribute provided")
+            }
+
+            let field_opts = field_opts_candidates
+                .first()
+                .map(|attr| {
                     let meta = attr.parse_meta().unwrap();
-                    Some(FieldOpts::from_meta(&meta).unwrap())
+                    FieldOpts::from_meta(&meta).unwrap()
                 })
                 .unwrap_or_default();
 
@@ -132,13 +136,13 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
             let module = quote! { #module::encode };
             field_is_ssz_fixed_len.push(quote! { #module::is_ssz_fixed_len() });
             field_fixed_len.push(quote! { #module::ssz_fixed_len() });
-            field_ssz_bytes_len.push(quote! { #module::ssz_bytes_len(self.#ident) });
+            field_ssz_bytes_len.push(quote! { #module::ssz_bytes_len(&self.#ident) });
             field_encoder_append.push(quote! {
                 encoder.append_parameterized(
                     #module::is_ssz_fixed_len(),
                     |buf| #module::ssz_append(&self.#ident, buf)
                 )
-            })
+            });
         } else {
             field_is_ssz_fixed_len.push(quote! { <#ty as ssz::Encode>::is_ssz_fixed_len() });
             field_fixed_len.push(quote! { <#ty as ssz::Encode>::ssz_fixed_len() });
@@ -419,10 +423,6 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
             continue;
         }
 
-        decodes.push(quote! {
-            let #ident = decoder.decode_next()?;
-        });
-
         let is_ssz_fixed_len;
         let ssz_fixed_len;
         let from_ssz_bytes;
@@ -436,6 +436,9 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
             register_types.push(quote! {
                 builder.register_type_parameterized(#is_ssz_fixed_len, #ssz_fixed_len)?;
             });
+            decodes.push(quote! {
+                let #ident = decoder.decode_next_with(|slice| #module::from_ssz_bytes(slice))?;
+            });
         } else {
             is_ssz_fixed_len = quote! { <#ty as ssz::Decode>::is_ssz_fixed_len() };
             ssz_fixed_len = quote! { <#ty as ssz::Decode>::ssz_fixed_len() };
@@ -443,6 +446,9 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
 
             register_types.push(quote! {
                 builder.register_type::<#ty>()?;
+            });
+            decodes.push(quote! {
+                let #ident = decoder.decode_next()?;
             });
         }
 
