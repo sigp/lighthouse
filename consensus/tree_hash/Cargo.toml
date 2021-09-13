@@ -12,6 +12,7 @@ tree_hash_derive = "0.4.0"
 types = { path = "../types" }
 lazy_static = "1.4.0"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
+eth2_ssz_types = "0.2.1"
 
 [dependencies]
 ethereum-types = "0.11.0"
