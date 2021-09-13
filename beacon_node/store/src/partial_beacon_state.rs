@@ -15,9 +15,10 @@ use types::*;
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
     variants(Base, Altair),
-    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
+    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode),)
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PartialBeaconState<T>
 where
     T: EthSpec,
