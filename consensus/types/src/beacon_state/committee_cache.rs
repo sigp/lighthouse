@@ -17,6 +17,12 @@ mod tests;
 four_byte_option_impl!(four_byte_option_epoch, Epoch);
 four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
 
+/// This is a shim struct to ensure that we can encode a `Vec<Option<NonZeroUsize>>` an SSZ union
+/// with a four-byte selector. The SSZ specification changed from four bytes to one byte during 2021
+/// and we use this shim to avoid breaking the Lighthouse database.
+///
+/// Since `Option<NonZeroUsize>` is fixed-length, wrapping it in a struct should have no affect on
+/// the encoded bytes.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 struct NonZeroUsizeOption {
     #[ssz(with = "four_byte_option_non_zero_usize")]
@@ -102,7 +108,7 @@ impl CommitteeCache {
     ///
     /// An non-initialized cache does not provide any useful information.
     pub fn is_initialized_at(&self, epoch: Epoch) -> bool {
-        self.initialized_epoch == Some(epoch)
+        Some(epoch) == self.initialized_epoch
     }
 
     /// Returns the **shuffled** list of active validator indices for the initialized epoch.
@@ -173,7 +179,6 @@ impl CommitteeCache {
     pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee>, Error> {
         let initialized_epoch = self
             .initialized_epoch
-            .as_ref()
             .ok_or(Error::CommitteeCacheUninitialized(None))?;
 
         initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
@@ -222,10 +227,7 @@ impl CommitteeCache {
         &self,
         global_committee_index: u64,
     ) -> Option<(Slot, CommitteeIndex)> {
-        let epoch_start_slot = self
-            .initialized_epoch
-            .as_ref()?
-            .start_slot(self.slots_per_epoch);
+        let epoch_start_slot = self.initialized_epoch?.start_slot(self.slots_per_epoch);
         let slot_offset = global_committee_index / self.committees_per_slot;
         let index = global_committee_index % self.committees_per_slot;
         Some((epoch_start_slot.safe_add(slot_offset).ok()?, index))
