@@ -7,7 +7,7 @@ use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
 use quote::quote;
 use std::convert::TryInto;
-use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Ident};
+use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Ident};
 
 /// The highest possible union selector value (higher values are reserved for backwards compatible
 /// extensions).
@@ -55,44 +55,6 @@ impl EnumBehaviour {
     }
 }
 
-/// Returns a Vec of `syn::Ident` for each named field in the struct, whilst filtering out fields
-/// that should not be serialized.
-///
-/// # Panics
-/// Any unnamed struct field (like in a tuple struct) will raise a panic at compile time.
-fn get_serializable_named_field_idents(struct_data: &syn::DataStruct) -> Vec<&syn::Ident> {
-    struct_data
-        .fields
-        .iter()
-        .filter_map(|f| {
-            if should_skip_serializing(f) {
-                None
-            } else {
-                Some(match &f.ident {
-                    Some(ref ident) => ident,
-                    _ => panic!("ssz_derive only supports named struct fields."),
-                })
-            }
-        })
-        .collect()
-}
-
-/// Returns a Vec of `syn::Type` for each named field in the struct, whilst filtering out fields
-/// that should not be serialized.
-fn get_serializable_field_types(struct_data: &syn::DataStruct) -> Vec<&syn::Type> {
-    struct_data
-        .fields
-        .iter()
-        .filter_map(|f| {
-            if should_skip_serializing(f) {
-                None
-            } else {
-                Some(&f.ty)
-            }
-        })
-        .collect()
-}
-
 fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ident, FieldOpts)> {
     struct_data
         .fields
@@ -121,16 +83,6 @@ fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ide
             (ty, ident, field_opts)
         })
         .collect()
-}
-
-/// Returns true if some field has an attribute declaring it should not be serialized.
-///
-/// The field attribute is: `#[ssz(skip_serializing)]`
-fn should_skip_serializing(field: &syn::Field) -> bool {
-    field.attrs.iter().any(|attr| {
-        attr.path.is_ident("ssz")
-            && attr.tokens.to_string().replace(" ", "") == "(skip_serializing)"
-    })
 }
 
 /// Implements `ssz::Encode` for some `struct` or `enum`.
@@ -404,16 +356,6 @@ fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
     output.into()
 }
 
-/// Returns true if some field has an attribute declaring it should not be deserialized.
-///
-/// The field attribute is: `#[ssz(skip_deserializing)]`
-fn should_skip_deserializing(field: &syn::Field) -> bool {
-    field.attrs.iter().any(|attr| {
-        attr.path.is_ident("ssz")
-            && attr.tokens.to_string().replace(" ", "") == "(skip_deserializing)"
-    })
-}
-
 /// Derive `ssz::Decode` for a struct or enum.
 #[proc_macro_derive(Decode, attributes(ssz))]
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
@@ -685,11 +627,4 @@ fn compute_union_selectors(num_variants: usize) -> Vec<u8> {
     );
 
     union_selectors
-}
-
-/// Predicate for determining whether an attribute is an `ssz` attribute.
-fn is_ssz_attr(attr: &Attribute) -> bool {
-    attr.path
-        .get_ident()
-        .map_or(false, |ident| ident.to_string() == "ssz")
 }
