@@ -25,7 +25,7 @@ undertaken by advanced users who fully understand the risks.**
 
 The [Web3Signer] tool is maintained by [Consensys], the same team that maintains [Teku]. The
 Lighthouse team (Sigma Prime) does not maintain Web3Signer or make any guarantees about its safety
-of effectiveness.
+or effectiveness.
 
 ## Usage
 
@@ -50,7 +50,7 @@ to the `https://my-remote-signer.com:1234` server to obtain any signatures. It w
 "self-signed" SSL certificate from `/home/paul/my-certificates/my-remote-signer.pem` (on the
 filesystem of the VC) to encrypt the communications between the VC and Web3Signer.
 
-> The `request_timeout_ms` key can also be specified. Use this key to override the default time-out
-> with a new timeout in milliseconds. This is the time-out before requests to Web3Signer are
+> The `request_timeout_ms` key can also be specified. Use this key to override the default timeout
+> with a new timeout in milliseconds. This is the timeout before requests to Web3Signer are
 > considered to be failures. Setting a value that it too-long may create contention and late duties
 > in the VC.  Setting it too short will result in failed signatures and therefore missed duties.
