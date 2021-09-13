@@ -311,7 +311,7 @@ impl<'a> SszDecoder<'a> {
     ///
     /// Panics when attempting to decode more items than actually exist.
     pub fn decode_next<T: Decode>(&mut self) -> Result<T, DecodeError> {
-        T::from_ssz_bytes(self.items.remove(0))
+        self.decode_next_with(|slice| T::from_ssz_bytes(slice))
     }
 
     /// Decodes the next item using the provided function.

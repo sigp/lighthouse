@@ -36,6 +36,7 @@
 
 mod decode;
 mod encode;
+pub mod legacy;
 mod union_selector;
 
 pub use decode::{
