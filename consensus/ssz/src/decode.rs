@@ -177,7 +177,7 @@ impl<'a> SszDecoderBuilder<'a> {
         self.register_type_parameterized(T::is_ssz_fixed_len(), T::ssz_fixed_len())
     }
 
-    /// Declares that some type `T` is the next item in `bytes`.
+    /// Declares that a type with the given parameters is the next item in `bytes`.
     pub fn register_type_parameterized(
         &mut self,
         is_ssz_fixed_len: bool,
