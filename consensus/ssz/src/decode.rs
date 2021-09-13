@@ -174,9 +174,18 @@ impl<'a> SszDecoderBuilder<'a> {
 
     /// Declares that some type `T` is the next item in `bytes`.
     pub fn register_type<T: Decode>(&mut self) -> Result<(), DecodeError> {
-        if T::is_ssz_fixed_len() {
+        self.register_type_parameterized(T::is_ssz_fixed_len(), T::ssz_fixed_len())
+    }
+
+    /// Declares that some type `T` is the next item in `bytes`.
+    pub fn register_type_parameterized(
+        &mut self,
+        is_ssz_fixed_len: bool,
+        ssz_fixed_len: usize,
+    ) -> Result<(), DecodeError> {
+        if is_ssz_fixed_len {
             let start = self.items_index;
-            self.items_index += T::ssz_fixed_len();
+            self.items_index += ssz_fixed_len;
 
             let slice = self.bytes.get(start..self.items_index).ok_or_else(|| {
                 DecodeError::InvalidByteLength {

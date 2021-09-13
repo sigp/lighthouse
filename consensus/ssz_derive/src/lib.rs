@@ -459,50 +459,69 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
     let mut is_fixed_lens = vec![];
     let mut fixed_lens = vec![];
 
-    // Build quotes for fields that should be deserialized and those that should be built from
-    // `Default`.
-    for field in &struct_data.fields {
-        match &field.ident {
-            Some(ref ident) => {
-                field_names.push(quote! {
-                    #ident
-                });
+    for (ty, ident, field_opts) in parse_ssz_fields(struct_data) {
+        field_names.push(quote! {
+            #ident
+        });
 
-                if should_skip_deserializing(field) {
-                    // Field should not be deserialized; use a `Default` impl to instantiate.
-                    decodes.push(quote! {
-                        let #ident = <_>::default();
-                    });
+        // Field should not be deserialized; use a `Default` impl to instantiate.
+        if field_opts.skip_deserializing {
+            decodes.push(quote! {
+                let #ident = <_>::default();
+            });
 
-                    fixed_decodes.push(quote! {
-                        let #ident = <_>::default();
-                    });
-                } else {
-                    let ty = &field.ty;
+            fixed_decodes.push(quote! {
+                let #ident = <_>::default();
+            });
 
-                    register_types.push(quote! {
-                        builder.register_type::<#ty>()?;
-                    });
+            continue;
+        }
 
-                    decodes.push(quote! {
-                        let #ident = decoder.decode_next()?;
-                    });
+        decodes.push(quote! {
+            let #ident = decoder.decode_next()?;
+        });
 
-                    fixed_decodes.push(quote! {
-                        let #ident = decode_field!(#ty);
-                    });
+        let is_ssz_fixed_len;
+        let ssz_fixed_len;
+        let from_ssz_bytes;
+        if let Some(module) = field_opts.with {
+            let module = quote! { #module::decode };
 
-                    is_fixed_lens.push(quote! {
-                        <#ty as ssz::Decode>::is_ssz_fixed_len()
-                    });
+            is_ssz_fixed_len = quote! { #module::is_ssz_fixed_len() };
+            ssz_fixed_len = quote! { #module::ssz_fixed_len() };
+            from_ssz_bytes = quote! { #module::from_ssz_bytes(slice) };
 
-                    fixed_lens.push(quote! {
-                        <#ty as ssz::Decode>::ssz_fixed_len()
-                    });
-                }
-            }
-            _ => panic!("ssz_derive only supports named struct fields."),
-        };
+            register_types.push(quote! {
+                builder.register_type_parameterized(#is_ssz_fixed_len, #ssz_fixed_len)?;
+            });
+        } else {
+            is_ssz_fixed_len = quote! { <#ty as ssz::Decode>::is_ssz_fixed_len() };
+            ssz_fixed_len = quote! { <#ty as ssz::Decode>::ssz_fixed_len() };
+            from_ssz_bytes = quote! { <#ty as ssz::Decode>::from_ssz_bytes(slice) };
+
+            register_types.push(quote! {
+                builder.register_type::<#ty>()?;
+            });
+        }
+
+        fixed_decodes.push(quote! {
+            let #ident = {
+                start = end;
+                end = end
+                    .checked_add(#ssz_fixed_len)
+                    .ok_or_else(|| ssz::DecodeError::OutOfBoundsByte {
+                        i: usize::max_value()
+                    })?;
+                let slice = bytes.get(start..end)
+                    .ok_or_else(|| ssz::DecodeError::InvalidByteLength {
+                        len: bytes.len(),
+                        expected: end
+                    })?;
+                #from_ssz_bytes?
+            };
+        });
+        is_fixed_lens.push(is_ssz_fixed_len);
+        fixed_lens.push(ssz_fixed_len);
     }
 
     let output = quote! {
