@@ -104,13 +104,21 @@ impl<'a> SszEncoder<'a> {
 
     /// Append some `item` to the SSZ bytes.
     pub fn append<T: Encode>(&mut self, item: &T) {
-        if T::is_ssz_fixed_len() {
-            item.ssz_append(&mut self.buf);
+        self.append_parameterized(T::is_ssz_fixed_len(), |buf| item.ssz_append(buf))
+    }
+
+    /// Append some `item` to the SSZ bytes.
+    pub fn append_parameterized<F>(&mut self, is_ssz_fixed_len: bool, ssz_append: F)
+    where
+        F: Fn(&mut Vec<u8>),
+    {
+        if is_ssz_fixed_len {
+            ssz_append(&mut self.buf);
         } else {
             self.buf
                 .extend_from_slice(&encode_length(self.offset + self.variable_bytes.len()));
 
-            item.ssz_append(&mut self.variable_bytes);
+            ssz_append(&mut self.variable_bytes);
         }
     }
 
