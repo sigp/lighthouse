@@ -601,7 +601,7 @@ fn ssz_decode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
                 match selector.into() {
                     #(
                         #union_selectors => {
-                            #var_types::from_ssz_bytes(body).map(#constructors)
+                            <#var_types as ssz::Decode>::from_ssz_bytes(body).map(#constructors)
                         },
                     )*
                     other => Err(ssz::DecodeError::UnionSelectorInvalid(other))

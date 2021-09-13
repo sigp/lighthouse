@@ -323,6 +323,15 @@ impl<'a> SszDecoder<'a> {
     }
 }
 
+/// Takes `bytes`, assuming it is the encoding for a SSZ union, and returns the union-selector and
+/// the body (trailing bytes).
+///
+/// ## Errors
+///
+/// Returns an error if:
+///
+/// - `bytes` is empty.
+/// - the union selector is not a valid value (i.e., larger than the maximum number of variants.
 pub fn split_union_bytes(bytes: &[u8]) -> Result<(UnionSelector, &[u8]), DecodeError> {
     let selector = bytes
         .first()
