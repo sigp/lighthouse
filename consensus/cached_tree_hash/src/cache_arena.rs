@@ -202,8 +202,7 @@ impl<T: Encode + Decode> CacheArena<T> {
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct CacheArenaAllocation<T> {
     alloc_id: usize,
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     _phantom: PhantomData<T>,
 }
 
