@@ -36,6 +36,14 @@ jobs:
             - name: Cargo login
               run: |
                   echo "${CARGO_API_TOKEN}" | cargo login
+            - name: publish eth2 ssz derive
+              if: startsWith(env.TAG, 'eth2-ssz-derive-v')
+              run: |
+                ./scripts/ci/publish.sh consensus/ssz_derive eth2_ssz_derive "$TAG"
+            - name: publish eth2 ssz
+              if: startsWith(env.TAG, 'eth2-ssz-v')
+              run: |
+                ./scripts/ci/publish.sh consensus/ssz eth2_ssz "$TAG"
             - name: publish eth2 hashing
               if: startsWith(env.TAG, 'eth2-hashing-v')
               run: |
@@ -48,14 +56,6 @@ jobs:
               if: startsWith(env.TAG, 'tree-hash-v')
               run: |
                 ./scripts/ci/publish.sh consensus/tree_hash tree_hash "$TAG"
-            - name: publish eth2 ssz derive
-              if: startsWith(env.TAG, 'eth2-ssz-derive-v')
-              run: |
-                ./scripts/ci/publish.sh consensus/ssz_derive eth2_ssz_derive "$TAG"
-            - name: publish eth2 ssz
-              if: startsWith(env.TAG, 'eth2-ssz-v')
-              run: |
-                ./scripts/ci/publish.sh consensus/ssz eth2_ssz "$TAG"
             - name: publish ssz types
               if: startsWith(env.TAG, 'eth2-ssz-types-v')
               run: |
