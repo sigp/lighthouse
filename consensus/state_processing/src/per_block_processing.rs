@@ -275,3 +275,36 @@ pub fn get_new_eth1_data<T: EthSpec>(
         Ok(None)
     }
 }
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_complete
+pub fn is_merge_complete<T: EthSpec>(state: &BeaconState<T>) -> Result<bool, Error> {
+    Ok(*state.latest_execution_payload_header()? != <ExecutionPayloadHeader<T>>::default())
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_block
+pub fn is_merge_block<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: &BeaconBlockBody<T>,
+) -> Result<bool, Error> {
+    Ok(!(is_merge_complete(state)?)
+        && *body.execution_payload()? != <ExecutionPayload<T>>::default())
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
+pub fn is_execution_enabled<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: &BeaconBlockBody<T>,
+) -> Result<bool, Error> {
+    Ok(is_merge_block(state, body)? || is_merge_complete(state)?)
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
+pub fn compute_timestamp_at_slot<T: EthSpec>(
+    state: &BeaconState<T>,
+    spec: ChainSpec,
+) -> Result<u64, ArithError> {
+    let slots_since_genesis = state.slot().as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+    slots_since_genesis
+        .safe_mul(spec.seconds_per_slot)
+        .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
+}

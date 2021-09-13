@@ -1,8 +1,33 @@
 use crate::{test_utils::TestRandom, *};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::{ops::Index, slice::SliceIndex};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[ssz(enum_behaviour = "union")]
+#[tree_hash(enum_behaviour = "union")]
+pub enum Transaction<T: EthSpec> {
+    OpaqueTransaction(VariableList<u8, T::MaxBytesPerOpaqueTransaction>),
+}
+
+impl<T: EthSpec, I: SliceIndex<[u8]>> Index<I> for Transaction<T> {
+    type Output = I::Output;
+
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output {
+        match self {
+            Self::OpaqueTransaction(v) => Index::index(v, index),
+        }
+    }
+}
+
+impl<T: EthSpec> From<VariableList<u8, T::MaxBytesPerOpaqueTransaction>> for Transaction<T> {
+    fn from(list: VariableList<u8, <T as EthSpec>::MaxBytesPerOpaqueTransaction>) -> Self {
+        Self::OpaqueTransaction(list)
+    }
+}
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
@@ -27,10 +52,8 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub base_fee_per_gas: Hash256,
     pub block_hash: Hash256,
     #[serde(with = "serde_transactions")]
-    pub transactions: VariableList<
-        VariableList<u8, T::MaxBytesPerOpaqueTransaction>,
-        T::MaxTransactionsPerPayload,
-    >,
+    #[test_random(default)]
+    pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
@@ -91,17 +114,14 @@ pub mod serde_transactions {
     use serde::{de, Deserializer, Serializer};
     use std::marker::PhantomData;
 
-    pub struct ListOfBytesListVisitor<U, V> {
-        _u: PhantomData<U>,
-        _v: PhantomData<V>,
+    pub struct ListOfBytesListVisitor<T: EthSpec> {
+        _t: PhantomData<T>,
     }
-
-    impl<'a, U, V> serde::de::Visitor<'a> for ListOfBytesListVisitor<U, V>
+    impl<'a, T> serde::de::Visitor<'a> for ListOfBytesListVisitor<T>
     where
-        U: Unsigned,
-        V: Unsigned,
+        T: EthSpec,
     {
-        type Value = VariableList<VariableList<u8, U>, V>;
+        type Value = VariableList<Transaction<T>, T::MaxTransactionsPerPayload>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(formatter, "a list of 0x-prefixed byte lists")
@@ -118,7 +138,7 @@ pub mod serde_transactions {
                 let inner = VariableList::new(inner_vec).map_err(|e| {
                     serde::de::Error::custom(format!("invalid transaction: {:?}", e))
                 })?;
-                outer.push(inner).map_err(|e| {
+                outer.push(inner.into()).map_err(|e| {
                     serde::de::Error::custom(format!("too many transactions: {:?}", e))
                 })?;
             }
@@ -127,14 +147,13 @@ pub mod serde_transactions {
         }
     }
 
-    pub fn serialize<S, U, V>(
-        value: &VariableList<VariableList<u8, U>, V>,
+    pub fn serialize<S, T>(
+        value: &VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        U: Unsigned,
-        V: Unsigned,
+        T: EthSpec,
     {
         let mut seq = serializer.serialize_seq(Some(value.len()))?;
         for val in value {
@@ -143,17 +162,13 @@ pub mod serde_transactions {
         seq.end()
     }
 
-    pub fn deserialize<'de, D, U, V>(
+    pub fn deserialize<'de, D, T>(
         deserializer: D,
-    ) -> Result<VariableList<VariableList<u8, U>, V>, D::Error>
+    ) -> Result<VariableList<Transaction<T>, T::MaxTransactionsPerPayload>, D::Error>
     where
         D: Deserializer<'de>,
-        U: Unsigned,
-        V: Unsigned,
+        T: EthSpec,
     {
-        deserializer.deserialize_any(ListOfBytesListVisitor {
-            _u: PhantomData,
-            _v: PhantomData,
-        })
+        deserializer.deserialize_any(ListOfBytesListVisitor { _t: PhantomData })
     }
 }
