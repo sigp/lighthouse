@@ -3,11 +3,11 @@
 //!
 //! Supports field attributes, see each derive macro for more information.
 
-use darling::FromDeriveInput;
+use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
 use quote::quote;
 use std::convert::TryInto;
-use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput};
+use syn::{parse_macro_input, Attribute, DataEnum, DataStruct, DeriveInput, Ident};
 
 /// The highest possible union selector value (higher values are reserved for backwards compatible
 /// extensions).
@@ -18,6 +18,17 @@ const MAX_UNION_SELECTOR: u8 = 127;
 struct StructOpts {
     #[darling(default)]
     enum_behaviour: Option<String>,
+}
+
+/// Field-level configuration.
+#[derive(Debug, Default, FromMeta)]
+struct FieldOpts {
+    #[darling(default)]
+    with: Option<Ident>,
+    #[darling(default)]
+    skip_serializing: bool,
+    #[darling(default)]
+    skip_deserializing: bool,
 }
 
 const ENUM_TRANSPARENT: &str = "transparent";
@@ -82,6 +93,36 @@ fn get_serializable_field_types(struct_data: &syn::DataStruct) -> Vec<&syn::Type
         .collect()
 }
 
+fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ident, FieldOpts)> {
+    struct_data
+        .fields
+        .iter()
+        .map(|field| {
+            let ty = &field.ty;
+            let ident = match &field.ident {
+                Some(ref ident) => ident,
+                _ => panic!("ssz_derive only supports named struct fields."),
+            };
+
+            let field_opts = field
+                .attrs
+                .iter()
+                .filter(|attr| {
+                    attr.path
+                        .get_ident()
+                        .map_or(false, |ident| ident.to_string() == "ssz")
+                })
+                .find_map(|attr| {
+                    let meta = attr.parse_meta().unwrap();
+                    Some(FieldOpts::from_meta(&meta).unwrap())
+                })
+                .unwrap_or_default();
+
+            (ty, ident, field_opts)
+        })
+        .collect()
+}
+
 /// Returns true if some field has an attribute declaring it should not be serialized.
 ///
 /// The field attribute is: `#[ssz(skip_serializing)]`
@@ -125,19 +166,40 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
     let name = &derive_input.ident;
     let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
 
-    let field_idents = get_serializable_named_field_idents(struct_data);
-    let field_idents_a = get_serializable_named_field_idents(struct_data);
-    let field_types_a = get_serializable_field_types(struct_data);
-    let field_types_b = field_types_a.clone();
-    let field_types_d = field_types_a.clone();
-    let field_types_e = field_types_a.clone();
-    let field_types_f = field_types_a.clone();
+    let field_is_ssz_fixed_len = &mut vec![];
+    let field_fixed_len = &mut vec![];
+    let field_ssz_bytes_len = &mut vec![];
+    let field_encoder_append = &mut vec![];
+
+    for (ty, ident, field_opts) in parse_ssz_fields(struct_data) {
+        if field_opts.skip_serializing {
+            continue;
+        }
+
+        if let Some(module) = field_opts.with {
+            let module = quote! { #module::encode };
+            field_is_ssz_fixed_len.push(quote! { #module::is_ssz_fixed_len() });
+            field_fixed_len.push(quote! { #module::ssz_fixed_len() });
+            field_ssz_bytes_len.push(quote! { #module::ssz_bytes_len(self.#ident) });
+            field_encoder_append.push(quote! {
+                encoder.append_parameterized(
+                    #module::is_ssz_fixed_len(),
+                    |buf| #module::ssz_append(&self.#ident, buf)
+                )
+            })
+        } else {
+            field_is_ssz_fixed_len.push(quote! { <#ty as ssz::Encode>::is_ssz_fixed_len() });
+            field_fixed_len.push(quote! { <#ty as ssz::Encode>::ssz_fixed_len() });
+            field_ssz_bytes_len.push(quote! { self.#ident.ssz_bytes_len() });
+            field_encoder_append.push(quote! { encoder.append(&self.#ident) });
+        }
+    }
 
     let output = quote! {
         impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
             fn is_ssz_fixed_len() -> bool {
                 #(
-                    <#field_types_a as ssz::Encode>::is_ssz_fixed_len() &&
+                    #field_is_ssz_fixed_len &&
                 )*
                     true
             }
@@ -147,7 +209,7 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
                     let mut len: usize = 0;
                     #(
                         len = len
-                            .checked_add(<#field_types_b as ssz::Encode>::ssz_fixed_len())
+                            .checked_add(#field_fixed_len)
                             .expect("encode ssz_fixed_len length overflow");
                     )*
                     len
@@ -162,16 +224,16 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
                 } else {
                     let mut len: usize = 0;
                     #(
-                        if <#field_types_d as ssz::Encode>::is_ssz_fixed_len() {
+                        if #field_is_ssz_fixed_len {
                             len = len
-                                .checked_add(<#field_types_e as ssz::Encode>::ssz_fixed_len())
+                                .checked_add(#field_fixed_len)
                                 .expect("encode ssz_bytes_len length overflow");
                         } else {
                             len = len
                                 .checked_add(ssz::BYTES_PER_LENGTH_OFFSET)
                                 .expect("encode ssz_bytes_len length overflow for offset");
                             len = len
-                                .checked_add(self.#field_idents_a.ssz_bytes_len())
+                                .checked_add(#field_ssz_bytes_len)
                                 .expect("encode ssz_bytes_len length overflow for bytes");
                         }
                     )*
@@ -184,14 +246,14 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
                 let mut offset: usize = 0;
                 #(
                     offset = offset
-                        .checked_add(<#field_types_f as ssz::Encode>::ssz_fixed_len())
+                        .checked_add(#field_fixed_len)
                         .expect("encode ssz_append offset overflow");
                 )*
 
                 let mut encoder = ssz::SszEncoder::container(buf, offset);
 
                 #(
-                    encoder.append(&self.#field_idents);
+                    #field_encoder_append;
                 )*
 
                 encoder.finalize();
@@ -604,4 +666,11 @@ fn compute_union_selectors(num_variants: usize) -> Vec<u8> {
     );
 
     union_selectors
+}
+
+/// Predicate for determining whether an attribute is an `ssz` attribute.
+fn is_ssz_attr(attr: &Attribute) -> bool {
+    attr.path
+        .get_ident()
+        .map_or(false, |ident| ident.to_string() == "ssz")
 }
