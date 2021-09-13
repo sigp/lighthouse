@@ -1933,7 +1933,6 @@ name = "eth2_ssz_derive"
 version = "0.3.0"
 dependencies = [
  "darling 0.13.0",
- "eth2_ssz",
  "proc-macro2",
  "quote",
  "syn",
@@ -6618,6 +6617,7 @@ version = "0.4.0"
 dependencies = [
  "beacon_chain",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz_types",
  "ethereum-types 0.11.0",
  "lazy_static",
  "rand 0.7.3",
@@ -6631,11 +6631,8 @@ name = "tree_hash_derive"
 version = "0.4.0"
 dependencies = [
  "darling 0.13.0",
- "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types",
  "quote",
  "syn",
- "tree_hash",
 ]
 
 [[package]]
