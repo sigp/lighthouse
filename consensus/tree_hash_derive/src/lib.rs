@@ -270,6 +270,10 @@ fn tree_hash_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum)
         .map(|variant| {
             let variant_name = &variant.ident;
 
+            if variant.fields.len() != 1 {
+                panic!("TreeHash can only be derived for enums with 1 field per variant");
+            }
+
             quote! {
                 #name::#variant_name(ref inner)
             }
