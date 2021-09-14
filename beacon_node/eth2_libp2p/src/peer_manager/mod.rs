@@ -483,10 +483,23 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let previous_kind = peer_info.client.kind.clone();
+            let previous_listening_addresses = std::mem::replace(
+                &mut peer_info.listening_addresses,
+                info.listen_addrs.clone(),
+            );
             peer_info.client = client::Client::from_identify_info(info);
-            peer_info.listening_addresses = info.listen_addrs.clone();
 
-            if previous_kind != peer_info.client.kind {
+            if previous_kind != peer_info.client.kind
+                || peer_info.listening_addresses != previous_listening_addresses
+            {
+                debug!(self.log, "Identified Peer"; "peer" => %peer_id,
+                    "protocol_version" => &info.protocol_version,
+                    "agent_version" => &info.agent_version,
+                    "listening_ addresses" => ?info.listen_addrs,
+                    "observed_address" => ?info.observed_addr,
+                    "protocols" => ?info.protocols
+                );
+
                 // update the peer client kind metric
                 if let Some(v) = metrics::get_int_gauge(
                     &metrics::PEERS_PER_CLIENT,

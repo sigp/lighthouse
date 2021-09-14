@@ -1004,14 +1004,6 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<T
                 }
                 // send peer info to the peer manager.
                 self.peer_manager.identify(&peer_id, &info);
-
-                debug!(self.log, "Identified Peer"; "peer" => %peer_id,
-                    "protocol_version" => info.protocol_version,
-                    "agent_version" => info.agent_version,
-                    "listening_ addresses" => ?info.listen_addrs,
-                    "observed_address" => ?info.observed_addr,
-                    "protocols" => ?info.protocols
-                );
             }
             IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}
