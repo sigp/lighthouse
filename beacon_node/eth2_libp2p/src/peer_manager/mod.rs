@@ -333,17 +333,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
 
-        // Increment the PEERS_PER_CLIENT metric
-        if let Some(kind) = self
-            .network_globals
-            .peers
-            .read()
-            .peer_info(&peer_id)
-            .map(|peer_info| peer_info.client.kind.clone())
-        {
-            metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]); 
-        }
-
         // Should not be able to connect to a banned peer. Double check here
         if self.is_banned(&peer_id) {
             warn!(self.log, "Connected to a banned peer"; "peer_id" => %peer_id);
@@ -400,6 +389,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Update the metrics
         if num_established == std::num::NonZeroU32::new(1).expect("valid") {
+            // Increment the PEERS_PER_CLIENT metric
+            if let Some(kind) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map(|peer_info| peer_info.client.kind.clone())
+            {
+                metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]); 
+            }
+
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
             metrics::set_gauge(
                 &metrics::PEERS_CONNECTED,
@@ -437,6 +437,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             }
 
+            // Decrement the PEERS_PER_CLIENT metric
+            if let Some(peer_info) = self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id) {
+                    if peer_info.is_connected() {
+                    metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&peer_info.client.kind.to_string()])
+                }
+            }
+
             // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
             // here and the peer manager has no knowledge of its connection. We insert it here for
             // reference so that peer manager can track this peer.
@@ -448,17 +459,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &metrics::PEERS_CONNECTED,
                 self.network_globals.connected_peers() as i64,
             );
-
-            // Decrement the PEERS_PER_CLIENT metric
-            if let Some(kind) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(&peer_id)
-                .map(|info| info.client.kind.clone())
-            {
-                metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-            }
 
             // Decrement the INBOUND/OUTBOUND peer metric
             match endpoint {
@@ -509,18 +509,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             if previous_kind != peer_info.client.kind {
                 // update the peer client kind metric
-                if let Some(v) = metrics::get_int_gauge(
+                metrics::inc_gauge_vec(
                     &metrics::PEERS_PER_CLIENT,
                     &[&peer_info.client.kind.to_string()],
-                ) {
-                    v.inc()
-                };
-                if let Some(v) = metrics::get_int_gauge(
-                    &metrics::PEERS_PER_CLIENT,
+                );   
+                metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT,
                     &[&previous_kind.to_string()],
-                ) {
-                    v.dec()
-                };
+                );
             }
         } else {
             crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
