@@ -24,5 +24,5 @@ serde_derive = "1.0.116"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lru = "0.6.0"
-sloggers = "1.0.1"
+sloggers = "2.0.2"
 directory = { path = "../../common/directory" }

@@ -484,7 +484,7 @@ dependencies = [
  "serde_yaml",
  "slasher",
  "slog",
- "sloggers 1.0.1",
+ "sloggers",
  "slot_clock",
  "smallvec",
  "state_processing",
@@ -673,7 +673,7 @@ dependencies = [
  "slog-scope",
  "slog-stdlog",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "tokio",
  "types",
 ]
@@ -916,7 +916,7 @@ dependencies = [
  "slasher_service",
  "slog",
  "slog-async",
- "sloggers 1.0.1",
+ "sloggers",
  "slot_clock",
  "store",
  "task_executor",
@@ -1631,7 +1631,7 @@ dependencies = [
  "slog-async",
  "slog-json",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "task_executor",
  "tokio",
  "types",
@@ -1670,7 +1670,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "sloggers 1.0.1",
+ "sloggers",
  "state_processing",
  "task_executor",
  "tokio",
@@ -3711,7 +3711,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "target_check",
  "task_executor",
  "tempfile",
@@ -4153,7 +4153,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "slot_clock",
  "smallvec",
  "state_processing",
@@ -5694,7 +5694,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
- "sloggers 2.0.2",
+ "sloggers",
  "tempfile",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5812,25 +5812,6 @@ dependencies = [
  "slog",
  "term",
  "thread_local",
-]
-
-[[package]]
-name = "sloggers"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f01d37507aa6f37490cfa08d71e2639b16906e84c285ae4b9f7ec7ca35756d69"
-dependencies = [
- "chrono",
- "libflate",
- "regex",
- "serde",
- "slog",
- "slog-async",
- "slog-kvfilter",
- "slog-scope",
- "slog-stdlog",
- "slog-term",
- "trackable",
 ]
 
 [[package]]
@@ -6083,7 +6064,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
- "sloggers 1.0.1",
+ "sloggers",
  "state_processing",
  "tempfile",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
