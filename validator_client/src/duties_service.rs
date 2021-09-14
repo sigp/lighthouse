@@ -16,6 +16,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
+use futures::future::join_all;
 use parking_lot::RwLock;
 use safe_arith::ArithError;
 use slog::{debug, error, info, warn, Logger};
@@ -638,63 +639,77 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     let dependent_root = response.dependent_root;
 
-    let relevant_duties = response
-        .data
-        .into_iter()
-        .filter(|attester_duty| local_pubkeys.contains(&attester_duty.pubkey))
-        .collect::<Vec<_>>();
+    // Filter any duties that are not relevant or already known.
+    let new_duties = {
+        // Avoid holding the read-lock for any longer than required.
+        let attesters = duties_service.attesters.read();
+        response
+            .data
+            .into_iter()
+            .filter(|duty| local_pubkeys.contains(&duty.pubkey))
+            .filter(|duty| {
+                // Only update the duties if either is true:
+                //
+                // - There were no known duties for this epoch.
+                // - The dependent root has changed, signalling a re-org.
+                attesters.get(&duty.pubkey).map_or(true, |duties| {
+                    duties
+                        .get(&epoch)
+                        .map_or(true, |(prior, _)| *prior != dependent_root)
+                })
+            })
+            .collect::<Vec<_>>()
+    };
 
     debug!(
         log,
         "Downloaded attester duties";
         "dependent_root" => %dependent_root,
-        "num_relevant_duties" => relevant_duties.len(),
+        "num_new_duties" => new_duties.len(),
     );
 
-    let mut already_warned = Some(());
-    for duty in relevant_duties {
-        // Only update the duties if either is true:
-        //
-        // - There were no known duties for this epoch.
-        // - The dependent root has changed, signalling a re-org.
-        let update_required = {
-            // It is important to ensure that this read-lock is dropped before taking a write-lock
-            // later in the function.
-            let attesters = duties_service.attesters.read();
+    // Produce the `DutyAndProof` messages in parallel.
+    let duty_and_proof_results = join_all(new_duties.into_iter().map(|duty| {
+        DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
+    }))
+    .await;
 
-            if let Some(duties) = attesters.get(&duty.pubkey) {
-                duties
-                    .get(&epoch)
-                    .map_or(true, |(prior, _)| *prior != dependent_root)
-            } else {
-                true
+    // Update the duties service with the new `DutyAndProof` messages.
+    let mut attesters = duties_service.attesters.write();
+    let mut already_warned = Some(());
+    for result in duty_and_proof_results {
+        let duty_and_proof = match result {
+            Ok(duty_and_proof) => duty_and_proof,
+            Err(e) => {
+                error!(
+                    log,
+                    "Failed to produce duty and proof";
+                    "error" => ?e,
+                    "msg" => "may impair attestation duties"
+                );
+                // Do not abort the entire batch for a single failure.
+                continue;
             }
         };
 
-        if update_required {
-            let duty_and_proof =
-                DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
-                    .await?;
+        let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
 
-            let mut attesters = duties_service.attesters.write();
-            let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
-
-            if let Some((prior_dependent_root, _)) =
-                attester_map.insert(epoch, (dependent_root, duty_and_proof))
-            {
-                // Using `already_warned` avoids excessive logs.
-                if dependent_root != prior_dependent_root && already_warned.take().is_some() {
-                    warn!(
-                        log,
-                        "Attester duties re-org";
-                        "prior_dependent_root" => %prior_dependent_root,
-                        "dependent_root" => %dependent_root,
-                        "msg" => "this may happen from time to time"
-                    )
-                }
+        if let Some((prior_dependent_root, _)) =
+            attester_map.insert(epoch, (dependent_root, duty_and_proof))
+        {
+            // Using `already_warned` avoids excessive logs.
+            if dependent_root != prior_dependent_root && already_warned.take().is_some() {
+                warn!(
+                    log,
+                    "Attester duties re-org";
+                    "prior_dependent_root" => %prior_dependent_root,
+                    "dependent_root" => %dependent_root,
+                    "msg" => "this may happen from time to time"
+                )
             }
         }
     }
+    drop(attesters);
 
     Ok(())
 }
