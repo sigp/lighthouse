@@ -24,7 +24,7 @@ mod tests {
     use std::fs::{self, File};
     use std::future::Future;
     use std::path::PathBuf;
-    use std::process::{Child, Command};
+    use std::process::{Child, Command, Stdio};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
@@ -41,6 +41,10 @@ mod tests {
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
     const UPCHECK_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// Set to `true` to send the Web3Signer logs to the console during tests. Logs are useful when
+    /// debugging.
+    const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
 
     type E = MainnetEthSpec;
 
@@ -151,6 +155,14 @@ mod tests {
             let tls_keystore_file = tls_dir().join("key.p12");
             let tls_keystore_password_file = tls_dir().join("password.txt");
 
+            let stdio = || {
+                if SUPPRESS_WEB3SIGNER_LOGS {
+                    Stdio::null()
+                } else {
+                    Stdio::inherit()
+                }
+            };
+
             let web3signer_child = Command::new(web3signer_binary())
                 .arg(format!(
                     "--key-store-path={}",
@@ -170,6 +182,8 @@ mod tests {
                 .arg("eth2")
                 .arg(format!("--network={}", network))
                 .arg("--slashing-protection-enabled=false")
+                .stdout(stdio())
+                .stderr(stdio())
                 .spawn()
                 .unwrap();
 
