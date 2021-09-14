@@ -2,7 +2,7 @@ mod metrics;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use slog::{debug, o, trace};
+use slog::{crit, debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 
@@ -83,34 +83,56 @@ impl TaskExecutor {
         self.spawn(task.map(|_| ()), name)
     }
 
-    /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit`. The task is canceled
-    /// when the corresponding exit_future `Signal` is fired/dropped.
+    /// Spawn a task to monitor the completion of another task.
+    ///
+    /// If the other task exits by panicking, then the monitor task will shut down the executor.
+    fn spawn_monitor<R: Send>(
+        &self,
+        task_handle: impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static,
+        name: &'static str,
+    ) {
+        let mut shutdown_sender = self.shutdown_sender();
+        let log = self.log.clone();
+
+        if let Some(runtime) = self.runtime.upgrade() {
+            runtime.spawn(async move {
+                if let Err(join_error) = task_handle.await {
+                    if let Ok(panic) = join_error.try_into_panic() {
+                        let message = panic.downcast_ref::<&str>().unwrap_or(&"<none>");
+
+                        crit!(
+                            log,
+                            "Task panic. This is a bug!";
+                            "task_name" => name,
+                            "message" => message,
+                            "advice" => "Please check above for a backtrace and notify \
+                                         the developers"
+                        );
+                        let _ = shutdown_sender
+                            .try_send(ShutdownReason::Failure("Panic (fatal error)"));
+                    }
+                }
+            });
+        } else {
+            debug!(
+                self.log,
+                "Couldn't spawn monitor task. Runtime shutting down"
+            )
+        }
+    }
+
+    /// Spawn a future on the tokio runtime.
+    ///
+    /// The future is wrapped in an `exit_future::Exit`. The task is canceled when the corresponding
+    /// exit_future `Signal` is fired/dropped.
+    ///
+    /// The future is monitored via another spawned future to ensure that it doesn't panic. In case
+    /// of a panic, the executor will be shut down via `self.signal_tx`.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
     pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, name: &'static str) {
-        let exit = self.exit.clone();
-        let log = self.log.clone();
-
-        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
-            // Task is shutdown before it completes if `exit` receives
-            let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task), exit).then(move |either| {
-                match either {
-                    future::Either::Left(_) => trace!(log, "Async task completed"; "task" => name),
-                    future::Either::Right(_) => {
-                        debug!(log, "Async task shutdown, exit received"; "task" => name)
-                    }
-                }
-                int_gauge_1.dec();
-                futures::future::ready(())
-            });
-
-            int_gauge.inc();
-            if let Some(runtime) = self.runtime.upgrade() {
-                runtime.spawn(future);
-            } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-            }
+        if let Some(task_handle) = self.spawn_handle(task, name) {
+            self.spawn_monitor(task_handle, name)
         }
     }
 
@@ -150,38 +172,11 @@ impl TaskExecutor {
     where
         F: FnOnce() + Send + 'static,
     {
-        let log = self.log.clone();
-
-        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
-            if let Some(int_gauge) = metrics::get_int_gauge(&metrics::BLOCKING_TASKS_COUNT, &[name])
-            {
-                let int_gauge_1 = int_gauge.clone();
-                let timer = metric.start_timer();
-                let join_handle = if let Some(runtime) = self.runtime.upgrade() {
-                    runtime.spawn_blocking(task)
-                } else {
-                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                    return;
-                };
-
-                let future = async move {
-                    match join_handle.await {
-                        Ok(_) => trace!(log, "Blocking task completed"; "task" => name),
-                        Err(e) => debug!(log, "Blocking task failed"; "error" => %e),
-                    };
-                    timer.observe_duration();
-                    int_gauge_1.dec();
-                };
-
-                int_gauge.inc();
-                if let Some(runtime) = self.runtime.upgrade() {
-                    runtime.spawn(future);
-                } else {
-                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                }
-            }
+        if let Some(task_handle) = self.spawn_blocking_handle(task, name) {
+            self.spawn_monitor(task_handle, name)
         }
     }
+
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit` returning an optional
     /// join handle to the future.
     /// The task is canceled when the corresponding exit_future `Signal` is fired/dropped.
@@ -200,9 +195,9 @@ impl TaskExecutor {
             let int_gauge_1 = int_gauge.clone();
             let future = future::select(Box::pin(task), exit).then(move |either| {
                 let result = match either {
-                    future::Either::Left((task, _)) => {
+                    future::Either::Left((value, _)) => {
                         trace!(log, "Async task completed"; "task" => name);
-                        Some(task)
+                        Some(value)
                     }
                     future::Either::Right(_) => {
                         debug!(log, "Async task shutdown, exit received"; "task" => name);

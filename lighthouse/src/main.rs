@@ -32,6 +32,11 @@ fn bls_library_name() -> &'static str {
 }
 
 fn main() {
+    // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
+    if std::env::var("RUST_BACKTRACE").is_err() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
@@ -344,20 +349,23 @@ fn run<E: EthSpec>(
                     .map_err(|e| format!("Error serializing config: {:?}", e))?;
             };
 
-            environment.runtime().spawn(async move {
-                if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                    crit!(log, "Failed to start beacon node"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send(ShutdownReason::Failure("Failed to start beacon node"));
-                } else if shutdown_flag {
-                    let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
-                        "Beacon node immediate shutdown triggered.",
-                    ));
-                }
-            });
+            executor.clone().spawn(
+                async move {
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                        crit!(log, "Failed to start beacon node"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start beacon node"));
+                    } else if shutdown_flag {
+                        let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
+                            "Beacon node immediate shutdown triggered.",
+                        ));
+                    }
+                },
+                "beacon_node",
+            );
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -374,19 +382,22 @@ fn run<E: EthSpec>(
                     .map_err(|e| format!("Error serializing config: {:?}", e))?;
             };
             if !shutdown_flag {
-                environment.runtime().spawn(async move {
-                    if let Err(e) = ProductionValidatorClient::new(context, config)
-                        .await
-                        .and_then(|mut vc| vc.start_service())
-                    {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
-                        // Ignore the error since it always occurs during normal operation when
-                        // shutting down.
-                        let _ = executor
-                            .shutdown_sender()
-                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
-                    }
-                });
+                executor.clone().spawn(
+                    async move {
+                        if let Err(e) = ProductionValidatorClient::new(context, config)
+                            .await
+                            .and_then(|mut vc| vc.start_service())
+                        {
+                            crit!(log, "Failed to start validator client"; "reason" => e);
+                            // Ignore the error since it always occurs during normal operation when
+                            // shutting down.
+                            let _ = executor.shutdown_sender().try_send(ShutdownReason::Failure(
+                                "Failed to start validator client",
+                            ));
+                        }
+                    },
+                    "validator_client",
+                );
             } else {
                 let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
                     "Validator client immediate shutdown triggered.",
