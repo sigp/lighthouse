@@ -105,7 +105,7 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         message: PubsubMessage<TSpec>,
     },
     // We have unsubscribed from a gossipsub topic.
-    UnsubscribedTopic(TopicHash),
+    UnsubscribedTopic(GossipTopic),
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
 }
@@ -371,17 +371,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .remove(&topic);
 
         // unsubscribe from the topic
-        let topic: Topic = topic.into();
+        let libp2p_topic: Topic = topic.clone().into();
 
-        match self.gossipsub.unsubscribe(&topic) {
+        match self.gossipsub.unsubscribe(&libp2p_topic) {
             Err(_) => {
-                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %topic);
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %libp2p_topic);
                 false
             }
             Ok(v) => {
                 // Inform the network
-                self.add_event(BehaviourEvent::UnsubscribedTopic(topic.hash()));
                 debug!(self.log, "Unsubscribed to topic"; "topic" => %topic);
+                self.add_event(BehaviourEvent::UnsubscribedTopic(topic));
                 v
             }
         }

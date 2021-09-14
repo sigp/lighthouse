@@ -776,8 +776,8 @@ pub fn update_gossip_metrics<T: EthSpec>(
             }
 
             // Mesh slot metrics update
-            update_mesh_slot_metrics(gossipsub, topic_hash);
-            update_gossipsub_topic_metrics(gossipsub, topic_hash);
+            update_mesh_slot_metrics(gossipsub, &topic);
+            update_gossipsub_topic_metrics(gossipsub, &topic);
         }
     }
 
@@ -961,34 +961,36 @@ pub fn update_gossip_metrics<T: EthSpec>(
 }
 
 /// For a given topic, updates the mesh slot metrics.
-pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
-    if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
-        let kind = match topic.kind() {
-            GossipKind::Attestation(subnet_id) => format!(
-                "beacon_attestation_{:02}",
-                <&types::SubnetId as Into<u64>>::into(subnet_id)
-            ),
-            other => other.to_string(),
-        };
-        let fork = format!("0x{}", &hex::encode(topic.fork_digest));
-        if let Some(metrics_iter) = gossipsub.metrics().slot_metrics_for_topic(topic_hash) {
-            for (slot, slot_metrics) in metrics_iter.enumerate() {
-                let slot_format = match slot {
-                    0 => "non-mesh".to_string(),
-                    _ => format!("Slot {:02}", slot),
-                };
-                for (metric_name, value) in slot_metrics.with_names() {
-                    if let Some(v) = get_gauge(
-                        &GOSSIPSUB_MESH_METRICS_BY_TOPIC,
-                        &[
-                            fork.as_str(),
-                            kind.as_str(),
-                            metric_name,
-                            slot_format.as_str(),
-                        ],
-                    ) {
-                        v.set(value as i64)
-                    }
+pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic: &GossipTopic) {
+    let kind = match topic.kind() {
+        GossipKind::Attestation(subnet_id) => format!(
+            "beacon_attestation_{:02}",
+            <&types::SubnetId as Into<u64>>::into(subnet_id)
+        ),
+        other => other.to_string(),
+    };
+    let fork = format!("0x{}", &hex::encode(topic.fork_digest));
+    let ident_topic: eth2_libp2p::IdentTopic = topic.clone().into();
+    if let Some(metrics_iter) = gossipsub
+        .metrics()
+        .slot_metrics_for_topic(&ident_topic.hash())
+    {
+        for (slot, slot_metrics) in metrics_iter.enumerate() {
+            let slot_format = match slot {
+                0 => "non-mesh".to_string(),
+                _ => format!("Slot {:02}", slot),
+            };
+            for (metric_name, value) in slot_metrics.with_names() {
+                if let Some(v) = get_gauge(
+                    &GOSSIPSUB_MESH_METRICS_BY_TOPIC,
+                    &[
+                        fork.as_str(),
+                        kind.as_str(),
+                        metric_name,
+                        slot_format.as_str(),
+                    ],
+                ) {
+                    v.set(value as i64)
                 }
             }
         }
@@ -996,9 +998,10 @@ pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
 }
 
 /// Updates the topic metrics for a specific topic.
-pub fn update_gossipsub_topic_metrics(gossipsub: &Gossipsub, topic_hash: &TopicHash) {
-    if let Some(topic_metrics) = gossipsub.metrics().topic_metrics.get(topic_hash) {
-        if let Some(v) = get_gauge(&GOSSIP_IWANT_REQUESTS, &[topic_hash.as_str()]) {
+pub fn update_gossipsub_topic_metrics(gossipsub: &Gossipsub, topic: &GossipTopic) {
+    let ident_topic: eth2_libp2p::IdentTopic = topic.clone().into();
+    if let Some(topic_metrics) = gossipsub.metrics().topic_metrics.get(&ident_topic.hash()) {
+        if let Some(v) = get_gauge(&GOSSIP_IWANT_REQUESTS, &[&topic.kind().to_string()]) {
             v.set(topic_metrics.iwant_requests as i64)
         }
     }
