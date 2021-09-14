@@ -2,6 +2,7 @@ use crate::{
     doppelganger_service::DoppelgangerStatus,
     duties_service::{DutiesService, Error},
 };
+use futures::future::join_all;
 use itertools::Itertools;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, info, warn};
@@ -508,19 +509,28 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                 }
             };
 
-            let mut proofs = vec![];
-            for (duty_slot, &subnet_id) in epoch
-                .slot_iter(E::slots_per_epoch())
-                .cartesian_product(&subnet_ids)
-            {
-                // Construct proof for prior slot.
-                let slot = duty_slot - 1;
+            let duties_service_ref = &duties_service;
+            let selection_proof_results = join_all(
+                epoch
+                    .slot_iter(E::slots_per_epoch())
+                    .cartesian_product(&subnet_ids)
+                    .map(|(duty_slot, subnet_id)| async move {
+                        // Construct proof for prior slot.
+                        let slot = duty_slot - 1;
 
-                let proof = match duties_service
-                    .validator_store
-                    .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
-                    .await
-                {
+                        let result = duties_service_ref
+                            .validator_store
+                            .produce_sync_selection_proof(&duty.pubkey, slot, *subnet_id)
+                            .await;
+
+                        (slot, subnet_id, result)
+                    }),
+            )
+            .await;
+
+            let mut proofs = vec![];
+            for (slot, subnet_id, result) in selection_proof_results {
+                let proof = match result {
                     Ok(proof) => proof,
                     Err(e) => {
                         warn!(
@@ -543,7 +553,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                             "slot" => slot,
                             "subnet_id" => %subnet_id,
                         );
-                        proofs.push(((slot, subnet_id), proof));
+                        proofs.push(((slot, *subnet_id), proof));
                     }
                     Ok(false) => (),
                     Err(e) => {
