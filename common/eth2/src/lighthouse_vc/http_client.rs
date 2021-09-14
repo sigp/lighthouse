@@ -36,7 +36,7 @@ pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
         &secret[SECRET_PREFIX.len()..]
     };
 
-    serde_utils::hex::decode(secret)
+    eth2_serde_utils::hex::decode(secret)
         .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
         .and_then(|bytes| {
             if bytes.len() != PK_LEN {
@@ -101,7 +101,7 @@ impl ValidatorClientHttpClient {
         let message =
             Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
 
-        serde_utils::hex::decode(&sig)
+        eth2_serde_utils::hex::decode(&sig)
             .ok()
             .and_then(|bytes| {
                 let sig = Signature::parse_der(&bytes).ok()?;

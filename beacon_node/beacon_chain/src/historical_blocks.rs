@@ -180,8 +180,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             oldest_block_parent: expected_block_root,
             ..anchor_info
         };
+        let backfill_complete = new_anchor.block_backfill_complete();
         self.store
             .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?;
+
+        // If backfill has completed and the chain is configured to reconstruct historic states,
+        // send a message to the background migrator instructing it to begin reconstruction.
+        if backfill_complete && self.config.reconstruct_historic_states {
+            self.store_migrator.process_reconstruction();
+        }
 
         Ok(blocks_to_import.len())
     }

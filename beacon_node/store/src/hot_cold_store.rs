@@ -20,7 +20,7 @@ use crate::{
 };
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::{Mutex, RwLock};
 use serde_derive::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, Logger};
 use ssz::{Decode, Encode};
@@ -69,8 +69,6 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
-    /// Mutex for synchronisation of long-running transactions involving the freezer database.
-    migration_mutex: Mutex<()>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -136,7 +134,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            migration_mutex: Mutex::new(()),
             config,
             spec,
             log,
@@ -170,7 +167,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            migration_mutex: Mutex::new(()),
             config,
             spec,
             log,
@@ -586,16 +582,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
         Ok(())
-    }
-
-    /// Block on acquiring the migration mutex.
-    pub fn lock_migration_mutex(&self) -> MutexGuard<()> {
-        self.migration_mutex.lock()
-    }
-
-    /// Attempt to acquire the migration mutex, returning `None` if it is already locked.
-    pub fn try_lock_migration_mutex(&self) -> Option<MutexGuard<()>> {
-        self.migration_mutex.try_lock()
     }
 
     /// Store a post-finalization state efficiently in the hot database.

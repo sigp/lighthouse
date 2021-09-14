@@ -9,6 +9,6 @@ use serde_derive::Serialize;
 pub struct FreeAttestation {
     pub data: AttestationData,
     pub signature: Signature,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub validator_index: u64,
 }

@@ -1,5 +1,5 @@
 use crate::local_network::LocalNetwork;
-use node_test_rig::eth2::types::StateId;
+use node_test_rig::eth2::types::{BlockId, StateId};
 use std::time::Duration;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
@@ -141,5 +141,69 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
             slot.as_usize() + 1
         ));
     }
+    Ok(())
+}
+
+/// Verify that all nodes have the correct fork version after the `fork_epoch`.
+pub async fn verify_fork_version<E: EthSpec>(
+    network: LocalNetwork<E>,
+    fork_epoch: Epoch,
+    slot_duration: Duration,
+    altair_fork_version: [u8; 4],
+) -> Result<(), String> {
+    epoch_delay(fork_epoch, slot_duration, E::slots_per_epoch()).await;
+    for remote_node in network.remote_nodes()? {
+        let fork_version = remote_node
+            .get_beacon_states_fork(StateId::Head)
+            .await
+            .map(|resp| resp.unwrap().data.current_version)
+            .map_err(|e| format!("Failed to get fork from beacon node: {:?}", e))?;
+        if fork_version != altair_fork_version {
+            return Err(format!(
+                "Fork version after FORK_EPOCH is incorrect, got: {:?}, expected: {:?}",
+                fork_version, altair_fork_version,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Verify that all sync aggregates from `sync_committee_start_slot` until `upto_slot`
+/// have full aggregates.
+pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
+    network: LocalNetwork<E>,
+    sync_committee_start_slot: Slot,
+    upto_slot: Slot,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    slot_delay(upto_slot, slot_duration).await;
+    let remote_nodes = network.remote_nodes()?;
+    let remote_node = remote_nodes.first().unwrap();
+
+    for slot in sync_committee_start_slot.as_u64()..=upto_slot.as_u64() {
+        let sync_aggregate_count = remote_node
+            .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
+            .await
+            .map(|resp| {
+                resp.unwrap()
+                    .data
+                    .message()
+                    .body()
+                    .sync_aggregate()
+                    .map(|agg| agg.num_set_bits())
+            })
+            .map_err(|e| format!("Error while getting beacon block: {:?}", e))?
+            .ok_or(format!("Altair block {} should have sync aggregate", slot))?;
+
+        if sync_aggregate_count != E::sync_committee_size() {
+            return Err(format!(
+                "Sync aggregate at slot {} was not full, got: {}, expected: {}",
+                slot,
+                sync_aggregate_count,
+                E::sync_committee_size()
+            ));
+        }
+    }
+
     Ok(())
 }

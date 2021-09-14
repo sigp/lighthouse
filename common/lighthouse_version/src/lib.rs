@@ -7,7 +7,7 @@ use target_info::Target;
 ///
 /// ## Example
 ///
-/// `Lighthouse/v0.2.0-1419501f2+`
+/// `Lighthouse/v1.5.1-67da032+`
 pub const VERSION: &str = git_version!(
     args = [
         "--always",
@@ -16,7 +16,7 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v1.5.1-",
+    prefix = "Lighthouse/v1.5.2-rc.0-",
     fallback = "unknown"
 );
 
@@ -24,7 +24,7 @@ pub const VERSION: &str = git_version!(
 ///
 /// ## Example
 ///
-/// `Lighthouse/v0.2.0-1419501f2+/x86_64-linux`
+/// `Lighthouse/v1.5.1-67da032+/x86_64-linux`
 pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, Target::arch(), Target::os())
 }

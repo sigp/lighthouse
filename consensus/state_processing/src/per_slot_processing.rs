@@ -26,7 +26,7 @@ pub fn per_slot_processing<T: EthSpec>(
     state: &mut BeaconState<T>,
     state_root: Option<Hash256>,
     spec: &ChainSpec,
-) -> Result<Option<EpochProcessingSummary>, Error> {
+) -> Result<Option<EpochProcessingSummary<T>>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
     state
         .fork_name(spec)

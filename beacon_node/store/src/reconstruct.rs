@@ -14,11 +14,6 @@ where
     Cold: KeyValueStore<E> + ItemStore<E>,
 {
     pub fn reconstruct_historic_states(self: &Arc<Self>) -> Result<(), Error> {
-        // Do not run historic state reconstruction in parallel with the database migration
-        // that is triggered upon finalization. It simplifies our reasoning if the split point is
-        // assumed not to advance for the duration of this function.
-        let _migration_mutex = self.lock_migration_mutex();
-
         let mut anchor = if let Some(anchor) = self.get_anchor_info() {
             anchor
         } else {
@@ -143,7 +138,8 @@ where
         })??;
 
         // Check that the split point wasn't mutated during the state reconstruction process.
-        // It shouldn't, due to the migration mutex, so this is just a paranoid check.
+        // It shouldn't, due to the serialization of requests through the store migrator, so this is
+        // just a paranoid check.
         let latest_split = self.get_split_info();
         if split != latest_split {
             return Err(Error::SplitPointModified(latest_split.slot, split.slot));

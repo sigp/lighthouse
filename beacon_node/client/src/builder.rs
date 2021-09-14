@@ -215,7 +215,7 @@ where
                 anchor_block_bytes,
                 genesis_state_bytes,
             } => {
-                info!(context.log(), "Starting from weak subjectivity checkpoint");
+                info!(context.log(), "Starting checkpoint sync");
 
                 let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;

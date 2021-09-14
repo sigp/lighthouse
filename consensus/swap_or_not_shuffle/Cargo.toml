@@ -12,7 +12,7 @@ harness = false
 criterion = "0.3.3"
 
 [dependencies]
-eth2_hashing = "0.1.0"
+eth2_hashing = "0.2.0"
 ethereum-types = "0.11.0"
 
 [features]

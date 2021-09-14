@@ -52,6 +52,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("shutdown-after-sync")
+                .long("shutdown-after-sync")
+                .help("Shutdown beacon node as soon as sync is completed")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
                 .short("z")
@@ -480,28 +486,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("initial-state")
-                .long("initial-state")
-                .help("Set an initial state to start syncing from (weak subjectivity sync)")
+            Arg::with_name("checkpoint-state")
+                .long("checkpoint-state")
+                .help("Set a checkpoint state to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
                 .value_name("STATE_SSZ")
                 .takes_value(true)
-                .requires("initial-block")
+                .requires("checkpoint-block")
         )
         .arg(
-            Arg::with_name("initial-block")
-                .long("initial-block")
-                .help("Set an initial block to start syncing from (weak subjectivity sync)")
+            Arg::with_name("checkpoint-block")
+                .long("checkpoint-block")
+                .help("Set a checkpoint block to start syncing from. Must be aligned and match \
+                       --checkpoint-state. Using --checkpoint-sync-url instead is recommended.")
                 .value_name("BLOCK_SSZ")
                 .takes_value(true)
-                .requires("initial-state")
+                .requires("checkpoint-state")
         )
         .arg(
             Arg::with_name("checkpoint-sync-url")
                 .long("checkpoint-sync-url")
-                .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync")
+                .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
                 .value_name("BEACON_NODE")
                 .takes_value(true)
-                .conflicts_with("initial-state")
+                .conflicts_with("checkpoint-state")
+        )
+        .arg(
+            Arg::with_name("reconstruct-historic-states")
+                .long("reconstruct-historic-states")
+                .help("After a checkpoint sync, reconstruct historic states in the database.")
+                .takes_value(false)
         )
         .arg(
             Arg::with_name("validator-monitor-auto")

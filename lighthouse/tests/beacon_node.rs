@@ -308,6 +308,19 @@ fn network_import_all_attestations_flag() {
         .with_config(|config| assert!(config.network.import_all_attestations));
 }
 #[test]
+fn network_shutdown_after_sync_flag() {
+    CommandLineTest::new()
+        .flag("shutdown-after-sync", None)
+        .run()
+        .with_config(|config| assert!(config.network.shutdown_after_sync));
+}
+#[test]
+fn network_shutdown_after_sync_disabled_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.network.shutdown_after_sync));
+}
+#[test]
 fn network_listen_address_flag() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
@@ -675,6 +688,19 @@ fn compact_db_flag() {
         .flag("compact-db", None)
         .run()
         .with_config(|config| assert!(config.store.compact_on_init));
+}
+#[test]
+fn reconstruct_historic_states_flag() {
+    CommandLineTest::new()
+        .flag("reconstruct-historic-states", None)
+        .run()
+        .with_config(|config| assert!(config.chain.reconstruct_historic_states));
+}
+#[test]
+fn no_reconstruct_historic_states_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
 }
 
 // Tests for Slasher flags.

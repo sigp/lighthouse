@@ -282,7 +282,7 @@ where
         Ok(self)
     }
 
-    /// Store the genesis state & block in the DB, and derive
+    /// Store the genesis state & block in the DB.
     ///
     /// Do *not* initialize fork choice, or do anything that assumes starting from genesis.
     ///
@@ -778,6 +778,11 @@ where
             "head_block" => format!("{}", head.beacon_block_root),
             "head_slot" => format!("{}", head.beacon_block.slot()),
         );
+
+        // Check for states to reconstruct (in the background).
+        if beacon_chain.config.reconstruct_historic_states {
+            beacon_chain.store_migrator.process_reconstruction();
+        }
 
         Ok(beacon_chain)
     }

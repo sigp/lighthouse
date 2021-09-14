@@ -52,7 +52,7 @@ pub enum Error {
     UnableToRemoveACLEntry(String),
 }
 
-/// Creates a file with `600 (-rw-------)` permissions.
+/// Creates a file with `600 (-rw-------)` permissions and writes the specified bytes to file.
 pub fn create_with_600_perms<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(), Error> {
     let path = path.as_ref();
     let mut file = File::create(&path).map_err(Error::UnableToCreateFile)?;
