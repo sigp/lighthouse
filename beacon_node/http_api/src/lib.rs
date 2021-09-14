@@ -350,7 +350,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )))
                         }
                     }
-                    SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
+                    SyncState::SyncingHead { .. } | SyncState::SyncTransition | SyncState::BackFillSyncing { .. }  => Ok(()),
                     SyncState::Synced => Ok(()),
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
@@ -1580,7 +1580,8 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_task(move || match *network_globals.sync_state.read() {
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
-                | SyncState::SyncTransition => Ok(warp::reply::with_status(
+                | SyncState::SyncTransition
+                | SyncState::BackFillSyncing { .. } => Ok(warp::reply::with_status(
                     warp::reply(),
                     warp::http::StatusCode::PARTIAL_CONTENT,
                 )),
@@ -2203,6 +2204,19 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/backfill
+    let get_lighthouse_backfill = warp::path("lighthouse")
+        .and(warp::path("backfill"))
+        .and(warp::path::end())
+        .and(network_globals.clone())
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    network_globals.backfill_state(),
+                ))
+            })
+        });
+
     // GET lighthouse/peers
     let get_lighthouse_peers = warp::path("lighthouse")
         .and(warp::path("peers"))
@@ -2544,6 +2558,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
+                .or(get_lighthouse_backfill.boxed())
                 .or(get_lighthouse_peers.boxed())
                 .or(get_lighthouse_peers_connected.boxed())
                 .or(get_lighthouse_proto_array.boxed())

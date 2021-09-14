@@ -58,7 +58,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+        blocks: &[SignedBeaconBlock<T::EthSpec>],
     ) -> Result<usize, Error> {
         let anchor_info = self
             .store
