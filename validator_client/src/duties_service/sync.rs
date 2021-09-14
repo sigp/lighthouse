@@ -516,20 +516,22 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                 // Construct proof for prior slot.
                 let slot = duty_slot - 1;
 
-                let proof = if let Ok(proof) = duties_service
+                let proof = match duties_service
                     .validator_store
                     .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
                     .await
                 {
-                    proof
-                } else {
-                    warn!(
-                        log,
-                        "Pubkey missing when signing selection proof";
-                        "pubkey" => ?duty.pubkey,
-                        "slot" => slot,
-                    );
-                    continue;
+                    Ok(proof) => proof,
+                    Err(e) => {
+                        warn!(
+                            log,
+                            "Unable to sign selection proof";
+                            "error" => ?e,
+                            "pubkey" => ?duty.pubkey,
+                            "slot" => slot,
+                        );
+                        continue;
+                    }
                 };
 
                 match proof.is_aggregator::<E>() {
