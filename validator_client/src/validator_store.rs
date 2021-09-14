@@ -659,7 +659,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub async fn produce_signed_contribution_and_proof(
         &self,
         aggregator_index: u64,
-        aggregator_pubkey: &PublicKeyBytes,
+        aggregator_pubkey: PublicKeyBytes,
         contribution: SyncCommitteeContribution<E>,
         selection_proof: SyncSelectionProof,
     ) -> Result<SignedContributionAndProof<E>, Error> {
@@ -667,7 +667,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let signing_method = self.doppelganger_bypassed_signing_method(*aggregator_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
 
         let message = ContributionAndProof {
             aggregator_index,

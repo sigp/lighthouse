@@ -2,6 +2,7 @@ use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::BlockId;
+use futures::future::join_all;
 use futures::future::FutureExt;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
@@ -215,17 +216,23 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let log = self.context.log().clone();
 
         let mut committee_signatures = Vec::with_capacity(validator_duties.len());
-        for duty in &validator_duties {
-            match self
-                .validator_store
-                .produce_sync_committee_signature(
-                    slot,
-                    beacon_block_root,
-                    duty.validator_index,
-                    &duty.pubkey,
-                )
-                .await
-            {
+
+        // Produce the sync committee signatures in parallel.
+        let signature_results = join_all(validator_duties.iter().map(|duty| {
+            self.validator_store.produce_sync_committee_signature(
+                slot,
+                beacon_block_root,
+                duty.validator_index,
+                &duty.pubkey,
+            )
+        }))
+        .await;
+
+        for (duty, result) in validator_duties
+            .into_iter()
+            .zip(signature_results.into_iter())
+        {
+            match result {
                 Ok(signature) => committee_signatures.push(signature),
                 Err(e) => {
                     crit!(
@@ -337,19 +344,23 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             })?
             .data;
 
-        // Make `SignedContributionAndProof`s
-        let mut signed_contributions = Vec::with_capacity(subnet_aggregators.len());
-        for (aggregator_index, aggregator_pk, selection_proof) in subnet_aggregators {
-            match self
-                .validator_store
-                .produce_signed_contribution_and_proof(
+        // Produce the signature in parallel.
+        let signed_contribution_results = join_all(subnet_aggregators.into_iter().map(
+            |(aggregator_index, aggregator_pk, selection_proof)| {
+                self.validator_store.produce_signed_contribution_and_proof(
                     aggregator_index,
-                    &aggregator_pk,
+                    aggregator_pk,
                     contribution.clone(),
                     selection_proof,
                 )
-                .await
-            {
+            },
+        ))
+        .await;
+
+        // Process the results of the signatures.
+        let mut signed_contributions = Vec::with_capacity(signed_contribution_results.len());
+        for result in signed_contribution_results {
+            match result {
                 Ok(signed_contribution) => signed_contributions.push(signed_contribution),
                 Err(e) => {
                     crit!(
