@@ -1,7 +1,7 @@
 //! This module contains the logic for Lighthouse's backfill sync.
 //!
-//! This kind of sync occurs when a trusted state root is provided to the client. The client
-//! will perform a [`RangeSync`] to the latest head from the trusted state root, such that the
+//! This kind of sync occurs when a trusted state is provided to the client. The client
+//! will perform a [`RangeSync`] to the latest head from the trusted state, such that the
 //! client can perform its duties right away. Once completed, a backfill sync occurs, where all old
 //! blocks (from genesis) are downloaded in order to keep a consistent history.
 //!
@@ -122,7 +122,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    /// We keep track of peer that are participating in the backfill sync. Unlike RageSync,
+    /// We keep track of peer that are participating in the backfill sync. Unlike RangeSync,
     /// BackFillSync uses all synced peers to download the chain from. If BackFillSync fails, we don't
     /// want to penalize all our synced peers, so we use this variable to keep track of peers that
     /// have participated and only penalize these peers if backfill sync fails.
@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // Get the anchor info, if this returns None, then backfill is not required for this
         // running instance.
         // If, for some reason a backfill has already been completed (or we've used a trusted
-        // genesis root, then backfill has been completed.
+        // genesis root) then backfill has been completed.
 
         let (state, current_start) = if let Some(anchor_info) = beacon_chain.store.get_anchor_info()
         {
@@ -209,8 +209,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// Starts or resumes syncing.
     ///
     /// If resuming is successful, reports back the current syncing metrics.
-    /// The `new_peer` parameter indicates a new synced peer has been added and we should attempt
-    /// to revive any previously failed backfill sync.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn start(
         &mut self,

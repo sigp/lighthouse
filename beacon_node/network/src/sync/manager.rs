@@ -904,11 +904,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // This is a peer-specific error and the chain could be continued with another
                 // peer. We don't consider this chain a failure and prevent retries with another
                 // peer.
+                "too many failed attempts"
             } else if !parent_request.downloaded_blocks.is_empty() {
                 self.failed_chains
                     .insert(parent_request.downloaded_blocks[0].canonical_root());
+                "reached maximum lookup-depth"
             } else {
                 crit!(self.log, "Parent lookup has no blocks");
+                "no blocks"
             };
 
             debug!(self.log, "Parent import failed";

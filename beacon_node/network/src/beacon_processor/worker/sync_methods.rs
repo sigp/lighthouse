@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             block_root,
                             expected_block_root,
                         } => {
-                            warn!(
+                            debug!(
                                 self.log,
                                 "Backfill batch processing error";
                                 "error" => "mismatched_block_root",

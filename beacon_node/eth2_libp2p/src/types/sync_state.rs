@@ -17,7 +17,6 @@ pub enum SyncState {
     BackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
-    /// state.
     SyncTransition,
     /// The node is up to date with all known peers and is connected to at least one
     /// fully synced peer. In this state, parent lookups are enabled.
