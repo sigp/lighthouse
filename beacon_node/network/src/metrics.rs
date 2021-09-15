@@ -704,7 +704,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
     // - Mesh peers per client
     for topic_hash in gossipsub.topics() {
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
-            let mesh_peers = gossipsub.mesh_peers(topic_hash).count();
             match topic.kind() {
                 GossipKind::Attestation(subnet_id) => {
                     let _ = get_int_gauge(
@@ -713,12 +712,12 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     )
                     .map(|v| v.set(1));
 
-                    if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC,
-                        &[subnet_id_to_string(subnet_id.into())],
-                    ) {
-                        v.set(mesh_peers as i64)
-                    };
+                    for _ in gossipsub.mesh_peers(topic_hash) {
+                        inc_gauge_vec(
+                            &MESH_PEERS_PER_ATTESTATION_SUBNET_TOPIC,
+                            &[subnet_id_to_string(subnet_id.into())],
+                        );
+                    }
                 }
                 GossipKind::BeaconBlock => {
                     for peer in gossipsub.mesh_peers(topic_hash) {
@@ -732,12 +731,12 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     }
 
                     // Update mesh peers
-                    if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_MAIN_TOPIC,
-                        &[GossipKind::BeaconBlock.as_ref()],
-                    ) {
-                        v.set(mesh_peers as i64)
-                    };
+                    for _ in gossipsub.mesh_peers(topic_hash) {
+                        inc_gauge_vec(
+                            &MESH_PEERS_PER_MAIN_TOPIC,
+                            &[GossipKind::BeaconBlock.as_ref()],
+                        )
+                    }
                 }
                 GossipKind::BeaconAggregateAndProof => {
                     for peer in gossipsub.mesh_peers(topic_hash) {
@@ -752,26 +751,26 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     }
 
                     // Update Mesh peers
-                    if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_MAIN_TOPIC,
-                        &[GossipKind::BeaconAggregateAndProof.as_ref()],
-                    ) {
-                        v.set(mesh_peers as i64)
-                    };
+                    for _ in gossipsub.mesh_peers(topic_hash) {
+                        inc_gauge_vec(
+                            &MESH_PEERS_PER_MAIN_TOPIC,
+                            &[GossipKind::BeaconAggregateAndProof.as_ref()],
+                        )
+                    }
                 }
                 GossipKind::SyncCommitteeMessage(subnet_id) => {
-                    if let Some(v) = get_int_gauge(
-                        &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
-                        &[sync_subnet_id_to_string(subnet_id.into())],
-                    ) {
-                        v.set(mesh_peers as i64)
-                    };
+                    for _ in gossipsub.mesh_peers(topic_hash) {
+                        inc_gauge_vec(
+                            &MESH_PEERS_PER_SYNC_SUBNET_TOPIC,
+                            &[sync_subnet_id_to_string(subnet_id.into())],
+                        );
+                    }
                 }
                 kind => {
                     // main topics
-                    if let Some(v) = get_int_gauge(&MESH_PEERS_PER_MAIN_TOPIC, &[kind.as_ref()]) {
-                        v.set(mesh_peers as i64)
-                    };
+                    for _ in gossipsub.mesh_peers(topic_hash) {
+                        inc_gauge_vec(&MESH_PEERS_PER_MAIN_TOPIC, &[kind.as_ref()])
+                    }
                 }
             }
 

@@ -397,7 +397,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .peer_info(&peer_id)
                 .map(|peer_info| peer_info.client.kind.clone())
             {
-                metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]); 
+                metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]);
             }
 
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -405,7 +405,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 &metrics::PEERS_CONNECTED,
                 self.network_globals.connected_peers() as i64,
             );
-
         }
     }
 
@@ -434,17 +433,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 self.events
                     .push(PeerManagerEvent::PeerDisconnected(peer_id));
                 debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
-
             }
 
             // Decrement the PEERS_PER_CLIENT metric
-            if let Some(peer_info) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(&peer_id) {
-                    if peer_info.is_connected() {
-                    metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&peer_info.client.kind.to_string()])
+            if let Some(peer_info) = self.network_globals.peers.read().peer_info(&peer_id) {
+                if peer_info.is_connected() {
+                    metrics::dec_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&peer_info.client.kind.to_string()],
+                    )
                 }
             }
 
@@ -512,10 +509,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 metrics::inc_gauge_vec(
                     &metrics::PEERS_PER_CLIENT,
                     &[&peer_info.client.kind.to_string()],
-                );   
-                metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT,
-                    &[&previous_kind.to_string()],
                 );
+                metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&previous_kind.to_string()]);
             }
         } else {
             crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
@@ -1107,38 +1102,59 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .as_ref()
             .map(|gauge| gauge.reset());
 
-        let mut avg_score_per_client: HashMap<String,(f64,usize)> = HashMap::with_capacity(5);
+        let mut avg_score_per_client: HashMap<String, (f64, usize)> = HashMap::with_capacity(5);
         {
             let peers_db_read_lock = self.network_globals.peers.read();
             let connected_peers = peers_db_read_lock.best_peers_by_status(PeerInfo::is_connected);
             let total_peers = connected_peers.len();
             for (id, (_peer, peer_info)) in connected_peers.into_iter().enumerate() {
-
                 // First quartile
                 if id == 0 {
-                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["1st"], peer_info.score().score() as i64);
-                }
-                else if id == (total_peers*3/4)-1 {
-                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["3/4"], peer_info.score().score() as i64);
-                }
-                else if id == (total_peers/2)-1 {
-                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["1/2"], peer_info.score().score() as i64);
-                }
-                else if id == (total_peers/4)-1 {
-                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["1/4"], peer_info.score().score() as i64);
-                }
-                else if id == total_peers -1 {
-                    metrics::set_gauge_vec(&metrics::PEER_SCORE_DISTRIBUTION, &["last"], peer_info.score().score() as i64);
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1st"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers * 3 / 4) - 1 {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["3/4"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers / 2) - 1 {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1/2"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers / 4) - 1 {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1/4"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == total_peers - 1 {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["last"],
+                        peer_info.score().score() as i64,
+                    );
                 }
 
-                let score_peers = avg_score_per_client.entry(peer_info.client.kind.to_string()).or_default();
+                let score_peers = avg_score_per_client
+                    .entry(peer_info.client.kind.to_string())
+                    .or_default();
                 score_peers.0 += peer_info.score().score();
-                score_peers.1 +=1;
+                score_peers.1 += 1;
             }
         } // read lock ended
 
-        for (client, (score,peers)) in avg_score_per_client {
-            metrics::set_gauge_vec(&metrics::PEER_SCORE_PER_CLIENT, &[&client.to_string()], (score/(peers as f64))as i64);
+        for (client, (score, peers)) in avg_score_per_client {
+            metrics::set_gauge_vec(
+                &metrics::PEER_SCORE_PER_CLIENT,
+                &[&client.to_string()],
+                (score / (peers as f64)) as i64,
+            );
         }
     }
 }
