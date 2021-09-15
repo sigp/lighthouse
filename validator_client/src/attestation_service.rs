@@ -5,6 +5,7 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
+use futures::future::join_all;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -350,57 +351,70 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
-        let mut attestations = Vec::with_capacity(validator_duties.len());
+        // Create futures to produce signed `Attestation` objects.
+        let attestation_data_ref = &attestation_data;
+        let signing_futures = validator_duties
+            .into_iter()
+            .map(|duty_and_proof| async move {
+                let duty = &duty_and_proof.duty;
+                let attestation_data = attestation_data_ref;
 
-        for duty_and_proof in validator_duties {
-            let duty = &duty_and_proof.duty;
+                // Ensure that the attestation matches the duties.
+                #[allow(clippy::suspicious_operation_groupings)]
+                if duty.slot != attestation_data.slot
+                    || duty.committee_index != attestation_data.index
+                {
+                    crit!(
+                        log,
+                        "Inconsistent validator duties during signing";
+                        "validator" => ?duty.pubkey,
+                        "duty_slot" => duty.slot,
+                        "attestation_slot" => attestation_data.slot,
+                        "duty_index" => duty.committee_index,
+                        "attestation_index" => attestation_data.index,
+                    );
+                    return None;
+                }
 
-            // Ensure that the attestation matches the duties.
-            #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
-            {
-                crit!(
-                    log,
-                    "Inconsistent validator duties during signing";
-                    "validator" => ?duty.pubkey,
-                    "duty_slot" => duty.slot,
-                    "attestation_slot" => attestation_data.slot,
-                    "duty_index" => duty.committee_index,
-                    "attestation_index" => attestation_data.index,
-                );
-                continue;
-            }
+                let mut attestation = Attestation {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                };
 
-            let mut attestation = Attestation {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
-            };
+                match self
+                    .validator_store
+                    .sign_attestation(
+                        duty.pubkey,
+                        duty.validator_committee_index as usize,
+                        &mut attestation,
+                        current_epoch,
+                    )
+                    .await
+                {
+                    Ok(()) => Some(attestation),
+                    Err(e) => {
+                        crit!(
+                            log,
+                            "Failed to sign attestation";
+                            "error" => ?e,
+                            "committee_index" => committee_index,
+                            "slot" => slot.as_u64(),
+                        );
+                        None
+                    }
+                }
+            });
 
-            if let Err(e) = self
-                .validator_store
-                .sign_attestation(
-                    duty.pubkey,
-                    duty.validator_committee_index as usize,
-                    &mut attestation,
-                    current_epoch,
-                )
-                .await
-            {
-                crit!(
-                    log,
-                    "Failed to sign attestation";
-                    "error" => ?e,
-                    "committee_index" => committee_index,
-                    "slot" => slot.as_u64(),
-                );
-                continue;
-            } else {
-                attestations.push(attestation);
-            }
-        }
+        // Execute all the futures in parallel, collecting any successful results.
+        let attestations = &join_all(signing_futures)
+            .await
+            .into_iter()
+            .filter_map(|opt| opt)
+            .collect::<Vec<Attestation<E>>>();
 
-        let attestations_slice = attestations.as_slice();
+        // Post the attestations to the BN.
         match self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
@@ -409,7 +423,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     &[metrics::ATTESTATIONS_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_pool_attestations(attestations_slice)
+                    .post_beacon_pool_attestations(attestations)
                     .await
             })
             .await
