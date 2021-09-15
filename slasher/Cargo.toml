@@ -21,7 +21,7 @@ safe_arith = { path = "../consensus/safe_arith" }
 serde = "1.0"
 serde_derive = "1.0"
 slog = "2.5.2"
-sloggers = "*"
+sloggers = "2.0.2"
 tree_hash = "0.3.0"
 tree_hash_derive = "0.3.1"
 types = { path = "../consensus/types" }
