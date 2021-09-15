@@ -540,7 +540,7 @@ mod tests {
                     validator_store
                         .produce_signed_contribution_and_proof(
                             0,
-                            &pubkey,
+                            pubkey,
                             contribution,
                             SyncSelectionProof::from(Signature::empty()),
                         )
