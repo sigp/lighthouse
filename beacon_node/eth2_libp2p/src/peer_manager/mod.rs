@@ -1167,7 +1167,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     );
                 }
 
-                let mut score_peers = *avg_score_per_client
+                let mut score_peers: &mut (f64, usize) = avg_score_per_client
                     .entry(peer_info.client.kind.to_string())
                     .or_default();
                 score_peers.0 += peer_info.score().score();
