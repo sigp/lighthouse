@@ -454,12 +454,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // Decrement the PEERS_PER_CLIENT metric
             if let Some(peer_info) = self.network_globals.peers.read().peer_info(&peer_id) {
-                if peer_info.is_connected() {
                     metrics::dec_gauge_vec(
                         &metrics::PEERS_PER_CLIENT,
                         &[&peer_info.client.kind.to_string()],
                     )
-                }
             }
 
             // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
@@ -522,12 +520,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             peer_info.listening_addresses = info.listen_addrs.clone();
 
             if previous_kind != peer_info.client.kind {
-                // update the peer client kind metric
+                // update the peer client kind metric if the peer is connected
+                if matches!(peer_info.connection_status(), PeerConnectionStatus::Connected {..} | PeerConnectionStatus::Disconnecting { .. } ) {
                 metrics::inc_gauge_vec(
                     &metrics::PEERS_PER_CLIENT,
                     &[&peer_info.client.kind.to_string()],
                 );
                 metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&previous_kind.to_string()]);
+                }
             }
         } else {
             crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
