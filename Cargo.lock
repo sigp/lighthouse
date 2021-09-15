@@ -484,7 +484,7 @@ dependencies = [
  "serde_yaml",
  "slasher",
  "slog",
- "sloggers 1.0.1",
+ "sloggers",
  "slot_clock",
  "smallvec",
  "state_processing",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "1.5.2-rc.0"
+version = "1.5.2"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -657,7 +657,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "1.5.2-rc.0"
+version = "1.5.2"
 dependencies = [
  "beacon_node",
  "clap",
@@ -673,7 +673,7 @@ dependencies = [
  "slog-scope",
  "slog-stdlog",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "tokio",
  "types",
 ]
@@ -916,7 +916,7 @@ dependencies = [
  "slasher_service",
  "slog",
  "slog-async",
- "sloggers 1.0.1",
+ "sloggers",
  "slot_clock",
  "store",
  "task_executor",
@@ -1631,7 +1631,7 @@ dependencies = [
  "slog-async",
  "slog-json",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "task_executor",
  "tokio",
  "types",
@@ -1670,7 +1670,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "sloggers 1.0.1",
+ "sloggers",
  "state_processing",
  "task_executor",
  "tokio",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "lcli"
-version = "1.5.2-rc.0"
+version = "1.5.2"
 dependencies = [
  "account_utils",
  "bls",
@@ -3685,7 +3685,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "1.5.2-rc.0"
+version = "1.5.2"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3711,7 +3711,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "target_check",
  "task_executor",
  "tempfile",
@@ -4153,7 +4153,7 @@ dependencies = [
  "slog",
  "slog-async",
  "slog-term",
- "sloggers 1.0.1",
+ "sloggers",
  "slot_clock",
  "smallvec",
  "state_processing",
@@ -4236,9 +4236,9 @@ dependencies = [
 
 [[package]]
 name = "num-bigint"
-version = "0.3.2"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d0a3d5e207573f948a9e5376662aa743a2ea13f7c50a554d7af443a73fbfeba"
+checksum = "74e768dff5fb39a41b3bcd30bb25cf989706c90d028d1ad71971987aa309d535"
 dependencies = [
  "autocfg 1.0.1",
  "num-integer",
@@ -5694,7 +5694,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
- "sloggers 2.0.2",
+ "sloggers",
  "tempfile",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tree_hash_derive 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5812,25 +5812,6 @@ dependencies = [
  "slog",
  "term",
  "thread_local",
-]
-
-[[package]]
-name = "sloggers"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f01d37507aa6f37490cfa08d71e2639b16906e84c285ae4b9f7ec7ca35756d69"
-dependencies = [
- "chrono",
- "libflate",
- "regex",
- "serde",
- "slog",
- "slog-async",
- "slog-kvfilter",
- "slog-scope",
- "slog-stdlog",
- "slog-term",
- "trackable",
 ]
 
 [[package]]
@@ -6083,7 +6064,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slog",
- "sloggers 1.0.1",
+ "sloggers",
  "state_processing",
  "tempfile",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
