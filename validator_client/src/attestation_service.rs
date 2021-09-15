@@ -514,7 +514,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     crit!(
                         log,
                         "Failed to sign attestation";
-                        "error" => ?e
+                        "error" => ?e,
+                        "pubkey" => ?duty.pubkey,
                     );
                     None
                 }
