@@ -183,23 +183,31 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         // Spawn one task to publish all of the sync committee signatures.
         let validator_duties = slot_duties.duties;
+        let service = self.clone();
         self.inner.context.executor.spawn(
-            self.clone()
-                .publish_sync_committee_signatures(slot, block_root, validator_duties)
-                .map(|_| ()),
+            async move {
+                service
+                    .publish_sync_committee_signatures(slot, block_root, validator_duties)
+                    .map(|_| ())
+                    .await
+            },
             "sync_committee_signature_publish",
         );
 
         let aggregators = slot_duties.aggregators;
+        let service = self.clone();
         self.inner.context.executor.spawn(
-            self.clone()
-                .publish_sync_committee_aggregates(
-                    slot,
-                    block_root,
-                    aggregators,
-                    aggregate_production_instant,
-                )
-                .map(|_| ()),
+            async move {
+                service
+                    .publish_sync_committee_aggregates(
+                        slot,
+                        block_root,
+                        aggregators,
+                        aggregate_production_instant,
+                    )
+                    .map(|_| ())
+                    .await
+            },
             "sync_committee_aggregate_publish",
         );
 
@@ -208,32 +216,26 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
     /// Publish sync committee signatures.
     async fn publish_sync_committee_signatures(
-        self,
+        &self,
         slot: Slot,
         beacon_block_root: Hash256,
         validator_duties: Vec<SyncDuty>,
     ) -> Result<(), ()> {
-        let log = self.context.log().clone();
+        let log = self.context.log();
 
-        let mut committee_signatures = Vec::with_capacity(validator_duties.len());
-
-        // Produce the sync committee signatures in parallel.
-        let signature_results = join_all(validator_duties.iter().map(|duty| {
-            self.validator_store.produce_sync_committee_signature(
-                slot,
-                beacon_block_root,
-                duty.validator_index,
-                &duty.pubkey,
-            )
-        }))
-        .await;
-
-        for (duty, result) in validator_duties
-            .into_iter()
-            .zip(signature_results.into_iter())
-        {
-            match result {
-                Ok(signature) => committee_signatures.push(signature),
+        // Create futures to produce sync committee signatures.
+        let signature_futures = validator_duties.iter().map(|duty| async move {
+            match self
+                .validator_store
+                .produce_sync_committee_signature(
+                    slot,
+                    beacon_block_root,
+                    duty.validator_index,
+                    &duty.pubkey,
+                )
+                .await
+            {
+                Ok(signature) => Some(signature),
                 Err(e) => {
                     crit!(
                         log,
@@ -242,16 +244,22 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         "slot" => slot,
                         "error" => ?e,
                     );
+                    None
                 }
             }
-        }
+        });
 
-        let signatures_slice = &committee_signatures;
+        // Execute all the futures in parallel, collecting any successful results.
+        let committee_signatures = &join_all(signature_futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
         self.beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 beacon_node
-                    .post_beacon_pool_sync_committee_signatures(signatures_slice)
+                    .post_beacon_pool_sync_committee_signatures(committee_signatures)
                     .await
             })
             .await
@@ -276,7 +284,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     }
 
     async fn publish_sync_committee_aggregates(
-        self,
+        &self,
         slot: Slot,
         beacon_block_root: Hash256,
         aggregators: HashMap<SyncSubnetId, Vec<(u64, PublicKeyBytes, SyncSelectionProof)>>,
@@ -285,22 +293,25 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         for (subnet_id, subnet_aggregators) in aggregators {
             let service = self.clone();
             self.inner.context.executor.spawn(
-                service
-                    .publish_sync_committee_aggregate_for_subnet(
-                        slot,
-                        beacon_block_root,
-                        subnet_id,
-                        subnet_aggregators,
-                        aggregate_instant,
-                    )
-                    .map(|_| ()),
+                async move {
+                    service
+                        .publish_sync_committee_aggregate_for_subnet(
+                            slot,
+                            beacon_block_root,
+                            subnet_id,
+                            subnet_aggregators,
+                            aggregate_instant,
+                        )
+                        .map(|_| ())
+                        .await
+                },
                 "sync_committee_aggregate_publish_subnet",
             );
         }
     }
 
     async fn publish_sync_committee_aggregate_for_subnet(
-        self,
+        &self,
         slot: Slot,
         beacon_block_root: Hash256,
         subnet_id: SyncSubnetId,
@@ -311,7 +322,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let log = self.context.log();
 
-        let contribution = self
+        let contribution = &self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let sync_contribution_data = SyncContributionData {
@@ -344,41 +355,45 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             })?
             .data;
 
-        // Produce the signature in parallel.
-        let signed_contribution_results = join_all(subnet_aggregators.into_iter().map(
-            |(aggregator_index, aggregator_pk, selection_proof)| {
-                self.validator_store.produce_signed_contribution_and_proof(
-                    aggregator_index,
-                    aggregator_pk,
-                    contribution.clone(),
-                    selection_proof,
-                )
-            },
-        ))
-        .await;
-
-        // Process the results of the signatures.
-        let mut signed_contributions = Vec::with_capacity(signed_contribution_results.len());
-        for result in signed_contribution_results {
-            match result {
-                Ok(signed_contribution) => signed_contributions.push(signed_contribution),
-                Err(e) => {
-                    crit!(
-                        log,
-                        "Unable to sign sync committee contribution";
-                        "slot" => slot,
-                        "error" => ?e,
+        // Create futures to produce signed contributions.
+        let signature_futures = subnet_aggregators.into_iter().map(
+            |(aggregator_index, aggregator_pk, selection_proof)| async move {
+                match self
+                    .validator_store
+                    .produce_signed_contribution_and_proof(
+                        aggregator_index,
+                        aggregator_pk,
+                        contribution.clone(),
+                        selection_proof,
                     )
+                    .await
+                {
+                    Ok(signed_contribution) => Some(signed_contribution),
+                    Err(e) => {
+                        crit!(
+                            log,
+                            "Unable to sign sync committee contribution";
+                            "slot" => slot,
+                            "error" => ?e,
+                        );
+                        None
+                    }
                 }
-            }
-        }
+            },
+        );
+
+        // Execute all the futures in parallel, collecting any successful results.
+        let signed_contributions = &join_all(signature_futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
         // Publish to the beacon node.
-        let signed_contributions_slice = &signed_contributions;
         self.beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 beacon_node
-                    .post_validator_contribution_and_proofs(signed_contributions_slice)
+                    .post_validator_contribution_and_proofs(signed_contributions)
                     .await
             })
             .await
