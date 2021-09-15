@@ -509,64 +509,64 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                 }
             };
 
+            // Create futures to produce proofs.
             let duties_service_ref = &duties_service;
-            let selection_proof_results = join_all(
-                epoch
-                    .slot_iter(E::slots_per_epoch())
-                    .cartesian_product(&subnet_ids)
-                    .map(|(duty_slot, subnet_id)| async move {
-                        // Construct proof for prior slot.
-                        let slot = duty_slot - 1;
+            let futures = epoch
+                .slot_iter(E::slots_per_epoch())
+                .cartesian_product(&subnet_ids)
+                .map(|(duty_slot, subnet_id)| async move {
+                    // Construct proof for prior slot.
+                    let slot = duty_slot - 1;
 
-                        let result = duties_service_ref
-                            .validator_store
-                            .produce_sync_selection_proof(&duty.pubkey, slot, *subnet_id)
-                            .await;
+                    let proof = match duties_service_ref
+                        .validator_store
+                        .produce_sync_selection_proof(&duty.pubkey, slot, *subnet_id)
+                        .await
+                    {
+                        Ok(proof) => proof,
+                        Err(e) => {
+                            warn!(
+                                log,
+                                "Unable to sign selection proof";
+                                "error" => ?e,
+                                "pubkey" => ?duty.pubkey,
+                                "slot" => slot,
+                            );
+                            return None;
+                        }
+                    };
 
-                        (slot, subnet_id, result)
-                    }),
-            )
-            .await;
-
-            let mut proofs = vec![];
-            for (slot, subnet_id, result) in selection_proof_results {
-                let proof = match result {
-                    Ok(proof) => proof,
-                    Err(e) => {
-                        warn!(
-                            log,
-                            "Unable to sign selection proof";
-                            "error" => ?e,
-                            "pubkey" => ?duty.pubkey,
-                            "slot" => slot,
-                        );
-                        continue;
+                    match proof.is_aggregator::<E>() {
+                        Ok(true) => {
+                            debug!(
+                                log,
+                                "Validator is sync aggregator";
+                                "validator_index" => duty.validator_index,
+                                "slot" => slot,
+                                "subnet_id" => %subnet_id,
+                            );
+                            Some(((slot, *subnet_id), proof))
+                        }
+                        Ok(false) => None,
+                        Err(e) => {
+                            warn!(
+                                log,
+                                "Error determining is_aggregator";
+                                "pubkey" => ?duty.pubkey,
+                                "slot" => slot,
+                                "error" => ?e,
+                            );
+                            None
+                        }
                     }
-                };
+                });
 
-                match proof.is_aggregator::<E>() {
-                    Ok(true) => {
-                        debug!(
-                            log,
-                            "Validator is sync aggregator";
-                            "validator_index" => duty.validator_index,
-                            "slot" => slot,
-                            "subnet_id" => %subnet_id,
-                        );
-                        proofs.push(((slot, *subnet_id), proof));
-                    }
-                    Ok(false) => (),
-                    Err(e) => {
-                        warn!(
-                            log,
-                            "Error determining is_aggregator";
-                            "pubkey" => ?duty.pubkey,
-                            "slot" => slot,
-                            "error" => ?e,
-                        );
-                    }
-                }
-            }
+            // Execute all the futures in parallel, collecting any successful results.
+            let proofs = join_all(futures)
+                .await
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
 
             validator_proofs.push((duty.validator_index, proofs));
         }
