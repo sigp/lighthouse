@@ -183,6 +183,16 @@ where
 
             ClientGenesis::DepositContract
         } else if chain_exists {
+            if matches!(client_genesis, ClientGenesis::WeakSubjSszBytes { .. })
+                || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
+            {
+                info!(
+                    context.log(),
+                    "Refusing to check-point sync";
+                    "msg" => "database already exists, use --purge-db to force check-point sync"
+                );
+            }
+
             ClientGenesis::FromStore
         } else {
             client_genesis
