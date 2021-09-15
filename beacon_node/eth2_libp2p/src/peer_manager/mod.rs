@@ -58,7 +58,7 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
 pub const PEER_EXCESS_FACTOR: f32 = 0.1;
 /// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
-pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.1;
+pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
@@ -327,10 +327,37 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         match &endpoint {
             ConnectedPoint::Listener { .. } => {
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming", "connections" => %num_established);
+                // Update metrics
+
+                // Update the NAT status if there is a port in the ENR
+                if self.network_globals.local_enr.read().udp().is_some() {
+                    metrics::check_nat();
+                }
+                metrics::inc_gauge(&metrics::NETWORK_INBOUND_PEERS);
             }
             ConnectedPoint::Dialer { .. } => {
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Outgoing", "connections" => %num_established);
+                // Update metrics
+                // Update the NAT status if there is a port in the ENR
+                if self.network_globals.local_enr.read().udp().is_some() {
+                    metrics::check_nat();
+                }
+                metrics::inc_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
             }
+        }
+
+        // Increment the PEERS_PER_CLIENT metric.
+        // NOTE: This metric can be larger than the connected_peers client temporarily as we
+        // register the connection regardless if we are about to drop the connection because of
+        // banned peers or because of reaching our connection limit.
+        if let Some(kind) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(&peer_id)
+            .map(|peer_info| peer_info.client.kind.clone())
+        {
+            metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]);
         }
 
         // Should not be able to connect to a banned peer. Double check here
@@ -389,16 +416,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Update the metrics
         if num_established == std::num::NonZeroU32::new(1).expect("valid") {
-            // Increment the PEERS_PER_CLIENT metric
-            if let Some(kind) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(&peer_id)
-                .map(|peer_info| peer_info.client.kind.clone())
-            {
-                metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]);
-            }
 
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
             metrics::set_gauge(
@@ -763,7 +780,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         multiaddr: Multiaddr,
         enr: Option<Enr>,
     ) -> bool {
-        metrics::inc_gauge(&metrics::NETWORK_INBOUND_PEERS);
+
         self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
     }
 
@@ -775,7 +792,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         multiaddr: Multiaddr,
         enr: Option<Enr>,
     ) -> bool {
-        metrics::inc_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
+
         self.inject_peer_connection(
             peer_id,
             ConnectingType::OutgoingConnected { multiaddr },
@@ -1141,7 +1158,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     );
                 }
 
-                let score_peers = avg_score_per_client
+                let mut score_peers = *avg_score_per_client
                     .entry(peer_info.client.kind.to_string())
                     .or_default();
                 score_peers.0 += peer_info.score().score();

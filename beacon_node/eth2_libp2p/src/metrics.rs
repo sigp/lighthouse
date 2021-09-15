@@ -1,6 +1,10 @@
 pub use lighthouse_metrics::*;
 
 lazy_static! {
+    pub static ref NAT_OPEN: Result<IntCounter> = try_create_int_counter(
+        "nat_open",
+        "An estimate indicating if the local node is exposed to the internet."
+    );
     pub static ref ADDRESS_UPDATE_COUNT: Result<IntCounter> = try_create_int_counter(
         "libp2p_address_update_total",
         "Count of libp2p socked updated events (when our view of our IP address has changed)"
@@ -98,6 +102,26 @@ lazy_static! {
     pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
         try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
 
+}
+
+/// Checks if we consider the NAT open.
+///
+/// Conditions for an open NAT:
+/// 1. We have 1 or more SOCKET_UPDATED messages. This occurs when discovery has a majority of
+///    users reporting an external port and our ENR gets updated.
+/// 2. We have 0 SOCKET_UPDATED messages (can be true if the port was correct on boot), then we
+///    rely on whether we have any inbound messages. If we have no socket update messages, but
+///    manage to get at least one inbound peer, we are exposed correctly.
+pub fn check_nat() {
+    // NAT is already deemed open.
+    if NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0 {
+        return;
+    }
+    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) == 0 {
+        inc_counter(&NAT_OPEN);
+    } else if &NETWORK_INBOUND_PEERS.as_ref().map(|v| v.get()).unwrap_or(0) != &(0 as i64) {
+        inc_counter(&NAT_OPEN);
+    }
 }
 
 pub fn scrape_discovery_metrics() {

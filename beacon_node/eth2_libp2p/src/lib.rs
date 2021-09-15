@@ -10,7 +10,7 @@ mod config;
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
-mod metrics;
+pub mod metrics;
 mod peer_manager;
 pub mod rpc;
 mod service;
