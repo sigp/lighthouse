@@ -84,8 +84,8 @@ lazy_static! {
             &["position"]
         );
 
-    pub static ref PEER_SCORE_PER_CLIENT: Result<IntGaugeVec> =
-        try_create_int_gauge_vec(
+    pub static ref PEER_SCORE_PER_CLIENT: Result<GaugeVec> =
+        try_create_float_gauge_vec(
             "peer_score_per_client",
             "Average score per client",
             &["client"]

@@ -359,7 +359,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         {
             metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]);
         } else {
-            metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&self::client::ClientKind::Unknown.to_string()]);
+            metrics::inc_gauge_vec(
+                &metrics::PEERS_PER_CLIENT,
+                &[&self::client::ClientKind::Unknown.to_string()],
+            );
         }
 
         // Should not be able to connect to a banned peer. Double check here
@@ -418,7 +421,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Update the metrics
         if num_established == std::num::NonZeroU32::new(1).expect("valid") {
-
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
             metrics::set_gauge(
                 &metrics::PEERS_CONNECTED,
@@ -456,10 +458,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // Decrement the PEERS_PER_CLIENT metric
             if let Some(peer_info) = self.network_globals.peers.read().peer_info(&peer_id) {
-                    metrics::dec_gauge_vec(
-                        &metrics::PEERS_PER_CLIENT,
-                        &[&peer_info.client.kind.to_string()],
-                    )
+                metrics::dec_gauge_vec(
+                    &metrics::PEERS_PER_CLIENT,
+                    &[&peer_info.client.kind.to_string()],
+                )
             }
 
             // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
@@ -523,12 +525,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             if previous_kind != peer_info.client.kind {
                 // update the peer client kind metric if the peer is connected
-                if matches!(peer_info.connection_status(), PeerConnectionStatus::Connected {..} | PeerConnectionStatus::Disconnecting { .. } ) {
-                metrics::inc_gauge_vec(
-                    &metrics::PEERS_PER_CLIENT,
-                    &[&peer_info.client.kind.to_string()],
-                );
-                metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&previous_kind.to_string()]);
+                if matches!(
+                    peer_info.connection_status(),
+                    PeerConnectionStatus::Connected { .. }
+                        | PeerConnectionStatus::Disconnecting { .. }
+                ) {
+                    metrics::inc_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&peer_info.client.kind.to_string()],
+                    );
+                    metrics::dec_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&previous_kind.to_string()],
+                    );
                 }
             }
         } else {
@@ -782,7 +791,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         multiaddr: Multiaddr,
         enr: Option<Enr>,
     ) -> bool {
-
         self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
     }
 
@@ -794,7 +802,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         multiaddr: Multiaddr,
         enr: Option<Enr>,
     ) -> bool {
-
         self.inject_peer_connection(
             peer_id,
             ConnectingType::OutgoingConnected { multiaddr },
@@ -1169,10 +1176,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         } // read lock ended
 
         for (client, (score, peers)) in avg_score_per_client {
-            metrics::set_gauge_vec(
+            metrics::set_float_gauge_vec(
                 &metrics::PEER_SCORE_PER_CLIENT,
                 &[&client.to_string()],
-                (score / (peers as f64)) as i64,
+                score / (peers as f64),
             );
         }
     }

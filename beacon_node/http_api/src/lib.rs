@@ -2209,7 +2209,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|| {
             blocking_json_task(move || {
                 Ok(api_types::GenericResponse::from(
-                    eth2_libp2p::metrics::NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0,
+                    eth2_libp2p::metrics::NAT_OPEN
+                        .as_ref()
+                        .map(|v| v.get())
+                        .unwrap_or(0)
+                        != 0,
                 ))
             })
         });
