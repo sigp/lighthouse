@@ -186,7 +186,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             );
 
             // Log if we are backfilling.
-            if matches!(current_sync_state, SyncState::BackFillSyncing { .. })
+            let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
+            if is_backfilling
                 && last_backfill_log_slot
                     .map_or(true, |slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
             {
@@ -217,6 +218,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
                     );
                 }
+            } else if !is_backfilling && last_backfill_log_slot.is_some() {
+                last_backfill_log_slot = None;
+                info!(
+                    log,
+                    "Historical block download complete";
+                );
             }
 
             // Log if we are syncing
