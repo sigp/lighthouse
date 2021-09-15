@@ -188,8 +188,8 @@ where
             {
                 info!(
                     context.log(),
-                    "Refusing to check-point sync";
-                    "msg" => "database already exists, use --purge-db to force check-point sync"
+                    "Refusing to checkpoint sync";
+                    "msg" => "database already exists, use --purge-db to force checkpoint sync"
                 );
             }
 
