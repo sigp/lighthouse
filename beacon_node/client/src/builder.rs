@@ -14,7 +14,7 @@ use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
     types::{BlockId, StateId},
-    BeaconNodeHttpClient, Timeouts,
+    BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
@@ -183,6 +183,16 @@ where
 
             ClientGenesis::DepositContract
         } else if chain_exists {
+            if matches!(client_genesis, ClientGenesis::WeakSubjSszBytes { .. })
+                || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
+            {
+                info!(
+                    context.log(),
+                    "Refusing to checkpoint sync";
+                    "msg" => "database already exists, use --purge-db to force checkpoint sync"
+                );
+            }
+
             ClientGenesis::FromStore
         } else {
             client_genesis
@@ -246,7 +256,14 @@ where
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
                     .await
-                    .map_err(|e| format!("Error fetching finalized block from remote: {:?}", e))?
+                    .map_err(|e| match e {
+                        ApiError::InvalidSsz(e) => format!(
+                            "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                            node for the correct network",
+                            e
+                        ),
+                        e => format!("Error fetching finalized block from remote: {:?}", e),
+                    })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
 
                 let mut block_slot = block.slot();
