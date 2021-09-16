@@ -43,7 +43,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Import and aggregate all attestations, regardless of validator subscriptions. \
                        This will only import attestations from already-subscribed subnets, use with \
                        --subscribe-all-subnets to ensure all attestations are received for import.")
-                .takes_value(false),
+                .takes_value(true)
+                .default_value("true")
+                .possible_values(&["true", "false"])
         )
         .arg(
             Arg::with_name("disable-packet-filter")

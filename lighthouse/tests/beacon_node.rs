@@ -308,6 +308,26 @@ fn network_import_all_attestations_flag() {
         .with_config(|config| assert!(config.network.import_all_attestations));
 }
 #[test]
+fn network_import_all_attestations_true_flag() {
+    CommandLineTest::new()
+        .flag("import-all-attestations", Some("true"))
+        .run()
+        .with_config(|config| assert!(config.network.import_all_attestations));
+}
+#[test]
+fn network_import_all_attestations_false_flag() {
+    CommandLineTest::new()
+        .flag("import-all-attestations", Some("false"))
+        .run()
+        .with_config(|config| assert!(!config.network.import_all_attestations));
+}
+#[test]
+fn network_import_all_attestations_on_by_default_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.network.import_all_attestations));
+}
+#[test]
 fn network_shutdown_after_sync_flag() {
     CommandLineTest::new()
         .flag("shutdown-after-sync", None)

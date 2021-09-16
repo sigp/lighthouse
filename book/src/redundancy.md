@@ -61,8 +61,6 @@ following flags:
 	`5052`). This is only required if your backup node is on a different host.
 - `--subscribe-all-subnets`: ensures that the beacon node subscribes to *all*
 	subnets, not just on-demand requests from validators.
-- `--import-all-attestations`: ensures that the beacon node performs
-	aggregation on all seen attestations.
 
 Subsequently, one could use the following command to provide a backup beacon
 node:
@@ -71,25 +69,23 @@ node:
 lighthouse bn \
   --staking \
   --http-address 0.0.0.0 \
-  --subscribe-all-subnets \
-  --import-all-attestations
+  --subscribe-all-subnets
 ```
 
 ### Resource usage of redundant Beacon Nodes
 
-The `--subscribe-all-subnets` and `--import-all-attestations` flags typically
-cause a significant increase in resource consumption. A doubling in CPU
-utilization and RAM consumption is expected.
+The `--subscribe-all-subnets` flag typically causes a significant increase in resource consumption.
+A doubling in CPU utilization and RAM consumption is expected.
 
 The increase in resource consumption is due to the fact that the beacon node is
 now processing, validating, aggregating and forwarding *all* attestations,
 whereas previously it was likely only doing a fraction of this work. Without
-these flags, subscription to attestation subnets and aggregation of
+this flag, subscription to attestation subnets and aggregation of
 attestations is only performed for validators which [explicitly request
 subscriptions](subscribe-api).
 
 There are 64 subnets and each validator will result in a subscription to *at
-least* one subnet. So, using the two aforementioned flags will result in
+least* one subnet. So, using the aforementioned flag will result in
 resource consumption akin to running 64+ validators.
 
 ## Redundant Eth1 nodes

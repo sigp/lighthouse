@@ -463,8 +463,8 @@ pub fn set_network_config(
         config.subscribe_all_subnets = true;
     }
 
-    if cli_args.is_present("import-all-attestations") {
-        config.import_all_attestations = true;
+    if let Some(import_all) = clap_utils::parse_optional(cli_args, "import-all-attestations")? {
+        config.import_all_attestations = import_all;
     }
 
     if cli_args.is_present("shutdown-after-sync") {

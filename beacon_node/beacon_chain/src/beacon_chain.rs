@@ -2387,6 +2387,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.spec,
                 );
             }
+
+            // Only add to the op pool if within 32 slots of the current slot. This usually doesn't
+            // gain us anything, but may net a few attestations in the case of a re-org.
+            if block.slot() + T::EthSpec::slots_per_epoch() >= current_slot {
+                self.op_pool
+                    .insert_attestation(
+                        attestation.clone(),
+                        &state.fork(),
+                        self.genesis_validators_root,
+                        &self.spec,
+                    )
+                    .map_err(Error::from)?;
+            }
         }
 
         // Register sync aggregate with validator monitor
