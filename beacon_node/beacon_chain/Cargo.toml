@@ -12,6 +12,7 @@ test_logger = [] # Print log output to stderr when running tests instead of drop
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 
 [dev-dependencies]
+maplit = "1.0.2"
 environment = { path = "../../lighthouse/environment" }
 
 [dependencies]

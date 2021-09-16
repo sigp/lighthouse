@@ -30,6 +30,7 @@ directory = { path = "../common/directory" }
 lockfile = { path = "../common/lockfile" }
 environment = { path = "../lighthouse/environment" }
 parking_lot = "0.11.0"
+exit-future = "0.2.0"
 filesystem = { path = "../common/filesystem" }
 hex = "0.4.2"
 deposit_contract = { path = "../common/deposit_contract" }
