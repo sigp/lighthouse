@@ -58,6 +58,11 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
         set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
 
+        // Set the enr-udp-port to the default listening port if it was not specified.
+        if !matches.is_present("enr-udp-port") {
+            network_config.enr_udp_port = Some(network_config.discovery_port);
+        }
+
         // By default this is enabled. If it is not set, revert to false.
         if !matches.is_present("enable-enr_auto_update") {
             network_config.discv5_config.enable_packet_filter = false;
