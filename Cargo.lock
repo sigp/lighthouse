@@ -6972,6 +6972,7 @@ dependencies = [
  "parking_lot",
  "rand 0.7.3",
  "rayon",
+ "reqwest",
  "ring",
  "safe_arith",
  "scrypt",
@@ -6990,6 +6991,7 @@ dependencies = [
  "tokio",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types",
+ "url",
  "validator_dir",
  "warp",
  "warp_utils",
@@ -7293,6 +7295,31 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "web3signer_tests"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "environment",
+ "eth2_keystore",
+ "eth2_network_config",
+ "exit-future",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_yaml",
+ "slot_clock",
+ "task_executor",
+ "tempfile",
+ "tokio",
+ "types",
+ "url",
+ "validator_client",
+ "zip",
 ]
 
 [[package]]

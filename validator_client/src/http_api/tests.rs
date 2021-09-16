@@ -4,7 +4,8 @@
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
-    Config, InitializedValidators, ValidatorDefinitions, ValidatorStore,
+    initialized_validators::InitializedValidators,
+    Config, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
@@ -27,6 +28,7 @@ use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
+use task_executor::TaskExecutor;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
@@ -41,6 +43,7 @@ struct ApiTester {
     url: SensitiveUrl,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
+    _runtime_shutdown: exit_future::Signal,
 }
 
 // Builds a runtime to be used in the testing configuration.
@@ -85,6 +88,10 @@ impl ApiTester {
         let slot_clock =
             TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
 
+        let (runtime_shutdown, exit) = exit_future::signal();
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = TaskExecutor::new(runtime.clone(), exit, log.clone(), shutdown_tx);
+
         let validator_store = ValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
@@ -92,6 +99,7 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
+            executor,
             log.clone(),
         );
 
@@ -141,6 +149,7 @@ impl ApiTester {
             client,
             url,
             _server_shutdown: shutdown_tx,
+            _runtime_shutdown: runtime_shutdown,
         }
     }
 
@@ -425,6 +434,40 @@ impl ApiTester {
         self
     }
 
+    pub async fn create_web3signer_validators(self, s: Web3SignerValidatorScenario) -> Self {
+        let initial_vals = self.vals_total();
+        let initial_enabled_vals = self.vals_enabled();
+
+        let request: Vec<_> = (0..s.count)
+            .map(|i| {
+                let kp = Keypair::random();
+                Web3SignerValidatorRequest {
+                    enable: s.enabled,
+                    description: format!("{}", i),
+                    graffiti: None,
+                    voting_public_key: kp.pk,
+                    url: format!("http://signer_{}.com/", i),
+                    root_certificate_path: None,
+                    request_timeout_ms: None,
+                }
+            })
+            .collect();
+
+        self.client
+            .post_lighthouse_validators_web3signer(&request)
+            .await
+            .unwrap_err();
+
+        assert_eq!(self.vals_total(), initial_vals + s.count);
+        if s.enabled {
+            assert_eq!(self.vals_enabled(), initial_enabled_vals + s.count);
+        } else {
+            assert_eq!(self.vals_enabled(), initial_enabled_vals);
+        };
+
+        self
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
@@ -478,6 +521,11 @@ struct HdValidatorScenario {
 struct KeystoreValidatorScenario {
     enabled: bool,
     correct_password: bool,
+}
+
+struct Web3SignerValidatorScenario {
+    count: usize,
+    enabled: bool,
 }
 
 #[test]
@@ -675,5 +723,24 @@ fn keystore_validator_creation() {
             .await
             .assert_enabled_validators_count(1)
             .assert_validators_count(2);
+    });
+}
+
+#[test]
+fn web3signer_validator_creation() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .assert_enabled_validators_count(0)
+            .assert_validators_count(0)
+            .create_web3signer_validators(Web3SignerValidatorScenario {
+                count: 1,
+                enabled: true,
+            })
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(1);
     });
 }

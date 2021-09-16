@@ -1,6 +1,8 @@
 use crate::{
-    doppelganger_service::DoppelgangerService, http_metrics::metrics,
+    doppelganger_service::DoppelgangerService,
+    http_metrics::metrics,
     initialized_validators::InitializedValidators,
+    signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -11,12 +13,13 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, Attestation, BeaconBlock,
-    ChainSpec, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedRoot, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId,
+    attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
+    Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
+    Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -32,6 +35,13 @@ pub enum Error {
     GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
     GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
+    UnableToSign(SigningError),
+}
+
+impl From<SigningError> for Error {
+    fn from(e: SigningError) -> Self {
+        Error::UnableToSign(e)
+    }
 }
 
 /// Number of epochs of slashing protection history to keep.
@@ -73,10 +83,14 @@ pub struct ValidatorStore<T, E: EthSpec> {
     log: Logger,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
+    task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
+    // All arguments are different types. Making the fields `pub` is undesired. A builder seems
+    // unnecessary.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
@@ -84,6 +98,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         spec: ChainSpec,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
+        task_executor: TaskExecutor,
         log: Logger,
     ) -> Self {
         Self {
@@ -95,6 +110,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             doppelganger_service,
             slot_clock,
+            task_executor,
             _phantom: PhantomData,
         }
     }
@@ -124,12 +140,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
     /// keystore on the filesystem.
-    ///
-    /// This function includes:
-    ///
-    /// - Add the validator definition to the YAML file, saving it to the filesystem.
-    /// - Enable validator with the slashing protection database.
-    /// - If `enable == true`, start performing duties for the validator.
     pub async fn add_validator_keystore<P: AsRef<Path>>(
         &self,
         voting_keystore_path: P,
@@ -144,13 +154,27 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
+        validator_def.enabled = enable;
+
+        self.add_validator(validator_def).await
+    }
+
+    /// Insert a new validator to `self`.
+    ///
+    /// This function includes:
+    ///
+    /// - Adding the validator definition to the YAML file, saving it to the filesystem.
+    /// - Enabling the validator with the slashing protection database.
+    /// - If `enable == true`, starting to perform duties for the validator.
+    pub async fn add_validator(
+        &self,
+        validator_def: ValidatorDefinition,
+    ) -> Result<ValidatorDefinition, String> {
         let validator_pubkey = validator_def.voting_public_key.compress();
 
         self.slashing_protection
             .register_validator(validator_pubkey)
             .map_err(|e| format!("failed to register validator: {:?}", e))?;
-
-        validator_def.enabled = enable;
 
         if let Some(doppelganger_service) = &self.doppelganger_service {
             doppelganger_service
@@ -260,63 +284,72 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
-    /// Runs `func`, providing it access to the `Keypair` corresponding to `validator_pubkey`.
-    ///
-    /// This forms the canonical point for accessing the secret key of some validator. It is
-    /// structured as a `with_...` function since we need to pass-through a read-lock in order to
-    /// access the keypair.
-    ///
-    /// Access to keypairs might be restricted by other internal mechanisms (e.g., doppleganger
-    /// protection).
+    /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
+    /// by doppelganger protection.
+    fn doppelganger_checked_signing_method(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+    ) -> Result<Arc<SigningMethod>, Error> {
+        if self.doppelganger_protection_allows_signing(validator_pubkey) {
+            self.validators
+                .read()
+                .signing_method(&validator_pubkey)
+                .ok_or(Error::UnknownPubkey(validator_pubkey))
+        } else {
+            Err(Error::DoppelgangerProtected(validator_pubkey))
+        }
+    }
+
+    /// Returns a `SigningMethod` for `validator_pubkey` regardless of that validators doppelganger
+    /// protection status.
     ///
     /// ## Warning
     ///
-    /// This function takes a read-lock on `self.validators`. To prevent deadlocks, it is advised to
-    /// never take any sort of concurrency lock inside this function.
-    fn with_validator_keypair<F, R>(
+    /// This method should only be used for signing non-slashable messages.
+    fn doppelganger_bypassed_signing_method(
         &self,
         validator_pubkey: PublicKeyBytes,
-        func: F,
-    ) -> Result<R, Error>
-    where
-        F: FnOnce(&Keypair) -> R,
-    {
-        // If the doppelganger service is active, check to ensure it explicitly permits signing by
-        // this validator.
-        if !self.doppelganger_protection_allows_signing(validator_pubkey) {
-            return Err(Error::DoppelgangerProtected(validator_pubkey));
-        }
-
-        let validators_lock = self.validators.read();
-
-        Ok(func(
-            validators_lock
-                .voting_keypair(&validator_pubkey)
-                .ok_or(Error::UnknownPubkey(validator_pubkey))?,
-        ))
+    ) -> Result<Arc<SigningMethod>, Error> {
+        self.validators
+            .read()
+            .signing_method(&validator_pubkey)
+            .ok_or(Error::UnknownPubkey(validator_pubkey))
     }
 
-    pub fn randao_reveal(
+    fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
+        SigningContext {
+            domain,
+            epoch: signing_epoch,
+            fork: self.fork(signing_epoch),
+            genesis_validators_root: self.genesis_validators_root,
+        }
+    }
+
+    pub async fn randao_reveal(
         &self,
         validator_pubkey: PublicKeyBytes,
-        epoch: Epoch,
+        signing_epoch: Epoch,
     ) -> Result<Signature, Error> {
-        let domain = self.spec.get_domain(
-            epoch,
-            Domain::Randao,
-            &self.fork(epoch),
-            self.genesis_validators_root,
-        );
-        let message = epoch.signing_root(domain);
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signing_context = self.signing_context(Domain::Randao, signing_epoch);
 
-        self.with_validator_keypair(validator_pubkey, |keypair| keypair.sk.sign(message))
+        let signature = signing_method
+            .get_signature::<E>(
+                SignableMessage::RandaoReveal(signing_epoch),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        Ok(signature)
     }
 
     pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
-    pub fn sign_block(
+    pub async fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E>,
@@ -336,19 +369,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             });
         }
 
-        // Check for slashing conditions.
-        let fork = self.fork(block.epoch());
-        let domain = self.spec.get_domain(
-            block.epoch(),
-            Domain::BeaconProposer,
-            &fork,
-            self.genesis_validators_root,
-        );
+        let signing_epoch = block.epoch();
+        let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
+        let domain_hash = signing_context.domain_hash(&self.spec);
 
+        // Check for slashing conditions.
         let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
             &validator_pubkey,
             &block.block_header(),
-            domain,
+            domain_hash,
         );
 
         match slashing_status {
@@ -356,9 +385,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
 
-                self.with_validator_keypair(validator_pubkey, move |keypair| {
-                    block.sign(&keypair.sk, &fork, self.genesis_validators_root, &self.spec)
-                })
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signature = signing_method
+                    .get_signature(
+                        SignableMessage::BeaconBlock(&block),
+                        signing_context,
+                        &self.spec,
+                        &self.task_executor,
+                    )
+                    .await?;
+                Ok(SignedBeaconBlock::from_block(block, signature))
             }
             Ok(Safe::SameData) => {
                 warn!(
@@ -390,7 +426,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub fn sign_attestation(
+    pub async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
@@ -406,33 +442,30 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
 
         // Checking for slashing conditions.
-        let fork = self.fork(attestation.data.target.epoch);
-
-        let domain = self.spec.get_domain(
-            attestation.data.target.epoch,
-            Domain::BeaconAttester,
-            &fork,
-            self.genesis_validators_root,
-        );
+        let signing_epoch = attestation.data.target.epoch;
+        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+        let domain_hash = signing_context.domain_hash(&self.spec);
         let slashing_status = self.slashing_protection.check_and_insert_attestation(
             &validator_pubkey,
             &attestation.data,
-            domain,
+            domain_hash,
         );
 
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                self.with_validator_keypair(validator_pubkey, |keypair| {
-                    attestation.sign(
-                        &keypair.sk,
-                        validator_committee_position,
-                        &fork,
-                        self.genesis_validators_root,
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signature = signing_method
+                    .get_signature::<E>(
+                        SignableMessage::AttestationData(&attestation.data),
+                        signing_context,
                         &self.spec,
+                        &self.task_executor,
                     )
-                })?
-                .map_err(Error::UnableToSignAttestation)?;
+                    .await?;
+                attestation
+                    .add_signature(&signature, validator_committee_position)
+                    .map_err(Error::UnableToSignAttestation)?;
 
                 metrics::inc_counter_vec(&metrics::SIGNED_ATTESTATIONS_TOTAL, &[metrics::SUCCESS]);
 
@@ -482,149 +515,182 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    pub fn produce_signed_aggregate_and_proof(
+    pub async fn produce_signed_aggregate_and_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
-        validator_index: u64,
+        aggregator_index: u64,
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
     ) -> Result<SignedAggregateAndProof<E>, Error> {
-        let fork = self.fork(aggregate.data.target.epoch);
+        let signing_epoch = aggregate.data.target.epoch;
+        let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
 
-        let proof = self.with_validator_keypair(validator_pubkey, move |keypair| {
-            SignedAggregateAndProof::from_aggregate(
-                validator_index,
-                aggregate,
-                Some(selection_proof),
-                &keypair.sk,
-                &fork,
-                self.genesis_validators_root,
+        let message = AggregateAndProof {
+            aggregator_index,
+            aggregate,
+            selection_proof: selection_proof.into(),
+        };
+
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signature = signing_method
+            .get_signature(
+                SignableMessage::SignedAggregateAndProof(&message),
+                signing_context,
                 &self.spec,
+                &self.task_executor,
             )
-        })?;
+            .await?;
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
-        Ok(proof)
+        Ok(SignedAggregateAndProof { message, signature })
     }
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
-    pub fn produce_selection_proof(
+    pub async fn produce_selection_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
-        // Bypass the `with_validator_keypair` function.
+        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_context = self.signing_context(Domain::SelectionProof, signing_epoch);
+
+        // Bypass the `with_validator_signing_method` function.
         //
         // This is because we don't care about doppelganger protection when it comes to selection
         // proofs. They are not slashable and we need them to subscribe to subnets on the BN.
         //
         // As long as we disallow `SignedAggregateAndProof` then these selection proofs will never
         // be published on the network.
-        let validators_lock = self.validators.read();
-        let keypair = validators_lock
-            .voting_keypair(&validator_pubkey)
-            .ok_or(Error::UnknownPubkey(validator_pubkey))?;
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
-        let proof = SelectionProof::new::<E>(
-            slot,
-            &keypair.sk,
-            &self.fork(slot.epoch(E::slots_per_epoch())),
-            self.genesis_validators_root,
-            &self.spec,
-        );
+        let signature = signing_method
+            .get_signature::<E>(
+                SignableMessage::SelectionProof(slot),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::UnableToSign)?;
 
         metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
 
-        Ok(proof)
+        Ok(signature.into())
     }
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
-    pub fn produce_sync_selection_proof(
+    pub async fn produce_sync_selection_proof(
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         subnet_id: SyncSubnetId,
     ) -> Result<SyncSelectionProof, Error> {
-        // Bypass `with_validator_keypair`: sync committee messages are not slashable.
-        let validators = self.validators.read();
-        let voting_keypair = validators
-            .voting_keypair(validator_pubkey)
-            .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
+        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_context =
+            self.signing_context(Domain::SyncCommitteeSelectionProof, signing_epoch);
+
+        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         metrics::inc_counter_vec(
             &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
             &[metrics::SUCCESS],
         );
 
-        Ok(SyncSelectionProof::new::<E>(
+        let message = SyncAggregatorSelectionData {
             slot,
-            subnet_id.into(),
-            &voting_keypair.sk,
-            &self.fork(slot.epoch(E::slots_per_epoch())),
-            self.genesis_validators_root,
-            &self.spec,
-        ))
+            subcommittee_index: subnet_id.into(),
+        };
+
+        let signature = signing_method
+            .get_signature::<E>(
+                SignableMessage::SyncSelectionProof(&message),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::UnableToSign)?;
+
+        Ok(signature.into())
     }
 
-    pub fn produce_sync_committee_signature(
+    pub async fn produce_sync_committee_signature(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
         validator_index: u64,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<SyncCommitteeMessage, Error> {
-        // Bypass `with_validator_keypair`: sync committee messages are not slashable.
-        let validators = self.validators.read();
-        let voting_keypair = validators
-            .voting_keypair(validator_pubkey)
-            .ok_or(Error::UnknownPubkey(*validator_pubkey))?;
+        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
+
+        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E>(
+                SignableMessage::SyncCommitteeSignature {
+                    beacon_block_root,
+                    slot,
+                },
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::UnableToSign)?;
 
         metrics::inc_counter_vec(
             &metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
             &[metrics::SUCCESS],
         );
 
-        Ok(SyncCommitteeMessage::new::<E>(
+        Ok(SyncCommitteeMessage {
             slot,
             beacon_block_root,
             validator_index,
-            &voting_keypair.sk,
-            &self.fork(slot.epoch(E::slots_per_epoch())),
-            self.genesis_validators_root,
-            &self.spec,
-        ))
+            signature,
+        })
     }
 
-    pub fn produce_signed_contribution_and_proof(
+    pub async fn produce_signed_contribution_and_proof(
         &self,
         aggregator_index: u64,
-        aggregator_pubkey: &PublicKeyBytes,
+        aggregator_pubkey: PublicKeyBytes,
         contribution: SyncCommitteeContribution<E>,
         selection_proof: SyncSelectionProof,
     ) -> Result<SignedContributionAndProof<E>, Error> {
-        // Bypass `with_validator_keypair`: sync committee messages are not slashable.
-        let validators = self.validators.read();
-        let voting_keypair = validators
-            .voting_keypair(aggregator_pubkey)
-            .ok_or(Error::UnknownPubkey(*aggregator_pubkey))?;
-        let fork = self.fork(contribution.slot.epoch(E::slots_per_epoch()));
+        let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
+        let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
+
+        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
+        let signing_method = self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
+
+        let message = ContributionAndProof {
+            aggregator_index,
+            contribution,
+            selection_proof: selection_proof.into(),
+        };
+
+        let signature = signing_method
+            .get_signature(
+                SignableMessage::SignedContributionAndProof(&message),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::UnableToSign)?;
 
         metrics::inc_counter_vec(
             &metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
             &[metrics::SUCCESS],
         );
 
-        Ok(SignedContributionAndProof::from_aggregate(
-            aggregator_index,
-            contribution,
-            Some(selection_proof),
-            &voting_keypair.sk,
-            &fork,
-            self.genesis_validators_root,
-            &self.spec,
-        ))
+        Ok(SignedContributionAndProof { message, signature })
     }
 
     /// Prune the slashing protection database so that it remains performant.

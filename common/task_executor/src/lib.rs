@@ -237,39 +237,33 @@ impl TaskExecutor {
     {
         let log = self.log.clone();
 
-        if let Some(metric) = metrics::get_histogram(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]) {
-            if let Some(int_gauge) = metrics::get_int_gauge(&metrics::BLOCKING_TASKS_COUNT, &[name])
-            {
-                let int_gauge_1 = int_gauge;
-                let timer = metric.start_timer();
-                let join_handle = if let Some(runtime) = self.runtime.upgrade() {
-                    runtime.spawn_blocking(task)
-                } else {
-                    debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                    return None;
-                };
+        let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
+        metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
-                Some(async move {
-                    let result = match join_handle.await {
-                        Ok(result) => {
-                            trace!(log, "Blocking task completed"; "task" => name);
-                            Ok(result)
-                        }
-                        Err(e) => {
-                            debug!(log, "Blocking task ended unexpectedly"; "error" => %e);
-                            Err(e)
-                        }
-                    };
-                    timer.observe_duration();
-                    int_gauge_1.dec();
-                    result
-                })
-            } else {
-                None
-            }
+        let join_handle = if let Some(runtime) = self.runtime.upgrade() {
+            runtime.spawn_blocking(task)
         } else {
-            None
-        }
+            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            return None;
+        };
+
+        let future = async move {
+            let result = match join_handle.await {
+                Ok(result) => {
+                    trace!(log, "Blocking task completed"; "task" => name);
+                    Ok(result)
+                }
+                Err(e) => {
+                    debug!(log, "Blocking task ended unexpectedly"; "error" => %e);
+                    Err(e)
+                }
+            };
+            drop(timer);
+            metrics::dec_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
+            result
+        };
+
+        Some(future)
     }
 
     pub fn runtime(&self) -> Weak<Runtime> {
