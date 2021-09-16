@@ -32,6 +32,7 @@ environment = { path = "../lighthouse/environment" }
 parking_lot = "0.11.0"
 filesystem = { path = "../common/filesystem" }
 hex = "0.4.2"
+deposit_contract = { path = "../common/deposit_contract" }
 bls = { path = "../crypto/bls" }
 eth2 = { path = "../common/eth2" }
 tempfile = "3.1.0"

@@ -1741,6 +1741,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "sha2",
+ "tempfile",
  "unicode-normalization",
  "uuid",
  "zeroize",
@@ -1902,6 +1903,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
+ "tempfile",
  "tiny-bip39",
  "uuid",
 ]
@@ -1912,6 +1914,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_wallet",
  "lockfile",
+ "tempfile",
 ]
 
 [[package]]
@@ -2630,7 +2633,6 @@ dependencies = [
  "slog",
  "slot_clock",
  "state_processing",
- "store",
  "tokio",
  "tokio-stream",
  "tree_hash 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3612,6 +3614,7 @@ dependencies = [
  "env_logger 0.9.0",
  "environment",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_libp2p",
  "eth2_network_config",
  "futures",
  "lazy_static",
@@ -3626,6 +3629,7 @@ dependencies = [
  "tempfile",
  "types",
  "validator_client",
+ "validator_dir",
 ]
 
 [[package]]
@@ -4037,6 +4041,7 @@ dependencies = [
  "eth2_libp2p",
  "eth2_ssz 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_types 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "exit-future",
  "fnv",
  "futures",
  "genesis",
@@ -4047,12 +4052,15 @@ dependencies = [
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
+ "logging",
  "lru_cache",
  "matches",
  "num_cpus",
  "rand 0.7.3",
  "rlp 0.5.1",
  "slog",
+ "slog-async",
+ "slog-term",
  "sloggers 1.0.1",
  "slot_clock",
  "smallvec",
@@ -4273,6 +4281,7 @@ dependencies = [
 name = "operation_pool"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "derivative",
  "eth2_ssz 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_derive 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -6660,7 +6669,6 @@ dependencies = [
  "itertools",
  "lazy_static",
  "log",
- "merkle_proof",
  "parking_lot",
  "rand 0.7.3",
  "rand_xorshift",
@@ -6834,6 +6842,7 @@ dependencies = [
  "bls",
  "clap",
  "clap_utils",
+ "deposit_contract",
  "directory",
  "dirs",
  "environment",

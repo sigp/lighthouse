@@ -28,6 +28,11 @@ eth2_ssz = "0.3.0"
 bs58 = "0.4.0"
 futures = "0.3.8"
 
+[dev-dependencies]
+environment = { path = "../../lighthouse/environment" }
+tree_hash = "0.3.0"
+sensitive_url = { path = "../../common/sensitive_url" }
+
 [[test]]
 name = "bn_http_api_tests"
 path = "tests/main.rs"

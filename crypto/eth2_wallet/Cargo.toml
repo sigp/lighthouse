@@ -18,3 +18,4 @@ tiny-bip39 = "0.8.0"
 
 [dev-dependencies]
 hex = "0.4.2"
+tempfile = "3.1.0"
