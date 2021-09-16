@@ -64,8 +64,8 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         }
 
         // By default this is enabled. If it is not set, revert to false.
-        if !matches.is_present("enable-enr_auto_update") {
-            network_config.discv5_config.enable_packet_filter = false;
+        if !matches.is_present("enable-enr-auto-update") {
+            network_config.discv5_config.enr_update = false;
         }
 
         // the address to listen on
