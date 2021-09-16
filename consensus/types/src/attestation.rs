@@ -9,7 +9,7 @@ use crate::{test_utils::TestRandom, Hash256, Slot};
 
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    SignedRoot,
+    Signature, SignedRoot,
 };
 
 #[derive(Debug, PartialEq)]
@@ -61,6 +61,25 @@ impl<T: EthSpec> Attestation<T> {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
+        let domain = spec.get_domain(
+            self.data.target.epoch,
+            Domain::BeaconAttester,
+            fork,
+            genesis_validators_root,
+        );
+        let message = self.data.signing_root(domain);
+
+        self.add_signature(&secret_key.sign(message), committee_position)
+    }
+
+    /// Adds `signature` to `self` and sets the `committee_position`'th bit of `aggregation_bits` to `true`.
+    ///
+    /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
+    pub fn add_signature(
+        &mut self,
+        signature: &Signature,
+        committee_position: usize,
+    ) -> Result<(), Error> {
         if self
             .aggregation_bits
             .get(committee_position)
@@ -72,15 +91,7 @@ impl<T: EthSpec> Attestation<T> {
                 .set(committee_position, true)
                 .map_err(Error::SszTypesError)?;
 
-            let domain = spec.get_domain(
-                self.data.target.epoch,
-                Domain::BeaconAttester,
-                fork,
-                genesis_validators_root,
-            );
-            let message = self.data.signing_root(domain);
-
-            self.signature.add_assign(&secret_key.sign(message));
+            self.signature.add_assign(signature);
 
             Ok(())
         }

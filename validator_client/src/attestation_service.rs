@@ -5,6 +5,7 @@ use crate::{
     validator_store::ValidatorStore,
 };
 use environment::RuntimeContext;
+use futures::future::join_all;
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -288,7 +289,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and
             // `committee_index`.
-            self.produce_and_publish_aggregates(attestation_data, &validator_duties)
+            self.produce_and_publish_aggregates(&attestation_data, &validator_duties)
                 .await
                 .map_err(move |e| {
                     crit!(
@@ -350,10 +351,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
-        let mut attestations = Vec::with_capacity(validator_duties.len());
-
-        for duty_and_proof in validator_duties {
+        // Create futures to produce signed `Attestation` objects.
+        let attestation_data_ref = &attestation_data;
+        let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
             let duty = &duty_and_proof.duty;
+            let attestation_data = attestation_data_ref;
 
             // Ensure that the attestation matches the duties.
             #[allow(clippy::suspicious_operation_groupings)]
@@ -368,7 +370,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     "duty_index" => duty.committee_index,
                     "attestation_index" => attestation_data.index,
                 );
-                continue;
+                return None;
             }
 
             let mut attestation = Attestation {
@@ -377,26 +379,38 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 signature: AggregateSignature::infinity(),
             };
 
-            if let Err(e) = self.validator_store.sign_attestation(
-                duty.pubkey,
-                duty.validator_committee_index as usize,
-                &mut attestation,
-                current_epoch,
-            ) {
-                crit!(
-                    log,
-                    "Failed to sign attestation";
-                    "error" => ?e,
-                    "committee_index" => committee_index,
-                    "slot" => slot.as_u64(),
-                );
-                continue;
-            } else {
-                attestations.push(attestation);
+            match self
+                .validator_store
+                .sign_attestation(
+                    duty.pubkey,
+                    duty.validator_committee_index as usize,
+                    &mut attestation,
+                    current_epoch,
+                )
+                .await
+            {
+                Ok(()) => Some(attestation),
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Failed to sign attestation";
+                        "error" => ?e,
+                        "committee_index" => committee_index,
+                        "slot" => slot.as_u64(),
+                    );
+                    None
+                }
             }
-        }
+        });
 
-        let attestations_slice = attestations.as_slice();
+        // Execute all the futures in parallel, collecting any successful results.
+        let attestations = &join_all(signing_futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect::<Vec<Attestation<E>>>();
+
+        // Post the attestations to the BN.
         match self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
@@ -405,7 +419,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     &[metrics::ATTESTATIONS_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_pool_attestations(attestations_slice)
+                    .post_beacon_pool_attestations(attestations)
                     .await
             })
             .await
@@ -447,13 +461,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// returned to the BN.
     async fn produce_and_publish_aggregates(
         &self,
-        attestation_data: AttestationData,
+        attestation_data: &AttestationData,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
         let log = self.context.log();
 
-        let attestation_data_ref = &attestation_data;
-        let aggregated_attestation = self
+        let aggregated_attestation = &self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let _timer = metrics::start_timer_vec(
@@ -462,55 +475,59 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 );
                 beacon_node
                     .get_validator_aggregate_attestation(
-                        attestation_data_ref.slot,
-                        attestation_data_ref.tree_hash_root(),
+                        attestation_data.slot,
+                        attestation_data.tree_hash_root(),
                     )
                     .await
                     .map_err(|e| format!("Failed to produce an aggregate attestation: {:?}", e))?
-                    .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data_ref))
+                    .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
                     .map(|result| result.data)
             })
             .await
             .map_err(|e| e.to_string())?;
 
-        let mut signed_aggregate_and_proofs = Vec::new();
-
-        for duty_and_proof in validator_duties {
+        // Create futures to produce the signed aggregated attestations.
+        let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
             let duty = &duty_and_proof.duty;
-
-            let selection_proof = if let Some(proof) = duty_and_proof.selection_proof.as_ref() {
-                proof
-            } else {
-                // Do not produce a signed aggregate for validators that are not
-                // subscribed aggregators.
-                continue;
-            };
+            let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
             let slot = attestation_data.slot;
             let committee_index = attestation_data.index;
 
             if duty.slot != slot || duty.committee_index != committee_index {
                 crit!(log, "Inconsistent validator duties during signing");
-                continue;
+                return None;
             }
 
-            match self.validator_store.produce_signed_aggregate_and_proof(
-                duty.pubkey,
-                duty.validator_index,
-                aggregated_attestation.clone(),
-                selection_proof.clone(),
-            ) {
-                Ok(aggregate) => signed_aggregate_and_proofs.push(aggregate),
+            match self
+                .validator_store
+                .produce_signed_aggregate_and_proof(
+                    duty.pubkey,
+                    duty.validator_index,
+                    aggregated_attestation.clone(),
+                    selection_proof.clone(),
+                )
+                .await
+            {
+                Ok(aggregate) => Some(aggregate),
                 Err(e) => {
                     crit!(
                         log,
                         "Failed to sign attestation";
-                        "error" => ?e
+                        "error" => ?e,
+                        "pubkey" => ?duty.pubkey,
                     );
-                    continue;
+                    None
                 }
             }
-        }
+        });
+
+        // Execute all the futures in parallel, collecting any successful results.
+        let signed_aggregate_and_proofs = join_all(signing_futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
         if !signed_aggregate_and_proofs.is_empty() {
             let signed_aggregate_and_proofs_slice = signed_aggregate_and_proofs.as_slice();

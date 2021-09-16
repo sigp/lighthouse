@@ -76,6 +76,7 @@ members = [
     "testing/node_test_rig",
     "testing/simulator",
     "testing/state_transition_vectors",
+    "testing/web3signer_tests",
 
     "validator_client",
     "validator_client/slashing_protection",

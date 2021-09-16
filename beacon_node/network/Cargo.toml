@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "1.0.1"
+sloggers = "2.0.2"
 genesis = { path = "../genesis" }
 lazy_static = "1.4.0"
 matches = "0.1.8"

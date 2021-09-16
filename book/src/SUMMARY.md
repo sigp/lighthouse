@@ -32,6 +32,7 @@
 * [Advanced Usage](./advanced.md)
     * [Custom Data Directories](./advanced-datadir.md)
     * [Validator Graffiti](./graffiti.md)
+    * [Remote Signing with Web3Signer](./validator-web3signer.md)
     * [Database Configuration](./advanced_database.md)
     * [Advanced Networking](./advanced_networking.md)
     * [Running a Slasher](./slasher.md)
