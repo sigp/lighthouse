@@ -19,7 +19,7 @@ use types::{ForkContext, ForkName};
 /// The maximum transmit size of gossip messages in bytes.
 pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
 /// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
-pub const MESH_N_LOW: usize = 6;
+pub const MESH_N_LOW: usize = 2;
 
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
@@ -235,10 +235,11 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
     GossipsubConfigBuilder::default()
         .max_transmit_size(GOSSIP_MAX_SIZE)
         .heartbeat_interval(Duration::from_millis(700))
-        .mesh_n(8)
+        .mesh_n(4)
         .mesh_n_low(MESH_N_LOW)
-        .mesh_n_high(12)
-        .gossip_lazy(6)
+        .mesh_outbound_min(MESH_N_LOW)
+        .mesh_n_high(8)
+        .gossip_lazy(3)
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
         .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
