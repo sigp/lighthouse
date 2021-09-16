@@ -1154,25 +1154,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         &["1st"],
                         peer_info.score().score() as i64,
                     );
-                } else if id == (total_peers * 3 / 4) - 1 {
+                } else if id == (total_peers * 3 / 4).saturating_sub(1) {
                     metrics::set_gauge_vec(
                         &metrics::PEER_SCORE_DISTRIBUTION,
                         &["3/4"],
                         peer_info.score().score() as i64,
                     );
-                } else if id == (total_peers / 2) - 1 {
+                } else if id == (total_peers / 2).saturating_sub(1) {
                     metrics::set_gauge_vec(
                         &metrics::PEER_SCORE_DISTRIBUTION,
                         &["1/2"],
                         peer_info.score().score() as i64,
                     );
-                } else if id == (total_peers / 4) - 1 {
+                } else if id == (total_peers / 4).saturating_sub(1) {
                     metrics::set_gauge_vec(
                         &metrics::PEER_SCORE_DISTRIBUTION,
                         &["1/4"],
                         peer_info.score().score() as i64,
                     );
-                } else if id == total_peers - 1 {
+                } else if id == total_peers.saturating_sub(1) {
                     metrics::set_gauge_vec(
                         &metrics::PEER_SCORE_DISTRIBUTION,
                         &["last"],
