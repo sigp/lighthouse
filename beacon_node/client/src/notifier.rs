@@ -19,6 +19,9 @@ const MINUTES_PER_HOUR: i64 = 60;
 /// The number of historical observations that should be used to determine the average sync time.
 const SPEEDO_OBSERVATIONS: usize = 4;
 
+/// The number of slots between logs that give detail about backfill process.
+const BACKFILL_LOG_INTERVAL: u64 = 5;
+
 /// Spawns a notifier service which periodically logs information about the node.
 pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
@@ -73,6 +76,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         }
 
         // Perform post-genesis logging.
+        let mut last_backfill_log_slot = None;
         loop {
             interval.tick().await;
             let connected_peer_count = network.connected_peers();
@@ -181,6 +185,47 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 "sync_state" =>format!("{}", current_sync_state)
             );
 
+            // Log if we are backfilling.
+            let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
+            if is_backfilling
+                && last_backfill_log_slot
+                    .map_or(true, |slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
+            {
+                last_backfill_log_slot = Some(current_slot);
+
+                let distance = format!(
+                    "{} slots ({})",
+                    sync_distance.as_u64(),
+                    slot_distance_pretty(sync_distance, slot_duration)
+                );
+
+                let speed = speedo.slots_per_second();
+                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+
+                if display_speed {
+                    info!(
+                        log,
+                        "Downloading historical blocks";
+                        "distance" => distance,
+                        "speed" => sync_speed_pretty(speed),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
+                    );
+                } else {
+                    info!(
+                        log,
+                        "Downloading historical blocks";
+                        "distance" => distance,
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
+                    );
+                }
+            } else if !is_backfilling && last_backfill_log_slot.is_some() {
+                last_backfill_log_slot = None;
+                info!(
+                    log,
+                    "Historical block download complete";
+                );
+            }
+
             // Log if we are syncing
             if current_sync_state.is_syncing() {
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
@@ -209,34 +254,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "peers" => peer_count_pretty(connected_peer_count),
                         "distance" => distance,
                         "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
-                    );
-                }
-            } else if matches!(current_sync_state, SyncState::BackFillSyncing { .. }) {
-                let distance = format!(
-                    "{} slots ({})",
-                    sync_distance.as_u64(),
-                    slot_distance_pretty(sync_distance, slot_duration)
-                );
-
-                let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
-
-                if display_speed {
-                    info!(
-                        log,
-                        "Synced - Downloading historical blocks";
-                        "peers" => peer_count_pretty(connected_peer_count),
-                        "distance" => distance,
-                        "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
-                    );
-                } else {
-                    info!(
-                        log,
-                        "Synced - Downloading historical blocks";
-                        "peers" => peer_count_pretty(connected_peer_count),
-                        "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot))),
                     );
                 }
             } else if current_sync_state.is_synced() {

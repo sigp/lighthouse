@@ -46,13 +46,14 @@ as soon as forwards sync completes.
 Once forwards sync completes, Lighthouse will commence a "backfill sync" to download the blocks
 from the checkpoint back to genesis.
 
-The beacon node will log messages similar to the following while it completes backfill sync:
+The beacon node will log messages similar to the following each minute while it completes backfill
+sync:
 
 ```
-INFO Synced - Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/sec, distance: 2020451 slots (40 weeks 0 days), peers: 50, service: slot_notifier
+INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/sec, distance: 2020451 slots (40 weeks 0 days), service: slot_notifier
 ```
 
-When the sync status changes to `INFO Synced`, the backfill sync is complete.
+Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
 
 ## FAQ
 
