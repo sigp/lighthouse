@@ -840,11 +840,10 @@ fn verify_block_for_gossip_slashing_detection() {
         .unwrap(),
     );
 
-    let harness = BeaconChainHarness::new_with_mutator(
+    let harness = BeaconChainHarness::ephemeral_with_mutator(
         MainnetEthSpec,
         None,
         KEYPAIRS.to_vec(),
-        1 << 32,
         StoreConfig::default(),
         ChainConfig::default(),
         |builder| builder.slasher(slasher.clone()),
@@ -927,7 +926,6 @@ fn add_base_block_to_altair_chain() {
         MainnetEthSpec,
         Some(spec),
         KEYPAIRS[..].to_vec(),
-        1 << 32,
         StoreConfig::default(),
         ChainConfig::default(),
     );
@@ -1047,7 +1045,6 @@ fn add_altair_block_to_base_chain() {
         MainnetEthSpec,
         Some(spec),
         KEYPAIRS[..].to_vec(),
-        1 << 32,
         StoreConfig::default(),
         ChainConfig::default(),
     );

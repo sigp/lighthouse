@@ -262,22 +262,40 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(Some(block.clone()));
         }
 
-        // Fetch from database.
-        match self
-            .hot_db
-            .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
-        {
-            Some(block_bytes) => {
-                // Deserialize.
-                let block = SignedBeaconBlock::from_ssz_bytes(&block_bytes, &self.spec)?;
+        let block = self.get_block_with(block_root, |bytes| {
+            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
+        })?;
 
-                // Add to cache.
-                self.block_cache.lock().put(*block_root, block.clone());
-
-                Ok(Some(block))
-            }
-            None => Ok(None),
+        // Add to cache.
+        if let Some(ref block) = block {
+            self.block_cache.lock().put(*block_root, block.clone());
         }
+
+        Ok(block)
+    }
+
+    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
+    pub fn get_block_any_variant(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
+    }
+
+    /// Fetch a block from the store using a custom decode function.
+    ///
+    /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
+    /// were for a different fork.
+    pub fn get_block_with(
+        &self,
+        block_root: &Hash256,
+        decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E>, ssz::DecodeError>,
+    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        self.hot_db
+            .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
+            .map(|block_bytes| decoder(&block_bytes))
+            .transpose()
+            .map_err(|e| e.into())
     }
 
     /// Determine whether a block exists in the database.
@@ -766,7 +784,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Blocks are returned in slot-ascending order, suitable for replaying on a state with slot
     /// equal to `start_slot`, to reach a state with slot equal to `end_slot`.
-    fn load_blocks_to_replay(
+    pub fn load_blocks_to_replay(
         &self,
         start_slot: Slot,
         end_slot: Slot,

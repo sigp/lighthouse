@@ -125,7 +125,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     }
 
     let authorization_header_filter = ctx.api_secret.authorization_header_filter();
-    let api_token = ctx.api_secret.api_token();
+    let api_token_path = ctx.api_secret.api_token_path();
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
 
@@ -505,7 +505,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         log,
         "HTTP API started";
         "listen_address" => listening_socket.to_string(),
-        "api_token" => api_token,
+        "api_token_file" => ?api_token_path,
     );
 
     Ok((listening_socket, server))

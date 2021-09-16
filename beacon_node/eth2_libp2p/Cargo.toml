@@ -9,11 +9,11 @@ discv5 = { version = "0.1.0-beta.9", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
-eth2_ssz_types = { path =  "../../consensus/ssz_types" }
+eth2_ssz_types = "0.2.0"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_derive = "1.0.116"
-eth2_ssz = "0.1.2"
-eth2_ssz_derive = "0.1.0"
+eth2_ssz = "0.3.0"
+eth2_ssz_derive = "0.2.1"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "1.10.0", features = ["time", "macros"] }
@@ -42,17 +42,14 @@ regex = "1.3.9"
 strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.2.0"
 
-# TODO: remove the rev-reference and go back to release versions once there is a release that
-# includes the following PR:
-#
-# https://github.com/libp2p/rust-libp2p/pull/2175
+# Metrics-based PR to be merged before going back to an official
+# libp2p-release.
 [dependencies.libp2p]
 #version = "0.39.1"
-#default-features = false
+default-features = false
 git = "https://github.com/sigp/rust-libp2p"
-branch = "age-gossip-inspect"
-# rev = "ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
-features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub-metrics", "dns-tokio", "tcp-tokio"]
+rev = "18cd6bc93c804df45579072786ddc1cd17332159"
+features = ["websocket", "identify", "mplex", "yamux", "noise","gossipsub-metrics", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
 tokio = { version = "1.10.0", features = ["full"] }

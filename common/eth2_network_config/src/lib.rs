@@ -1,6 +1,18 @@
-use eth2_config::{predefined_networks_dir, *};
+//! Provides the `Eth2NetworkConfig` struct which defines the configuration of an eth2 network or
+//! test-network (aka "testnet").
+//!
+//! Whilst the `Eth2NetworkConfig` struct can be used to read a specification from a directory at
+//! runtime, this crate also includes some pre-defined network configurations "built-in" to the
+//! binary itself (the most notable of these being the "mainnet" configuration). When a network is
+//! "built-in", the  genesis state and configuration files is included in the final binary via the
+//! `std::include_bytes` macro. This provides convenience to the user, the binary is self-sufficient
+//! and does not require the configuration to be read from the filesystem at runtime.
+//!
+//! To add a new built-in testnet, add it to the `define_hardcoded_nets` invocation in the `eth2_config`
+//! crate.
 
 use enr::{CombinedKey, Enr};
+use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -11,36 +23,13 @@ pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct HardcodedNet {
-    pub name: &'static str,
-    pub genesis_is_known: bool,
-    pub config: &'static [u8],
-    pub deploy_block: &'static [u8],
-    pub boot_enr: &'static [u8],
-    pub genesis_state_bytes: &'static [u8],
-}
+// Creates definitions for:
+//
+// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PYRMONT`, etc).
+// - `HARDCODED_NETS: &[HardcodedNet]`
+// - `HARDCODED_NET_NAMES: &[&'static str]`
+instantiate_hardcoded_nets!(eth2_config);
 
-macro_rules! define_net {
-    ($mod: ident, $include_file: tt) => {{
-        use eth2_config::$mod::ETH2_NET_DIR;
-
-        HardcodedNet {
-            name: ETH2_NET_DIR.name,
-            genesis_is_known: ETH2_NET_DIR.genesis_is_known,
-            config: $include_file!("../", "config.yaml"),
-            deploy_block: $include_file!("../", "deploy_block.txt"),
-            boot_enr: $include_file!("../", "boot_enr.yaml"),
-            genesis_state_bytes: $include_file!("../", "genesis.ssz"),
-        }
-    }};
-}
-
-const PYRMONT: HardcodedNet = define_net!(pyrmont, include_pyrmont_file);
-const MAINNET: HardcodedNet = define_net!(mainnet, include_mainnet_file);
-const PRATER: HardcodedNet = define_net!(prater, include_prater_file);
-
-const HARDCODED_NETS: &[HardcodedNet] = &[PYRMONT, MAINNET, PRATER];
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
 /// Specifies an Eth2 network.
@@ -240,6 +229,19 @@ mod tests {
     use types::{Config, Eth1Data, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
+
+    #[test]
+    fn default_network_exists() {
+        assert!(HARDCODED_NET_NAMES.contains(&DEFAULT_HARDCODED_NETWORK));
+    }
+
+    #[test]
+    fn hardcoded_testnet_names() {
+        assert_eq!(HARDCODED_NET_NAMES.len(), HARDCODED_NETS.len());
+        for (name, net) in HARDCODED_NET_NAMES.iter().zip(HARDCODED_NETS.iter()) {
+            assert_eq!(name, &net.name);
+        }
+    }
 
     #[test]
     fn mainnet_config_eq_chain_spec() {

@@ -29,7 +29,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::ShutdownReason;
-use tempfile::{tempdir, TempDir};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -49,6 +48,12 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 // Environment variable to read if `fork_from_env` feature is enabled.
 const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
+
+// Default target aggregators to set during testing, this ensures an aggregator at each slot.
+//
+// You should mutate the `ChainSpec` prior to initialising the harness if you would like to use
+// a different value.
+pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::max_value();
 
 pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
@@ -126,7 +131,7 @@ pub fn test_logger() -> Logger {
 /// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
 /// variable. Otherwise use the default spec.
 pub fn test_spec<E: EthSpec>() -> ChainSpec {
-    if cfg!(feature = "fork_from_env") {
+    let mut spec = if cfg!(feature = "fork_from_env") {
         let fork_name = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
             panic!(
                 "{} env var must be defined when using fork_from_env: {:?}",
@@ -141,7 +146,11 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
         fork.make_genesis_spec(E::default_spec())
     } else {
         E::default_spec()
-    }
+    };
+
+    // Set target aggregators to a high value by default.
+    spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
+    spec
 }
 
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
@@ -153,7 +162,6 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
-    pub data_dir: TempDir,
     pub shutdown_receiver: Receiver<ShutdownReason>,
 
     pub rng: Mutex<StdRng>,
@@ -189,199 +197,122 @@ impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
         validator_keypairs: Vec<Keypair>,
         config: StoreConfig,
     ) -> Self {
-        // Setting the target aggregators to really high means that _all_ validators in the
-        // committee are required to produce an aggregate. This is overkill, however with small
-        // validator counts it's the only way to be certain there is _at least one_ aggregator per
-        // committee.
-        Self::new_with_target_aggregators(
-            eth_spec_instance,
-            spec,
-            validator_keypairs,
-            1 << 32,
-            config,
-        )
-    }
-
-    /// Instantiate a new harness with  a custom `target_aggregators_per_committee` spec value
-    pub fn new_with_target_aggregators(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        validator_keypairs: Vec<Keypair>,
-        target_aggregators_per_committee: u64,
-        store_config: StoreConfig,
-    ) -> Self {
         Self::new_with_chain_config(
             eth_spec_instance,
             spec,
             validator_keypairs,
-            target_aggregators_per_committee,
-            store_config,
+            config,
             ChainConfig::default(),
         )
     }
 
-    /// Instantiate a new harness with `validator_count` initial validators, a custom
-    /// `target_aggregators_per_committee` spec value, and a `ChainConfig`
     pub fn new_with_chain_config(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
-        target_aggregators_per_committee: u64,
         store_config: StoreConfig,
         chain_config: ChainConfig,
     ) -> Self {
-        Self::new_with_mutator(
+        Self::ephemeral_with_mutator(
             eth_spec_instance,
             spec,
             validator_keypairs,
-            target_aggregators_per_committee,
             store_config,
             chain_config,
             |x| x,
         )
     }
 
-    /// Apply a function to beacon chain builder before building.
-    pub fn new_with_mutator(
+    pub fn ephemeral_with_mutator(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
         validator_keypairs: Vec<Keypair>,
-        target_aggregators_per_committee: u64,
         store_config: StoreConfig,
         chain_config: ChainConfig,
         mutator: impl FnOnce(
             BeaconChainBuilder<EphemeralHarnessType<E>>,
         ) -> BeaconChainBuilder<EphemeralHarnessType<E>>,
     ) -> Self {
-        let data_dir = tempdir().expect("should create temporary data_dir");
-        let mut spec = spec.unwrap_or_else(test_spec::<E>);
-
-        spec.target_aggregators_per_committee = target_aggregators_per_committee;
-
-        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
-
+        let spec = spec.unwrap_or_else(test_spec::<E>);
         let log = test_logger();
-
-        let store = HotColdDB::open_ephemeral(store_config, spec.clone(), log.clone()).unwrap();
-        let builder = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
-            .custom_spec(spec.clone())
-            .store(Arc::new(store))
-            .store_migrator_config(MigratorConfig::default().blocking())
-            .genesis_state(
-                interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
-                    .expect("should generate interop state"),
-            )
-            .expect("should build state using recent genesis")
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .testing_slot_clock(HARNESS_SLOT_TIME)
-            .expect("should configure testing slot clock")
-            .shutdown_sender(shutdown_tx)
-            .chain_config(chain_config)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-                log.clone(),
-                1,
-            )))
-            .monitor_validators(true, vec![], log);
-
-        let chain = mutator(builder).build().expect("should build");
-
-        Self {
-            spec: chain.spec.clone(),
-            chain: Arc::new(chain),
-            validator_keypairs,
-            data_dir,
-            shutdown_receiver,
-            rng: make_rng(),
-        }
+        let store = Arc::new(HotColdDB::open_ephemeral(store_config, spec.clone(), log).unwrap());
+        Self::new_with_mutator(
+            eth_spec_instance,
+            spec,
+            store,
+            validator_keypairs.clone(),
+            chain_config,
+            |mut builder| {
+                builder = mutator(builder);
+                let genesis_state = interop_genesis_state::<E>(
+                    &validator_keypairs,
+                    HARNESS_GENESIS_TIME,
+                    builder.get_spec(),
+                )
+                .expect("should generate interop state");
+                builder
+                    .genesis_state(genesis_state)
+                    .expect("should build state using recent genesis")
+            },
+        )
     }
 }
 
 impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
-    /// Instantiate a new harness with `validator_count` initial validators.
+    /// Disk store, start from genesis.
     pub fn new_with_disk_store(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
     ) -> Self {
-        let data_dir = tempdir().expect("should create temporary data_dir");
         let spec = spec.unwrap_or_else(test_spec::<E>);
 
-        let log = test_logger();
-        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+        let chain_config = ChainConfig::default();
 
-        let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
-            .custom_spec(spec.clone())
-            .import_max_skip_slots(None)
-            .store(store)
-            .store_migrator_config(MigratorConfig::default().blocking())
-            .genesis_state(
-                interop_genesis_state::<E>(&validator_keypairs, HARNESS_GENESIS_TIME, &spec)
-                    .expect("should generate interop state"),
-            )
-            .expect("should build state using recent genesis")
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .testing_slot_clock(HARNESS_SLOT_TIME)
-            .expect("should configure testing slot clock")
-            .shutdown_sender(shutdown_tx)
-            .monitor_validators(true, vec![], log)
-            .build()
-            .expect("should build");
-
-        Self {
-            spec: chain.spec.clone(),
-            chain: Arc::new(chain),
-            validator_keypairs,
-            data_dir,
-            shutdown_receiver,
-            rng: make_rng(),
-        }
+        Self::new_with_mutator(
+            eth_spec_instance,
+            spec,
+            store,
+            validator_keypairs.clone(),
+            chain_config,
+            |builder| {
+                let genesis_state = interop_genesis_state::<E>(
+                    &validator_keypairs,
+                    HARNESS_GENESIS_TIME,
+                    builder.get_spec(),
+                )
+                .expect("should generate interop state");
+                builder
+                    .genesis_state(genesis_state)
+                    .expect("should build state using recent genesis")
+            },
+        )
     }
-}
 
-impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
-    /// Instantiate a new harness with `validator_count` initial validators.
+    /// Disk store, resume.
     pub fn resume_from_disk_store(
         eth_spec_instance: E,
         spec: Option<ChainSpec>,
         store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
         validator_keypairs: Vec<Keypair>,
-        data_dir: TempDir,
     ) -> Self {
         let spec = spec.unwrap_or_else(test_spec::<E>);
 
-        let log = test_logger();
-        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+        let chain_config = ChainConfig::default();
 
-        let chain = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
-            .custom_spec(spec)
-            .import_max_skip_slots(None)
-            .store(store)
-            .store_migrator_config(MigratorConfig::default().blocking())
-            .resume_from_db()
-            .expect("should resume beacon chain from db")
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .testing_slot_clock(Duration::from_secs(1))
-            .expect("should configure testing slot clock")
-            .shutdown_sender(shutdown_tx)
-            .monitor_validators(true, vec![], log)
-            .build()
-            .expect("should build");
-
-        Self {
-            spec: chain.spec.clone(),
-            chain: Arc::new(chain),
+        Self::new_with_mutator(
+            eth_spec_instance,
+            spec,
+            store,
             validator_keypairs,
-            data_dir,
-            shutdown_receiver,
-            rng: make_rng(),
-        }
+            chain_config,
+            |builder| {
+                builder
+                    .resume_from_db()
+                    .expect("should resume from database")
+            },
+        )
     }
 }
 
@@ -391,6 +322,62 @@ where
     Hot: ItemStore<E>,
     Cold: ItemStore<E>,
 {
+    /// Generic initializer.
+    ///
+    /// This initializer should be able to handle almost any configuration via arguments and the
+    /// provided `mutator` function. Please do not copy and paste this function.
+    pub fn new_with_mutator(
+        eth_spec_instance: E,
+        spec: ChainSpec,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
+        validator_keypairs: Vec<Keypair>,
+        chain_config: ChainConfig,
+        mutator: impl FnOnce(
+            BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+        ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+    ) -> Self {
+        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+
+        let log = test_logger();
+
+        let mut builder = BeaconChainBuilder::new(eth_spec_instance)
+            .logger(log.clone())
+            .custom_spec(spec)
+            .store(store)
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .shutdown_sender(shutdown_tx)
+            .chain_config(chain_config)
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                1,
+            )))
+            .monitor_validators(true, vec![], log);
+
+        // Caller must initialize genesis state.
+        builder = mutator(builder);
+
+        // Initialize the slot clock only if it hasn't already been initialized.
+        builder = if builder.get_slot_clock().is_none() {
+            builder
+                .testing_slot_clock(HARNESS_SLOT_TIME)
+                .expect("should configure testing slot clock")
+        } else {
+            builder
+        };
+
+        let chain = builder.build().expect("should build");
+
+        Self {
+            spec: chain.spec.clone(),
+            chain: Arc::new(chain),
+            validator_keypairs,
+            shutdown_receiver,
+            rng: make_rng(),
+        }
+    }
+
     pub fn logger(&self) -> &slog::Logger {
         &self.chain.log
     }
@@ -574,6 +561,9 @@ where
         attestation_slot: Slot,
     ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
+        let fork = self
+            .spec
+            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
 
         state
             .get_beacon_committees_at_slot(attestation_slot)
@@ -604,7 +594,7 @@ where
                             let domain = self.spec.get_domain(
                                 attestation.data.target.epoch,
                                 Domain::BeaconAttester,
-                                &state.fork(),
+                                &fork,
                                 state.genesis_validators_root(),
                             );
 
@@ -651,6 +641,9 @@ where
                 .expect("should be called on altair beacon state")
                 .clone(),
         };
+        let fork = self
+            .spec
+            .fork_at_epoch(message_slot.epoch(E::slots_per_epoch()));
 
         sync_committee
             .pubkeys
@@ -672,7 +665,7 @@ where
                             head_block_root,
                             validator_index as u64,
                             &self.validator_keypairs[validator_index].sk,
-                            &state.fork(),
+                            &fork,
                             state.genesis_validators_root(),
                             &self.spec,
                         );
@@ -727,6 +720,7 @@ where
             block_hash,
             slot,
         );
+        let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
             unaggregated_attestations
@@ -749,9 +743,9 @@ where
                                 }
 
                                 let selection_proof = SelectionProof::new::<E>(
-                                    state.slot(),
+                                    slot,
                                     &self.validator_keypairs[*validator_index].sk,
-                                    &state.fork(),
+                                    &fork,
                                     state.genesis_validators_root(),
                                     &self.spec,
                                 );
@@ -782,7 +776,7 @@ where
                             aggregate,
                             None,
                             &self.validator_keypairs[aggregator_index].sk,
-                            &state.fork(),
+                            &fork,
                             state.genesis_validators_root(),
                             &self.spec,
                         );

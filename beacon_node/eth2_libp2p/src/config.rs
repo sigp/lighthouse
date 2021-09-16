@@ -109,6 +109,9 @@ pub struct Config {
     /// prevents sending client identifying information over identify.
     pub private: bool,
 
+    /// Shutdown beacon node after sync is completed.
+    pub shutdown_after_sync: bool,
+
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 }
@@ -183,6 +186,7 @@ impl Default for Config {
             private: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
+            shutdown_after_sync: false,
             topics: Vec::new(),
         }
     }

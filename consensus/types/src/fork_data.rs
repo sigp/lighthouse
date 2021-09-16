@@ -14,7 +14,7 @@ use tree_hash_derive::TreeHash;
     Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct ForkData {
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     pub current_version: [u8; 4],
     pub genesis_validators_root: Hash256,
 }
