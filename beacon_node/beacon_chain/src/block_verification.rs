@@ -48,7 +48,7 @@ use crate::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    eth1_chain, metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
@@ -56,6 +56,7 @@ use proto_array::Block as ProtoBlock;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::is_execution_enabled;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -223,6 +224,12 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is invalid and the peer is faulty.
     InconsistentFork(InconsistentFork),
+    /// There's no eth1 connection (mandatory after merge)
+    NoEth1Connection,
+    /// Error occurred during engine_executePayload
+    Eth1VerificationError(eth1_chain::Error),
+    /// The payload failed verification by the execution engine
+    FailedEth1Verification,
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
@@ -980,6 +987,26 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                     );
                 }
                 summaries.push(summary);
+            }
+        }
+
+        // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
+        if is_execution_enabled(&state, block.message().body()) {
+            let eth1_chain = chain
+                .eth1_chain
+                .as_ref()
+                .ok_or(BlockError::NoEth1Connection)?;
+
+            if !eth1_chain
+                .on_payload(block.message().body().execution_payload().ok_or(
+                    BlockError::InconsistentFork(InconsistentFork {
+                        fork_at_slot: eth2::types::ForkName::Merge,
+                        object_fork: block.message().body().fork_name(),
+                    }),
+                )?)
+                .map_err(BlockError::Eth1VerificationError)?
+            {
+                return Err(BlockError::FailedEth1Verification);
             }
         }
 

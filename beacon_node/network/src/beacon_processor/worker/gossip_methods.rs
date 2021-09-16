@@ -370,11 +370,22 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
+            // TODO: is this what we should be doing when block verification fails?
+            | Err(e @BlockError::FailedEth1Verification)
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                return;
+            }
+            // TODO: shouldn't be penalizing the peer when something goes wrong
+            // in the verification process BUT is this the proper way to handle it?
+            Err(e @BlockError::Eth1VerificationError(_))
+            | Err(e @BlockError::NoEth1Connection) => {
+                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
         };

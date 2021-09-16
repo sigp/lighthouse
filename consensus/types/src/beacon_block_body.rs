@@ -58,6 +58,24 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
             BeaconBlockBodyRef::Merge(inner) => Some(&inner.sync_aggregate),
         }
     }
+
+    /// Access the execution payload from the block's body, if one exists.
+    pub fn execution_payload(self) -> Option<&'a ExecutionPayload<T>> {
+        match self {
+            BeaconBlockBodyRef::Base(_) => None,
+            BeaconBlockBodyRef::Altair(_) => None,
+            BeaconBlockBodyRef::Merge(inner) => Some(&inner.execution_payload),
+        }
+    }
+
+    /// Get the fork_name of this object
+    pub fn fork_name(self) -> ForkName {
+        match self {
+            BeaconBlockBodyRef::Base { .. } => ForkName::Base,
+            BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
+            BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
+        }
+    }
 }
 
 #[cfg(test)]
