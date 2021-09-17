@@ -1,6 +1,6 @@
 use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
-use eth2_libp2p::discv5::{enr::CombinedKey, Enr};
+use eth2_libp2p::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use eth2_libp2p::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
@@ -18,8 +18,7 @@ pub struct BootNodeConfig<T: EthSpec> {
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
     pub local_key: CombinedKey,
-    pub auto_update: bool,
-    pub disable_packet_filter: bool,
+    pub discv5_config: Discv5Config,
     phantom: PhantomData<T>,
 }
 
@@ -58,19 +57,16 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let logger = slog_scope::logger();
 
         set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
-        // default to the standard port
+
+        // Set the enr-udp-port to the default listening port if it was not specified.
         if !matches.is_present("enr-udp-port") {
-            network_config.enr_udp_port = Some(
-                matches
-                    .value_of("port")
-                    .expect("Value required")
-                    .parse()
-                    .map_err(|_| "Invalid port number")?,
-            );
+            network_config.enr_udp_port = Some(network_config.discovery_port);
         }
 
-        let auto_update = matches.is_present("enable-enr_auto_update");
-        let disable_packet_filter = matches.is_present("disable-packet-filter");
+        // By default this is enabled. If it is not set, revert to false.
+        if !matches.is_present("enable-enr-auto-update") {
+            network_config.discv5_config.enr_update = false;
+        }
 
         // the address to listen on
         let listen_socket =
@@ -129,8 +125,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             boot_nodes,
             local_enr,
             local_key,
-            auto_update,
-            disable_packet_filter,
+            discv5_config: network_config.discv5_config,
             phantom: PhantomData,
         })
     }

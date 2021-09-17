@@ -240,6 +240,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let randao_reveal = self
             .validator_store
             .randao_reveal(validator_pubkey, slot.epoch(E::slots_per_epoch()))
+            .await
             .map_err(|e| format!("Unable to produce randao reveal signature: {:?}", e))?
             .into();
 
@@ -276,6 +277,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 let signed_block = self_ref
                     .validator_store
                     .sign_block(*validator_pubkey_ref, block, current_slot)
+                    .await
                     .map_err(|e| format!("Unable to sign block: {:?}", e))?;
 
                 let _post_timer = metrics::start_timer_vec(

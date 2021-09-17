@@ -313,6 +313,22 @@ impl ValidatorClientHttpClient {
         self.post(path, &request).await
     }
 
+    /// `POST lighthouse/validators/web3signer`
+    pub async fn post_lighthouse_validators_web3signer(
+        &self,
+        request: &[Web3SignerValidatorRequest],
+    ) -> Result<GenericResponse<ValidatorData>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push("web3signer");
+
+        self.post(path, &request).await
+    }
+
     /// `PATCH lighthouse/validators/{validator_pubkey}`
     pub async fn patch_lighthouse_validators(
         &self,

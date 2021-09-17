@@ -434,3 +434,43 @@ Typical Responses | 200
     ]
 }
 ```
+
+## `POST /lighthouse/validators/web3signer`
+
+Create any number of new validators, all of which will refer to a
+[Web3Signer](https://docs.web3signer.consensys.net/en/latest/) server for signing.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/validators/web3signer`
+Method | POST
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200, 400
+
+### Example Request Body
+
+```json
+[
+    {
+        "enable": true,
+        "description": "validator_one",
+        "graffiti": "Mr F was here",
+        "voting_public_key": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
+        "url": "http://path-to-web3signer.com",
+        "root_certificate_path": "/path/on/vc/filesystem/to/certificate.pem",
+        "request_timeout_ms": 12000
+    }
+]
+```
+
+The following fields may be omitted or nullified to obtain default values:
+
+- `graffiti`
+- `root_certificate_path`
+- `request_timeout_ms`
+
+### Example Response Body
+
+*No data is included in the response body.*
