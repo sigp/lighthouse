@@ -325,7 +325,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // Check to make sure the peer is not supposed to be banned
-        match self.is_banned(&peer_id) {
+        match self.ban_status(&peer_id) {
             BanResult::BadScore => {
                 // This is a faulty state
                 error!(self.log, "Connected to a banned peer, re-banning"; "peer_id" => %peer_id);
@@ -455,8 +455,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports if a peer is banned or not.
     ///
     /// This is used to determine if we should accept incoming connections.
-    pub fn is_banned(&self, peer_id: &PeerId) -> BanResult {
-        self.network_globals.peers.read().is_banned(peer_id)
+    pub fn ban_status(&self, peer_id: &PeerId) -> BanResult {
+        self.network_globals.peers.read().ban_status(peer_id)
     }
 
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
@@ -794,7 +794,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) -> bool {
         {
             let mut peerdb = self.network_globals.peers.write();
-            if !matches!(peerdb.is_banned(peer_id), BanResult::NotBanned) {
+            if !matches!(peerdb.ban_status(peer_id), BanResult::NotBanned) {
                 // don't connect if the peer is banned
                 slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }

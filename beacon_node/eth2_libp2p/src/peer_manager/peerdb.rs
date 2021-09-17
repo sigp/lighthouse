@@ -205,12 +205,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
     }
 
-    /// Returns true if the Peer is banned. This doesn't check the connection state, rather the
+    /// Returns the current [`BanResult`] of the peer. This doesn't check the connection state, rather the
     /// underlying score of the peer. A peer may be banned but still in the connected state
     /// temporarily.
     ///
     /// This is used to determine if we should accept incoming connections or not.
-    pub fn is_banned(&self, peer_id: &PeerId) -> BanResult {
+    pub fn ban_status(&self, peer_id: &PeerId) -> BanResult {
         if let Some(peer) = self.peers.get(peer_id) {
             match peer.score_state() {
                 ScoreState::Banned => BanResult::BadScore,
@@ -1155,11 +1155,11 @@ mod tests {
         }
 
         //check that ip1 and ip2 are banned but ip3-5 not
-        assert!(pdb.is_banned(&p1).is_banned());
-        assert!(pdb.is_banned(&p2).is_banned());
-        assert!(!pdb.is_banned(&p3).is_banned());
-        assert!(!pdb.is_banned(&p4).is_banned());
-        assert!(!pdb.is_banned(&p5).is_banned());
+        assert!(pdb.ban_status(&p1).is_banned());
+        assert!(pdb.ban_status(&p2).is_banned());
+        assert!(!pdb.ban_status(&p3).is_banned());
+        assert!(!pdb.ban_status(&p4).is_banned());
+        assert!(!pdb.ban_status(&p5).is_banned());
 
         //ban also the last peer in peers
         pdb.disconnect_and_ban(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1]);
@@ -1167,33 +1167,33 @@ mod tests {
         pdb.disconnect_and_ban(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1]);
 
         //check that ip1-ip4 are banned but ip5 not
-        assert!(pdb.is_banned(&p1).is_banned());
-        assert!(pdb.is_banned(&p2).is_banned());
-        assert!(pdb.is_banned(&p3).is_banned());
-        assert!(pdb.is_banned(&p4).is_banned());
-        assert!(!pdb.is_banned(&p5).is_banned());
+        assert!(pdb.ban_status(&p1).is_banned());
+        assert!(pdb.ban_status(&p2).is_banned());
+        assert!(pdb.ban_status(&p3).is_banned());
+        assert!(pdb.ban_status(&p4).is_banned());
+        assert!(!pdb.ban_status(&p5).is_banned());
 
         //peers[0] gets unbanned
         reset_score(&mut pdb, &peers[0]);
         pdb.unban(&peers[0]).unwrap();
 
         //nothing changed
-        assert!(pdb.is_banned(&p1).is_banned());
-        assert!(pdb.is_banned(&p2).is_banned());
-        assert!(pdb.is_banned(&p3).is_banned());
-        assert!(pdb.is_banned(&p4).is_banned());
-        assert!(!pdb.is_banned(&p5).is_banned());
+        assert!(pdb.ban_status(&p1).is_banned());
+        assert!(pdb.ban_status(&p2).is_banned());
+        assert!(pdb.ban_status(&p3).is_banned());
+        assert!(pdb.ban_status(&p4).is_banned());
+        assert!(!pdb.ban_status(&p5).is_banned());
 
         //peers[1] gets unbanned
         reset_score(&mut pdb, &peers[1]);
         pdb.unban(&peers[1]).unwrap();
 
         //all ips are unbanned
-        assert!(!pdb.is_banned(&p1).is_banned());
-        assert!(!pdb.is_banned(&p2).is_banned());
-        assert!(!pdb.is_banned(&p3).is_banned());
-        assert!(!pdb.is_banned(&p4).is_banned());
-        assert!(!pdb.is_banned(&p5).is_banned());
+        assert!(!pdb.ban_status(&p1).is_banned());
+        assert!(!pdb.ban_status(&p2).is_banned());
+        assert!(!pdb.ban_status(&p3).is_banned());
+        assert!(!pdb.ban_status(&p4).is_banned());
+        assert!(!pdb.ban_status(&p5).is_banned());
     }
 
     #[test]
@@ -1219,16 +1219,16 @@ mod tests {
         }
 
         // check ip is banned
-        assert!(pdb.is_banned(&p1).is_banned());
-        assert!(!pdb.is_banned(&p2).is_banned());
+        assert!(pdb.ban_status(&p1).is_banned());
+        assert!(!pdb.ban_status(&p2).is_banned());
 
         // unban a peer
         reset_score(&mut pdb, &peers[0]);
         pdb.unban(&peers[0]).unwrap();
 
         // check not banned anymore
-        assert!(!pdb.is_banned(&p1).is_banned());
-        assert!(!pdb.is_banned(&p2).is_banned());
+        assert!(!pdb.ban_status(&p1).is_banned());
+        assert!(!pdb.ban_status(&p2).is_banned());
 
         // add ip2 to all peers and ban them.
         let mut socker_addr = Multiaddr::from(ip2);
@@ -1241,8 +1241,8 @@ mod tests {
         }
 
         // both IP's are now banned
-        assert!(pdb.is_banned(&p1).is_banned());
-        assert!(pdb.is_banned(&p2).is_banned());
+        assert!(pdb.ban_status(&p1).is_banned());
+        assert!(pdb.ban_status(&p2).is_banned());
 
         // unban all peers
         for p in &peers {
@@ -1258,8 +1258,8 @@ mod tests {
         }
 
         // nothing is banned
-        assert!(!pdb.is_banned(&p1).is_banned());
-        assert!(!pdb.is_banned(&p2).is_banned());
+        assert!(!pdb.ban_status(&p1).is_banned());
+        assert!(!pdb.ban_status(&p2).is_banned());
 
         //reban last peer
         pdb.disconnect_and_ban(&peers[0]);
@@ -1267,8 +1267,8 @@ mod tests {
         pdb.disconnect_and_ban(&peers[0]);
 
         //Ip's are banned again
-        assert!(pdb.is_banned(&p1).is_banned());
-        assert!(pdb.is_banned(&p2).is_banned());
+        assert!(pdb.ban_status(&p1).is_banned());
+        assert!(pdb.ban_status(&p2).is_banned());
     }
 
     #[test]
