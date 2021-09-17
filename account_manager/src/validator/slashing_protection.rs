@@ -176,8 +176,11 @@ pub fn cli_run<T: EthSpec>(
                     }
                     return Err("ERROR: import aborted due to errors, see above.\n\
                                 No data has been imported and the slashing protection \
-                                database *should* be in the same state it was in before the import.\n\
-                                IT IS NOT SAFE TO START VALIDATING".to_string());
+                                database is in the same state it was in before the import.\n\
+                                Due to the failed import it is NOT SAFE to start validating\n\
+                                with any newly imported validator keys, as your database lacks\n\
+                                slashing protection data for them."
+                        .to_string());
                 }
                 Err(e) => {
                     return Err(format!(
