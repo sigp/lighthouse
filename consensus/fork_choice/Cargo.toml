@@ -9,13 +9,13 @@ edition = "2018"
 [dependencies]
 types = { path = "../types" }
 proto_array = { path = "../proto_array" }
-eth2_ssz = "0.1.2"
-eth2_ssz_derive = "0.1.0"
+eth2_ssz = "0.3.0"
+eth2_ssz_derive = "0.2.1"
 
 [dev-dependencies]
 state_processing = { path = "../../consensus/state_processing" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 store = { path = "../../beacon_node/store" }
-tree_hash = "0.1.1"
+tree_hash = "0.3.0"
 slot_clock = { path = "../../common/slot_clock" }
 hex = "0.4.2"

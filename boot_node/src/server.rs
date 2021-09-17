@@ -2,7 +2,7 @@
 
 use super::BootNodeConfig;
 use eth2_libp2p::{
-    discv5::{enr::NodeId, Discv5, Discv5ConfigBuilder, Discv5Event},
+    discv5::{enr::NodeId, Discv5, Discv5Event},
     EnrExt, Eth2Enr,
 };
 use slog::info;
@@ -26,24 +26,13 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     info!(log, "Contact information"; "enr" => config.local_enr.to_base64());
     info!(log, "Contact information"; "multiaddrs" => format!("{:?}", config.local_enr.multiaddr_p2p()));
 
-    // Build the discv5 server
-
-    // default configuration with packet filtering
-
-    let discv5_config = {
-        let mut builder = Discv5ConfigBuilder::new();
-        if !config.disable_packet_filter {
-            builder.enable_packet_filter();
-        }
-        if !config.auto_update {
-            builder.disable_enr_update();
-        }
-        builder.build()
-    };
-
     // construct the discv5 server
-    let mut discv5 =
-        Discv5::new(config.local_enr.clone(), config.local_key, discv5_config).unwrap();
+    let mut discv5 = Discv5::new(
+        config.local_enr.clone(),
+        config.local_key,
+        config.discv5_config,
+    )
+    .unwrap();
 
     // If there are any bootnodes add them to the routing table
     for enr in config.boot_nodes {

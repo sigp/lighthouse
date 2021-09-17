@@ -47,3 +47,12 @@ These tests are quite large (100's of MB) so they're only downloaded if you run
 `$ make test-ef` (or anything that run it). You may want to avoid
 downloading these tests if you're on a slow or metered Internet connection. CI
 will require them to pass, though.
+
+## Local Testnets
+
+During development and testing it can be useful to start a small, local
+testnet.
+
+The
+[scripts/local_testnet/](https://github.com/sigp/lighthouse/tree/unstable/scripts/local_testnet)
+directory contains several scripts and a README that should make this process easy.

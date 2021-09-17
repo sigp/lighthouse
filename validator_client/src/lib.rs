@@ -7,19 +7,22 @@ mod config;
 mod duties_service;
 mod graffiti_file;
 mod http_metrics;
-mod initialized_validators;
 mod key_cache;
 mod notifier;
+mod signing_method;
 mod sync_committee_service;
-mod validator_store;
 
 mod doppelganger_service;
 pub mod http_api;
+pub mod initialized_validators;
+pub mod validator_store;
 
 pub use cli::cli_app;
 pub use config::Config;
+use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
+pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
@@ -33,10 +36,8 @@ use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
-use initialized_validators::InitializedValidators;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
@@ -332,6 +333,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
+            context.executor.clone(),
             log.clone(),
         ));
 

@@ -6,11 +6,11 @@ edition = "2018"
 
 [dependencies]
 ethereum-types = "0.11.0"
-eth2_ssz_types = { path = "../ssz_types" }
-eth2_hashing = "0.1.0"
-eth2_ssz_derive = "0.1.0"
-eth2_ssz = "0.1.2"
-tree_hash = "0.1.1"
+eth2_ssz_types = "0.2.0"
+eth2_hashing = "0.2.0"
+eth2_ssz_derive = "0.2.1"
+eth2_ssz = "0.3.0"
+tree_hash = "0.3.0"
 smallvec = "1.6.1"
 
 [dev-dependencies]

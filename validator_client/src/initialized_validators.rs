@@ -6,6 +6,7 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
+use crate::signing_method::SigningMethod;
 use account_utils::{
     read_password, read_password_from_user,
     validator_definitions::{
@@ -16,15 +17,25 @@ use account_utils::{
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
+use reqwest::{Certificate, Client, Error as ReqwestError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use url::{ParseError, Url};
 
 use crate::key_cache;
 use crate::key_cache::KeyCache;
+
+/// Default timeout for a request to a remote signer for a signature.
+///
+/// Set to 12 seconds since that's the duration of a slot. A remote signer that cannot sign within
+/// that time is outside the synchronous assumptions of Eth2.
+const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
@@ -66,6 +77,12 @@ pub enum Error {
     ValidatorNotInitialized(PublicKey),
     /// Unable to read the slot clock.
     SlotClock,
+    /// The URL for the remote signer cannot be parsed.
+    InvalidWeb3SignerUrl(String),
+    /// Unable to read the root certificate file for the remote signer.
+    InvalidWeb3SignerRootCertificateFile(io::Error),
+    InvalidWeb3SignerRootCertificate(ReqwestError),
+    UnableToBuildWeb3SignerClient(ReqwestError),
 }
 
 impl From<LockfileError> for Error {
@@ -74,23 +91,9 @@ impl From<LockfileError> for Error {
     }
 }
 
-/// A method used by a validator to sign messages.
-///
-/// Presently there is only a single variant, however we expect more variants to arise (e.g.,
-/// remote signing).
-pub enum SigningMethod {
-    /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
-    LocalKeystore {
-        voting_keystore_path: PathBuf,
-        voting_keystore_lockfile: Lockfile,
-        voting_keystore: Keystore,
-        voting_keypair: Keypair,
-    },
-}
-
 /// A validator that is ready to sign messages.
 pub struct InitializedValidator {
-    signing_method: SigningMethod,
+    signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
@@ -99,11 +102,13 @@ pub struct InitializedValidator {
 impl InitializedValidator {
     /// Return a reference to this validator's lockfile if it has one.
     pub fn keystore_lockfile(&self) -> Option<&Lockfile> {
-        match self.signing_method {
+        match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore {
                 ref voting_keystore_lockfile,
                 ..
             } => Some(voting_keystore_lockfile),
+            // Web3Signer validators do not have any lockfiles.
+            SigningMethod::Web3Signer { .. } => None,
         }
     }
 }
@@ -138,7 +143,7 @@ impl InitializedValidator {
             return Err(Error::UnableToInitializeDisabledValidator);
         }
 
-        match def.signing_definition {
+        let signing_method = match def.signing_definition {
             // Load the keystore, password, decrypt the keypair and create a lockfile for a
             // EIP-2335 keystore on the local filesystem.
             SigningDefinition::LocalKeystore {
@@ -210,33 +215,77 @@ impl InitializedValidator {
 
                 let voting_keystore_lockfile = Lockfile::new(lockfile_path)?;
 
-                Ok(Self {
-                    signing_method: SigningMethod::LocalKeystore {
-                        voting_keystore_path,
-                        voting_keystore_lockfile,
-                        voting_keystore: voting_keystore.clone(),
-                        voting_keypair,
-                    },
-                    graffiti: def.graffiti.map(Into::into),
-                    index: None,
-                })
+                SigningMethod::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_lockfile,
+                    voting_keystore: voting_keystore.clone(),
+                    voting_keypair: Arc::new(voting_keypair),
+                }
             }
-        }
+            SigningDefinition::Web3Signer {
+                url,
+                root_certificate_path,
+                request_timeout_ms,
+            } => {
+                let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
+                    .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
+                let request_timeout = request_timeout_ms
+                    .map(Duration::from_millis)
+                    .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
+
+                let builder = Client::builder().timeout(request_timeout);
+
+                let builder = if let Some(path) = root_certificate_path {
+                    let certificate = load_pem_certificate(path)?;
+                    builder.add_root_certificate(certificate)
+                } else {
+                    builder
+                };
+
+                let http_client = builder
+                    .build()
+                    .map_err(Error::UnableToBuildWeb3SignerClient)?;
+
+                SigningMethod::Web3Signer {
+                    signing_url,
+                    http_client,
+                    voting_public_key: def.voting_public_key,
+                }
+            }
+        };
+
+        Ok(Self {
+            signing_method: Arc::new(signing_method),
+            graffiti: def.graffiti.map(Into::into),
+            index: None,
+        })
     }
 
     /// Returns the voting public key for this validator.
     pub fn voting_public_key(&self) -> &PublicKey {
-        match &self.signing_method {
+        match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
+            SigningMethod::Web3Signer {
+                voting_public_key, ..
+            } => voting_public_key,
         }
     }
+}
 
-    /// Returns the voting keypair for this validator.
-    pub fn voting_keypair(&self) -> &Keypair {
-        match &self.signing_method {
-            SigningMethod::LocalKeystore { voting_keypair, .. } => voting_keypair,
-        }
-    }
+pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, Error> {
+    let mut buf = Vec::new();
+    File::open(&pem_path)
+        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?
+        .read_to_end(&mut buf)
+        .map_err(Error::InvalidWeb3SignerRootCertificateFile)?;
+    Certificate::from_pem(&buf).map_err(Error::InvalidWeb3SignerRootCertificate)
+}
+
+fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
+    Url::parse(base_url)?.join(&format!(
+        "api/v1/eth2/sign/{}",
+        voting_public_key.to_string()
+    ))
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
@@ -325,12 +374,14 @@ impl InitializedValidators {
         self.validators.iter().map(|(pubkey, _)| pubkey)
     }
 
-    /// Returns the voting `Keypair` for a given voting `PublicKey`, if that validator is known to
-    /// `self` **and** the validator is enabled.
-    pub fn voting_keypair(&self, voting_public_key: &PublicKeyBytes) -> Option<&Keypair> {
+    /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
+    ///
+    ///  - The validator is known to `self`.
+    ///  - The validator is enabled.
+    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<Arc<SigningMethod>> {
         self.validators
             .get(voting_public_key)
-            .map(|v| v.voting_keypair())
+            .map(|v| v.signing_method.clone())
     }
 
     /// Add a validator definition to `self`, overwriting the on-disk representation of `self`.
@@ -431,6 +482,8 @@ impl InitializedValidators {
                     };
                     definitions_map.insert(*key_store.uuid(), def);
                 }
+                // Remote signer validators don't interact with the key cache.
+                SigningDefinition::Web3Signer { .. } => (),
             }
         }
 
@@ -451,13 +504,13 @@ impl InitializedValidators {
         let mut public_keys = Vec::new();
         for uuid in cache.uuids() {
             let def = definitions_map.get(uuid).expect("Existence checked before");
-            let pw = match &def.signing_definition {
+            match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
                     voting_keystore_password_path,
                     voting_keystore_password,
                     voting_keystore_path,
                 } => {
-                    if let Some(p) = voting_keystore_password {
+                    let pw = if let Some(p) = voting_keystore_password {
                         p.as_ref().to_vec().into()
                     } else if let Some(path) = voting_keystore_password_path {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
@@ -468,11 +521,13 @@ impl InitializedValidators {
                             .as_ref()
                             .to_vec()
                             .into()
-                    }
+                    };
+                    passwords.push(pw);
+                    public_keys.push(def.voting_public_key.clone());
                 }
+                // Remote signer validators don't interact with the key cache.
+                SigningDefinition::Web3Signer { .. } => (),
             };
-            passwords.push(pw);
-            public_keys.push(def.voting_public_key.clone());
         }
 
         //decrypt
@@ -546,6 +601,7 @@ impl InitializedValidators {
                                 info!(
                                     self.log,
                                     "Enabled validator";
+                                    "signing_method" => "local_keystore",
                                     "voting_pubkey" => format!("{:?}", def.voting_public_key),
                                 );
 
@@ -565,6 +621,40 @@ impl InitializedValidators {
                                     self.log,
                                     "Failed to initialize validator";
                                     "error" => format!("{:?}", e),
+                                    "signing_method" => "local_keystore",
+                                    "validator" => format!("{:?}", def.voting_public_key)
+                                );
+
+                                // Exit on an invalid validator.
+                                return Err(e);
+                            }
+                        }
+                    }
+                    SigningDefinition::Web3Signer { .. } => {
+                        match InitializedValidator::from_definition(
+                            def.clone(),
+                            &mut key_cache,
+                            &mut key_stores,
+                        )
+                        .await
+                        {
+                            Ok(init) => {
+                                self.validators
+                                    .insert(init.voting_public_key().compress(), init);
+
+                                info!(
+                                    self.log,
+                                    "Enabled validator";
+                                    "signing_method" => "remote_signer",
+                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
+                                );
+                            }
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to initialize validator";
+                                    "error" => format!("{:?}", e),
+                                    "signing_method" => "remote_signer",
                                     "validator" => format!("{:?}", def.voting_public_key)
                                 );
 
@@ -585,6 +675,8 @@ impl InitializedValidators {
                             disabled_uuids.insert(*key_store.uuid());
                         }
                     }
+                    // Remote signers do not interact with the key cache.
+                    SigningDefinition::Web3Signer { .. } => (),
                 }
 
                 info!(
