@@ -326,6 +326,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.unsubscribe(gossip_topic)
     }
 
+    /// Subscribe to all currently subscribed topics with the new fork digest.
+    pub fn subscribe_new_fork_topics(&mut self, new_fork_digest: [u8; 4]) {
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        for mut topic in subscriptions.into_iter() {
+            topic.fork_digest = new_fork_digest;
+            self.subscribe(topic);
+        }
+    }
+
     /// Unsubscribe from all topics that doesn't have the given fork_digest
     pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
