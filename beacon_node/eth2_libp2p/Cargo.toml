@@ -49,9 +49,9 @@ superstruct = "0.2.0"
 # https://github.com/libp2p/rust-libp2p/pull/2175
 [dependencies.libp2p]
 #version = "0.39.1"
-#default-features = false
+default-features = false
 git = "https://github.com/libp2p/rust-libp2p"
-rev = "ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
+branch = "master"
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
