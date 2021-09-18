@@ -20,6 +20,8 @@
 //!              ▼                                    ▼
 //!  PartiallyVerifiedUnaggregatedAttestation     PartiallyVerifiedAggregatedAttestation
 //!              |                                    |
+//!  FullyVerifiedUnaggregatedAttestation         FullyVerifiedAggregatedAttestation
+//!              |                                    |
 //!              -------------------------------------
 //!                                |
 //!                                ▼
@@ -586,6 +588,16 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedAggregatedAttestation<'a, T> {
     }
 }
 
+/// This function provides verification of a batch of aggregate attestations. It provides a
+/// significant CPU-time saving by performing batch verification of BLS signatures.
+///
+/// Each attestation is "partially" verified, to see if it should progress to signature
+/// verification. Then, all attestations which passed partial verification have their signatures
+/// verified in a batch. If that signature batch fails then all attestation signatures are verified
+/// independently.
+///
+/// The outcome is a `Vec<Result>` with a one-to-one mapping to the `aggregates` input. Each result
+/// provides the exact success or failure result of the corresponding attestation.
 pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
     aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
     chain: &BeaconChain<T>,
@@ -593,6 +605,7 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
     let mut num_partially_verified = 0;
     let mut num_failed = 0;
 
+    // Perform partial verification of all attestations, collecting the results.
     let partial_results = aggregates
         .map(|aggregate| {
             let result = PartiallyVerifiedAggregatedAttestation::verify(aggregate, chain);
@@ -605,8 +618,10 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
         })
         .collect::<Vec<_>>();
 
+    // May be set to `No` if batch verification succeeds.
     let mut check_signatures = CheckAttestationSignature::Yes;
 
+    // Perform batch BLS verification, if any attestation signatures are worth checking.
     if num_partially_verified > 0 {
         let signature_setup_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
@@ -674,6 +689,7 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
         }
     }
 
+    // Complete the attestation verification, potentially verifying all signatures independently.
     let final_results = partial_results
         .into_iter()
         .map(|result| match result {
@@ -731,6 +747,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedAggregatedAttestation<'a, T> {
         Ok(())
     }
 
+    /// Complete the verification of a partially verified attestation.
     pub fn finish_verification(
         signed_aggregate: PartiallyVerifiedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
@@ -980,6 +997,16 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedUnaggregatedAttestation<'a, T> {
     }
 }
 
+/// This function provides verification of a batch of attestations. It provides a significant
+/// CPU-time saving by performing batch verification of BLS signatures.
+///
+/// Each attestation is "partially" verified, to see if it should progress to signature
+/// verification. Then, all attestations which passed partial verification have their signatures
+/// verified in a batch. If that signature batch fails then all attestation signatures are verified
+/// independently.
+///
+/// The outcome is a `Vec<Result>` with a one-to-one mapping to the `aggregates` input. Each result
+/// provides the exact success or failure result of the corresponding attestation.
 pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
     attestations: impl Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)>,
     chain: &BeaconChain<T>,
@@ -987,6 +1014,7 @@ pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
     let mut num_partially_verified = 0;
     let mut num_failed = 0;
 
+    // Perform partial verification of all attestations, collecting the results.
     let partial_results = attestations
         .map(|(attn, subnet_opt)| {
             let result = PartiallyVerifiedUnaggregatedAttestation::verify(attn, subnet_opt, chain);
@@ -999,8 +1027,10 @@ pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
         })
         .collect::<Vec<_>>();
 
+    // May be set to `No` if batch verification succeeds.
     let mut check_signatures = CheckAttestationSignature::Yes;
 
+    // Perform batch BLS verification, if any attestation signatures are worth checking.
     if num_partially_verified > 0 {
         let signature_setup_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
@@ -1047,6 +1077,7 @@ pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
         }
     }
 
+    // Complete the attestation verification, potentially verifying all signatures independently.
     let final_results = partial_results
         .into_iter()
         .map(|result| match result {
@@ -1089,6 +1120,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedUnaggregatedAttestation<'a, T> {
         Ok(())
     }
 
+    /// Complete the verification of a partially verified attestation.
     pub fn finish_verification(
         attestation: PartiallyVerifiedUnaggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
