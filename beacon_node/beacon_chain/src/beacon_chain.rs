@@ -1,7 +1,6 @@
 use crate::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
-    CheckAttestationSignature, Error as AttestationError, IndexedAggregatedAttestation,
-    IndexedUnaggregatedAttestation, VerifiedAggregatedAttestation, VerifiedAttestation,
+    Error as AttestationError, VerifiedAggregatedAttestation, VerifiedAttestation,
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
@@ -1511,11 +1510,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        let indexed =
-            IndexedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self)?;
-
-        VerifiedUnaggregatedAttestation::from_indexed(indexed, self, CheckAttestationSignature::Yes)
-            .map(|v| {
+        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(
+            |v| {
                 // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
                 if let Some(event_handler) = self.event_handler.as_ref() {
                     if event_handler.has_attestation_subscribers() {
@@ -1524,7 +1520,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
                 v
-            })
+            },
+        )
     }
 
     pub fn batch_verify_aggregated_attestations_for_gossip<'a>(
@@ -1545,19 +1542,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        let indexed = IndexedAggregatedAttestation::verify(signed_aggregate, self)?;
-
-        VerifiedAggregatedAttestation::from_indexed(indexed, self, CheckAttestationSignature::Yes)
-            .map(|v| {
-                // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-                if let Some(event_handler) = self.event_handler.as_ref() {
-                    if event_handler.has_attestation_subscribers() {
-                        event_handler.register(EventKind::Attestation(v.attestation().clone()));
-                    }
+        VerifiedAggregatedAttestation::verify(signed_aggregate, self).map(|v| {
+            // This method is called for API and gossip attestations, so this covers all aggregated attestation events
+            if let Some(event_handler) = self.event_handler.as_ref() {
+                if event_handler.has_attestation_subscribers() {
+                    event_handler.register(EventKind::Attestation(v.attestation().clone()));
                 }
-                metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-                v
-            })
+            }
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+            v
+        })
     }
 
     /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if

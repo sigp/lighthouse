@@ -120,7 +120,7 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
         .into_iter()
         .map(|result| match result {
             Ok(indexed) => {
-                VerifiedAggregatedAttestation::verify_indexed(indexed, chain, check_signatures)
+                VerifiedAggregatedAttestation::from_indexed(indexed, chain, check_signatures)
             }
             Err(e) => Err(e),
         })
@@ -214,7 +214,7 @@ pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
         .into_iter()
         .map(|result| match result {
             Ok(partial) => {
-                VerifiedUnaggregatedAttestation::verify_indexed(partial, chain, check_signatures)
+                VerifiedUnaggregatedAttestation::from_indexed(partial, chain, check_signatures)
             }
             Err(e) => Err(e),
         })

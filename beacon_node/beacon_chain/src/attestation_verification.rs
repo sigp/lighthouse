@@ -627,6 +627,15 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         Ok(())
     }
 
+    /// Verify the `signed_aggregate`.
+    pub fn verify(
+        signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, Error> {
+        let indexed = IndexedAggregatedAttestation::verify(signed_aggregate, chain)?;
+        Self::from_indexed(indexed, chain, CheckAttestationSignature::Yes)
+    }
+
     /// Complete the verification of an indexed attestation.
     pub fn from_indexed(
         signed_aggregate: IndexedAggregatedAttestation<'a, T>,
@@ -902,6 +911,17 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             });
         }
         Ok(())
+    }
+
+    /// Verify the `unaggregated_attestation`.
+    pub fn verify(
+        unaggregated_attestation: &'a Attestation<T::EthSpec>,
+        subnet_id: Option<SubnetId>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, Error> {
+        let indexed =
+            IndexedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, chain)?;
+        Self::from_indexed(indexed, chain, CheckAttestationSignature::Yes)
     }
 
     /// Complete the verification of an indexed attestation.
