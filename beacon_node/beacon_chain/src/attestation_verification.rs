@@ -58,12 +58,6 @@ use types::{
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
 
-#[derive(Copy, Clone)]
-pub enum CheckAttestationSignature {
-    Yes,
-    No,
-}
-
 /// Returned when an attestation was not successfully verified. It might not have been verified for
 /// two reasons:
 ///
@@ -265,15 +259,22 @@ impl From<BeaconChainError> for Error {
     }
 }
 
+/// Used to avoid double-checking signatures.
+#[derive(Copy, Clone)]
+enum CheckAttestationSignature {
+    Yes,
+    No,
+}
+
 /// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
-pub struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
+struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
     signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     attestation_root: Hash256,
 }
 
 /// Wraps an `Attestation` that has been verified for propagation on the gossip network.
-pub struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
+struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     attestation: &'a Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     subnet_id: SubnetId,
@@ -573,16 +574,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             attestation_root,
         })
     }
-
-    /// Returns the underlying `attestation` for the `signed_aggregate`.
-    pub fn attestation(&self) -> &Attestation<T::EthSpec> {
-        &self.signed_aggregate.message.aggregate
-    }
-
-    /// Returns the underlying `signed_aggregate`.
-    pub fn aggregate(&self) -> &SignedAggregateAndProof<T::EthSpec> {
-        self.signed_aggregate
-    }
 }
 
 impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
@@ -637,7 +628,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
     }
 
     /// Complete the verification of an indexed attestation.
-    pub fn from_indexed(
+    fn from_indexed(
         signed_aggregate: IndexedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
@@ -655,7 +646,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
-    pub fn verify_slashable(
+    fn verify_slashable(
         signed_aggregate: IndexedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
@@ -862,21 +853,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         })
     }
 
-    /// Returns the correct subnet for the attestation.
-    pub fn subnet_id(&self) -> SubnetId {
-        self.subnet_id
-    }
-
-    /// Returns the wrapped `attestation`.
-    pub fn attestation(&self) -> &Attestation<T::EthSpec> {
-        self.attestation
-    }
-
-    /// Returns the wrapped `indexed_attestation`.
-    pub fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
-        &self.indexed_attestation
-    }
-
     /// Returns a mutable reference to the underlying attestation.
     ///
     /// Only use during testing since modifying the `IndexedAttestation` can cause the attestation
@@ -925,7 +901,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     }
 
     /// Complete the verification of an indexed attestation.
-    pub fn from_indexed(
+    fn from_indexed(
         attestation: IndexedUnaggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
