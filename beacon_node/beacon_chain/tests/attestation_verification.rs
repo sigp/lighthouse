@@ -998,7 +998,7 @@ fn verify_aggregate_for_gossip_doppelganger_detection() {
 
     harness
         .chain
-        .verify_aggregated_attestation_for_gossip(valid_aggregate.clone())
+        .verify_aggregated_attestation_for_gossip(&valid_aggregate)
         .expect("should verify aggregate attestation");
 
     let epoch = valid_aggregate.message.aggregate.data.target.epoch;
@@ -1053,7 +1053,7 @@ fn verify_attestation_for_gossip_doppelganger_detection() {
 
     harness
         .chain
-        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id))
+        .verify_unaggregated_attestation_for_gossip(&valid_attestation, Some(subnet_id))
         .expect("should verify attestation");
 
     let epoch = valid_attestation.data.target.epoch;
