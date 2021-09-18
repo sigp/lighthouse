@@ -7,13 +7,23 @@ use eth2_libp2p::{Libp2pEvent, NetworkConfig};
 use libp2p::gossipsub::GossipsubConfigBuilder;
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
+use std::sync::Arc;
 use std::sync::Weak;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use types::{ChainSpec, EnrForkId, MinimalEthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
 
 type E = MinimalEthSpec;
 use tempfile::Builder as TempBuilder;
+
+/// Returns a dummy fork context
+fn fork_context() -> ForkContext {
+    let mut chain_spec = E::default_spec();
+    // Set fork_epoch to `Some` to ensure that the `ForkContext` object
+    // includes altair in the list of forks
+    chain_spec.altair_fork_epoch = Some(types::Epoch::new(42));
+    ForkContext::new::<E>(types::Slot::new(0), Hash256::zero(), &chain_spec)
+}
 
 pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
 
@@ -109,12 +119,14 @@ pub async fn build_libp2p_instance(
     let (signal, exit) = exit_future::signal();
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
+    let fork_context = Arc::new(fork_context());
     Libp2pInstance(
         LibP2PService::new(
             executor,
             &config,
             EnrForkId::default(),
             &log,
+            fork_context,
             &ChainSpec::minimal(),
         )
         .await

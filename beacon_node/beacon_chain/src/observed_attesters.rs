@@ -22,6 +22,21 @@ use std::marker::PhantomData;
 use types::slot_data::SlotData;
 use types::{Epoch, EthSpec, Slot, Unsigned};
 
+/// The maximum capacity of the `AutoPruningEpochContainer`.
+///
+/// Fits the next, current and previous epochs. We require the next epoch due to the
+/// `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the specification
+/// declares:
+///
+/// ```ignore
+/// aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
+///      >= current_slot >= aggregate.data.slot
+/// ```
+///
+/// This means that during the current epoch we will always accept an attestation
+/// from at least one slot in the previous epoch.
+pub const MAX_CACHED_EPOCHS: u64 = 3;
+
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncContributorSlotHashSet<E>, E>;
@@ -347,18 +362,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
 
     /// The maximum number of epochs stored in `self`.
     fn max_capacity(&self) -> u64 {
-        // The next, current and previous epochs. We require the next epoch due to the
-        // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`. We require the previous epoch since the
-        // specification delcares:
-        //
-        // ```
-        // aggregate.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE
-        //      >= current_slot >= aggregate.data.slot
-        // ```
-        //
-        // This means that during the current epoch we will always accept an attestation
-        // from at least one slot in the previous epoch.
-        3
+        MAX_CACHED_EPOCHS
     }
 
     /// Updates `self` with the current epoch, removing all attestations that become expired

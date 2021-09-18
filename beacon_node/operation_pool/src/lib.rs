@@ -28,8 +28,8 @@ use std::ptr;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttesterSlashing,
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256,
-    ProposerSlashing, RelativeEpoch, SignedVoluntaryExit, Slot, SyncAggregate,
-    SyncCommitteeContribution, Validator,
+    ProposerSlashing, SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution,
+    Validator,
 };
 
 type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<T>>>>;
@@ -259,11 +259,8 @@ impl<T: EthSpec> OperationPool<T> {
         let prev_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
         let all_attestations = self.attestations.read();
-        let active_indices = state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
         let total_active_balance = state
-            .get_total_balance(active_indices, spec)
+            .get_total_active_balance()
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
 
         // Split attestations for the previous & current epochs, so that we
@@ -1143,10 +1140,7 @@ mod release_tests {
             .expect("should have valid best attestations");
         assert_eq!(best_attestations.len(), max_attestations);
 
-        let active_indices = state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .unwrap();
-        let total_active_balance = state.get_total_balance(active_indices, spec).unwrap();
+        let total_active_balance = state.get_total_active_balance().unwrap();
 
         // Set of indices covered by previous attestations in `best_attestations`.
         let mut seen_indices = BTreeSet::new();

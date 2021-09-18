@@ -5,7 +5,9 @@ extern crate lazy_static;
 
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{
+        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    },
     BeaconChain, BeaconChainTypes, WhenSlotSkipped,
 };
 use int_to_bytes::int_to_bytes32;
@@ -33,13 +35,16 @@ lazy_static! {
 
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::new_with_target_aggregators(
+    let mut spec = test_spec::<E>();
+
+    // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
+    // not all.
+    spec.target_aggregators_per_committee = 4;
+
+    let harness = BeaconChainHarness::new_with_store_config(
         MainnetEthSpec,
-        None,
+        Some(spec),
         KEYPAIRS[0..validator_count].to_vec(),
-        // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
-        // not all.
-        4,
         StoreConfig::default(),
     );
 
@@ -962,4 +967,115 @@ fn attestation_that_skips_epochs() {
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
         .expect("should gossip verify attestation that skips slots");
+}
+
+#[test]
+fn verify_aggregate_for_gossip_doppelganger_detection() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Advance into a slot where there have not been blocks or attestations produced.
+    harness.advance_slot();
+
+    let current_slot = harness.chain.slot().expect("should get slot");
+
+    assert_eq!(
+        current_slot % E::slots_per_epoch(),
+        0,
+        "the test requires a new epoch to avoid already-seen errors"
+    );
+
+    let (valid_attestation, _attester_index, _attester_committee_index, _, _) =
+        get_valid_unaggregated_attestation(&harness.chain);
+    let (valid_aggregate, _, _) =
+        get_valid_aggregated_attestation(&harness.chain, valid_attestation);
+
+    harness
+        .chain
+        .verify_aggregated_attestation_for_gossip(valid_aggregate.clone())
+        .expect("should verify aggregate attestation");
+
+    let epoch = valid_aggregate.message.aggregate.data.target.epoch;
+    let index = valid_aggregate.message.aggregator_index as usize;
+    assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+
+    // Check the correct beacon cache is populated
+    assert!(!harness
+        .chain
+        .observed_block_attesters
+        .read()
+        .validator_has_been_observed(epoch, index)
+        .expect("should check if block attester was observed"));
+    assert!(!harness
+        .chain
+        .observed_gossip_attesters
+        .read()
+        .validator_has_been_observed(epoch, index)
+        .expect("should check if gossip attester was observed"));
+    assert!(harness
+        .chain
+        .observed_aggregators
+        .read()
+        .validator_has_been_observed(epoch, index)
+        .expect("should check if gossip aggregator was observed"));
+}
+
+#[test]
+fn verify_attestation_for_gossip_doppelganger_detection() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Advance into a slot where there have not been blocks or attestations produced.
+    harness.advance_slot();
+
+    let current_slot = harness.chain.slot().expect("should get slot");
+
+    assert_eq!(
+        current_slot % E::slots_per_epoch(),
+        0,
+        "the test requires a new epoch to avoid already-seen errors"
+    );
+
+    let (valid_attestation, index, _attester_committee_index, _, subnet_id) =
+        get_valid_unaggregated_attestation(&harness.chain);
+
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(valid_attestation.clone(), Some(subnet_id))
+        .expect("should verify attestation");
+
+    let epoch = valid_attestation.data.target.epoch;
+    assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+
+    // Check the correct beacon cache is populated
+    assert!(!harness
+        .chain
+        .observed_block_attesters
+        .read()
+        .validator_has_been_observed(epoch, index)
+        .expect("should check if block attester was observed"));
+    assert!(harness
+        .chain
+        .observed_gossip_attesters
+        .read()
+        .validator_has_been_observed(epoch, index)
+        .expect("should check if gossip attester was observed"));
+    assert!(!harness
+        .chain
+        .observed_aggregators
+        .read()
+        .validator_has_been_observed(epoch, index)
+        .expect("should check if gossip aggregator was observed"));
 }

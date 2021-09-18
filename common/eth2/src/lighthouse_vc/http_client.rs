@@ -22,6 +22,7 @@ pub struct ValidatorClientHttpClient {
     server: SensitiveUrl,
     secret: ZeroizeString,
     server_pubkey: PublicKey,
+    send_authorization_header: bool,
 }
 
 /// Parse an API token and return a secp256k1 public key.
@@ -35,7 +36,7 @@ pub fn parse_pubkey(secret: &str) -> Result<PublicKey, Error> {
         &secret[SECRET_PREFIX.len()..]
     };
 
-    serde_utils::hex::decode(secret)
+    eth2_serde_utils::hex::decode(secret)
         .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
         .and_then(|bytes| {
             if bytes.len() != PK_LEN {
@@ -60,6 +61,7 @@ impl ValidatorClientHttpClient {
             server,
             server_pubkey: parse_pubkey(&secret)?,
             secret: secret.into(),
+            send_authorization_header: true,
         })
     }
 
@@ -73,7 +75,16 @@ impl ValidatorClientHttpClient {
             server,
             server_pubkey: parse_pubkey(&secret)?,
             secret: secret.into(),
+            send_authorization_header: true,
         })
+    }
+
+    /// Set to `false` to disable sending the `Authorization` header on requests.
+    ///
+    /// Failing to send the `Authorization` header will cause the VC to reject requests with a 403.
+    /// This function is intended only for testing purposes.
+    pub fn send_authorization_header(&mut self, should_send: bool) {
+        self.send_authorization_header = should_send;
     }
 
     async fn signed_body(&self, response: Response) -> Result<Bytes, Error> {
@@ -90,7 +101,7 @@ impl ValidatorClientHttpClient {
         let message =
             Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
 
-        serde_utils::hex::decode(&sig)
+        eth2_serde_utils::hex::decode(&sig)
             .ok()
             .and_then(|bytes| {
                 let sig = Signature::parse_der(&bytes).ok()?;
@@ -108,13 +119,16 @@ impl ValidatorClientHttpClient {
     }
 
     fn headers(&self) -> Result<HeaderMap, Error> {
-        let header_value = HeaderValue::from_str(&format!("Basic {}", self.secret.as_str()))
-            .map_err(|e| {
-                Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
-            })?;
-
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", header_value);
+
+        if self.send_authorization_header {
+            let header_value = HeaderValue::from_str(&format!("Basic {}", self.secret.as_str()))
+                .map_err(|e| {
+                    Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))
+                })?;
+
+            headers.insert("Authorization", header_value);
+        }
 
         Ok(headers)
     }
@@ -295,6 +309,22 @@ impl ValidatorClientHttpClient {
             .push("lighthouse")
             .push("validators")
             .push("keystore");
+
+        self.post(path, &request).await
+    }
+
+    /// `POST lighthouse/validators/web3signer`
+    pub async fn post_lighthouse_validators_web3signer(
+        &self,
+        request: &[Web3SignerValidatorRequest],
+    ) -> Result<GenericResponse<ValidatorData>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push("web3signer");
 
         self.post(path, &request).await
     }

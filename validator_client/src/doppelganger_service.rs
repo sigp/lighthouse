@@ -36,7 +36,7 @@ use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
 use slog::{crit, error, info, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::ShutdownReason;
@@ -371,7 +371,8 @@ impl DoppelgangerService {
         slot_clock: &T,
     ) -> Result<(), String> {
         let current_epoch = slot_clock
-            .now()
+            // If registering before genesis, use the genesis slot.
+            .now_or_genesis()
             .ok_or_else(|| "Unable to read slot clock when registering validator".to_string())?
             .epoch(E::slots_per_epoch());
         let genesis_epoch = slot_clock.genesis_slot().epoch(E::slots_per_epoch());
@@ -505,7 +506,7 @@ impl DoppelgangerService {
         //
         // A following loop will update the states of each validator, depending on whether or not
         // any violators were detected here.
-        let mut violators = vec![];
+        let mut violators = HashSet::new();
         for response in previous_epoch_responses
             .iter()
             .chain(current_epoch_responses.iter())
@@ -540,8 +541,8 @@ impl DoppelgangerService {
                 continue;
             };
 
-            if response.is_live && next_check_epoch >= response.epoch {
-                violators.push(response.index);
+            if response.is_live && next_check_epoch <= response.epoch {
+                violators.insert(response.index);
             }
         }
 
@@ -634,7 +635,7 @@ impl DoppelgangerService {
                     self.log,
                     "Found no doppelganger";
                     "further_checks_remaining" => doppelganger_state.remaining_epochs,
-                    "epoch" => response.index,
+                    "epoch" => response.epoch,
                     "validator_index" => response.index
                 );
 
@@ -674,6 +675,9 @@ mod test {
 
     const DEFAULT_VALIDATORS: usize = 8;
 
+    const GENESIS_TIME: Duration = Duration::from_secs(42);
+    const SLOT_DURATION: Duration = Duration::from_secs(1);
+
     type E = MainnetEthSpec;
 
     fn genesis_epoch() -> Epoch {
@@ -703,8 +707,7 @@ mod test {
     impl TestBuilder {
         fn build(self) -> TestScenario {
             let mut rng = XorShiftRng::from_seed([42; 16]);
-            let slot_clock =
-                TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            let slot_clock = TestingSlotClock::new(Slot::new(0), GENESIS_TIME, SLOT_DURATION);
             let log = null_logger().unwrap();
 
             TestScenario {
@@ -734,6 +737,16 @@ mod test {
 
         pub fn set_slot(self, slot: Slot) -> Self {
             self.slot_clock.set_slot(slot.into());
+            self
+        }
+
+        pub fn set_current_time(self, time: Duration) -> Self {
+            self.slot_clock.set_current_time(time);
+            self
+        }
+
+        pub fn assert_prior_to_genesis(self) -> Self {
+            assert!(self.slot_clock.is_prior_to_genesis().unwrap());
             self
         }
 
@@ -1033,20 +1046,23 @@ mod test {
     where
         F: Fn(&mut LivenessResponses),
     {
-        let epoch = genesis_epoch() + 1;
-        let slot = epoch.start_slot(E::slots_per_epoch());
+        let starting_epoch = genesis_epoch() + 1;
+        let starting_slot = starting_epoch.start_slot(E::slots_per_epoch());
+
+        let checking_epoch = starting_epoch + 2;
+        let checking_slot = checking_epoch.start_slot(E::slots_per_epoch());
 
         TestBuilder::default()
             .build()
-            .set_slot(slot)
+            .set_slot(starting_slot)
             .register_all_in_doppelganger_protection_if_enabled()
             .assert_all_disabled()
             // First, simulate a check where there are no doppelgangers.
             .simulate_detect_doppelgangers(
-                slot,
+                checking_slot,
                 ShouldShutdown::No,
                 |current_epoch, detection_indices: Vec<_>| {
-                    assert_eq!(current_epoch, epoch);
+                    assert_eq!(current_epoch, checking_epoch);
                     check_detection_indices(&detection_indices);
 
                     let liveness_responses = get_false_responses(current_epoch, &detection_indices);
@@ -1059,11 +1075,10 @@ mod test {
             // Now, simulate a check where we apply `mutate_responses` which *must* create some
             // doppelgangers.
             .simulate_detect_doppelgangers(
-                // Perform this check in the next slot.
-                slot + 1,
+                checking_slot,
                 ShouldShutdown::Yes,
                 |current_epoch, detection_indices: Vec<_>| {
-                    assert_eq!(current_epoch, epoch);
+                    assert_eq!(current_epoch, checking_epoch);
                     check_detection_indices(&detection_indices);
 
                     let mut liveness_responses =
@@ -1078,7 +1093,7 @@ mod test {
             .assert_all_disabled()
             // The states of all validators should be jammed with `u64::max_value()`.
             .assert_all_states(&DoppelgangerState {
-                next_check_epoch: epoch + 1,
+                next_check_epoch: starting_epoch + 1,
                 remaining_epochs: u64::MAX,
             });
     }
@@ -1095,6 +1110,54 @@ mod test {
         detect_after_genesis_test(|liveness_responses| {
             liveness_responses.previous_epoch_responses[0].is_live = true
         })
+    }
+
+    #[test]
+    fn register_prior_to_genesis() {
+        let prior_to_genesis = GENESIS_TIME.checked_sub(SLOT_DURATION).unwrap();
+
+        TestBuilder::default()
+            .build()
+            .set_current_time(prior_to_genesis)
+            .assert_prior_to_genesis()
+            .register_all_in_doppelganger_protection_if_enabled();
+    }
+
+    #[test]
+    fn detect_doppelganger_in_starting_epoch() {
+        let epoch = genesis_epoch() + 1;
+        let slot = epoch.start_slot(E::slots_per_epoch());
+
+        TestBuilder::default()
+            .build()
+            .set_slot(slot)
+            .register_all_in_doppelganger_protection_if_enabled()
+            .assert_all_disabled()
+            // First, simulate a check where there is a doppelganger in the starting epoch.
+            //
+            // This should *not* cause a shutdown since we don't declare a doppelganger in the
+            // start-up epoch to be a *real* doppelganger. Doing a fast ctrl+c and restart can cause
+            // this behaviour.
+            .simulate_detect_doppelgangers(
+                slot,
+                ShouldShutdown::No,
+                |current_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, epoch);
+                    check_detection_indices(&detection_indices);
+
+                    let mut liveness_responses =
+                        get_false_responses(current_epoch, &detection_indices);
+
+                    liveness_responses.previous_epoch_responses[0].is_live = true;
+
+                    future::ready(liveness_responses)
+                },
+            )
+            .assert_all_disabled()
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: epoch + 1,
+                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+            });
     }
 
     #[test]
@@ -1169,7 +1232,7 @@ mod test {
     }
 
     #[test]
-    fn time_skips_forward() {
+    fn time_skips_forward_no_doppelgangers() {
         let initial_epoch = genesis_epoch() + 1;
         let initial_slot = initial_epoch.start_slot(E::slots_per_epoch());
         let skipped_forward_epoch = initial_epoch + 42;
@@ -1202,6 +1265,7 @@ mod test {
                 ShouldShutdown::No,
                 |current_epoch, detection_indices: Vec<_>| {
                     assert_eq!(current_epoch, skipped_forward_epoch);
+                    assert!(!detection_indices.is_empty());
                     check_detection_indices(&detection_indices);
 
                     future::ready(get_false_responses(current_epoch, &detection_indices))
@@ -1210,6 +1274,56 @@ mod test {
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: skipped_forward_epoch,
                 remaining_epochs: 0,
+            });
+    }
+
+    #[test]
+    fn time_skips_forward_with_doppelgangers() {
+        let initial_epoch = genesis_epoch() + 1;
+        let initial_slot = initial_epoch.start_slot(E::slots_per_epoch());
+        let skipped_forward_epoch = initial_epoch + 42;
+        let skipped_forward_slot = skipped_forward_epoch.end_slot(E::slots_per_epoch());
+
+        TestBuilder::default()
+            .build()
+            .set_slot(initial_slot)
+            .register_all_in_doppelganger_protection_if_enabled()
+            .assert_all_disabled()
+            // First, simulate a check in the initialization epoch.
+            .simulate_detect_doppelgangers(
+                initial_slot,
+                ShouldShutdown::No,
+                |current_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, initial_epoch);
+                    check_detection_indices(&detection_indices);
+
+                    future::ready(get_false_responses(current_epoch, &detection_indices))
+                },
+            )
+            .assert_all_disabled()
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: initial_epoch + 1,
+                remaining_epochs: DEFAULT_REMAINING_DETECTION_EPOCHS,
+            })
+            // Simulate a check in the skipped forward slot
+            .simulate_detect_doppelgangers(
+                skipped_forward_slot,
+                ShouldShutdown::Yes,
+                |current_epoch, detection_indices: Vec<_>| {
+                    assert_eq!(current_epoch, skipped_forward_epoch);
+                    assert!(!detection_indices.is_empty());
+
+                    let mut liveness_responses =
+                        get_false_responses(current_epoch, &detection_indices);
+
+                    liveness_responses.previous_epoch_responses[1].is_live = true;
+
+                    future::ready(liveness_responses)
+                },
+            )
+            .assert_all_states(&DoppelgangerState {
+                next_check_epoch: initial_epoch + 1,
+                remaining_epochs: u64::max_value(),
             });
     }
 

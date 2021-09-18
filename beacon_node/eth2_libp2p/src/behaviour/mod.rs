@@ -1,6 +1,7 @@
 use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
+use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
     score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -8,7 +9,7 @@ use crate::peer_manager::{
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
-    subnet_id_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform,
+    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
@@ -42,7 +43,10 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::{ChainSpec, EnrForkId, EthSpec, SignedBeaconBlock, Slot, SubnetId};
+use types::{
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, ChainSpec, EnrForkId, EthSpec, ForkContext,
+    SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
+};
 
 pub mod gossipsub_scoring_parameters;
 
@@ -157,6 +161,8 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// Directory where metadata is stored.
     #[behaviour(ignore)]
     network_dir: PathBuf,
+    #[behaviour(ignore)]
+    fork_context: Arc<ForkContext>,
     /// Gossipsub score parameters.
     #[behaviour(ignore)]
     score_settings: PeerScoreSettings<TSpec>,
@@ -172,9 +178,10 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        config: &NetworkConfig,
+        mut config: NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
+        fork_context: Arc<ForkContext>,
         chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
@@ -191,7 +198,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         };
 
         // Build and start the discovery sub-behaviour
-        let mut discovery = Discovery::new(local_key, config, network_globals.clone(), log).await?;
+        let mut discovery =
+            Discovery::new(local_key, &config, network_globals.clone(), log).await?;
         // start searching for peers
         discovery.discover_peers();
 
@@ -201,12 +209,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let possible_fork_digests = vec![enr_fork_id.fork_digest];
+        let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
-            filter: Self::create_whitelist_filter(possible_fork_digests, 64), //TODO change this to a constant
-            max_subscribed_topics: 200, //TODO change this to a constant
-            max_subscriptions_per_request: 100, //this is according to the current go implementation
+            filter: Self::create_whitelist_filter(
+                possible_fork_digests,
+                chain_spec.attestation_subnet_count,
+                SYNC_COMMITTEE_SUBNET_COUNT,
+            ),
+            max_subscribed_topics: 200,
+            max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
         };
+
+        config.gs_config = gossipsub_config(fork_context.clone());
 
         // Build and configure the Gossipsub behaviour
         let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
@@ -247,11 +261,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
-            eth2_rpc: RPC::new(log.clone()),
+            eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(config, network_globals.clone(), log).await?,
+            peer_manager: PeerManager::new(&config, network_globals.clone(), log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,
@@ -260,6 +274,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: config.network_dir.clone(),
             log: behaviour_log,
             score_settings,
+            fork_context,
             update_gossipsub_scores,
         })
     }
@@ -311,28 +326,29 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.unsubscribe(gossip_topic)
     }
 
-    /// Subscribes to a specific subnet id;
-    pub fn subscribe_to_subnet(&mut self, subnet_id: SubnetId) -> bool {
-        let topic = GossipTopic::new(
-            subnet_id.into(),
-            GossipEncoding::default(),
-            self.enr_fork_id.fork_digest,
-        );
-        self.subscribe(topic)
+    /// Subscribe to all currently subscribed topics with the new fork digest.
+    pub fn subscribe_new_fork_topics(&mut self, new_fork_digest: [u8; 4]) {
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        for mut topic in subscriptions.into_iter() {
+            topic.fork_digest = new_fork_digest;
+            self.subscribe(topic);
+        }
     }
 
-    /// Un-Subscribes from a specific subnet id;
-    pub fn unsubscribe_from_subnet(&mut self, subnet_id: SubnetId) -> bool {
-        let topic = GossipTopic::new(
-            subnet_id.into(),
-            GossipEncoding::default(),
-            self.enr_fork_id.fork_digest,
-        );
-        self.unsubscribe(topic)
+    /// Unsubscribe from all topics that doesn't have the given fork_digest
+    pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        for topic in subscriptions
+            .iter()
+            .filter(|topic| topic.fork_digest != except)
+            .cloned()
+        {
+            self.unsubscribe(topic);
+        }
     }
 
     /// Subscribes to a gossipsub topic.
-    fn subscribe(&mut self, topic: GossipTopic) -> bool {
+    pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
             .gossipsub_subscriptions
@@ -354,7 +370,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Unsubscribe from a gossipsub topic.
-    fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
+    pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
             .gossipsub_subscriptions
@@ -537,15 +553,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.discovery.add_enr(enr);
     }
 
-    /// Updates a subnet value to the ENR bitfield.
+    /// Updates a subnet value to the ENR attnets/syncnets bitfield.
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
-    pub fn update_enr_subnet(&mut self, subnet_id: SubnetId, value: bool) {
+    pub fn update_enr_subnet(&mut self, subnet_id: Subnet, value: bool) {
         if let Err(e) = self.discovery.update_enr_bitfield(subnet_id, value) {
             crit!(self.log, "Could not update ENR bitfield"; "error" => e);
         }
         // update the local meta data which informs our peers of the update during PINGS
-        self.update_metadata();
+        self.update_metadata_bitfields();
     }
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
@@ -564,20 +580,24 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     self.network_globals
                         .peers
                         .write()
-                        .extend_peers_on_subnet(s.subnet_id, min_ttl);
+                        .extend_peers_on_subnet(&s.subnet, min_ttl);
+                    if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
+                        self.peer_manager_mut()
+                            .add_sync_subnet(sync_subnet, min_ttl);
+                    }
                 }
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals
                     .peers
                     .read()
-                    .good_peers_on_subnet(s.subnet_id)
+                    .good_peers_on_subnet(s.subnet)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     trace!(
                         self.log,
                         "Discovery query ignored";
-                        "subnet_id" => ?s.subnet_id,
+                        "subnet" => ?s.subnet,
                         "reason" => "Already connected to desired peers",
                         "connected_peers_on_subnet" => peers_on_subnet,
                         "target_subnet_peers" => TARGET_SUBNET_PEERS,
@@ -587,7 +607,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // If we connect to the cached peers before the discovery query starts, then we potentially
                 // save a costly discovery query.
                 } else {
-                    self.dial_cached_enrs_in_subnet(s.subnet_id);
+                    self.dial_cached_enrs_in_subnet(s.subnet);
                     true
                 }
             })
@@ -603,26 +623,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
         self.discovery.update_eth2_enr(enr_fork_id.clone());
 
-        // unsubscribe from all gossip topics and re-subscribe to their new fork counterparts
-        let subscribed_topics = self
-            .network_globals
-            .gossipsub_subscriptions
-            .read()
-            .iter()
-            .cloned()
-            .collect::<Vec<GossipTopic>>();
-
-        //  unsubscribe from all topics
-        for topic in &subscribed_topics {
-            self.unsubscribe(topic.clone());
-        }
-
-        // re-subscribe modifying the fork version
-        for mut topic in subscribed_topics {
-            *topic.digest() = enr_fork_id.fork_digest;
-            self.subscribe(topic);
-        }
-
         // update the local reference
         self.enr_fork_id = enr_fork_id;
     }
@@ -630,18 +630,28 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /* Private internal functions */
 
     /// Updates the current meta data of the node to match the local ENR.
-    fn update_metadata(&mut self) {
+    fn update_metadata_bitfields(&mut self) {
         let local_attnets = self
             .discovery
             .local_enr()
-            .bitfield::<TSpec>()
-            .expect("Local discovery must have bitfield");
+            .attestation_bitfield::<TSpec>()
+            .expect("Local discovery must have attestation bitfield");
+
+        let local_syncnets = self
+            .discovery
+            .local_enr()
+            .sync_committee_bitfield::<TSpec>()
+            .expect("Local discovery must have sync committee bitfield");
 
         {
             // write lock scope
             let mut meta_data = self.network_globals.local_metadata.write();
-            meta_data.seq_number += 1;
-            meta_data.attnets = local_attnets;
+
+            *meta_data.seq_number_mut() += 1;
+            *meta_data.attnets_mut() = local_attnets;
+            if let Ok(syncnets) = meta_data.syncnets_mut() {
+                *syncnets = local_syncnets;
+            }
         }
         // Save the updated metadata to disk
         save_metadata_to_disk(
@@ -654,7 +664,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Ping request to the peer.
     fn ping(&mut self, id: RequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: self.network_globals.local_metadata.read().seq_number,
+            data: *self.network_globals.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => %peer_id);
 
@@ -665,7 +675,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Pong response to the peer.
     fn pong(&mut self, id: PeerRequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: self.network_globals.local_metadata.read().seq_number,
+            data: *self.network_globals.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => %peer_id);
         let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));
@@ -724,8 +734,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
-    fn dial_cached_enrs_in_subnet(&mut self, subnet_id: SubnetId) {
-        let predicate = subnet_predicate::<TSpec>(vec![subnet_id], &self.log);
+    fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
+        let predicate = subnet_predicate::<TSpec>(vec![subnet], &self.log);
         let peers_to_dial: Vec<PeerId> = self
             .discovery
             .cached_enrs()
@@ -752,6 +762,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     fn create_whitelist_filter(
         possible_fork_digests: Vec<[u8; 4]>,
         attestation_subnet_count: u64,
+        sync_committee_subnet_count: u64,
     ) -> WhitelistSubscriptionFilter {
         let mut possible_hashes = HashSet::new();
         for fork_digest in possible_fork_digests {
@@ -767,8 +778,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             add(VoluntaryExit);
             add(ProposerSlashing);
             add(AttesterSlashing);
+            add(SignedContributionAndProof);
             for id in 0..attestation_subnet_count {
                 add(Attestation(SubnetId::new(id)));
+            }
+            for id in 0..sync_committee_subnet_count {
+                add(SyncCommitteeMessage(SyncSubnetId::new(id)));
             }
         }
         WhitelistSubscriptionFilter(possible_hashes)
@@ -792,9 +807,9 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             } => {
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
-                match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data) {
+                match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data, &self.fork_context) {
                     Err(e) => {
-                        debug!(self.log, "Could not decode gossipsub message"; "error" => e);
+                        debug!(self.log, "Could not decode gossipsub message"; "topic" => ?gs_msg.topic,"error" => e);
                         //reject the message
                         if let Err(e) = self.gossipsub.report_message_validation_result(
                             &id,
@@ -816,12 +831,12 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
+                if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.peer_manager.add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
-                if let Some(subnet_id) = subnet_id_from_topic_hash(&topic) {
+                if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.peer_manager.remove_subscription(&peer_id, subnet_id);
                 }
             }
@@ -998,14 +1013,6 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<T
                 }
                 // send peer info to the peer manager.
                 self.peer_manager.identify(&peer_id, &info);
-
-                debug!(self.log, "Identified Peer"; "peer" => %peer_id,
-                    "protocol_version" => info.protocol_version,
-                    "agent_version" => info.agent_version,
-                    "listening_ addresses" => ?info.listen_addrs,
-                    "observed_address" => ?info.observed_addr,
-                    "protocols" => ?info.protocols
-                );
             }
             IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}
@@ -1088,6 +1095,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     PeerManagerEvent::DiscoverPeers => {
                         // Peer manager has requested a discovery query for more peers.
                         self.discovery.discover_peers();
+                    }
+                    PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover) => {
+                        // Peer manager has requested a subnet discovery query for more peers.
+                        self.discover_subnet_peers(subnets_to_discover);
                     }
                     PeerManagerEvent::Ping(peer_id) => {
                         // send a ping request to this peer

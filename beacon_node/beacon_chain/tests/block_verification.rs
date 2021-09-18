@@ -4,11 +4,12 @@
 extern crate lazy_static;
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    test_logger, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
+    common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
     per_slot_processing, BlockProcessingError,
 };
@@ -830,17 +831,24 @@ fn block_gossip_verification() {
 
 #[test]
 fn verify_block_for_gossip_slashing_detection() {
-    let mut harness = get_harness(VALIDATOR_COUNT);
-
     let slasher_dir = tempdir().unwrap();
     let slasher = Arc::new(
         Slasher::open(
             SlasherConfig::new(slasher_dir.path().into()).for_testing(),
-            harness.logger().clone(),
+            test_logger(),
         )
         .unwrap(),
     );
-    harness.chain.slasher = Some(slasher.clone());
+
+    let harness = BeaconChainHarness::ephemeral_with_mutator(
+        MainnetEthSpec,
+        None,
+        KEYPAIRS.to_vec(),
+        StoreConfig::default(),
+        ChainConfig::default(),
+        |builder| builder.slasher(slasher.clone()),
+    );
+    harness.advance_slot();
 
     let state = harness.get_current_state();
     let (block1, _) = harness.make_block(state.clone(), Slot::new(1));
@@ -861,6 +869,52 @@ fn verify_block_for_gossip_slashing_detection() {
 }
 
 #[test]
+fn verify_block_for_gossip_doppelganger_detection() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let state = harness.get_current_state();
+    let (block, _) = harness.make_block(state.clone(), Slot::new(1));
+
+    let verified_block = harness.chain.verify_block_for_gossip(block).unwrap();
+    let attestations = verified_block.block.message().body().attestations().clone();
+    harness.chain.process_block(verified_block).unwrap();
+
+    for att in attestations.iter() {
+        let epoch = att.data.target.epoch;
+        let committee = state
+            .get_beacon_committee(att.data.slot, att.data.index)
+            .unwrap();
+        let indexed_attestation = get_indexed_attestation(committee.committee, att).unwrap();
+
+        for &index in &indexed_attestation.attesting_indices {
+            let index = index as usize;
+
+            assert!(harness.chain.validator_seen_at_epoch(index, epoch));
+
+            // Check the correct beacon cache is populated
+            assert!(harness
+                .chain
+                .observed_block_attesters
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if block attester was observed"));
+            assert!(!harness
+                .chain
+                .observed_gossip_attesters
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if gossip attester was observed"));
+            assert!(!harness
+                .chain
+                .observed_aggregators
+                .read()
+                .validator_has_been_observed(epoch, index)
+                .expect("should check if gossip aggregator was observed"));
+        }
+    }
+}
+
+#[test]
 fn add_base_block_to_altair_chain() {
     let mut spec = MainnetEthSpec::default_spec();
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
@@ -872,7 +926,6 @@ fn add_base_block_to_altair_chain() {
         MainnetEthSpec,
         Some(spec),
         KEYPAIRS[..].to_vec(),
-        1 << 32,
         StoreConfig::default(),
         ChainConfig::default(),
     );
@@ -992,7 +1045,6 @@ fn add_altair_block_to_base_chain() {
         MainnetEthSpec,
         Some(spec),
         KEYPAIRS[..].to_vec(),
-        1 << 32,
         StoreConfig::default(),
         ChainConfig::default(),
     );

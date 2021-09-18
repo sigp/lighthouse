@@ -4,15 +4,16 @@ Each Lighthouse release contains several downloadable binaries in the "Assets"
 section of the release. You can find the [releases
 on Github](https://github.com/sigp/lighthouse/releases).
 
-> Note: binaries are not yet provided for Windows native.
+> Note: binaries are provided for Windows native, but Windows Lighthouse support is still in beta testing.
 
 ## Platforms
 
-Binaries are supplied for three platforms:
+Binaries are supplied for four platforms:
 
 - `x86_64-unknown-linux-gnu`: AMD/Intel 64-bit processors (most desktops, laptops, servers)
 - `aarch64-unknown-linux-gnu`: 64-bit ARM processors (Raspberry Pi 4)
 - `x86_64-apple-darwin`: macOS with Intel chips
+- `x86_64-windows`: Windows with 64-bit processors (Beta)
 
 Additionally there is also a `-portable` suffix which indicates if the `portable` feature is used:
 
@@ -37,6 +38,8 @@ a portable `x86_64` binary.
 1. Test the binary with `./lighthouse --version` (it should print the version).
 1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere.
     - E.g., `cp lighthouse /usr/bin`
+
+> Windows users will need to execute the commands in Step 3 from PowerShell.
 
 ## Troubleshooting
 

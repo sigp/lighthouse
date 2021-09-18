@@ -300,6 +300,7 @@ macro_rules! impl_try_into_beacon_state {
             finalized_checkpoint: $inner.finalized_checkpoint,
 
             // Caching
+            total_active_balance: <_>::default(),
             committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),

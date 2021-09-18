@@ -15,9 +15,9 @@ use tree_hash_derive::TreeHash;
     Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct EnrForkId {
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     pub fork_digest: [u8; 4],
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     pub next_fork_version: [u8; 4],
     pub next_fork_epoch: Epoch,
 }

@@ -6,6 +6,8 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
+mod sync;
+
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification,
@@ -14,12 +16,15 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
+use futures::future::join_all;
 use parking_lot::RwLock;
 use safe_arith::ArithError;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use sync::poll_sync_committee_duties;
+use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
@@ -40,6 +45,14 @@ pub enum Error {
     FailedToDownloadAttesters(String),
     FailedToProduceSelectionProof(ValidatorStoreError),
     InvalidModulo(ArithError),
+    Arith(ArithError),
+    SyncDutiesNotFound(u64),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Self::Arith(e)
+    }
 }
 
 /// Neatly joins the server-generated `AttesterData` with the locally-generated `selection_proof`.
@@ -52,13 +65,14 @@ pub struct DutyAndProof {
 
 impl DutyAndProof {
     /// Instantiate `Self`, computing the selection proof as well.
-    pub fn new<T: SlotClock + 'static, E: EthSpec>(
+    pub async fn new<T: SlotClock + 'static, E: EthSpec>(
         duty: AttesterData,
         validator_store: &ValidatorStore<T, E>,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let selection_proof = validator_store
             .produce_selection_proof(duty.pubkey, duty.slot)
+            .await
             .map_err(Error::FailedToProduceSelectionProof)?;
 
         let selection_proof = selection_proof
@@ -94,6 +108,8 @@ pub struct DutiesService<T, E: EthSpec> {
     /// Maps an epoch to all *local* proposers in this epoch. Notably, this does not contain
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
+    /// Map from validator index to sync committee duties.
+    pub sync_duties: SyncDutiesMap,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
     /// Tracks the current slot.
@@ -301,6 +317,37 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
             }
         },
         "duties_service_attesters",
+    );
+
+    // Spawn the task which keeps track of local sync committee duties.
+    let duties_service = core_duties_service.clone();
+    let log = core_duties_service.context.log().clone();
+    core_duties_service.context.executor.spawn(
+        async move {
+            loop {
+                if let Err(e) = poll_sync_committee_duties(&duties_service).await {
+                    error!(
+                       log,
+                       "Failed to poll sync committee duties";
+                       "error" => ?e
+                    );
+                }
+
+                // Wait until the next slot before polling again.
+                // This doesn't mean that the beacon node will get polled every slot
+                // as the sync duties service will return early if it deems it already has
+                // enough information.
+                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                    sleep(duration).await;
+                } else {
+                    // Just sleep for one slot if we are unable to read the system clock, this gives
+                    // us an opportunity for the clock to eventually come good.
+                    sleep(duties_service.slot_clock.slot_duration()).await;
+                    continue;
+                }
+            }
+        },
+        "duties_service_sync_committee",
     );
 }
 
@@ -592,56 +639,77 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     let dependent_root = response.dependent_root;
 
-    let relevant_duties = response
-        .data
-        .into_iter()
-        .filter(|attester_duty| local_pubkeys.contains(&attester_duty.pubkey))
-        .collect::<Vec<_>>();
+    // Filter any duties that are not relevant or already known.
+    let new_duties = {
+        // Avoid holding the read-lock for any longer than required.
+        let attesters = duties_service.attesters.read();
+        response
+            .data
+            .into_iter()
+            .filter(|duty| local_pubkeys.contains(&duty.pubkey))
+            .filter(|duty| {
+                // Only update the duties if either is true:
+                //
+                // - There were no known duties for this epoch.
+                // - The dependent root has changed, signalling a re-org.
+                attesters.get(&duty.pubkey).map_or(true, |duties| {
+                    duties
+                        .get(&epoch)
+                        .map_or(true, |(prior, _)| *prior != dependent_root)
+                })
+            })
+            .collect::<Vec<_>>()
+    };
 
     debug!(
         log,
         "Downloaded attester duties";
         "dependent_root" => %dependent_root,
-        "num_relevant_duties" => relevant_duties.len(),
+        "num_new_duties" => new_duties.len(),
     );
 
+    // Produce the `DutyAndProof` messages in parallel.
+    let duty_and_proof_results = join_all(new_duties.into_iter().map(|duty| {
+        DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
+    }))
+    .await;
+
+    // Update the duties service with the new `DutyAndProof` messages.
+    let mut attesters = duties_service.attesters.write();
     let mut already_warned = Some(());
-    let mut attesters_map = duties_service.attesters.write();
-    for duty in relevant_duties {
-        let attesters_map = attesters_map.entry(duty.pubkey).or_default();
+    for result in duty_and_proof_results {
+        let duty_and_proof = match result {
+            Ok(duty_and_proof) => duty_and_proof,
+            Err(e) => {
+                error!(
+                    log,
+                    "Failed to produce duty and proof";
+                    "error" => ?e,
+                    "msg" => "may impair attestation duties"
+                );
+                // Do not abort the entire batch for a single failure.
+                continue;
+            }
+        };
 
-        // Only update the duties if either is true:
-        //
-        // - There were no known duties for this epoch.
-        // - The dependent root has changed, signalling a re-org.
-        if attesters_map
-            .get(&epoch)
-            .map_or(true, |(prior, _)| *prior != dependent_root)
+        let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
+
+        if let Some((prior_dependent_root, _)) =
+            attester_map.insert(epoch, (dependent_root, duty_and_proof))
         {
-            let duty_and_proof =
-                DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)?;
-
-            if let Some((prior_dependent_root, _)) =
-                attesters_map.insert(epoch, (dependent_root, duty_and_proof))
-            {
-                // Using `already_warned` avoids excessive logs.
-                if dependent_root != prior_dependent_root && already_warned.take().is_some() {
-                    warn!(
-                        log,
-                        "Attester duties re-org";
-                        "prior_dependent_root" => %prior_dependent_root,
-                        "dependent_root" => %dependent_root,
-                        "msg" => "this may happen from time to time"
-                    )
-                }
+            // Using `already_warned` avoids excessive logs.
+            if dependent_root != prior_dependent_root && already_warned.take().is_some() {
+                warn!(
+                    log,
+                    "Attester duties re-org";
+                    "prior_dependent_root" => %prior_dependent_root,
+                    "dependent_root" => %dependent_root,
+                    "msg" => "this may happen from time to time"
+                )
             }
         }
     }
-    // Drop the write-lock.
-    //
-    // This is strictly unnecessary since the function ends immediately afterwards, but we remain
-    // defensive regardless.
-    drop(attesters_map);
+    drop(attesters);
 
     Ok(())
 }

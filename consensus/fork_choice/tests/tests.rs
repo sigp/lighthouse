@@ -48,12 +48,10 @@ impl fmt::Debug for ForkChoiceTest {
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
-        let harness = BeaconChainHarness::new_with_target_aggregators(
+        let harness = BeaconChainHarness::new_with_store_config(
             MainnetEthSpec,
             None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
-            // Ensure we always have an aggregator for each slot.
-            u64::max_value(),
             StoreConfig::default(),
         );
 
@@ -66,8 +64,6 @@ impl ForkChoiceTest {
             MainnetEthSpec,
             None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
-            // Ensure we always have an aggregator for each slot.
-            u64::max_value(),
             StoreConfig::default(),
             chain_config,
         );

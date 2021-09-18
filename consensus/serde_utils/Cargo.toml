@@ -1,8 +1,10 @@
 [package]
-name = "serde_utils"
+name = "eth2_serde_utils"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com", "Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
+description = "Serialization and deserialization utilities useful for JSON representations of Ethereum 2.0 types."
+license = "Apache-2.0"
 
 [dependencies]
 serde = { version = "1.0.116", features = ["derive"] }

@@ -9,6 +9,8 @@
 # $VALIDATOR_COUNT and $NODE_COUNT variables.
 #
 
+set -o nounset -o errexit -o pipefail
+
 source ./vars.env
 
 lcli \
@@ -20,10 +22,9 @@ lcli \
 NOW=`date +%s`
 GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
 
-
 lcli \
-	--spec mainnet \
 	new-testnet \
+	--spec $SPEC_PRESET \
 	--deposit-contract-address $DEPOSIT_CONTRACT_ADDRESS \
 	--testnet-dir $TESTNET_DIR \
 	--min-genesis-active-validator-count $GENESIS_VALIDATOR_COUNT \
@@ -50,8 +51,8 @@ echo Validators generated with keystore passwords at $DATADIR.
 echo "Building genesis state... (this might take a while)"
 
 lcli \
-	--spec mainnet \
 	interop-genesis \
+	--spec $SPEC_PRESET \
 	--genesis-time $GENESIS_TIME \
 	--testnet-dir $TESTNET_DIR \
 	$GENESIS_VALIDATOR_COUNT

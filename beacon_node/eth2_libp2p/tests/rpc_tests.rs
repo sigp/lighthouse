@@ -8,7 +8,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, Epoch, EthSpec, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, Epoch, EthSpec, Hash256, MinimalEthSpec,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 mod common;
@@ -137,11 +138,16 @@ fn test_blocks_by_range_chunked_rpc() {
             step: 0,
         });
 
-        // BlocksByRange Response
         let spec = E::default_spec();
-        let empty_block = BeaconBlock::empty(&spec);
-        let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
-        let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
+
+        // BlocksByRange Response
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
+        let rpc_response_base = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
+        let rpc_response_altair = Response::BlocksByRange(Some(Box::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
@@ -166,7 +172,11 @@ fn test_blocks_by_range_chunked_rpc() {
                         warn!(log, "Sender received a response");
                         match response {
                             Response::BlocksByRange(Some(_)) => {
-                                assert_eq!(response, rpc_response.clone());
+                                if messages_received < 5 {
+                                    assert_eq!(response, rpc_response_base.clone());
+                                } else {
+                                    assert_eq!(response, rpc_response_altair.clone());
+                                }
                                 messages_received += 1;
                                 warn!(log, "Chunk received");
                             }
@@ -196,7 +206,14 @@ fn test_blocks_by_range_chunked_rpc() {
                         if request == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
-                            for _ in 1..=messages_to_send {
+                            for i in 0..messages_to_send {
+                                // Send first half of responses as base blocks and
+                                // second half as altair blocks.
+                                let rpc_response = if i < 5 {
+                                    rpc_response_base.clone()
+                                } else {
+                                    rpc_response_altair.clone()
+                                };
                                 receiver.swarm.behaviour_mut().send_successful_response(
                                     peer_id,
                                     id,
@@ -480,7 +497,7 @@ fn test_blocks_by_root_chunked_rpc() {
     let log_level = Level::Debug;
     let enable_logging = false;
 
-    let messages_to_send = 3;
+    let messages_to_send = 10;
 
     let log = common::build_log(log_level, enable_logging);
     let spec = E::default_spec();
@@ -496,13 +513,24 @@ fn test_blocks_by_root_chunked_rpc() {
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
+                Hash256::from_low_u64_be(0),
             ]),
         });
 
         // BlocksByRoot Response
-        let full_block = BeaconBlock::full(&spec);
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
+        let rpc_response_base = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
+
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
+        let rpc_response_altair = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
@@ -525,7 +553,11 @@ fn test_blocks_by_root_chunked_rpc() {
                         response,
                     }) => match response {
                         Response::BlocksByRoot(Some(_)) => {
-                            assert_eq!(response, rpc_response.clone());
+                            if messages_received < 5 {
+                                assert_eq!(response, rpc_response_base.clone());
+                            } else {
+                                assert_eq!(response, rpc_response_altair.clone());
+                            }
                             messages_received += 1;
                             debug!(log, "Chunk received");
                         }
@@ -555,11 +587,18 @@ fn test_blocks_by_root_chunked_rpc() {
                             // send the response
                             debug!(log, "Receiver got request");
 
-                            for _ in 1..=messages_to_send {
+                            for i in 0..messages_to_send {
+                                // Send first half of responses as base blocks and
+                                // second half as altair blocks.
+                                let rpc_response = if i < 5 {
+                                    rpc_response_base.clone()
+                                } else {
+                                    rpc_response_altair.clone()
+                                };
                                 receiver.swarm.behaviour_mut().send_successful_response(
                                     peer_id,
                                     id,
-                                    rpc_response.clone(),
+                                    rpc_response,
                                 );
                                 debug!(log, "Sending message");
                             }
@@ -621,7 +660,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
         });
 
         // BlocksByRoot Response
-        let full_block = BeaconBlock::full(&spec);
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 

@@ -1,6 +1,6 @@
 use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
-use eth2_libp2p::discv5::{enr::CombinedKey, Enr};
+use eth2_libp2p::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use eth2_libp2p::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
@@ -18,7 +18,7 @@ pub struct BootNodeConfig<T: EthSpec> {
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
     pub local_key: CombinedKey,
-    pub auto_update: bool,
+    pub discv5_config: Discv5Config,
     phantom: PhantomData<T>,
 }
 
@@ -57,18 +57,16 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         let logger = slog_scope::logger();
 
         set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
-        // default to the standard port
+
+        // Set the enr-udp-port to the default listening port if it was not specified.
         if !matches.is_present("enr-udp-port") {
-            network_config.enr_udp_port = Some(
-                matches
-                    .value_of("port")
-                    .expect("Value required")
-                    .parse()
-                    .map_err(|_| "Invalid port number")?,
-            );
+            network_config.enr_udp_port = Some(network_config.discovery_port);
         }
 
-        let auto_update = matches.is_present("enable-enr_auto_update");
+        // By default this is enabled. If it is not set, revert to false.
+        if !matches.is_present("enable-enr-auto-update") {
+            network_config.discv5_config.enr_update = false;
+        }
 
         // the address to listen on
         let listen_socket =
@@ -89,7 +87,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
                     let genesis_state = eth2_network_config.beacon_state::<T>()?;
 
                     slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
-                    let enr_fork = spec.enr_fork_id(
+                    let enr_fork = spec.enr_fork_id::<T>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
                     );
@@ -111,7 +109,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", &enr_fork_bytes);
+                    builder.add_value("eth2", enr_fork_bytes.as_slice());
                 }
                 builder
                     .build(&local_key)
@@ -127,7 +125,7 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             boot_nodes,
             local_enr,
             local_key,
-            auto_update,
+            discv5_config: network_config.discv5_config,
             phantom: PhantomData,
         })
     }

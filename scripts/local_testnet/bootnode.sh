@@ -30,4 +30,5 @@ exec lighthouse boot_node \
     --testnet-dir $TESTNET_DIR \
     --port $BOOTNODE_PORT \
     --listen-address 127.0.0.1 \
+	--disable-packet-filter \
     --network-dir $DATADIR/bootnode \

@@ -9,13 +9,13 @@ name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "1.7.1", features = ["time", "rt-multi-thread", "macros"] }
+tokio = { version = "1.10.0", features = ["time", "rt-multi-thread", "macros"] }
 deposit_contract = { path = "../common/deposit_contract" }
 
 [dependencies]
-eth2_ssz = "0.1.2"
+eth2_ssz = "0.3.0"
 eth2_config = { path = "../common/eth2_config" }
-tree_hash = "0.1.1"
+tree_hash = "0.3.0"
 clap = "2.33.3"
 eth2_interop_keypairs = { path = "../common/eth2_interop_keypairs" }
 slashing_protection = { path = "./slashing_protection" }
@@ -30,7 +30,7 @@ serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 slog-async = "2.5.0"
 slog-term = "2.6.0"
-tokio = { version = "1.7.1", features = ["time"] }
+tokio = { version = "1.10.0", features = ["time"] }
 futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
@@ -41,7 +41,7 @@ parking_lot = "0.11.0"
 exit-future = "0.2.0"
 filesystem = { path = "../common/filesystem" }
 libc = "0.2.79"
-eth2_ssz_derive = "0.1.0"
+eth2_ssz_derive = "0.2.1"
 hex = "0.4.2"
 deposit_contract = { path = "../common/deposit_contract" }
 bls = { path = "../crypto/bls" }
@@ -56,14 +56,17 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
 warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 hyper = "0.14.4"
-serde_utils = { path = "../consensus/serde_utils" }
-libsecp256k1 = "0.5.0"
+eth2_serde_utils = "0.1.0"
+libsecp256k1 = "0.6.0"
 ring = "0.16.19"
 rand = "0.7.3"
-scrypt = { version = "0.5.0", default-features = false }
+scrypt = { version = "0.7.0", default-features = false }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 fallback = { path = "../common/fallback" }
+itertools = "0.10.0"
 monitoring_api = { path = "../common/monitoring_api" }
 sensitive_url = { path = "../common/sensitive_url" }
 task_executor = { path = "../common/task_executor" }
+reqwest = { version = "0.11.0", features = ["json","stream"] }
+url = "2.2.2"

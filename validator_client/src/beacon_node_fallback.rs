@@ -355,7 +355,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             // status of nodes that were previously not-synced.
             if candidate.status(RequireSynced::Yes).await.is_err() {
                 // There exists a race-condition that could result in `refresh_status` being called
-                // when the status does not require refreshing anymore. This deemed is an
+                // when the status does not require refreshing anymore. This is deemed an
                 // acceptable inefficiency.
                 futures.push(candidate.refresh_status(
                     self.slot_clock.as_ref(),

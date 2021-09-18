@@ -17,7 +17,7 @@ use pbkdf2::pbkdf2;
 use rand::prelude::*;
 use scrypt::{
     errors::{InvalidOutputLen, InvalidParams},
-    scrypt, ScryptParams,
+    scrypt, Params as ScryptParams,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

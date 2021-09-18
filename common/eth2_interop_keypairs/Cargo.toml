@@ -8,8 +8,8 @@ edition = "2018"
 
 [dependencies]
 lazy_static = "1.4.0"
-num-bigint = "0.3.0"
-eth2_hashing = "0.1.0"
+num-bigint = "0.4.2"
+eth2_hashing = "0.2.0"
 hex = "0.4.2"
 serde_yaml = "0.8.13"
 serde = "1.0.116"

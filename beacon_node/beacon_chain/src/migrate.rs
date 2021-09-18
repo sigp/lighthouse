@@ -334,16 +334,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         );
 
         for (head_hash, head_slot) in heads {
+            // Load head block. If it fails with a decode error, it's likely a reverted block,
+            // so delete it from the head tracker but leave it and its states in the database
+            // This is suboptimal as it wastes disk space, but it's difficult to fix. A re-sync
+            // can be used to reclaim the space.
+            let head_state_root = match store.get_block(&head_hash) {
+                Ok(Some(block)) => block.state_root(),
+                Ok(None) => {
+                    return Err(BeaconStateError::MissingBeaconBlock(head_hash.into()).into())
+                }
+                Err(Error::SszDecodeError(e)) => {
+                    warn!(
+                        log,
+                        "Forgetting invalid head block";
+                        "block_root" => ?head_hash,
+                        "error" => ?e,
+                    );
+                    abandoned_heads.insert(head_hash);
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
+
             let mut potentially_abandoned_head = Some(head_hash);
             let mut potentially_abandoned_blocks = vec![];
 
-            let head_state_hash = store
-                .get_block(&head_hash)?
-                .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?
-                .state_root();
-
             // Iterate backwards from this head, staging blocks and states for deletion.
-            let iter = std::iter::once(Ok((head_hash, head_state_hash, head_slot)))
+            let iter = std::iter::once(Ok((head_hash, head_state_root, head_slot)))
                 .chain(RootsIterator::from_block(store.clone(), head_hash)?);
 
             for maybe_tuple in iter {

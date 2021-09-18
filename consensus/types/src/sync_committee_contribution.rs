@@ -21,6 +21,7 @@ pub enum Error {
 pub struct SyncCommitteeContribution<T: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
     pub aggregation_bits: BitVector<T::SyncSubcommitteeSize>,
     pub signature: AggregateSignature,
@@ -77,9 +78,9 @@ impl SignedRoot for Hash256 {}
 /// This is not in the spec, but useful for determining uniqueness of sync committee contributions
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct SyncContributionData {
-    slot: Slot,
-    beacon_block_root: Hash256,
-    subcommittee_index: u64,
+    pub slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub subcommittee_index: u64,
 }
 
 impl SyncContributionData {

@@ -82,9 +82,21 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         self.slot_duration() / 3
     }
 
+    /// Returns the delay between the start of the slot and when sync committee messages should be
+    /// produced.
+    fn sync_committee_message_production_delay(&self) -> Duration {
+        self.slot_duration() / 3
+    }
+
     /// Returns the delay between the start of the slot and when aggregated attestations should be
     /// produced.
     fn agg_attestation_production_delay(&self) -> Duration {
+        self.slot_duration() * 2 / 3
+    }
+
+    /// Returns the delay between the start of the slot and when partially aggregated `SyncCommitteeContribution` should be
+    /// produced.
+    fn sync_committee_contribution_production_delay(&self) -> Duration {
         self.slot_duration() * 2 / 3
     }
 }

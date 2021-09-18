@@ -71,26 +71,26 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
-        let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
-        let object_fork = match self {
-            SignedBeaconBlock::Base { .. } => ForkName::Base,
-            SignedBeaconBlock::Altair { .. } => ForkName::Altair,
-        };
-
-        if fork_at_slot == object_fork {
-            Ok(object_fork)
-        } else {
-            Err(InconsistentFork {
-                fork_at_slot,
-                object_fork,
-            })
-        }
+        self.message().fork_name(spec)
     }
 
-    /// SSZ decode.
+    /// SSZ decode with fork variant determined by slot.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        // We need to use the slot-switching `from_ssz_bytes` of `BeaconBlock`, which doesn't
-        // compose with the other SSZ utils, so we duplicate some parts of `ssz_derive` here.
+        Self::from_ssz_bytes_with(bytes, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
+    }
+
+    /// SSZ decode which attempts to decode all variants (slow).
+    pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes_with(bytes, BeaconBlock::any_from_ssz_bytes)
+    }
+
+    /// SSZ decode with custom decode function.
+    pub fn from_ssz_bytes_with(
+        bytes: &[u8],
+        block_decoder: impl FnOnce(&[u8]) -> Result<BeaconBlock<E>, ssz::DecodeError>,
+    ) -> Result<Self, ssz::DecodeError> {
+        // We need the customer decoder for `BeaconBlock`, which doesn't compose with the other
+        // SSZ utils, so we duplicate some parts of `ssz_derive` here.
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
         builder.register_anonymous_variable_length_item()?;
@@ -99,7 +99,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         let mut decoder = builder.build()?;
 
         // Read the first item as a `BeaconBlock`.
-        let message = decoder.decode_next_with(|bytes| BeaconBlock::from_ssz_bytes(bytes, spec))?;
+        let message = decoder.decode_next_with(block_decoder)?;
         let signature = decoder.decode_next()?;
 
         Ok(Self::from_block(message, signature))

@@ -881,7 +881,7 @@ impl<'a, T: BeaconChainTypes> PartiallyVerifiedUnaggregatedAttestation<'a, T> {
          * for the slot, attestation.data.slot.
          */
         if chain
-            .observed_attesters
+            .observed_gossip_attesters
             .read()
             .validator_has_been_observed(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
@@ -1076,7 +1076,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedUnaggregatedAttestation<'a, T> {
         // there can be a race-condition if we receive two attestations at the same time and
         // process them in different threads.
         if chain
-            .observed_attesters
+            .observed_gossip_attesters
             .write()
             .observe_validator(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?

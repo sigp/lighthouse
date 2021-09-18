@@ -4,7 +4,7 @@ pub use discv5::enr::{self, CombinedKey, EnrBuilder};
 
 use super::enr_ext::CombinedKeyExt;
 use super::ENR_FILENAME;
-use crate::types::{Enr, EnrBitfield};
+use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use discv5::enr::EnrKey;
 use libp2p::core::identity::Keypair;
@@ -19,25 +19,47 @@ use types::{EnrForkId, EthSpec};
 
 /// The ENR field specifying the fork id.
 pub const ETH2_ENR_KEY: &str = "eth2";
-/// The ENR field specifying the subnet bitfield.
-pub const BITFIELD_ENR_KEY: &str = "attnets";
+/// The ENR field specifying the attestation subnet bitfield.
+pub const ATTESTATION_BITFIELD_ENR_KEY: &str = "attnets";
+/// The ENR field specifying the sync committee subnet bitfield.
+pub const SYNC_COMMITTEE_BITFIELD_ENR_KEY: &str = "syncnets";
 
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
-    /// The subnet bitfield associated with the ENR.
-    fn bitfield<TSpec: EthSpec>(&self) -> Result<EnrBitfield<TSpec>, &'static str>;
+    /// The attestation subnet bitfield associated with the ENR.
+    fn attestation_bitfield<TSpec: EthSpec>(
+        &self,
+    ) -> Result<EnrAttestationBitfield<TSpec>, &'static str>;
+
+    /// The sync committee subnet bitfield associated with the ENR.
+    fn sync_committee_bitfield<TSpec: EthSpec>(
+        &self,
+    ) -> Result<EnrSyncCommitteeBitfield<TSpec>, &'static str>;
 
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
 
 impl Eth2Enr for Enr {
-    fn bitfield<TSpec: EthSpec>(&self) -> Result<EnrBitfield<TSpec>, &'static str> {
+    fn attestation_bitfield<TSpec: EthSpec>(
+        &self,
+    ) -> Result<EnrAttestationBitfield<TSpec>, &'static str> {
         let bitfield_bytes = self
-            .get(BITFIELD_ENR_KEY)
-            .ok_or("ENR bitfield non-existent")?;
+            .get(ATTESTATION_BITFIELD_ENR_KEY)
+            .ok_or("ENR attestation bitfield non-existent")?;
 
         BitVector::<TSpec::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
-            .map_err(|_| "Could not decode the ENR SSZ bitfield")
+            .map_err(|_| "Could not decode the ENR attnets bitfield")
+    }
+
+    fn sync_committee_bitfield<TSpec: EthSpec>(
+        &self,
+    ) -> Result<EnrSyncCommitteeBitfield<TSpec>, &'static str> {
+        let bitfield_bytes = self
+            .get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
+            .ok_or("ENR sync committee bitfield non-existent")?;
+
+        BitVector::<TSpec::SyncCommitteeSubnetCount>::from_ssz_bytes(bitfield_bytes)
+            .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
@@ -151,7 +173,12 @@ pub fn build_enr<T: EthSpec>(
     // set the "attnets" field on our ENR
     let bitfield = BitVector::<T::SubnetBitfieldLength>::new();
 
-    builder.add_value(BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+    builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+
+    // set the "syncnets" field on our ENR
+    let bitfield = BitVector::<T::SyncCommitteeSubnetCount>::new();
+
+    builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
     builder
         .build(enr_key)
@@ -169,9 +196,10 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
         && (local_enr.udp().is_none() || local_enr.udp() == disk_enr.udp())
-        // we need the BITFIELD_ENR_KEY key to match, otherwise we use a new ENR. This will likely only
-        // be true for non-validating nodes
-        && local_enr.get(BITFIELD_ENR_KEY) == disk_enr.get(BITFIELD_ENR_KEY)
+        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match, 
+        // otherwise we use a new ENR. This will likely only be true for non-validating nodes
+        && local_enr.get(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get(ATTESTATION_BITFIELD_ENR_KEY)
+        && local_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
 }
 
 /// Loads enr from the given directory

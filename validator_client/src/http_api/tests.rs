@@ -4,7 +4,8 @@
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
-    Config, ForkServiceBuilder, InitializedValidators, ValidatorDefinitions, ValidatorStore,
+    initialized_validators::InitializedValidators,
+    Config, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
@@ -12,15 +13,22 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use environment::null_logger;
-use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*};
+use eth2::{
+    lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
+    types::ErrorMessage as ApiErrorMessage,
+    Error as ApiError,
+};
 use eth2_keystore::KeystoreBuilder;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
-use slot_clock::TestingSlotClock;
+use slot_clock::{SlotClock, TestingSlotClock};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+use std::time::Duration;
+use task_executor::TaskExecutor;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
@@ -35,6 +43,7 @@ struct ApiTester {
     url: SensitiveUrl,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
+    _runtime_shutdown: exit_future::Signal,
 }
 
 // Builds a runtime to be used in the testing configuration.
@@ -73,20 +82,24 @@ impl ApiTester {
 
         let spec = E::default_spec();
 
-        let fork_service = ForkServiceBuilder::testing_only(spec.clone(), log.clone())
-            .build()
-            .unwrap();
-
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let validator_store: ValidatorStore<TestingSlotClock, E> = ValidatorStore::new(
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+
+        let (runtime_shutdown, exit) = exit_future::signal();
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = TaskExecutor::new(runtime.clone(), exit, log.clone(), shutdown_tx);
+
+        let validator_store = ValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
             spec,
-            fork_service.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            slot_clock,
+            executor,
             log.clone(),
         );
 
@@ -96,7 +109,7 @@ impl ApiTester {
 
         let initialized_validators = validator_store.initialized_validators();
 
-        let context: Arc<Context<TestingSlotClock, E>> = Arc::new(Context {
+        let context = Arc::new(Context {
             runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
@@ -136,15 +149,49 @@ impl ApiTester {
             client,
             url,
             _server_shutdown: shutdown_tx,
+            _runtime_shutdown: runtime_shutdown,
         }
     }
 
-    pub fn invalidate_api_token(mut self) -> Self {
+    pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
         let tmp = tempdir().unwrap();
         let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
         let invalid_pubkey = api_secret.api_token();
+        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey.clone()).unwrap()
+    }
 
-        self.client = ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap();
+    pub async fn test_with_invalid_auth<F, A, T>(self, func: F) -> Self
+    where
+        F: Fn(ValidatorClientHttpClient) -> A,
+        A: Future<Output = Result<T, ApiError>>,
+    {
+        /*
+         * Test with an invalid Authorization header.
+         */
+        match func(self.invalid_token_client()).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage { code: 403, .. })) => (),
+            Err(other) => panic!("expected authorized error, got {:?}", other),
+            Ok(_) => panic!("expected authorized error, got Ok"),
+        }
+
+        /*
+         * Test with a missing Authorization header.
+         */
+        let mut missing_token_client = self.client.clone();
+        missing_token_client.send_authorization_header(false);
+        match func(missing_token_client).await {
+            Err(ApiError::ServerMessage(ApiErrorMessage {
+                code: 400, message, ..
+            })) if message.contains("missing Authorization header") => (),
+            Err(other) => panic!("expected missing header error, got {:?}", other),
+            Ok(_) => panic!("expected missing header error, got Ok"),
+        }
+
+        self
+    }
+
+    pub fn invalidate_api_token(mut self) -> Self {
+        self.client = self.invalid_token_client();
         self
     }
 
@@ -296,7 +343,7 @@ impl ApiTester {
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
             let deposit_bytes =
-                serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+                eth2_serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
@@ -387,6 +434,40 @@ impl ApiTester {
         self
     }
 
+    pub async fn create_web3signer_validators(self, s: Web3SignerValidatorScenario) -> Self {
+        let initial_vals = self.vals_total();
+        let initial_enabled_vals = self.vals_enabled();
+
+        let request: Vec<_> = (0..s.count)
+            .map(|i| {
+                let kp = Keypair::random();
+                Web3SignerValidatorRequest {
+                    enable: s.enabled,
+                    description: format!("{}", i),
+                    graffiti: None,
+                    voting_public_key: kp.pk,
+                    url: format!("http://signer_{}.com/", i),
+                    root_certificate_path: None,
+                    request_timeout_ms: None,
+                }
+            })
+            .collect();
+
+        self.client
+            .post_lighthouse_validators_web3signer(&request)
+            .await
+            .unwrap_err();
+
+        assert_eq!(self.vals_total(), initial_vals + s.count);
+        if s.enabled {
+            assert_eq!(self.vals_enabled(), initial_enabled_vals + s.count);
+        } else {
+            assert_eq!(self.vals_enabled(), initial_enabled_vals);
+        };
+
+        self
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
@@ -442,6 +523,11 @@ struct KeystoreValidatorScenario {
     correct_password: bool,
 }
 
+struct Web3SignerValidatorScenario {
+    count: usize,
+    enabled: bool,
+}
+
 #[test]
 fn invalid_pubkey() {
     let runtime = build_runtime();
@@ -452,6 +538,76 @@ fn invalid_pubkey() {
             .invalidate_api_token()
             .test_get_lighthouse_version_invalid()
             .await;
+    });
+}
+
+#[test]
+fn routes_with_invalid_auth() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_lighthouse_version().await })
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_lighthouse_health().await })
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_lighthouse_spec().await })
+            .await
+            .test_with_invalid_auth(
+                |client| async move { client.get_lighthouse_validators().await },
+            )
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .post_lighthouse_validators(vec![ValidatorRequest {
+                        enable: <_>::default(),
+                        description: <_>::default(),
+                        graffiti: <_>::default(),
+                        deposit_gwei: <_>::default(),
+                    }])
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
+                        mnemonic: String::default().into(),
+                        key_derivation_path_offset: <_>::default(),
+                        validators: <_>::default(),
+                    })
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                let password = random_password();
+                let keypair = Keypair::random();
+                let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                client
+                    .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
+                        password: String::default().into(),
+                        enable: <_>::default(),
+                        keystore,
+                        graffiti: <_>::default(),
+                    })
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                client
+                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), false)
+                    .await
+            })
+            .await
     });
 }
 
@@ -567,5 +723,24 @@ fn keystore_validator_creation() {
             .await
             .assert_enabled_validators_count(1)
             .assert_validators_count(2);
+    });
+}
+
+#[test]
+fn web3signer_validator_creation() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .assert_enabled_validators_count(0)
+            .assert_validators_count(0)
+            .create_web3signer_validators(Web3SignerValidatorScenario {
+                count: 1,
+                enabled: true,
+            })
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(1);
     });
 }
