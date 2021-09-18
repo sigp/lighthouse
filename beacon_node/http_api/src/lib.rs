@@ -15,7 +15,7 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::SignatureVerifiedAttestation,
+    attestation_verification::VerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,

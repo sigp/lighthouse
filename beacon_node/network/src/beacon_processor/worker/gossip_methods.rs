@@ -1,7 +1,7 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::{
-    attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
+    attestation_verification::{Error as AttnError, VerifiedAttestation},
     observed_operations::ObservationOutcome,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
@@ -31,7 +31,7 @@ struct VerifiedUnaggregate<T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedUnaggregate<T> {
+impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
     }
@@ -51,7 +51,7 @@ struct VerifiedAggregate<T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-impl<'a, T: BeaconChainTypes> SignatureVerifiedAttestation<T> for VerifiedAggregate<T> {
+impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
     }

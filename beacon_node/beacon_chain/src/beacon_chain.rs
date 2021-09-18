@@ -1514,7 +1514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let indexed =
             IndexedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self)?;
 
-        VerifiedUnaggregatedAttestation::finish_verification(
+        VerifiedUnaggregatedAttestation::verify_indexed(
             indexed,
             self,
             CheckAttestationSignature::Yes,
@@ -1551,21 +1551,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let indexed = IndexedAggregatedAttestation::verify(signed_aggregate, self)?;
 
-        VerifiedAggregatedAttestation::finish_verification(
-            indexed,
-            self,
-            CheckAttestationSignature::Yes,
-        )
-        .map(|v| {
-            // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-            if let Some(event_handler) = self.event_handler.as_ref() {
-                if event_handler.has_attestation_subscribers() {
-                    event_handler.register(EventKind::Attestation(v.attestation().clone()));
+        VerifiedAggregatedAttestation::verify_indexed(indexed, self, CheckAttestationSignature::Yes)
+            .map(|v| {
+                // This method is called for API and gossip attestations, so this covers all aggregated attestation events
+                if let Some(event_handler) = self.event_handler.as_ref() {
+                    if event_handler.has_attestation_subscribers() {
+                        event_handler.register(EventKind::Attestation(v.attestation().clone()));
+                    }
                 }
-            }
-            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-            v
-        })
+                metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+                v
+            })
     }
 
     /// Accepts some `SyncCommitteeMessage` from the network and attempts to verify it, returning `Ok(_)` if
