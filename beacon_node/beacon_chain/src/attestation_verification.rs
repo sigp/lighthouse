@@ -628,7 +628,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
     }
 
     /// Complete the verification of an indexed attestation.
-    pub fn verify_indexed(
+    pub fn from_indexed(
         signed_aggregate: IndexedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
@@ -905,7 +905,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     }
 
     /// Complete the verification of an indexed attestation.
-    pub fn verify_indexed(
+    pub fn from_indexed(
         attestation: IndexedUnaggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,

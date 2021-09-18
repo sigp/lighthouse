@@ -1514,21 +1514,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let indexed =
             IndexedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self)?;
 
-        VerifiedUnaggregatedAttestation::verify_indexed(
-            indexed,
-            self,
-            CheckAttestationSignature::Yes,
-        )
-        .map(|v| {
-            // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
-            if let Some(event_handler) = self.event_handler.as_ref() {
-                if event_handler.has_attestation_subscribers() {
-                    event_handler.register(EventKind::Attestation(v.attestation().clone()));
+        VerifiedUnaggregatedAttestation::from_indexed(indexed, self, CheckAttestationSignature::Yes)
+            .map(|v| {
+                // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
+                if let Some(event_handler) = self.event_handler.as_ref() {
+                    if event_handler.has_attestation_subscribers() {
+                        event_handler.register(EventKind::Attestation(v.attestation().clone()));
+                    }
                 }
-            }
-            metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-            v
-        })
+                metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+                v
+            })
     }
 
     pub fn batch_verify_aggregated_attestations_for_gossip<'a>(
@@ -1551,7 +1547,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let indexed = IndexedAggregatedAttestation::verify(signed_aggregate, self)?;
 
-        VerifiedAggregatedAttestation::verify_indexed(indexed, self, CheckAttestationSignature::Yes)
+        VerifiedAggregatedAttestation::from_indexed(indexed, self, CheckAttestationSignature::Yes)
             .map(|v| {
                 // This method is called for API and gossip attestations, so this covers all aggregated attestation events
                 if let Some(event_handler) = self.event_handler.as_ref() {
