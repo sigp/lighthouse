@@ -1,3 +1,14 @@
+//! These two `batch_...` functions provide verification of batches of attestations. They provide
+//! significant CPU-time savings by performing batch verification of BLS signatures.
+//!
+//! In each function, attestations are "indexed" (i.e., the `IndexedAttestation` is computed), to
+//! determine if they should progress to signature verification. Then, all attestations which were
+//! successfully indexed have their signatures verified in a batch. If that signature batch fails
+//! then all attestation signatures are verified independently.
+//!
+//! The outcome of each function is a `Vec<Result>` with a one-to-one mapping to the `aggregates`
+//! input. Each result provides the exact success or failure result of the corresponding
+//! attestation.
 use super::{
     CheckAttestationSignature, Error, IndexedAggregatedAttestation, IndexedUnaggregatedAttestation,
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
@@ -14,16 +25,6 @@ use state_processing::signature_sets::{
 use std::borrow::Cow;
 use types::*;
 
-/// This function provides verification of a batch of aggregate attestations. It provides a
-/// significant CPU-time saving by performing batch verification of BLS signatures.
-///
-/// Each attestation is "indexed" (i.e., the `IndexedAttestation` is computed), which determines if
-/// it should progress to signature verification. Then, all attestations which were successfully
-/// indexed have their signatures verified in a batch. If that signature batch fails then all
-/// attestation signatures are verified independently.
-///
-/// The outcome is a `Vec<Result>` with a one-to-one mapping to the `aggregates` input. Each result
-/// provides the exact success or failure result of the corresponding attestation.
 pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
     aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
     chain: &BeaconChain<T>,
@@ -129,16 +130,6 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
     Ok(final_results)
 }
 
-/// This function provides verification of a batch of attestations. It provides a significant
-/// CPU-time saving by performing batch verification of BLS signatures.
-///
-/// Each attestation is "indexed" (i.e., the `IndexedAttestation` is computed), which determines if
-/// it should progress to signature verification. Then, all attestations which were successfully
-/// indexed have their signatures verified in a batch. If that signature batch fails then all
-/// attestation signatures are verified independently.
-///
-/// The outcome is a `Vec<Result>` with a one-to-one mapping to the `aggregates` input. Each result
-/// provides the exact success or failure result of the corresponding attestation.
 pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
     attestations: impl Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)>,
     chain: &BeaconChain<T>,
