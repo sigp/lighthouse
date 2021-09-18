@@ -1,8 +1,8 @@
 use crate::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
-    CheckAttestationSignature, Error as AttestationError, FullyVerifiedAggregatedAttestation,
-    FullyVerifiedUnaggregatedAttestation, PartiallyVerifiedAggregatedAttestation,
-    PartiallyVerifiedUnaggregatedAttestation, SignatureVerifiedAttestation,
+    CheckAttestationSignature, Error as AttestationError, IndexedAggregatedAttestation,
+    IndexedUnaggregatedAttestation, VerifiedAggregatedAttestation, VerifiedAttestation,
+    VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::BeaconProposerCache;
@@ -1491,7 +1491,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attestations: impl Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)>,
     ) -> Result<
-        Vec<Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttestationError>>,
+        Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError>>,
         AttestationError,
     > {
         batch_verify_unaggregated_attestations(attestations, self)
@@ -1506,19 +1506,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         unaggregated_attestation: &'a Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
-    ) -> Result<FullyVerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
+    ) -> Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        let partially_verified = PartiallyVerifiedUnaggregatedAttestation::verify(
-            unaggregated_attestation,
-            subnet_id,
-            self,
-        )?;
+        let indexed =
+            IndexedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self)?;
 
-        FullyVerifiedUnaggregatedAttestation::finish_verification(
-            partially_verified,
+        VerifiedUnaggregatedAttestation::finish_verification(
+            indexed,
             self,
             CheckAttestationSignature::Yes,
         )
@@ -1537,10 +1534,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn batch_verify_aggregated_attestations_for_gossip<'a>(
         &self,
         aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
-    ) -> Result<
-        Vec<Result<FullyVerifiedAggregatedAttestation<'a, T>, AttestationError>>,
-        AttestationError,
-    > {
+    ) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, AttestationError>>, AttestationError>
+    {
         batch_verify_aggregated_attestations(aggregates, self)
     }
 
@@ -1549,16 +1544,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_aggregated_attestation_for_gossip<'a>(
         &self,
         signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
-    ) -> Result<FullyVerifiedAggregatedAttestation<'a, T>, AttestationError> {
+    ) -> Result<VerifiedAggregatedAttestation<'a, T>, AttestationError> {
         metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        let partially_verified =
-            PartiallyVerifiedAggregatedAttestation::verify(signed_aggregate, self)?;
+        let indexed = IndexedAggregatedAttestation::verify(signed_aggregate, self)?;
 
-        FullyVerifiedAggregatedAttestation::finish_verification(
-            partially_verified,
+        VerifiedAggregatedAttestation::finish_verification(
+            indexed,
             self,
             CheckAttestationSignature::Yes,
         )
@@ -1607,13 +1601,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
     ///
-    /// Common items that implement `SignatureVerifiedAttestation`:
+    /// Common items that implement `VerifiedAttestation`:
     ///
-    /// - `FullyVerifiedUnaggregatedAttestation`
-    /// - `FullyVerifiedAggregatedAttestation`
+    /// - `VerifiedUnaggregatedAttestation`
+    /// - `VerifiedAggregatedAttestation`
     pub fn apply_attestation_to_fork_choice(
         &self,
-        verified: &impl SignatureVerifiedAttestation<T>,
+        verified: &impl VerifiedAttestation<T>,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
@@ -1623,7 +1617,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Into::into)
     }
 
-    /// Accepts an `FullyVerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
+    /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
     /// aggregation pool".
     ///
     /// The naive aggregation pool is used by local validators to produce
@@ -1633,7 +1627,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// and no error is returned.
     pub fn add_to_naive_aggregation_pool(
         &self,
-        unaggregated_attestation: &impl SignatureVerifiedAttestation<T>,
+        unaggregated_attestation: &impl VerifiedAttestation<T>,
     ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
 
@@ -1737,12 +1731,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(verified_sync_committee_message)
     }
 
-    /// Accepts a `SignatureVerifiedAttestation` and attempts to apply it to `self.op_pool`.
+    /// Accepts a `VerifiedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
     pub fn add_to_block_inclusion_pool(
         &self,
-        verified_attestation: &impl SignatureVerifiedAttestation<T>,
+        verified_attestation: &impl VerifiedAttestation<T>,
     ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
