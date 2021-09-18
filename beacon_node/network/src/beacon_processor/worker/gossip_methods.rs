@@ -267,6 +267,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // Map the results into a new `Vec` so that `results` no longer holds a reference to
         // `packages`.
+        #[allow(clippy::needless_collect)] // The clippy suggestion fails the borrow checker.
         let results = results
             .into_iter()
             .map(|result| result.map(|verified| verified.into_indexed_attestation()))
@@ -473,6 +474,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // Map the results into a new `Vec` so that `results` no longer holds a reference to
         // `packages`.
+        #[allow(clippy::needless_collect)] // The clippy suggestion fails the borrow checker.
         let results = results
             .into_iter()
             .map(|result| result.map(|verified| verified.into_indexed_attestation()))
