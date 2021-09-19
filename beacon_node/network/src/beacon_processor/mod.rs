@@ -986,6 +986,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     }
                                 }
 
+                                // Process all aggregates with a single worker.
                                 self.spawn_worker(Work::GossipAggregateBatch { packages }, toolbox)
                             }
                         // Check the unaggregated attestation queue.
@@ -1037,6 +1038,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     }
                                 }
 
+                                // Process all attestations with a single worker.
                                 self.spawn_worker(
                                     Work::GossipAttestationBatch { packages },
                                     toolbox,
@@ -1125,12 +1127,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         match work {
                             _ if can_spawn => self.spawn_worker(work, toolbox),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
+                            // Attestation batches are formed internally within the
+                            // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
                                     self.log,
                                     "Unsupported inbound event";
                                     "type" => "GossipAttestationBatch"
                             ),
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
+                            // Aggregate batches are formed internally within the `BeaconProcessor`,
+                            // they are not sent from external services.
                             Work::GossipAggregateBatch { .. } => crit!(
                                     self.log,
                                     "Unsupported inbound event";
@@ -1306,7 +1312,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
                 match work {
                     /*
-                     * Unaggregated attestation verification.
+                     * Individual unaggregated attestation verification.
                      */
                     Work::GossipAttestation {
                         message_id,
@@ -1324,10 +1330,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
+                    /*
+                     * Batched unaggregated attestation verification.
+                     */
                     Work::GossipAttestationBatch { packages } => worker
                         .process_gossip_attestation_batch(packages, Some(work_reprocessing_tx)),
                     /*
-                     * Aggregated attestation verification.
+                     * Individual aggregated attestation verification.
                      */
                     Work::GossipAggregate {
                         message_id,
@@ -1341,6 +1350,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
+                    /*
+                     * Batched aggregated attestation verification.
+                     */
                     Work::GossipAggregateBatch { packages } => {
                         worker.process_gossip_aggregate_batch(packages, Some(work_reprocessing_tx))
                     }
