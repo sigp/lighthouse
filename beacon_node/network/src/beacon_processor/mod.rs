@@ -160,8 +160,19 @@ const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
-const MAX_GOSSIP_ATTESTATION_BATCH_SIZE: usize = 32;
-const MAX_GOSSIP_AGGREGATE_BATCH_SIZE: usize = 16;
+/// The `MAX_..._BATCH_SIZE` variables define how many attestations can be included in a single
+/// batch.
+///
+/// Choosing these values is difficult, there is a trade-off between:
+///
+/// - It is faster to verify one large batch than multiple smaller batches.
+/// - "Poisoning" attacks have a larger impact as the batch size increases.
+///
+/// Poisoning occurs when an invalid signature is included in a batch of attestations. A single
+/// invalid signature causes the entire batch to fail. When a batch fails, we fall-back to
+/// individually verifying each attestation signature.
+const MAX_GOSSIP_ATTESTATION_BATCH_SIZE: usize = 64;
+const MAX_GOSSIP_AGGREGATE_BATCH_SIZE: usize = 64;
 
 /// Unique IDs used for metrics and testing.
 pub const WORKER_FREED: &str = "worker_freed";
