@@ -25,10 +25,17 @@ use state_processing::signature_sets::{
 use std::borrow::Cow;
 use types::*;
 
-pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
-    aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
+/// Verify aggregated attestations using batch BLS signature verification.
+///
+/// See module-level docs for more info.
+pub fn batch_verify_aggregated_attestations<'a, T, I>(
+    aggregates: I,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, Error>>, Error> {
+) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, Error>>, Error>
+where
+    T: BeaconChainTypes,
+    I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
+{
     let mut num_indexed = 0;
     let mut num_failed = 0;
 
@@ -130,10 +137,17 @@ pub fn batch_verify_aggregated_attestations<'a, T: BeaconChainTypes>(
     Ok(final_results)
 }
 
-pub fn batch_verify_unaggregated_attestations<'a, T: BeaconChainTypes>(
-    attestations: impl Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)>,
+/// Verify unaggregated attestations using batch BLS signature verification.
+///
+/// See module-level docs for more info.
+pub fn batch_verify_unaggregated_attestations<'a, T, I>(
+    attestations: I,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error> {
+) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error>
+where
+    T: BeaconChainTypes,
+    I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+{
     let mut num_partially_verified = 0;
     let mut num_failed = 0;
 

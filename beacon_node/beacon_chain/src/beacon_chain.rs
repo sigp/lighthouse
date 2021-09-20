@@ -1486,13 +1486,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    pub fn batch_verify_unaggregated_attestations_for_gossip<'a>(
+    pub fn batch_verify_unaggregated_attestations_for_gossip<'a, I>(
         &self,
-        attestations: impl Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)>,
+        attestations: I,
     ) -> Result<
         Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError>>,
         AttestationError,
-    > {
+    >
+    where
+        I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+    {
         batch_verify_unaggregated_attestations(attestations, self)
     }
 
@@ -1524,10 +1527,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    pub fn batch_verify_aggregated_attestations_for_gossip<'a>(
+    pub fn batch_verify_aggregated_attestations_for_gossip<'a, I>(
         &self,
-        aggregates: impl Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>>,
+        aggregates: I,
     ) -> Result<Vec<Result<VerifiedAggregatedAttestation<'a, T>, AttestationError>>, AttestationError>
+    where
+        I: Iterator<Item = &'a SignedAggregateAndProof<T::EthSpec>> + ExactSizeIterator,
     {
         batch_verify_aggregated_attestations(aggregates, self)
     }
