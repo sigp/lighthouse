@@ -34,6 +34,11 @@ pub enum Error {
     ///
     /// This should never happen (it's a logic error).
     StateReconstructionDidNotComplete,
+    StateReconstructionRootMismatch {
+        slot: Slot,
+        expected: Hash256,
+        computed: Hash256,
+    },
 }
 
 pub trait HandleUnavailable<T> {

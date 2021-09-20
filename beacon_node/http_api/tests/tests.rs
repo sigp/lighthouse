@@ -2101,6 +2101,29 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_lighthouse_database_info(self) -> Self {
+        let info = self.client.get_lighthouse_database_info().await.unwrap();
+
+        assert_eq!(info.anchor, self.chain.store.get_anchor_info());
+        assert_eq!(info.split, self.chain.store.get_split_info());
+        assert_eq!(
+            info.schema_version,
+            store::metadata::CURRENT_SCHEMA_VERSION.as_u64()
+        );
+
+        self
+    }
+
+    pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
+        let response = self
+            .client
+            .post_lighthouse_database_reconstruct()
+            .await
+            .unwrap();
+        assert_eq!(response, "success");
+        self
+    }
+
     pub async fn test_post_lighthouse_liveness(self) -> Self {
         let epoch = self.chain.epoch().unwrap();
         let head_state = self.chain.head_beacon_state().unwrap();
@@ -2652,6 +2675,10 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_beacon_states_ssz()
         .await
         .test_get_lighthouse_staking()
+        .await
+        .test_get_lighthouse_database_info()
+        .await
+        .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
         .await;

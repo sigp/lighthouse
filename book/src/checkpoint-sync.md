@@ -81,7 +81,8 @@ Subjectivity][weak-subj].
 > purposes.
 
 After completing backfill sync the node's database will differ from a genesis-synced node in the
-lack of historic states.
+lack of historic states. _You do not need these states to run a staking node_, but they are required
+for historical API calls (as used by block explorers and researchers).
 
 You can opt-in to reconstructing all of the historic states by providing the
 `--reconstruct-historic-states` flag to the beacon node at any point (before, during or after sync).
@@ -105,6 +106,8 @@ INFO State reconstruction in progress        remaining: 747519, slot: 466944, se
 
 Important information to be aware of:
 
+* Reconstructed states will consume several gigabytes or hundreds of gigabytes of disk space,
+  depending on the [database configuration used](./advanced_database.md).
 * Reconstruction will only begin once backfill sync has completed and `oldest_block_slot` is
   equal to 0.
 * While reconstruction is running the node will temporarily pause migrating new data to the

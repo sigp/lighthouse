@@ -262,15 +262,21 @@ impl BeaconNodeHttpClient {
 
     /// Perform a HTTP POST request.
     async fn post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
-        let response = self
-            .client
-            .post(url)
-            .json(body)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_error(response).await?;
+        self.post_generic(url, body, None).await?;
         Ok(())
+    }
+
+    /// Perform a HTTP POST request, returning a JSON response.
+    async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<R, Error> {
+        self.post_generic(url, body, None)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
     }
 
     /// Perform a HTTP POST request with a custom timeout.
@@ -280,15 +286,7 @@ impl BeaconNodeHttpClient {
         body: &T,
         timeout: Duration,
     ) -> Result<(), Error> {
-        let response = self
-            .client
-            .post(url)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_error(response).await?;
+        self.post_generic(url, body, Some(timeout)).await?;
         Ok(())
     }
 
@@ -299,19 +297,26 @@ impl BeaconNodeHttpClient {
         body: &V,
         timeout: Duration,
     ) -> Result<T, Error> {
-        let response = self
-            .client
-            .post(url)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_error(response)
+        self.post_generic(url, body, Some(timeout))
             .await?
             .json()
             .await
             .map_err(Error::Reqwest)
+    }
+
+    /// Generic POST function supporting arbitrary responses and timeouts.
+    async fn post_generic<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
+        ok_or_error(response).await
     }
 
     /// `GET beacon/genesis`

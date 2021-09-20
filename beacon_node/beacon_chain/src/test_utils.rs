@@ -12,7 +12,7 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
-use genesis::interop_genesis_state;
+pub use genesis::interop_genesis_state;
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;

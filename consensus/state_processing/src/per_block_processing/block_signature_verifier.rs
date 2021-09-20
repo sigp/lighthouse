@@ -317,8 +317,8 @@ where
         Ok(())
     }
 
-    /// Verify all the signatures that have been included in `self`, returning `Ok(())` iff the
-    /// signatures are all valid.
+    /// Verify all the signatures that have been included in `self`, returning `true` if and only if
+    /// all the signatures are valid.
     ///
     /// See `ParallelSignatureSets::verify` for more info.
     pub fn verify(self) -> Result<()> {
@@ -335,8 +335,8 @@ impl<'a> ParallelSignatureSets<'a> {
         self.sets.push(set);
     }
 
-    /// Verify all the signatures that have been included in `self`, returning `true` iff the
-    /// signatures are all valid.
+    /// Verify all the signatures that have been included in `self`, returning `true` if and only if
+    /// all the signatures are valid.
     ///
     /// ## Notes
     ///

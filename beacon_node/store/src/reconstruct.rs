@@ -121,6 +121,16 @@ where
 
                     if slot + 1 == upper_limit_slot {
                         // The two limits have met in the middle! We're done!
+                        // Perform one last integrity check on the state reached.
+                        let computed_state_root = state.update_tree_hash_cache()?;
+                        if computed_state_root != state_root {
+                            return Err(Error::StateReconstructionRootMismatch {
+                                slot,
+                                expected: state_root,
+                                computed: computed_state_root,
+                            });
+                        }
+
                         self.compare_and_set_anchor_info(old_anchor, None)?;
 
                         return Ok(());
@@ -138,8 +148,8 @@ where
         })??;
 
         // Check that the split point wasn't mutated during the state reconstruction process.
-        // It shouldn't, due to the serialization of requests through the store migrator, so this is
-        // just a paranoid check.
+        // It shouldn't have been, due to the serialization of requests through the store migrator,
+        // so this is just a paranoid check.
         let latest_split = self.get_split_info();
         if split != latest_split {
             return Err(Error::SplitPointModified(latest_split.slot, split.slot));

@@ -408,27 +408,3 @@ The endpoint will return immediately. See the beacon node logs for an indication
 
 Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
 for use by Lighthouse developers during testing only.
-
-### `/lighthouse/backfill`
-
-Check the status of backfill sync.
-
-```
-curl "http://localhost:5052/lighthouse/backfill" | jq
-```
-
-If sync is on-going:
-
-```json
-{
-  "data": "Syncing"
-}
-```
-
-If sync is complete:
-
-```json
-{
-  "data": "Syncing"
-}
-```

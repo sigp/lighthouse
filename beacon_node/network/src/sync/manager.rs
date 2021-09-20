@@ -665,7 +665,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as log any changes.
+    /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as
+    /// logging any changes.
     ///
     /// The logic for which sync should be running is as follows:
     /// - If there is a range-sync running (or required) pause any backfill and let range-sync
