@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // fail the batches
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
-                    if batch.download_failed()? {
+                    if batch.download_failed(true)? {
                         return Err(RemoveChain::ChainFailed(id));
                     }
                     self.retry_batch_download(network, id)?;
@@ -794,7 +794,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
-            if batch.download_failed()? {
+            if batch.download_failed(true)? {
                 return Err(RemoveChain::ChainFailed(batch_id));
             }
             self.retry_batch_download(network, batch_id)
@@ -883,7 +883,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.peers
                         .get_mut(&peer)
                         .map(|request| request.remove(&batch_id));
-                    if batch.download_failed()? {
+                    if batch.download_failed(true)? {
                         return Err(RemoveChain::ChainFailed(batch_id));
                     } else {
                         return self.retry_batch_download(network, batch_id);

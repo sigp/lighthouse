@@ -323,9 +323,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // fail the batches
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
-                    match batch.download_failed() {
+                    match batch.download_failed(false) {
                         Ok(true) => {
-                            // TODO: Potentially allow disconnected peers to not fail batches.
                             self.fail_sync(BackFillError::BatchDownloadFailed(id))?;
                         }
                         Ok(false) => {}
@@ -386,7 +385,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
-            match batch.download_failed() {
+            match batch.download_failed(true) {
                 Err(e) => self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0)),
                 Ok(true) => self.fail_sync(BackFillError::BatchDownloadFailed(batch_id)),
                 Ok(false) => self.retry_batch_download(network, batch_id),
@@ -1002,7 +1001,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         .get_mut(&peer)
                         .map(|request| request.remove(&batch_id));
 
-                    match batch.download_failed() {
+                    match batch.download_failed(true) {
                         Err(e) => {
                             self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?
                         }

@@ -244,12 +244,18 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     /// Mark the batch as failed and return whether we can attempt a re-download.
+    ///
+    /// This can happen if a peer disconnects or some error occurred that was not the peers fault.
+    /// THe `mark_failed` parameter, when set to false, does not increment the failed attempts of
+    /// this batch and register the peer, rather attempts a re-download.
     #[must_use = "Batch may have failed"]
-    pub fn download_failed(&mut self) -> Result<IsFailed, WrongState> {
+    pub fn download_failed(&mut self, mark_failed: bool) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, _, _request_id) => {
                 // register the attempt and check if the batch can be tried again
-                self.failed_download_attempts.push(peer);
+                if mark_failed {
+                    self.failed_download_attempts.push(peer);
+                }
                 self.state = if self.failed_download_attempts.len()
                     >= B::max_batch_download_attempts as usize
                 {
