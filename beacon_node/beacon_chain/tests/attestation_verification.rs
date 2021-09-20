@@ -18,7 +18,7 @@ use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
-    BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    BitList, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
     SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
@@ -270,6 +270,10 @@ impl GossipTester {
         self.harness.chain.slot().unwrap()
     }
 
+    pub fn epoch(&self) -> Epoch {
+        self.harness.chain.epoch().unwrap()
+    }
+
     pub fn two_epochs_ago(&self) -> Slot {
         self.slot()
             .as_u64()
@@ -290,6 +294,17 @@ impl GossipTester {
                 .is_ok(),
             "valid aggregate should be verified"
         );
+        self
+    }
+
+    pub fn import_valid_unaggregate(self) -> Self {
+        self.harness
+            .chain
+            .verify_unaggregated_attestation_for_gossip(
+                &self.valid_attestation,
+                Some(self.attestation_subnet_id),
+            )
+            .expect("valid attestation should be verified");
         self
     }
 
@@ -328,6 +343,53 @@ impl GossipTester {
         assert_eq!(results.len(), 2);
         let batch_err = results.pop().unwrap().err().expect(&format!(
             "{} should error during batch_verify_aggregated_attestations_for_gossip",
+            desc
+        ));
+        inspect_err(&self, batch_err);
+
+        self
+    }
+
+    pub fn inspect_unaggregate_err<G, I>(self, desc: &str, get_attn: G, inspect_err: I) -> Self
+    where
+        G: Fn(&Self, &mut Attestation<E>, &mut SubnetId),
+        I: Fn(&Self, AttnError),
+    {
+        let mut attn = self.valid_attestation.clone();
+        let mut subnet_id = self.attestation_subnet_id;
+        get_attn(&self, &mut attn, &mut subnet_id);
+
+        /*
+         * Individual verification
+         */
+        let err = self
+            .harness
+            .chain
+            .verify_unaggregated_attestation_for_gossip(&attn, Some(subnet_id))
+            .err()
+            .expect(&format!(
+                "{} should error during verify_unaggregated_attestation_for_gossip",
+                desc
+            ));
+        inspect_err(&self, err);
+
+        /*
+         * Batch verification
+         */
+        let mut results = self
+            .harness
+            .chain
+            .batch_verify_unaggregated_attestations_for_gossip(
+                vec![
+                    (&self.invalid_attestation, Some(subnet_id)),
+                    (&attn, Some(subnet_id)),
+                ]
+                .into_iter(),
+            )
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        let batch_err = results.pop().unwrap().err().expect(&format!(
+            "{} should error during batch_verify_unaggregated_attestations_for_gossip",
             desc
         ));
         inspect_err(&self, batch_err);
@@ -569,8 +631,8 @@ fn aggregated_gossip_verification_2() {
                 ))
             },
         )
-        // NOTE: from here on, the tests are stateful, and rely on the valid attestation having been
-        // seen. A refactor to give each test case its own state might be nice at some point
+        // NOTE: from here on, the tests are stateful, and rely on the valid attestation having
+        // been seen.
         .import_valid_aggregate()
         /*
          * The following test ensures:
@@ -986,6 +1048,259 @@ fn aggregated_gossip_verification() {
         AttnError::AggregatorAlreadyKnown(index)
         if index == aggregator_index as u64
     );
+}
+
+/// Tests the verification conditions for an unaggregated attestation on the gossip network.
+#[test]
+fn unaggregated_gossip_verification_2() {
+    GossipTester::new()
+        /*
+         * The following test ensures:
+         *
+         * The committee index is within the expected range -- i.e. `data.index <
+         * get_committee_count_per_slot(state, data.target.epoch)`.
+         */
+        .inspect_unaggregate_err(
+            "attestation with invalid committee index",
+            |tester, a, _| {
+                a.data.index = tester
+                    .harness
+                    .chain
+                    .head()
+                    .unwrap()
+                    .beacon_state
+                    .get_committee_count_at_slot(a.data.slot)
+                    .unwrap()
+            },
+            |_, err| assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. })),
+        )
+        /*
+         * The following test ensures:
+         *
+         * The attestation is for the correct subnet (i.e. compute_subnet_for_attestation(state,
+         * attestation.data.slot, attestation.data.index) == subnet_id).
+         */
+        .inspect_unaggregate_err(
+            "attestation with invalid committee index",
+            |_, _, subnet_id| *subnet_id = SubnetId::new(42),
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidSubnetId {
+                        received,
+                        expected,
+                    }
+                    if received == SubnetId::new(42) && expected == tester.attestation_subnet_id
+                ))
+            },
+        )
+        /*
+         * The following two tests ensure:
+         *
+         * attestation.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (within a
+         * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. attestation.data.slot +
+         * ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= attestation.data.slot (a client MAY
+         * queue future attestations for processing at the appropriate slot).
+         */
+        .inspect_unaggregate_err(
+            "attestation from future slot",
+            |tester, a, _| a.data.slot = tester.slot() + 1,
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::FutureSlot {
+                        attestation_slot,
+                        latest_permissible_slot,
+                    }
+                    if attestation_slot == tester.slot() + 1 && latest_permissible_slot == tester.slot()
+                ))
+            },
+        )
+        .inspect_unaggregate_err(
+            "attestation from past slot",
+            |tester, a, _| {
+                let early_slot = tester.two_epochs_ago();
+                a.data.slot = early_slot;
+                a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
+            },
+            |tester, err| {
+                dbg!(&err);
+                assert!(matches!(
+                    err,
+                    AttnError::PastSlot {
+                        attestation_slot,
+                        // Subtract an additional slot since the harness will be exactly on the start of the
+                        // slot and the propagation tolerance will allow an extra slot.
+                        earliest_permissible_slot,
+                    }
+                    if attestation_slot == tester.two_epochs_ago()
+                        && earliest_permissible_slot == tester.slot() - E::slots_per_epoch() - 1
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * The attestation's epoch matches its target -- i.e. `attestation.data.target.epoch ==
+         *   compute_epoch_at_slot(attestation.data.slot)`
+         *
+         */
+        .inspect_unaggregate_err(
+            "attestation with invalid target epoch",
+            |_, a, _| a.data.target.epoch += 1,
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidTargetEpoch { .. }
+                ))
+            },
+        )
+        /*
+         * The following two tests ensure:
+         *
+         * The attestation is unaggregated -- that is, it has exactly one participating validator
+         * (len([bit for bit in attestation.aggregation_bits if bit == 0b1]) == 1).
+         */
+        .inspect_unaggregate_err(
+            "attestation without any aggregation bits set",
+            |tester, a, _| {
+                a.aggregation_bits
+                    .set(tester.attester_committee_index, false)
+                    .expect("should unset aggregation bit");
+                assert_eq!(
+                    a.aggregation_bits.num_set_bits(),
+                    0,
+                    "test requires no set bits"
+                );
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::NotExactlyOneAggregationBitSet(0)
+                ))
+            },
+        )
+        .inspect_unaggregate_err(
+            "attestation with two aggregation bits set",
+            |tester, a, _| {
+                a.aggregation_bits
+                    .set(tester.attester_committee_index + 1, true)
+                    .expect("should set second aggregation bit");
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::NotExactlyOneAggregationBitSet(2)
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * The number of aggregation bits matches the committee size -- i.e.
+         *   `len(attestation.aggregation_bits) == len(get_beacon_committee(state, data.slot,
+         *   data.index))`.
+         */
+        .inspect_unaggregate_err(
+            "attestation with invalid bitfield",
+            |_, a, _| {
+                let bits = a.aggregation_bits.iter().collect::<Vec<_>>();
+                a.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
+                for (i, bit) in bits.into_iter().enumerate() {
+                    a.aggregation_bits.set(i, bit).unwrap();
+                }
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::Invalid(AttestationValidationError::BeaconStateError(
+                        BeaconStateError::InvalidBitfield
+                    ))
+                ))
+            },
+        )
+        /*
+         * The following test ensures that:
+         *
+         * The block being voted for (attestation.data.beacon_block_root) passes validation.
+         */
+        .inspect_unaggregate_err(
+            "attestation with unknown head block",
+            |_, a, _| {
+                a.data.beacon_block_root = Hash256::repeat_byte(42);
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::UnknownHeadBlock {
+                        beacon_block_root,
+                    }
+                    if beacon_block_root == Hash256::repeat_byte(42)
+                ))
+            },
+        )
+        /*
+         * The following test ensures that:
+         *
+         * Spec v0.12.3
+         *
+         * The attestation's target block is an ancestor of the block named in the LMD vote
+         */
+        .inspect_unaggregate_err(
+            "attestation with invalid target root",
+            |_, a, _| {
+                a.data.target.root = Hash256::repeat_byte(42);
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidTargetRoot { .. }
+                ))
+            },
+        )
+        /*
+         * The following test ensures that:
+         *
+         * The signature of attestation is valid.
+         */
+        .inspect_unaggregate_err(
+            "attestation with bad signature",
+            |tester, a, _| {
+                let mut agg_sig = AggregateSignature::infinity();
+                agg_sig.add_assign(&tester.attester_sk.sign(Hash256::repeat_byte(42)));
+                a.signature = agg_sig;
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidSignature
+                ))
+            },
+        )
+        // NOTE: from here on, the tests are stateful, and rely on the valid attestation having
+        // been seen.
+        .import_valid_unaggregate()
+        /*
+         * The following test ensures that:
+         *
+         *
+         * There has been no other valid attestation seen on an attestation subnet that has an
+         * identical attestation.data.target.epoch and participating validator index.
+         */
+        .inspect_unaggregate_err(
+            "attestation that has already been seen",
+            |_, _, _| {},
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::PriorAttestationKnown {
+                        validator_index,
+                        epoch,
+                    }
+                    if validator_index == tester.attester_validator_index as u64 && epoch == tester.epoch()
+                ))
+            },
+        );
 }
 
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
