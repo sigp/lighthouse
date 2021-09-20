@@ -26,11 +26,17 @@ use super::{
     Worker,
 };
 
+/// An attestation that has been validated by the `BeaconChain`.
+///
+/// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
+/// construct this from components which have not passed `BeaconChain` validation.
 struct VerifiedUnaggregate<T: BeaconChainTypes> {
     attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
+/// This implementation allows `Self` to be imported to fork choice and other functions on the
+/// `BeaconChain`.
 impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
@@ -41,16 +47,23 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> 
     }
 }
 
+/// An attestation that failed validation by the `BeaconChain`.
 struct RejectedUnaggregate<T: EthSpec> {
     attestation: Attestation<T>,
     error: AttnError,
 }
 
+/// An aggregate that has been validated by the `BeaconChain`.
+///
+/// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
+/// construct this from components which have not passed `BeaconChain` validation.
 struct VerifiedAggregate<T: BeaconChainTypes> {
     signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
+/// This implementation allows `Self` to be imported to fork choice and other functions on the
+/// `BeaconChain`.
 impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
@@ -61,6 +74,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     }
 }
 
+/// An attestation that failed validation by the `BeaconChain`.
 struct RejectedAggregate<T: EthSpec> {
     signed_aggregate: SignedAggregateAndProof<T>,
     error: AttnError,
@@ -81,7 +95,7 @@ enum FailedAtt<T: EthSpec> {
 }
 
 impl<T: EthSpec> FailedAtt<T> {
-    pub fn root(&self) -> &Hash256 {
+    pub fn beacon_block_root(&self) -> &Hash256 {
         match self {
             FailedAtt::Unaggregate { attestation, .. } => &attestation.data.beacon_block_root,
             FailedAtt::Aggregate { attestation, .. } => {
@@ -98,6 +112,7 @@ impl<T: EthSpec> FailedAtt<T> {
     }
 }
 
+/// Items required to verify an unaggregated gossip attestation.
 #[derive(Debug)]
 pub struct GossipAttestationPackage<E: EthSpec> {
     message_id: MessageId,
@@ -130,6 +145,7 @@ impl<E: EthSpec> GossipAttestationPackage<E> {
     }
 }
 
+/// Items required to verify an aggregated gossip attestation.
 #[derive(Debug)]
 pub struct GossipAggregatePackage<E: EthSpec> {
     message_id: MessageId,
@@ -1153,7 +1169,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         error: AttnError,
     ) {
-        let beacon_block_root = failed_att.root();
+        let beacon_block_root = failed_att.beacon_block_root();
         let attestation_type = failed_att.kind();
         metrics::register_attestation_error(&error);
         match &error {
