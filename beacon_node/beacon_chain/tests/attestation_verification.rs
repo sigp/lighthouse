@@ -200,11 +200,19 @@ struct GossipTester {
     attester_sk: SecretKey,
     attestation_subnet_id: SubnetId,
     /*
+     * Valid unaggregated attestation for batch testing
+     */
+    invalid_attestation: Attestation<E>,
+    /*
      * Valid aggregate
      */
     valid_aggregate: SignedAggregateAndProof<E>,
     aggregator_validator_index: usize,
     aggregator_sk: SecretKey,
+    /*
+     * Another valid aggregate for batch testing
+     */
+    invalid_aggregate: SignedAggregateAndProof<E>,
 }
 
 impl GossipTester {
@@ -232,6 +240,17 @@ impl GossipTester {
         let (valid_aggregate, aggregator_validator_index, aggregator_sk) =
             get_valid_aggregated_attestation(&harness.chain, valid_attestation.clone());
 
+        let mut invalid_attestation = valid_attestation.clone();
+        invalid_attestation.data.beacon_block_root = Hash256::repeat_byte(13);
+
+        let (mut invalid_aggregate, _, _) =
+            get_valid_aggregated_attestation(&harness.chain, invalid_attestation.clone());
+        invalid_aggregate.message.aggregator_index = invalid_aggregate
+            .message
+            .aggregator_index
+            .checked_sub(1)
+            .unwrap();
+
         Self {
             harness,
             valid_attestation,
@@ -239,9 +258,11 @@ impl GossipTester {
             attester_committee_index,
             attester_sk,
             attestation_subnet_id,
+            invalid_attestation,
             valid_aggregate,
             aggregator_validator_index,
             aggregator_sk,
+            invalid_aggregate,
         }
     }
 
@@ -279,6 +300,10 @@ impl GossipTester {
     {
         let mut aggregate = self.valid_aggregate.clone();
         get_attn(&self, &mut aggregate);
+
+        /*
+         * Individual verification
+         */
         let err = self
             .harness
             .chain
@@ -289,6 +314,24 @@ impl GossipTester {
                 desc
             ));
         inspect_err(&self, err);
+
+        /*
+         * Batch verification
+         */
+        let mut results = self
+            .harness
+            .chain
+            .batch_verify_aggregated_attestations_for_gossip(
+                vec![&self.invalid_aggregate, &aggregate].into_iter(),
+            )
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        let batch_err = results.pop().unwrap().err().expect(&format!(
+            "{} should error during batch_verify_aggregated_attestations_for_gossip",
+            desc
+        ));
+        inspect_err(&self, batch_err);
+
         self
     }
 }
