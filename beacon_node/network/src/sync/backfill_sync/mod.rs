@@ -1012,7 +1012,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 // loop early, however the processing is negligible and we continue the search
                 // for robustness to handle potential future modification
                 if matches!(batch.state(), BatchState::AwaitingDownload) {
-                    Some(batch_id.clone())
+                    Some(*batch_id)
                 } else {
                     None
                 }
