@@ -370,13 +370,19 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         summary: &EpochProcessingSummary<T>,
         spec: &ChainSpec,
     ) -> Result<(), EpochProcessingError> {
+        let mut attestation_success = Vec::new();
+        let mut attestation_miss = Vec::new();
+        let mut head_miss = Vec::new();
+        let mut target_miss = Vec::new();
+        let mut suboptimal_inclusion = Vec::new();
+
+        // We subtract two from the state of the epoch that generated these summaries.
+        //
+        // - One to account for it being the previous epoch.
+        // - One to account for the state advancing an epoch whilst generating the validator
+        //     statuses.
+        let prev_epoch = epoch - 2;
         for (pubkey, monitored_validator) in self.validators.iter() {
-            // We subtract two from the state of the epoch that generated these summaries.
-            //
-            // - One to account for it being the previous epoch.
-            // - One to account for the state advancing an epoch whilst generating the validator
-            //     statuses.
-            let prev_epoch = epoch - 2;
             if let Some(i) = monitored_validator.index {
                 let i = i as usize;
                 let id = &monitored_validator.id;
@@ -414,7 +420,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
                         &[id],
                     );
-                    info!(
+                    attestation_success.push(id);
+                    debug!(
                         self.log,
                         "Previous epoch attestation success";
                         "matched_source" => previous_epoch_matched_source,
@@ -428,7 +435,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
                         &[id],
                     );
-                    error!(
+                    attestation_miss.push(id);
+                    debug!(
                         self.log,
                         "Previous epoch attestation missing";
                         "epoch" => prev_epoch,
@@ -447,7 +455,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
                         &[id],
                     );
-                    warn!(
+                    head_miss.push(id);
+                    debug!(
                         self.log,
                         "Attestation failed to match head";
                         "epoch" => prev_epoch,
@@ -466,7 +475,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
                         &[id],
                     );
-                    warn!(
+                    target_miss.push(id);
+                    debug!(
                         self.log,
                         "Attestation failed to match target";
                         "epoch" => prev_epoch,
@@ -478,7 +488,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 // the Altair state.
                 if let Some(inclusion_info) = summary.previous_epoch_inclusion_info(i) {
                     if inclusion_info.delay > spec.min_attestation_inclusion_delay {
-                        warn!(
+                        suboptimal_inclusion.push(id);
+                        debug!(
                             self.log,
                             "Sub-optimal inclusion delay";
                             "optimal" => spec.min_attestation_inclusion_delay,
@@ -534,6 +545,52 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     }
                 }
             }
+        }
+
+        // Aggregate logging for attestation success/failures over an epoch
+        // for all validators managed by the validator monitor.
+        if attestation_success.len() > 0 {
+            info!(
+                self.log,
+                "Previous epoch attestation success";
+                "epoch" => prev_epoch,
+                "validators" => ?attestation_success,
+            );
+        }
+        if attestation_miss.len() > 0 {
+            error!(
+                self.log,
+                "Previous epoch attestation missing";
+                "epoch" => prev_epoch,
+                "validators" => ?attestation_miss,
+            );
+        }
+
+        if head_miss.len() > 0 {
+            warn!(
+                self.log,
+                "Previous epoch attestation failed to match head";
+                "epoch" => prev_epoch,
+                "validators" => ?head_miss,
+            );
+        }
+
+        if target_miss.len() > 0 {
+            warn!(
+                self.log,
+                "Previous epoch attestation failed to match target";
+                "epoch" => prev_epoch,
+                "validators" => ?target_miss,
+            );
+        }
+
+        if suboptimal_inclusion.len() > 0 {
+            warn!(
+                self.log,
+                "Previous epoch attestations had sub-optimal inclusion delay";
+                "epoch" => prev_epoch,
+                "validators" => ?suboptimal_inclusion,
+            );
         }
 
         Ok(())
