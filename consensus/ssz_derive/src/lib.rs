@@ -507,23 +507,6 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
                     let mut start: usize = 0;
                     let mut end = start;
 
-                    macro_rules! decode_field {
-                        ($type: ty) => {{
-                            start = end;
-                            end = end
-                                .checked_add(<$type as ssz::Decode>::ssz_fixed_len())
-                                .ok_or_else(|| ssz::DecodeError::OutOfBoundsByte {
-                                    i: usize::max_value()
-                                })?;
-                            let slice = bytes.get(start..end)
-                                .ok_or_else(|| ssz::DecodeError::InvalidByteLength {
-                                    len: bytes.len(),
-                                    expected: end
-                                })?;
-                            <$type as ssz::Decode>::from_ssz_bytes(slice)?
-                        }};
-                    }
-
                     #(
                         #fixed_decodes
                     )*
