@@ -54,7 +54,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("shutdown-after-sync")
                 .long("shutdown-after-sync")
-                .help("Shutdown beacon node as soon as sync is completed")
+                .help("Shutdown beacon node as soon as sync is completed. Backfill sync will \
+                       not be performed before shutdown.")
                 .takes_value(false),
         )
         .arg(
@@ -479,8 +480,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(
-                    "Used to input a Weak Subjectivity State Checkpoint in `block_root:epoch_number` format,\
-                     where block_root is an '0x' prefixed 32-byte hex string and epoch_number is an integer."
+                    "Specify a weak subjectivity checkpoint in `block_root:epoch` format to verify \
+                     the node's sync against. The block root should be 0x-prefixed. Note that this \
+                     flag is for verification only, to perform a checkpoint sync from a recent \
+                     state use --checkpoint-sync-url."
                 )
                 .value_name("WSS_CHECKPOINT")
                 .takes_value(true)
