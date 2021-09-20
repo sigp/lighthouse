@@ -526,7 +526,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         let aggregator_index = signed_aggregate.message.aggregator_index;
         let attestation_root = match Self::verify_early_checks(signed_aggregate, chain) {
             Ok(root) => root,
-            // FIXME(paul): can we remove the clone?
             Err(e) => {
                 return Err(SignatureNotChecked(
                     signed_aggregate.message.aggregate.clone(),
@@ -559,7 +558,6 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     .map_err(|e| BeaconChainError::from(e).into())
             }) {
                 Ok(indexed_attestation) => indexed_attestation,
-                // FIXME(paul): can we remove the clone?
                 Err(e) => {
                     return Err(SignatureNotChecked(
                         signed_aggregate.message.aggregate.clone(),
@@ -821,7 +819,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         use AttestationSlashInfo::*;
 
         if let Err(e) = Self::verify_early_checks(attestation, chain) {
-            // FIXME(paul): remove clone?
             return Err(SignatureNotChecked(attestation.clone(), e));
         }
 
@@ -829,7 +826,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
                 Ok(x) => x,
                 Err(e) => {
-                    // FIXME(paul): remove clone?
                     return Err(SignatureNotChecked(attestation.clone(), e));
                 }
             };
