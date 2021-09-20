@@ -1259,7 +1259,7 @@ async fn download_eth1_block(
     });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
-    let http_block = get_block(
+    let pow_block = get_block(
         endpoint,
         block_number_opt
             .map(BlockQuery::Number)
@@ -1270,9 +1270,9 @@ async fn download_eth1_block(
     .await?;
 
     Ok(Eth1Block {
-        hash: http_block.hash,
-        number: http_block.number,
-        timestamp: http_block.timestamp,
+        hash: pow_block.block_hash,
+        number: pow_block.block_number,
+        timestamp: pow_block.timestamp,
         deposit_root,
         deposit_count,
     })

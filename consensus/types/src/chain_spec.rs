@@ -476,7 +476,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            altair_fork_epoch: None,
             merge_fork_version: [0x02, 0x00, 0x00, 0x00],
             merge_fork_epoch: Some(Epoch::new(u64::MAX)),
 

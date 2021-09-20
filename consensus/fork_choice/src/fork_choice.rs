@@ -492,6 +492,9 @@ where
             }));
         }
 
+        // TODO: Update according to the merge spec here:
+        // https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/fork-choice.md#on_block
+
         // Update justified checkpoint.
         if state.current_justified_checkpoint().epoch > self.fc_store.justified_checkpoint().epoch {
             if state.current_justified_checkpoint().epoch

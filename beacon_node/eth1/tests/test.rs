@@ -571,8 +571,9 @@ mod deposit_tree {
 mod http {
     use super::*;
     use eth1::http::BlockQuery;
+    use types::PowBlock;
 
-    async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> Block {
+    async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> PowBlock {
         eth1::http::get_block(
             &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
             BlockQuery::Number(block_number),
