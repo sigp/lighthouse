@@ -348,9 +348,9 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregatedAtt
 }
 
 /// Information about invalid attestations which might still be slashable despite being invalid.
-pub enum AttestationSlashInfo<T: BeaconChainTypes, TErr> {
+pub enum AttestationSlashInfo<'a, T: BeaconChainTypes, TErr> {
     /// The attestation is invalid, but its signature wasn't checked.
-    SignatureNotChecked(Attestation<T::EthSpec>, TErr),
+    SignatureNotChecked(&'a Attestation<T::EthSpec>, TErr),
     /// As for `SignatureNotChecked`, but we know the `IndexedAttestation`.
     SignatureNotCheckedIndexed(IndexedAttestation<T::EthSpec>, TErr),
     /// The attestation's signature is invalid, so it will never be slashable.
@@ -374,7 +374,7 @@ fn process_slash_info<T: BeaconChainTypes>(
     if let Some(slasher) = chain.slasher.as_ref() {
         let (indexed_attestation, check_signature, err) = match slash_info {
             SignatureNotChecked(attestation, err) => {
-                match obtain_indexed_attestation_and_committees_per_slot(chain, &attestation) {
+                match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
                         debug!(
@@ -519,19 +519,14 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
     pub fn verify_slashable(
         signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<Self, AttestationSlashInfo<'a, T, Error>> {
         use AttestationSlashInfo::*;
 
         let attestation = &signed_aggregate.message.aggregate;
         let aggregator_index = signed_aggregate.message.aggregator_index;
         let attestation_root = match Self::verify_early_checks(signed_aggregate, chain) {
             Ok(root) => root,
-            Err(e) => {
-                return Err(SignatureNotChecked(
-                    signed_aggregate.message.aggregate.clone(),
-                    e,
-                ))
-            }
+            Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
         };
 
         let indexed_attestation =
@@ -558,12 +553,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     .map_err(|e| BeaconChainError::from(e).into())
             }) {
                 Ok(indexed_attestation) => indexed_attestation,
-                Err(e) => {
-                    return Err(SignatureNotChecked(
-                        signed_aggregate.message.aggregate.clone(),
-                        e,
-                    ))
-                }
+                Err(e) => return Err(SignatureNotChecked(&signed_aggregate.message.aggregate, e)),
             };
 
         Ok(IndexedAggregatedAttestation {
@@ -648,7 +638,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
         signed_aggregate: IndexedAggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<Self, AttestationSlashInfo<'a, T, Error>> {
         use AttestationSlashInfo::*;
 
         let IndexedAggregatedAttestation {
@@ -815,18 +805,18 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         attestation: &'a Attestation<T::EthSpec>,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<Self, AttestationSlashInfo<'a, T, Error>> {
         use AttestationSlashInfo::*;
 
         if let Err(e) = Self::verify_early_checks(attestation, chain) {
-            return Err(SignatureNotChecked(attestation.clone(), e));
+            return Err(SignatureNotChecked(attestation, e));
         }
 
         let (indexed_attestation, committees_per_slot) =
             match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
                 Ok(x) => x,
                 Err(e) => {
-                    return Err(SignatureNotChecked(attestation.clone(), e));
+                    return Err(SignatureNotChecked(attestation, e));
                 }
             };
 
@@ -919,7 +909,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         attestation: IndexedUnaggregatedAttestation<'a, T>,
         chain: &BeaconChain<T>,
         check_signature: CheckAttestationSignature,
-    ) -> Result<Self, AttestationSlashInfo<T, Error>> {
+    ) -> Result<Self, AttestationSlashInfo<'a, T, Error>> {
         use AttestationSlashInfo::*;
 
         let IndexedUnaggregatedAttestation {
