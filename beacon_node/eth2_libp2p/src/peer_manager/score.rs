@@ -72,6 +72,7 @@ pub enum ReportSource {
     RPC,
     Processor,
     SyncService,
+    PeerManager,
 }
 
 impl From<ReportSource> for &'static str {
@@ -81,6 +82,7 @@ impl From<ReportSource> for &'static str {
             ReportSource::RPC => "rpc_error",
             ReportSource::Processor => "processor",
             ReportSource::SyncService => "sync",
+            ReportSource::PeerManager => "peer_manager",
         }
     }
 }
