@@ -1,7 +1,8 @@
 use crate::*;
 use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserializer, Serialize, Serializer};
+use serde_derive::Deserialize;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -467,7 +468,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            altair_fork_epoch: None,
 
             /*
              * Network specific
@@ -506,7 +507,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            altair_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -544,7 +545,9 @@ pub struct Config {
 
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
-    altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -582,6 +585,35 @@ impl Default for Config {
     }
 }
 
+/// Util function to serialize a `None` fork epoch value
+/// as `Epoch::max_value()`.
+fn serialize_fork_epoch<S>(val: &Option<MaybeQuoted<Epoch>>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match val {
+        None => MaybeQuoted {
+            value: Epoch::max_value(),
+        }
+        .serialize(s),
+        Some(epoch) => epoch.serialize(s),
+    }
+}
+
+/// Util function to deserialize a u64::max() fork epoch as `None`.
+fn deserialize_fork_epoch<'de, D>(deserializer: D) -> Result<Option<MaybeQuoted<Epoch>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let decoded: Option<MaybeQuoted<Epoch>> = serde::de::Deserialize::deserialize(deserializer)?;
+    if let Some(fork_epoch) = decoded {
+        if fork_epoch.value != Epoch::max_value() {
+            return Ok(Some(fork_epoch));
+        }
+    }
+    Ok(None)
+}
+
 impl Config {
     /// Maps `self` to an identifier for an `EthSpec` instance.
     ///
@@ -606,7 +638,7 @@ impl Config {
             altair_fork_version: spec.altair_fork_version,
             altair_fork_epoch: spec
                 .altair_fork_epoch
-                .map(|slot| MaybeQuoted { value: slot }),
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
