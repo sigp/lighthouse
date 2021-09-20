@@ -6,9 +6,9 @@
 //! successfully indexed have their signatures verified in a batch. If that signature batch fails
 //! then all attestation signatures are verified independently.
 //!
-//! The outcome of each function is a `Vec<Result>` with a one-to-one mapping to the `aggregates`
-//! input. Each result provides the exact success or failure result of the corresponding
-//! attestation.
+//! The outcome of each function is a `Vec<Result>` with a one-to-one mapping to the attestations
+//! supplied as input. Each result provides the exact success or failure result of the corresponding
+//! attestation, with no loss of fidelity when compared to individual verification.
 use super::{
     CheckAttestationSignature, Error, IndexedAggregatedAttestation, IndexedUnaggregatedAttestation,
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,

@@ -1486,6 +1486,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
+    /// multiple attestations using batch BLS verification. Batch verification can provide
+    /// significant CPU-time savings compared to individual verification.
     pub fn batch_verify_unaggregated_attestations_for_gossip<'a, I>(
         &self,
         attestations: I,
@@ -1527,6 +1530,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
+    /// Performs the same validation as `Self::verify_aggregated_attestation_for_gossip`, but for
+    /// multiple attestations using batch BLS verification. Batch verification can provide
+    /// significant CPU-time savings compared to individual verification.
     pub fn batch_verify_aggregated_attestations_for_gossip<'a, I>(
         &self,
         aggregates: I,

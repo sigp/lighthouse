@@ -266,14 +266,20 @@ enum CheckAttestationSignature {
     No,
 }
 
-/// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
+/// Wraps a `SignedAggregateAndProof` that has been verified up until the point that an
+/// `IndexedAttestation` can be derived.
+///
+/// These attestations have *not* undergone signature verification.
 struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
     signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     attestation_root: Hash256,
 }
 
-/// Wraps an `Attestation` that has been verified for propagation on the gossip network.
+/// Wraps a `Attestation` that has been verified up until the point that an `IndexedAttestation` can
+/// be derived.
+///
+/// These attestations have *not* undergone signature verification.
 struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     attestation: &'a Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
@@ -281,7 +287,8 @@ struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     validator_index: u64,
 }
 
-/// Wraps a `SignedAggregateAndProof` that has been verified for propagation on the gossip network.
+/// Wraps a `SignedAggregateAndProof` that has been fully verified for propagation on the gossip
+/// network.
 pub struct VerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
     signed_aggregate: &'a SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
@@ -293,7 +300,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
     }
 }
 
-/// Wraps an `Attestation` that has been verified for propagation on the gossip network.
+/// Wraps an `Attestation` that has been fully verified for propagation on the gossip network.
 pub struct VerifiedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     attestation: &'a Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,

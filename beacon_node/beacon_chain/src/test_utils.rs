@@ -1159,10 +1159,11 @@ where
     }
 
     pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
-        let mut unaggregated = Vec::with_capacity(attestations.len());
+        let num_validators = self.validator_keypairs.len();
+        let mut unaggregated = Vec::with_capacity(num_validators);
         // This is an over-allocation, but it should be fine. It won't be *that* memory hungry and
         // it's nice to have fast tests.
-        let mut aggregated = Vec::with_capacity(attestations.len());
+        let mut aggregated = Vec::with_capacity(num_validators);
 
         for (unaggregated_attestations, maybe_signed_aggregate) in attestations.iter() {
             for (attn, subnet) in unaggregated_attestations {

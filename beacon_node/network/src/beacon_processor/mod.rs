@@ -163,7 +163,7 @@ const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 /// The `MAX_..._BATCH_SIZE` variables define how many attestations can be included in a single
 /// batch.
 ///
-/// Choosing these values is difficult, there is a trade-off between:
+/// Choosing these values is difficult since there is a trade-off between:
 ///
 /// - It is faster to verify one large batch than multiple smaller batches.
 /// - "Poisoning" attacks have a larger impact as the batch size increases.
