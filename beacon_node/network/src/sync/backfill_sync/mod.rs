@@ -228,6 +228,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // If there are peers to resume with, begin the resume.
                     debug!(self.log, "Resuming backfill sync"; "start_epoch" => self.current_start, "awaiting_batches" => self.batches.len(), "processing_target" => self.processing_target);
                     self.state = BackFillState::Syncing;
+                    // Resume any previously failed batches.
+                    self.resume_batches(network)?;
                     // begin requesting blocks from the peer pool, until all peers are exhausted.
                     self.request_batches(network)?;
 
@@ -332,6 +334,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                             self.fail_sync(BackFillError::BatchInvalidState(id, e.0))?;
                         }
                     }
+                    // If we have run out of peers in which to retry this batch, the backfill state
+                    // transitions to a paused state.
                     self.retry_batch_download(network, id)?;
                 } else {
                     debug!(self.log, "Batch not found while removing peer";
@@ -342,24 +346,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
         // Remove the peer from the participation list
         self.participating_peers.remove(peer_id);
-
-        // If we have no more peers, consider the state paused.
-        if matches!(self.state, BackFillState::Syncing)
-            && self
-                .network_globals
-                .peers
-                .read()
-                .synced_peers()
-                .next()
-                .is_none()
-        {
-            debug!(self.log, "Backfill sync paused."; "reason" => "insufficient_synced_peers" );
-            // Remove any batch that is awaiting download
-            self.batches
-                .retain(|_key, batch| !matches!(batch.state(), BatchState::AwaitingDownload));
-            self.state = BackFillState::Paused;
-            self.update_global_state();
-        }
         Ok(())
     }
 
@@ -721,7 +707,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
     ) -> Result<ProcessResult, BackFillError> {
-        // Only process batches if this chain is Syncing and only process one batch at a time
+        // Only process batches if backfill is syncing and only process one batch at a time
         if self.state != BackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
         }
@@ -957,9 +943,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         } else {
             // If we are here the chain has no more synced peers
             info!(self.log, "Backfill sync paused"; "reason" => "insufficient_synced_peers");
-            // Clear the failed batch.
-            self.batches.remove(&batch_id);
-
             self.state = BackFillState::Paused;
             Err(BackFillError::Paused)
         }
@@ -1012,6 +995,33 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         }
 
+        Ok(())
+    }
+
+    /// When resuming a chain, this function searches for batches that need to be re-downloaded and
+    /// transitions their state to redownload the batch.
+    fn resume_batches(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+    ) -> Result<(), BackFillError> {
+        let batch_ids_to_retry = self
+            .batches
+            .iter()
+            .filter_map(|(batch_id, batch)| {
+                // In principle there should only ever be on of these, and we could terminate the
+                // loop early, however the processing is negligible and we continue the search
+                // for robustness to handle potential future modification
+                if matches!(batch.state(), BatchState::AwaitingDownload) {
+                    Some(batch_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for batch_id in batch_ids_to_retry {
+            self.retry_batch_download(network, batch_id)?;
+        }
         Ok(())
     }
 
