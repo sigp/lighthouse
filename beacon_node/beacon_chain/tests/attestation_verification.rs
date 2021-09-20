@@ -19,7 +19,7 @@ use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
     BitList, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, SubnetId, Unsigned,
+    SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -187,6 +187,383 @@ fn get_non_aggregator<T: BeaconChainTypes>(
             }
         })
         .expect("should find non-aggregator for committee")
+}
+
+struct GossipTester {
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    /*
+     * Valid unaggregated attestation
+     */
+    valid_attestation: Attestation<E>,
+    attester_validator_index: usize,
+    attester_committee_index: usize,
+    attester_sk: SecretKey,
+    attestation_subnet_id: SubnetId,
+    /*
+     * Valid aggregate
+     */
+    valid_aggregate: SignedAggregateAndProof<E>,
+    aggregator_validator_index: usize,
+    aggregator_sk: SecretKey,
+}
+
+impl GossipTester {
+    pub fn new() -> Self {
+        let harness = get_harness(VALIDATOR_COUNT);
+
+        // Extend the chain out a few epochs so we have some chain depth to play with.
+        harness.extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        );
+
+        // Advance into a slot where there have not been blocks or attestations produced.
+        harness.advance_slot();
+
+        let (
+            valid_attestation,
+            attester_validator_index,
+            attester_committee_index,
+            attester_sk,
+            attestation_subnet_id,
+        ) = get_valid_unaggregated_attestation(&harness.chain);
+
+        let (valid_aggregate, aggregator_validator_index, aggregator_sk) =
+            get_valid_aggregated_attestation(&harness.chain, valid_attestation.clone());
+
+        Self {
+            harness,
+            valid_attestation,
+            attester_validator_index,
+            attester_committee_index,
+            attester_sk,
+            attestation_subnet_id,
+            valid_aggregate,
+            aggregator_validator_index,
+            aggregator_sk,
+        }
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.harness.chain.slot().unwrap()
+    }
+
+    pub fn two_epochs_ago(&self) -> Slot {
+        self.slot()
+            .as_u64()
+            .checked_sub(E::slots_per_epoch() + 2)
+            .expect("chain is not sufficiently deep for test")
+            .into()
+    }
+
+    pub fn non_aggregator(&self) -> (usize, SecretKey) {
+        get_non_aggregator(&self.harness.chain, &self.valid_aggregate.message.aggregate)
+    }
+
+    pub fn import_valid_aggregate(self) -> Self {
+        assert!(
+            self.harness
+                .chain
+                .verify_aggregated_attestation_for_gossip(&self.valid_aggregate)
+                .is_ok(),
+            "valid aggregate should be verified"
+        );
+        self
+    }
+
+    pub fn inspect_aggregate_err<G, I>(self, desc: &str, get_attn: G, inspect_err: I) -> Self
+    where
+        G: Fn(&Self, &mut SignedAggregateAndProof<E>),
+        I: Fn(&Self, AttnError),
+    {
+        let mut aggregate = self.valid_aggregate.clone();
+        get_attn(&self, &mut aggregate);
+        let err = self
+            .harness
+            .chain
+            .verify_aggregated_attestation_for_gossip(&aggregate)
+            .err()
+            .expect(&format!(
+                "{} should error during verify_aggregated_attestation_for_gossip",
+                desc
+            ));
+        inspect_err(&self, err);
+        self
+    }
+}
+/// Tests verification of `SignedAggregateAndProof` from the gossip network.
+#[test]
+fn aggregated_gossip_verification_2() {
+    GossipTester::new()
+        /*
+         * The following two tests ensure:
+         *
+         * aggregate.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (with a
+         * MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance) -- i.e. aggregate.data.slot +
+         * ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= aggregate.data.slot (a client MAY
+         * queue future aggregates for processing at the appropriate slot).
+         */
+        .inspect_aggregate_err(
+            "aggregate from future slot",
+            |tester, a| a.message.aggregate.data.slot = tester.slot() + 1,
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::FutureSlot { attestation_slot, latest_permissible_slot }
+                    if attestation_slot == tester.slot() + 1
+                        && latest_permissible_slot == tester.slot()
+                ))
+            },
+        )
+        .inspect_aggregate_err(
+            "aggregate from past slot",
+            |tester, a| a.message.aggregate.data.slot = tester.two_epochs_ago(),
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::PastSlot {
+                        attestation_slot,
+                        // Subtract an additional slot since the harness will be exactly on the start of the
+                        // slot and the propagation tolerance will allow an extra slot.
+                        earliest_permissible_slot
+                    }
+                    if attestation_slot == tester.two_epochs_ago()
+                        && earliest_permissible_slot == tester.slot() - E::slots_per_epoch() - 1
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * The aggregate attestation's epoch matches its target -- i.e. `aggregate.data.target.epoch ==
+         *   compute_epoch_at_slot(attestation.data.slot)`
+         *
+         */
+        .inspect_aggregate_err(
+            "attestation with invalid target epoch",
+            |_, a| a.message.aggregate.data.target.epoch += 1,
+            |_, err| assert!(matches!(err, AttnError::InvalidTargetEpoch { .. })),
+        )
+        /*
+         * This is not in the specification for aggregate attestations (only unaggregates), but we
+         * check it anyway to avoid weird edge cases.
+         */
+        .inspect_aggregate_err(
+            "attestation with invalid target root",
+            |_, a| a.message.aggregate.data.target.root = Hash256::repeat_byte(42),
+            |_, err| assert!(matches!(err, AttnError::InvalidTargetRoot { .. })),
+        )
+        /*
+         * The following test ensures:
+         *
+         * The block being voted for (aggregate.data.beacon_block_root) passes validation.
+         */
+        .inspect_aggregate_err(
+            "aggregate with unknown head block",
+            |_, a| a.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::UnknownHeadBlock {
+                        beacon_block_root
+                    }
+                    if beacon_block_root == Hash256::repeat_byte(42)
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * The attestation has participants.
+         */
+        .inspect_aggregate_err(
+            "aggregate with no participants",
+            |_, a| {
+                let aggregation_bits = &mut a.message.aggregate.aggregation_bits;
+                aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                assert!(aggregation_bits.is_zero());
+                a.message.aggregate.signature = AggregateSignature::infinity();
+            },
+            |_, err| assert!(matches!(err, AttnError::EmptyAggregationBitfield)),
+        )
+        /*
+         * This test ensures:
+         *
+         * The aggregator signature, signed_aggregate_and_proof.signature, is valid.
+         */
+        .inspect_aggregate_err(
+            "aggregate with bad signature",
+            |tester, a| a.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42)),
+            |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
+        )
+        /*
+         * The following test ensures:
+         *
+         * The aggregate_and_proof.selection_proof is a valid signature of the aggregate.data.slot by
+         * the validator with index aggregate_and_proof.aggregator_index.
+         */
+        .inspect_aggregate_err(
+            "aggregate with bad signature",
+            |tester, a| {
+                let committee_len = tester
+                    .harness
+                    .chain
+                    .head()
+                    .unwrap()
+                    .beacon_state
+                    .get_beacon_committee(tester.slot(), a.message.aggregate.data.index)
+                    .expect("should get committees")
+                    .committee
+                    .len();
+
+                // Generate some random signature until happens to be a valid selection proof. We need
+                // this in order to reach the signature verification code.
+                //
+                // Could run for ever, but that seems _really_ improbable.
+                let mut i: u64 = 0;
+                a.message.selection_proof = loop {
+                    i += 1;
+                    let proof: SelectionProof = tester
+                        .aggregator_sk
+                        .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                        .into();
+                    if proof
+                        .is_aggregator(committee_len, &tester.harness.chain.spec)
+                        .unwrap()
+                    {
+                        break proof.into();
+                    }
+                };
+            },
+            |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
+        )
+        /*
+         * The following test ensures:
+         *
+         * The signature of aggregate is valid.
+         */
+        .inspect_aggregate_err(
+            "aggregate with bad aggregate signature",
+            |tester, a| {
+                let mut agg_sig = AggregateSignature::infinity();
+                agg_sig.add_assign(&tester.aggregator_sk.sign(Hash256::repeat_byte(42)));
+                a.message.aggregate.signature = agg_sig;
+            },
+            |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
+        )
+        /*
+         * Not directly in the specification, but a sanity check.
+         */
+        .inspect_aggregate_err(
+            "aggregate with too-high aggregator index",
+            |_, a| {
+                a.message.aggregator_index = <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+            },
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::ValidatorIndexTooHigh(index)
+                    if index == (<E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1) as usize
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * The aggregator's validator index is within the committee -- i.e.
+         * aggregate_and_proof.aggregator_index in get_beacon_committee(state, aggregate.data.slot,
+         * aggregate.data.index).
+         */
+        .inspect_aggregate_err(
+            "aggregate with unknown aggregator index",
+            |_, a| a.message.aggregator_index = VALIDATOR_COUNT as u64,
+            |_, err| {
+                assert!(matches!(
+                    err,
+                    // Naively we should think this condition would trigger this error:
+                    //
+                    // AttnError::AggregatorPubkeyUnknown(unknown_validator)
+                    //
+                    // However the following error is triggered first:
+                    AttnError::AggregatorNotInCommittee {
+                        aggregator_index
+                    }
+                    if aggregator_index == VALIDATOR_COUNT as u64
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
+         * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
+         * aggregate_and_proof.selection_proof) returns True.
+         */
+        .inspect_aggregate_err(
+            "aggregate from non-aggregator",
+            |tester, a| {
+                let chain = &tester.harness.chain;
+                let (index, sk) = tester.non_aggregator();
+                *a = SignedAggregateAndProof::from_aggregate(
+                    index as u64,
+                    tester.valid_aggregate.message.aggregate.clone(),
+                    None,
+                    &sk,
+                    &chain.head_info().unwrap().fork,
+                    chain.genesis_validators_root,
+                    &chain.spec,
+                )
+            },
+            |tester, err| {
+                let (val_index, _) = tester.non_aggregator();
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidSelectionProof {
+                        aggregator_index: index
+                    }
+                    if index == val_index as u64
+                ))
+            },
+        )
+        // NOTE: from here on, the tests are stateful, and rely on the valid attestation having been
+        // seen. A refactor to give each test case its own state might be nice at some point
+        .import_valid_aggregate()
+        /*
+         * The following test ensures:
+         *
+         * The valid aggregate attestation defined by hash_tree_root(aggregate) has not already been
+         * seen (via aggregate gossip, within a block, or through the creation of an equivalent
+         * aggregate locally).
+         */
+        .inspect_aggregate_err(
+            "aggregate that has already been seen",
+            |_, _| {},
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::AttestationAlreadyKnown(hash)
+                    if hash == tester.valid_aggregate.message.aggregate.tree_hash_root()
+                ))
+            },
+        )
+        /*
+         * The following test ensures:
+         *
+         * The aggregate is the first valid aggregate received for the aggregator with index
+         * aggregate_and_proof.aggregator_index for the epoch aggregate.data.target.epoch.
+         */
+        .inspect_aggregate_err(
+            "aggregate from aggregator that has already been seen",
+            |_, a| a.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
+            |tester, err| {
+                assert!(matches!(
+                    err,
+                    AttnError::AggregatorAlreadyKnown(index)
+                    if index == tester.aggregator_validator_index as u64
+                ))
+            },
+        );
 }
 
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
