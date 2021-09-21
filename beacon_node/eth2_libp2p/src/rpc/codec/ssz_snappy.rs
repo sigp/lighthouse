@@ -383,23 +383,23 @@ fn context_bytes<T: EthSpec>(
 ) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
     if protocol.has_context_bytes() {
-        if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(res)) = resp {
-            if let SignedBeaconBlock::Altair { .. } = **res {
-                // Altair context being `None` implies that "altair never happened".
-                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                return fork_context.to_context_bytes(ForkName::Altair);
-            } else if let SignedBeaconBlock::Base { .. } = **res {
-                return Some(fork_context.genesis_context_bytes());
-            }
-        }
-
-        if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = resp {
-            if let SignedBeaconBlock::Altair { .. } = **res {
-                // Altair context being `None` implies that "altair never happened".
-                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                return fork_context.to_context_bytes(ForkName::Altair);
-            } else if let SignedBeaconBlock::Base { .. } = **res {
-                return Some(fork_context.genesis_context_bytes());
+        if let RPCCodedResponse::Success(rpc_variant) = resp {
+            if let RPCResponse::BlocksByRange(block_ref_ref)
+            | RPCResponse::BlocksByRoot(block_ref_ref) = rpc_variant
+            {
+                return match **block_ref_ref {
+                    SignedBeaconBlock::Merge { .. } => {
+                        // TODO: check this
+                        // Merge context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Merge)
+                    }
+                    SignedBeaconBlock::Altair { .. } => {
+                        // Altair context being `None` implies that "altair never happened".
+                        // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                        fork_context.to_context_bytes(ForkName::Altair)
+                    }
+                    SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
+                };
             }
         }
     }
