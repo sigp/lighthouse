@@ -234,7 +234,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             //    considered a priority. We have pre-allocated some extra priority slots for these
             //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
             //    if we are already at our max_peer limit.
-            if (min_ttl.is_some() && connected_or_dialing + to_dial_peers.len() < self.max_priority_peers() || connected_or_dialing + to_dial_peers.len() < self.max_peers())
+            if (min_ttl.is_some()
+                && connected_or_dialing + to_dial_peers.len() < self.max_priority_peers()
+                || connected_or_dialing + to_dial_peers.len() < self.max_peers())
                 && self.network_globals.peers.read().should_dial(&peer_id)
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
@@ -318,7 +320,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// subscribed to subnets that our validator requires. This is `target_peers` * (1 +
     /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
     fn max_priority_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil() as usize
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
+            as usize
     }
 
     /* Notifications from the Swarm */

@@ -144,7 +144,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
                 ))
                 .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)) as u32,
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
+                        as u32,
                 ))
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
