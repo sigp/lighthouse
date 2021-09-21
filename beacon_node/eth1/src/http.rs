@@ -136,13 +136,6 @@ pub async fn get_chain_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Block {
-    pub hash: Hash256,
-    pub timestamp: u64,
-    pub number: u64,
-}
-
 /// Returns the current block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.

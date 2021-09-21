@@ -1,6 +1,6 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
+use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Log};
 use eth1::{Config, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;

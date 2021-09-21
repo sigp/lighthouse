@@ -130,6 +130,7 @@ pub struct ChainSpec {
     pub merge_fork_version: [u8; 4],
     /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
     pub merge_fork_epoch: Option<Epoch>,
+    pub terminal_total_difficulty: Uint256,
 
     /*
      * Networking
@@ -476,9 +477,10 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: None,
+            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
             merge_fork_version: [0x02, 0x00, 0x00, 0x00],
             merge_fork_epoch: Some(Epoch::new(u64::MAX)),
+            terminal_total_difficulty: Uint256::MAX,
 
             /*
              * Network specific

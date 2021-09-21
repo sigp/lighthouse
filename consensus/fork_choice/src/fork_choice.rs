@@ -4,8 +4,9 @@ use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot, PowBlock, ChainSpec, Uint256,
 };
+use state_processing::per_block_processing::is_merge_block;
 
 use crate::ForkChoiceStore;
 use std::cmp::Ordering;
@@ -64,6 +65,10 @@ pub enum InvalidBlock {
     NotFinalizedDescendant {
         finalized_root: Hash256,
         block_ancestor: Option<Hash256>,
+    },
+    InvalidTerminalPowBlock {
+        block_total_difficulty: Uint256,
+        parent_total_difficulty: Uint256,
     },
 }
 
@@ -234,6 +239,14 @@ where
             && self.proto_array == other.proto_array
             && self.queued_attestations == other.queued_attestations
     }
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/fork-choice.md#is_valid_terminal_pow_block
+fn is_valid_terminal_pow_block(block: &PowBlock, parent: &PowBlock, spec: &ChainSpec) -> bool {
+    let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
+    let is_parent_total_difficulty_valid = parent.total_difficulty < spec.terminal_total_difficulty;
+
+    is_total_difficulty_reached && is_parent_total_difficulty_valid
 }
 
 impl<T, E> ForkChoice<T, E>
@@ -442,6 +455,7 @@ where
         block: &BeaconBlock<E>,
         block_root: Hash256,
         state: &BeaconState<E>,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
 
@@ -492,8 +506,18 @@ where
             }));
         }
 
-        // TODO: Update according to the merge spec here:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/fork-choice.md#on_block
+        if is_merge_block(state, block.body()) {
+            // TODO: get POW blocks from eth1 chain here as indicated in the merge spec link ^
+            let pow_block = PowBlock::default();
+            let pow_parent = PowBlock::default();
+            if !is_valid_terminal_pow_block(&pow_block, &pow_parent, spec) {
+                return Err(Error::InvalidBlock(InvalidBlock::InvalidTerminalPowBlock {
+                    block_total_difficulty: pow_block.total_difficulty,
+                    parent_total_difficulty: pow_parent.total_difficulty,
+                }));
+            }
+        }
 
         // Update justified checkpoint.
         if state.current_justified_checkpoint().epoch > self.fc_store.justified_checkpoint().epoch {

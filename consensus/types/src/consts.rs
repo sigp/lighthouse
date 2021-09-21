@@ -20,13 +20,12 @@ pub mod altair {
     pub const NUM_FLAG_INDICES: usize = 3;
 }
 
-pub mod genesis_test {
+pub mod merge_testing {
     use ethereum_types::H256;
     pub const GENESIS_GAS_LIMIT: u64 = 30_000_000;
     pub const GENESIS_BASE_FEE_PER_GAS: H256 = H256([
-        b'\x00', b'\xca', b'\x9a', b'\x3b', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
-        b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
-        b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00', b'\x00',
-        b'\x00', b'\x00',
+        0x00, 0xca, 0x9a, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
     ]);
 }
