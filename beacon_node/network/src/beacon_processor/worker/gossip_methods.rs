@@ -31,7 +31,7 @@ use super::{
 /// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
 /// construct this from components which have not passed `BeaconChain` validation.
 struct VerifiedUnaggregate<T: BeaconChainTypes> {
-    attestation: Attestation<T::EthSpec>,
+    attestation: Box<Attestation<T::EthSpec>>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
@@ -49,7 +49,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> 
 
 /// An attestation that failed validation by the `BeaconChain`.
 struct RejectedUnaggregate<T: EthSpec> {
-    attestation: Attestation<T>,
+    attestation: Box<Attestation<T>>,
     error: AttnError,
 }
 
@@ -58,7 +58,7 @@ struct RejectedUnaggregate<T: EthSpec> {
 /// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
 /// construct this from components which have not passed `BeaconChain` validation.
 struct VerifiedAggregate<T: BeaconChainTypes> {
-    signed_aggregate: SignedAggregateAndProof<T::EthSpec>,
+    signed_aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
@@ -76,7 +76,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
 /// An attestation that failed validation by the `BeaconChain`.
 struct RejectedAggregate<T: EthSpec> {
-    signed_aggregate: SignedAggregateAndProof<T>,
+    signed_aggregate: Box<SignedAggregateAndProof<T>>,
     error: AttnError,
 }
 
@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Attestation<T::EthSpec>,
+        attestation: Box<Attestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
@@ -293,17 +293,17 @@ impl<T: BeaconChainTypes> Worker<T> {
             let result = match result {
                 Ok(indexed_attestation) => Ok(VerifiedUnaggregate {
                     indexed_attestation,
-                    attestation: *package.attestation,
+                    attestation: package.attestation,
                 }),
                 Err(error) => Err(RejectedUnaggregate {
-                    attestation: *package.attestation,
+                    attestation: package.attestation,
                     error,
                 }),
             };
 
             self.process_gossip_attestation_result(
                 result,
-                package.message_id.clone(),
+                package.message_id,
                 package.peer_id,
                 package.subnet_id,
                 reprocess_tx.clone(),
@@ -401,7 +401,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id,
                     message_id,
                     FailedAtt::Unaggregate {
-                        attestation: Box::new(attestation),
+                        attestation,
                         subnet_id,
                         should_import,
                         seen_timestamp,
@@ -424,7 +424,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        aggregate: SignedAggregateAndProof<T::EthSpec>,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
@@ -500,10 +500,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             let result = match result {
                 Ok(indexed_attestation) => Ok(VerifiedAggregate {
                     indexed_attestation,
-                    signed_aggregate: *package.aggregate,
+                    signed_aggregate: package.aggregate,
                 }),
                 Err(error) => Err(RejectedAggregate {
-                    signed_aggregate: *package.aggregate,
+                    signed_aggregate: package.aggregate,
                     error,
                 }),
             };
@@ -601,7 +601,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id,
                     message_id,
                     FailedAtt::Aggregate {
-                        attestation: Box::new(signed_aggregate),
+                        attestation: signed_aggregate,
                         seen_timestamp,
                     },
                     reprocess_tx,

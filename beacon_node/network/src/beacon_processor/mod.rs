@@ -1324,7 +1324,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     } => worker.process_gossip_attestation(
                         message_id,
                         peer_id,
-                        *attestation,
+                        attestation,
                         subnet_id,
                         should_import,
                         Some(work_reprocessing_tx),
@@ -1346,7 +1346,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     } => worker.process_gossip_aggregate(
                         message_id,
                         peer_id,
-                        *aggregate,
+                        aggregate,
                         Some(work_reprocessing_tx),
                         seen_timestamp,
                     ),
@@ -1488,7 +1488,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     } => worker.process_gossip_attestation(
                         message_id,
                         peer_id,
-                        *attestation,
+                        attestation,
                         subnet_id,
                         should_import,
                         None, // Do not allow this attestation to be re-processed beyond this point.
@@ -1502,7 +1502,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     } => worker.process_gossip_aggregate(
                         message_id,
                         peer_id,
-                        *aggregate,
+                        aggregate,
                         None,
                         seen_timestamp,
                     ),
