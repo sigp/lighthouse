@@ -1,6 +1,6 @@
 use super::*;
 use async_trait::async_trait;
-use eth1::http::{hex_to_u64_be, response_result_or_error, send_rpc_request};
+use eth1::http::{response_result_or_error, send_rpc_request};
 pub use reqwest::Client;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -54,11 +54,9 @@ impl EngineApi for HttpJsonRpc {
         .map_err(Error::RequestFailed)?;
 
         let result = response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
-        let string = result
-            .as_str()
-            .ok_or(Error::BadResponse("data was not string".to_string()))?;
+        let response: PreparePayloadResponse = serde_json::from_value(result)?;
 
-        hex_to_u64_be(string).map_err(Error::BadResponse)
+        Ok(response.payload_id)
     }
 }
 
@@ -70,4 +68,11 @@ struct PreparePayloadRequest {
     timestamp: u64,
     random: Hash256,
     fee_recipient: Address,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent, rename = "camelCase")]
+struct PreparePayloadResponse {
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    payload_id: u64,
 }
