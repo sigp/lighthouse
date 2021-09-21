@@ -549,7 +549,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
         // Aggregate logging for attestation success/failures over an epoch
         // for all validators managed by the validator monitor.
-        if attestation_success.len() > 0 {
+        if !attestation_success.is_empty() {
             info!(
                 self.log,
                 "Previous epoch attestation success";
@@ -557,7 +557,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "validators" => ?attestation_success,
             );
         }
-        if attestation_miss.len() > 0 {
+        if !attestation_miss.is_empty() {
             error!(
                 self.log,
                 "Previous epoch attestation missing";
@@ -566,7 +566,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             );
         }
 
-        if head_miss.len() > 0 {
+        if !head_miss.is_empty() {
             warn!(
                 self.log,
                 "Previous epoch attestation failed to match head";
@@ -575,7 +575,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             );
         }
 
-        if target_miss.len() > 0 {
+        if !target_miss.is_empty() {
             warn!(
                 self.log,
                 "Previous epoch attestation failed to match target";
@@ -584,7 +584,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             );
         }
 
-        if suboptimal_inclusion.len() > 0 {
+        if !suboptimal_inclusion.is_empty() {
             warn!(
                 self.log,
                 "Previous epoch attestations had sub-optimal inclusion delay";
