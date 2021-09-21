@@ -77,6 +77,8 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         id: RequestId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
+        /// The rpc error that was received.
+        error: RPCError,
     },
     RequestReceived {
         /// The peer that sent the request.
@@ -891,7 +893,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behavio
                         );
                         // inform failures of requests comming outside the behaviour
                         if !matches!(id, RequestId::Behaviour) {
-                            self.add_event(BehaviourEvent::RPCFailed { peer_id, id });
+                            self.add_event(BehaviourEvent::RPCFailed { peer_id, id, error });
                         }
                     }
                 }

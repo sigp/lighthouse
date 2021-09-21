@@ -611,10 +611,10 @@ fn spawn_service<T: BeaconChainTypes>(
                                     });
 
                             }
-                            BehaviourEvent::RPCFailed{id, peer_id} => {
+                            BehaviourEvent::RPCFailed{id, peer_id, error} => {
                                 let _ = service
                                     .router_send
-                                    .send(RouterMessage::RPCFailed{ peer_id, request_id: id})
+                                    .send(RouterMessage::RPCFailed{ peer_id, request_id: id, error})
                                     .map_err(|_| {
                                         debug!(service.log, "Failed to send RPC to router");
                                     });

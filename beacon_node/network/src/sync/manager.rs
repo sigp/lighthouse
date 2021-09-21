@@ -42,6 +42,7 @@ use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use eth2_libp2p::rpc::RPCError;
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
 use eth2_libp2p::types::{NetworkGlobals, SyncState};
 use eth2_libp2p::SyncInfo;
@@ -103,7 +104,7 @@ pub enum SyncMessage<T: EthSpec> {
     Disconnect(PeerId),
 
     /// An RPC Error has occurred on a request.
-    RPCError(PeerId, RequestId),
+    RPCError(PeerId, RequestId, RPCError),
 
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
@@ -1020,11 +1021,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     SyncMessage::Disconnect(peer_id) => {
                         self.peer_disconnect(&peer_id);
                     }
-                    SyncMessage::RPCError(peer_id, request_id) => {
+                    SyncMessage::RPCError(peer_id, request_id, error) => {
                         // Redirect to a sync mechanism if the error is related to one of their
                         // requests.
                         match self.network.blocks_by_range_response(request_id, true) {
                             Some(SyncRequestType::RangeSync(batch_id, chain_id)) => {
+                                // `HandlerRejected` error signifies that the peer has disconnected from us.
+                                // Remove the peer from any syncing chain mappings.
+                                if let RPCError::HandlerRejected = error {
+                                    self.peer_disconnect(&peer_id);
+                                }
                                 self.range_sync.inject_error(
                                     &mut self.network,
                                     peer_id,
@@ -1035,6 +1041,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 self.update_sync_state();
                             }
                             Some(SyncRequestType::BackFillSync(batch_id)) => {
+                                // `HandlerRejected` error signifies that the peer has disconnected from us.
+                                // Remove the peer from any syncing chain mappings.
+                                if let RPCError::HandlerRejected = error {
+                                    self.peer_disconnect(&peer_id);
+                                }
                                 match self.backfill_sync.inject_error(
                                     &mut self.network,
                                     batch_id,
