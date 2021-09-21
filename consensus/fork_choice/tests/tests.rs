@@ -273,7 +273,13 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .on_block(current_slot, &block, block.canonical_root(), &state, &self.harness.chain.spec)
+            .on_block(
+                current_slot,
+                &block,
+                block.canonical_root(),
+                &state,
+                &self.harness.chain.spec,
+            )
             .unwrap();
         self
     }
@@ -308,7 +314,13 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .on_block(current_slot, &block, block.canonical_root(), &state, &self.harness.chain.spec)
+            .on_block(
+                current_slot,
+                &block,
+                block.canonical_root(),
+                &state,
+                &self.harness.chain.spec,
+            )
             .err()
             .expect("on_block did not return an error");
         comparison_func(err);

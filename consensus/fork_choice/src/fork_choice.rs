@@ -2,11 +2,12 @@ use std::marker::PhantomData;
 
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use types::{
-    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot, PowBlock, ChainSpec, Uint256,
-};
 use state_processing::per_block_processing::is_merge_block;
+use types::{
+    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, Hash256, IndexedAttestation, PowBlock, RelativeEpoch, SignedBeaconBlock, Slot,
+    Uint256,
+};
 
 use crate::ForkChoiceStore;
 use std::cmp::Ordering;

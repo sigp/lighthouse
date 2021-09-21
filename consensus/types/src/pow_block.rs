@@ -1,9 +1,7 @@
 use crate::*;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(
-Default, Debug, PartialEq, Clone,
-)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct PowBlock {
     pub block_hash: Hash256,
     pub parent_hash: Hash256,
@@ -13,4 +11,3 @@ pub struct PowBlock {
     pub timestamp: u64,
     pub block_number: u64,
 }
-

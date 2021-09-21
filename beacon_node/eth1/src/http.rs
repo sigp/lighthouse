@@ -19,7 +19,7 @@ use std::fmt;
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Uint256, Hash256, PowBlock};
+use types::{Hash256, PowBlock, Uint256};
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -198,8 +198,7 @@ pub async fn get_block(
     )?;
     let parent_hash: Hash256 = if parent_hash.len() == 32 {
         Hash256::from_slice(&parent_hash)
-    }
-    else {
+    } else {
         return Err(format!("parent hash was not 32 bytes: {:?}", parent_hash));
     };
 
@@ -208,14 +207,16 @@ pub async fn get_block(
         .ok_or("No total difficulty for block")?
         .as_str()
         .ok_or("Total difficulty was not a string")?;
-    let total_difficulty = Uint256::from_str(total_difficulty_str).map_err(|e| format!("total_difficulty from_str {:?}", e))?;
+    let total_difficulty = Uint256::from_str(total_difficulty_str)
+        .map_err(|e| format!("total_difficulty from_str {:?}", e))?;
 
     let difficulty_str = response
         .get("difficulty")
         .ok_or("No difficulty for block")?
         .as_str()
         .ok_or("Difficulty was not a string")?;
-    let difficulty = Uint256::from_str(difficulty_str).map_err(|e| format!("difficulty from_str {:?}", e))?;
+    let difficulty =
+        Uint256::from_str(difficulty_str).map_err(|e| format!("difficulty from_str {:?}", e))?;
 
     let timestamp = hex_to_u64_be(
         response
@@ -243,7 +244,10 @@ pub async fn get_block(
             block_number,
         })
     } else {
-        Err(format!("Block number {} is larger than a usize", block_number))
+        Err(format!(
+            "Block number {} is larger than a usize",
+            block_number
+        ))
     }
     .map_err(|e| format!("Failed to get block number: {}", e))
 }

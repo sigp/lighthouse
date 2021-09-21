@@ -1,7 +1,7 @@
 use std::mem;
 use types::{
-    BeaconState, BeaconStateMerge, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
-    ExecutionPayloadHeader,
+    BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EthSpec,
+    ExecutionPayloadHeader, Fork,
 };
 
 /// Transform a `Altair` state into an `Merge` state.
