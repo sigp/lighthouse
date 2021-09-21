@@ -37,7 +37,7 @@ const ATTESTATIONS: &str = "attestations";
 /// This is to account for any slight drift in the system clock.
 const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 
-/// For how long to queue aggregated and unaggregated attestations for re-processing.
+/// For how long to queue aggregated and unaggregated attestations before they expire.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
@@ -99,8 +99,8 @@ pub struct QueuedBlock<T: BeaconChainTypes> {
 enum InboundEvent<T: BeaconChainTypes> {
     /// A block that was queued for later processing and is ready for import.
     ReadyBlock(QueuedBlock<T>),
-    /// An aggregated or unaggregated attestation is ready for re-processing.
-    ReadyAttestation(QueuedAttestationId),
+    /// An aggregated or unaggregated attestation expired in the delay queue and should be dropped.
+    ExpiredAttestation(QueuedAttestationId),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
 
         match self.attestations_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(attestation_id))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyAttestation(
+                return Poll::Ready(Some(InboundEvent::ExpiredAttestation(
                     attestation_id.into_inner(),
                 )));
             }
@@ -444,39 +444,21 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     "e" => ?e
                 )
             }
-            InboundEvent::ReadyAttestation(queued_id) => {
+            InboundEvent::ExpiredAttestation(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
                 );
 
-                if let Some((root, work)) = match queued_id {
-                    QueuedAttestationId::Aggregate(id) => {
-                        self.queued_aggregates
-                            .remove(&id)
-                            .map(|(aggregate, _delay_key)| {
-                                (
-                                    *aggregate.beacon_block_root(),
-                                    ReadyWork::Aggregate(aggregate),
-                                )
-                            })
-                    }
+                if let Some(root) = match queued_id {
+                    QueuedAttestationId::Aggregate(id) => self
+                        .queued_aggregates
+                        .remove(&id)
+                        .map(|(aggregate, _delay_key)| *aggregate.beacon_block_root()),
                     QueuedAttestationId::Unaggregate(id) => self
                         .queued_unaggregates
                         .remove(&id)
-                        .map(|(unaggregate, _delay_key)| {
-                            (
-                                *unaggregate.beacon_block_root(),
-                                ReadyWork::Unaggregate(unaggregate),
-                            )
-                        }),
+                        .map(|(unaggregate, _delay_key)| *unaggregate.beacon_block_root()),
                 } {
-                    if self.ready_work_tx.try_send(work).is_err() {
-                        error!(
-                            log,
-                            "Failed to send scheduled attestation";
-                        );
-                    }
-
                     if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root) {
                         if let Some(index) = queued_atts.iter().position(|&id| id == queued_id) {
                             queued_atts.swap_remove(index);
