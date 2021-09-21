@@ -58,7 +58,12 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
 pub const PEER_EXCESS_FACTOR: f32 = 0.1;
 /// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
-pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.1;
+pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
+/// The fraction of extra peers beyond the PEER_EXCESS_FACTOR that we allow us to dial for when
+/// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
+/// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
+/// dialing priority peers we need for validator duties.
+pub const PRIORITY_PEER_EXCESS: f32 = 0.05;
 
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
@@ -78,8 +83,6 @@ pub struct PeerManager<TSpec: EthSpec> {
     status_peers: HashSetDelay<PeerId>,
     /// The target number of peers we would like to connect to.
     target_peers: usize,
-    /// The maximum number of peers we allow (exceptions for subnet peers)
-    max_peers: usize,
     /// A collection of sync committee subnets that we need to stay subscribed to.
     /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
     /// discovery queries for subnet peers if we disconnect from existing sync
@@ -137,7 +140,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
             target_peers: config.target_peers,
             sync_committee_subnets: Default::default(),
-            max_peers: (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize,
             heartbeat,
             discovery_enabled: !config.disable_discovery,
             log: log.clone(),
@@ -224,9 +226,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for (peer_id, min_ttl) in results {
-            // we attempt a connection if this peer is a subnet peer or if the max peer count
-            // is not yet filled (including dialing peers)
-            if (min_ttl.is_some() || connected_or_dialing + to_dial_peers.len() < self.max_peers)
+            // There are two conditions in deciding whether to dial this peer.
+            // 1. If we are less than our max connections. Discovery queries are executed to reach
+            //    our target peers, so its fine to dial up to our max peers (which will get pruned
+            //    in the next heartbeat down to our target).
+            // 2. If the peer is one our validators require for a specific subnet, then it is
+            //    considered a priority. We have pre-allocated some extra priority slots for these
+            //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
+            //    if we are already at our max_peer limit.
+            if (min_ttl.is_some()
+                && connected_or_dialing + to_dial_peers.len() < self.max_priority_peers()
+                || connected_or_dialing + to_dial_peers.len() < self.max_peers())
                 && self.network_globals.peers.read().should_dial(&peer_id)
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
@@ -298,6 +308,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 }
             }
         }
+    }
+
+    /// The maximum number of peers we allow to connect to us. This is `target_peers` * (1 +
+    /// PEER_EXCESS_FACTOR)
+    fn max_peers(&self) -> usize {
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize
+    }
+
+    /// The maximum number of peers we allow when dialing a priority peer (i.e a peer that is
+    /// subscribed to subnets that our validator requires. This is `target_peers` * (1 +
+    /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
+    fn max_priority_peers(&self) -> usize {
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
+            as usize
     }
 
     /* Notifications from the Swarm */
@@ -466,7 +490,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
     pub fn peer_limit_reached(&self) -> bool {
-        self.network_globals.connected_or_dialing_peers() >= self.max_peers
+        self.network_globals.connected_or_dialing_peers() >= self.max_peers()
     }
 
     /// Updates `PeerInfo` with `identify` information.
