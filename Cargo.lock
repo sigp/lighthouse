@@ -2062,6 +2062,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7531096570974c3a9dcf9e4b8e1cede1ec26cf5046219fb3b9d897503b9be59"
 
 [[package]]
+name = "execution_layer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "eth1",
+ "eth2_serde_utils 0.1.0",
+ "futures",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "slog",
+ "tokio",
+ "types",
+]
+
+[[package]]
 name = "exit-future"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
