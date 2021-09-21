@@ -5,7 +5,7 @@ use crate::*;
 use core::num::NonZeroUsize;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
-use ssz::four_byte_option_impl;
+use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
@@ -16,24 +16,6 @@ mod tests;
 // for encoding the union selector.
 four_byte_option_impl!(four_byte_option_epoch, Epoch);
 four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
-
-/// This is a shim struct to ensure that we can encode a `Vec<Option<NonZeroUsize>>` an SSZ union
-/// with a four-byte selector. The SSZ specification changed from four bytes to one byte during 2021
-/// and we use this shim to avoid breaking the Lighthouse database.
-///
-/// Since `Option<NonZeroUsize>` is fixed-length, wrapping it in a struct should have no affect on
-/// the encoded bytes.
-#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
-struct NonZeroUsizeOption {
-    #[ssz(with = "four_byte_option_non_zero_usize")]
-    opt: Option<NonZeroUsize>,
-}
-
-impl From<Option<NonZeroUsize>> for NonZeroUsizeOption {
-    fn from(opt: Option<NonZeroUsize>) -> Self {
-        Self { opt }
-    }
-}
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
@@ -283,7 +265,7 @@ impl CommitteeCache {
     pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?
-            .opt
+            .0
             .map(|p| p.get() - 1)
     }
 }
@@ -348,5 +330,54 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
 impl arbitrary::Arbitrary for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())
+    }
+}
+
+/// This is a shim struct to ensure that we can encode a `Vec<Option<NonZeroUsize>>` an SSZ union
+/// with a four-byte selector. The SSZ specification changed from four bytes to one byte during 2021
+/// and we use this shim to avoid breaking the Lighthouse database.
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+struct NonZeroUsizeOption(Option<NonZeroUsize>);
+
+impl From<Option<NonZeroUsize>> for NonZeroUsizeOption {
+    fn from(opt: Option<NonZeroUsize>) -> Self {
+        Self(opt)
+    }
+}
+
+impl Encode for NonZeroUsizeOption {
+    fn is_ssz_fixed_len() -> bool {
+        four_byte_option_non_zero_usize::encode::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        four_byte_option_non_zero_usize::encode::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        four_byte_option_non_zero_usize::encode::ssz_bytes_len(&self.0)
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        four_byte_option_non_zero_usize::encode::ssz_append(&self.0, buf)
+    }
+
+    fn as_ssz_bytes(&self) -> Vec<u8> {
+        four_byte_option_non_zero_usize::encode::as_ssz_bytes(&self.0)
+    }
+}
+
+impl Decode for NonZeroUsizeOption {
+    fn is_ssz_fixed_len() -> bool {
+        four_byte_option_non_zero_usize::decode::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        four_byte_option_non_zero_usize::decode::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        four_byte_option_non_zero_usize::decode::from_ssz_bytes(bytes).map(Self)
     }
 }
