@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use eth1::http::RpcError;
+use serde::{Deserialize, Serialize};
 
-pub use types::{Address, Hash256};
+pub use types::{Address, EthSpec, ExecutionPayload, Hash256};
 
 pub mod http;
 
@@ -39,4 +40,17 @@ pub trait EngineApi {
         random: Hash256,
         fee_recipient: Address,
     ) -> Result<PayloadId, Error>;
+
+    async fn execute_payload<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<ExecutePayloadResponse, Error>;
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "SCREAMING_SNAKE_CASE")]
+pub enum ExecutePayloadResponse {
+    Valid,
+    Invalid,
+    Syncing,
 }
