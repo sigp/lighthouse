@@ -58,14 +58,14 @@ where
     // Perform batch BLS verification, if any attestation signatures are worth checking.
     if num_indexed > 0 {
         let signature_setup_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_SETUP_TIMES);
 
         let pubkey_cache = chain
             .validator_pubkey_cache
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
-            let fork = chain.with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.fork()))?;
+        let fork = chain.with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.fork()))?;
 
         let mut signature_sets = Vec::with_capacity(num_indexed * 3);
 
@@ -110,7 +110,7 @@ where
         metrics::stop_timer(signature_setup_timer);
 
         let _signature_verification_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_TIMES);
 
         if verify_signature_sets(signature_sets.iter()) {
             // Since all the signatures verified in a batch, there's no reason for them to be
@@ -165,8 +165,9 @@ where
 
     // Perform batch BLS verification, if any attestation signatures are worth checking.
     if num_partially_verified > 0 {
-        let signature_setup_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
+        let signature_setup_timer = metrics::start_timer(
+            &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES,
+        );
 
         let pubkey_cache = chain
             .validator_pubkey_cache
@@ -197,7 +198,7 @@ where
         metrics::stop_timer(signature_setup_timer);
 
         let _signature_verification_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_TIMES);
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES);
 
         if verify_signature_sets(signature_sets.iter()) {
             // Since all the signatures verified in a batch, there's no reason for them to be
