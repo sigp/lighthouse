@@ -11,6 +11,9 @@ path = "src/lib.rs"
 [dev-dependencies]
 tokio = { version = "1.7.1", features = ["time", "rt-multi-thread", "macros"] }
 deposit_contract = { path = "../common/deposit_contract" }
+httpmock = { version = "0.6.2" }
+validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
+env_logger = "0.9.0"
 
 [dependencies]
 futures-util = "0.3.16"

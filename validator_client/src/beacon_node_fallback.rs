@@ -265,10 +265,13 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         let mut status = self.status.write().await;
 
         if let Err(e) = self.is_online(log).await {
+            info!(log, "not online"; "e" => ?e );
             *status = Err(e);
         } else if let Err(e) = self.is_compatible(spec, log).await {
+            info!(log, "not compatible"; "e" => ?e );
             *status = Err(e);
         } else if let Err(e) = self.is_synced(slot_clock, log).await {
+            info!(log, "not synced"; "e" => ?e );
             *status = Err(e);
         } else {
             *status = Ok(())

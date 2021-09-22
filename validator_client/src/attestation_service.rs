@@ -1,8 +1,10 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::Config;
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
     validator_store::ValidatorStore,
+    ProductionValidatorClient,
 };
 use bls::Hash256;
 use environment::RuntimeContext;
@@ -673,8 +675,23 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{duties_service, ProductionValidatorClient};
+    use bls::Hash256;
+    use env_logger;
+    use environment::EnvironmentBuilder;
+    use eth2::types::{GenericResponse, GenesisData, SyncingData, VersionData};
     use futures::future::FutureExt;
+    use httpmock::prelude::*;
+    use httpmock::Mock;
     use parking_lot::RwLock;
+    use sensitive_url::SensitiveUrl;
+    use serde::Serialize;
+    use slot_clock::SystemTimeSlotClock;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::Builder as TempBuilder;
+    use tokio::runtime::Runtime;
+    use types::{Checkpoint, ConfigAndPreset, Domain, Epoch, MainnetEthSpec, SignedRoot};
+    use validator_dir::insecure_keys::build_deterministic_validator_dirs;
 
     /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
     /// trigger.
@@ -692,5 +709,336 @@ mod tests {
             *state_2.read() > in_the_past,
             "state should have been updated"
         );
+    }
+
+    struct MockBeacon {
+        server: MockServer,
+        spec: ChainSpec,
+    }
+
+    impl MockBeacon {
+        fn url(&self) -> SensitiveUrl {
+            SensitiveUrl::parse(self.server.url("").as_str()).unwrap()
+        }
+
+        fn new(spec: &ChainSpec) -> Self {
+            let server = MockServer::start();
+            Self {
+                server,
+                spec: spec.clone()
+            }
+        }
+
+        fn default<E: EthSpec>(spec: &ChainSpec) -> Self {
+            Self::new(spec).immediate_genesis().online().valid_config::<E>().synced()
+        }
+
+        fn immediate_genesis(self) -> Self {
+            // Start a beacon node mock HTTP server.
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            let genesis_data = GenericResponse::from(GenesisData {
+                genesis_time: now.as_secs(),
+                genesis_validators_root: Hash256::zero(),
+                genesis_fork_version: self.spec.genesis_fork_version,
+            });
+            let genesis_data_body =
+                serde_json::to_string(&genesis_data).expect("should serialize genesis data");
+            // Create a mock on the server.
+            let genesis_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/beacon/genesis");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(genesis_data_body.as_str());
+            });
+            self
+        }
+
+        fn valid_version(self) -> Self {
+            self.online()
+        }
+
+        fn online(self) -> Self {
+            let version = GenericResponse::from(VersionData {
+                version: "".to_string(),
+            });
+            let version_body =  serde_json::to_string(&version).expect("should serialize version data");
+            let version_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/node/version");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(&version_body);
+            });
+            self
+        }
+
+        fn invalid_version(self) -> Self {
+            self.offline()
+        }
+
+        fn offline(self) -> Self {
+            let version_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/node/version");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body("{}");
+            });
+            self
+        }
+
+        fn valid_config<E: EthSpec>(self) -> Self {
+            let config = GenericResponse::from(ConfigAndPreset::from_chain_spec::<E>(&self.spec));
+            let config_body =
+                serde_json::to_string(&config).expect("should serialize genesis data");
+            let config_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/config/spec");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(config_body);
+            });
+            self
+        }
+
+        fn invalid_config(self) -> Self {
+            let config_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/config/spec");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body("{}}");
+            });
+            self
+        }
+
+        fn synced(self) -> Self {
+            let sync_data = GenericResponse::from(SyncingData {
+                is_syncing: false,
+                head_slot: Slot::new(0),
+                sync_distance: Slot::new(0),
+            });
+            let sync_data_body =
+                serde_json::to_string(&sync_data).expect("should serialize genesis data");
+            let sync_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/node/syncing");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(sync_data_body);
+            });
+            self
+        }
+
+        fn not_synced(self) -> Self {
+            let sync_data = SyncingData {
+                is_syncing: true,
+                head_slot: Slot::new(0),
+                sync_distance: Slot::new(10),
+            };
+            let sync_data_body =
+                serde_json::to_string(&sync_data).expect("should serialize genesis data");
+
+            let sync_mock = self.server.mock(|when, then| {
+                when.method(GET).path("/eth/v1/node/syncing");
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(sync_data_body);
+            });
+            self
+        }
+
+        fn attestation_duties(&self, epoch: Epoch, return_data: Vec<usize>) {
+            let epoch = Epoch::new(0);
+            let hello_mock = self.server.mock(|when, then| {
+                when.method(POST)
+                    .path(format!("/eth/v1/validator/duties/attester/{}",epoch));
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body("\"{\"dependent_root\": \"0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2\",\"data\": []}");
+            });
+        }
+
+        fn proposer_duties(&self, epoch: Epoch, validator_indices: Vec<usize>) {
+            let epoch = Epoch::new(0);
+            let hello_mock = self.server.mock(|when, then| {
+                when.method(GET)
+                    .path(format!("/eth/v1/validator/duties/proposer/{}",epoch));
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body("\"{\"dependent_root\": \"0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2\",\"data\": []}");
+            });
+        }
+
+        fn sync_duties(&self, epoch: Epoch, validator_indices: Vec<usize>) {
+            let epoch = Epoch::new(0);
+            let hello_mock = self.server.mock(|when, then| {
+                when.method(POST)
+                    .path(format!("/eth/v1/validator/duties/sync/{}", epoch));
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body("\"{\"data\": []}");
+            });
+        }
+
+        // get attestation data
+        fn attestation_data(&self, slot: Slot, committee_index: u64) {
+            let source = Checkpoint {
+                epoch: Epoch::new(0),
+                root: Hash256::zero(),
+            };
+            let target = Checkpoint {
+                epoch: Epoch::new(1),
+                root: Hash256::zero(),
+            };
+            let att_data = AttestationData {
+                slot,
+                index: committee_index,
+                beacon_block_root: Hash256::zero(),
+                source,
+                target,
+            };
+            let att_data_body =
+                serde_json::to_string(&att_data).expect("should serialize genesis data");
+
+            let hello_mock = self.server.mock(|when, then| {
+                when.method(GET)
+                    .path("/eth/v1/validator/attestation_data")
+                    .query_param("slot", format!("{}", slot).as_str())
+                    .query_param("committee_index", format!("{}", committee_index).as_str());
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(att_data_body);
+            });
+        }
+
+        // get aggregate data
+        fn aggregate_data(&self, slot: Slot, committee_index: u64) {
+            let source = Checkpoint {
+                epoch: Epoch::new(0),
+                root: Hash256::zero(),
+            };
+            let target = Checkpoint {
+                epoch: Epoch::new(1),
+                root: Hash256::zero(),
+            };
+            let att_data = AttestationData {
+                slot,
+                index: committee_index,
+                beacon_block_root: Hash256::zero(),
+                source,
+                target,
+            };
+            let domain = self.spec.get_domain(
+                att_data.target.epoch,
+                Domain::BeaconAttester,
+                &self.spec.fork_at_epoch(Epoch::new(1)),
+                Hash256::zero(),
+            );
+
+            let attestation_data_root = att_data.signing_root(domain);
+            let attestation: Attestation<MainnetEthSpec> = Attestation {
+                aggregation_bits: BitList::with_capacity(self.spec.target_committee_size).unwrap(),
+                data: att_data,
+                signature: AggregateSignature::empty(),
+            };
+
+            let attestation_body =
+                serde_json::to_string(&attestation).expect("should serialize genesis data");
+
+            let hello_mock = self.server.mock(|when, then| {
+                when.method(GET)
+                    .path("/eth/v1/validator/aggregate_attestation")
+                    .query_param(
+                        "attestation_data_root",
+                        format!("{}", attestation_data_root).as_str(),
+                    )
+                    .query_param("slot", format!("{}", slot).as_str());
+                then.status(200)
+                    .header("content-type", "application/json")
+                    .body(attestation_body);
+            });
+        }
+
+        // post attestation data
+
+        // post aggregate
+    }
+
+    // Builds a runtime to be used in the testing configuration.
+    fn build_runtime() -> Arc<Runtime> {
+        Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Should be able to build a testing runtime"),
+        )
+    }
+
+    #[test]
+    fn validator_enabling() {
+        let validators_per_node = 20;
+        // Generate the directories and keystores required for the validator clients.
+        let indices = (0..validators_per_node).collect::<Vec<_>>();
+
+        let datadir = TempBuilder::new()
+            .prefix("lighthouse-validator-client")
+            .tempdir()
+            .map_err(|e| format!("Unable to create VC data dir: {:?}", e))
+            .unwrap();
+
+        let secrets_dir = TempBuilder::new()
+            .prefix("lighthouse-validator-client-secrets")
+            .tempdir()
+            .map_err(|e| format!("Unable to create VC secrets dir: {:?}", e))
+            .unwrap();
+
+        build_deterministic_validator_dirs(
+            datadir.path().into(),
+            secrets_dir.path().into(),
+            indices.as_slice(),
+        )
+        .map_err(|e| format!("Unable to build validator directories: {:?}", e))
+        .unwrap();
+
+        let mut env = EnvironmentBuilder::mainnet()
+            .async_logger("debug", None)
+            .unwrap()
+            .multi_threaded_tokio_runtime()
+            .unwrap()
+            .build()
+            .unwrap();
+        let mut context = env.core_context();
+        // context.eth2_config.spec.seconds_per_slot = 3;
+        context.eth2_config.spec.min_genesis_time = 0;
+        context.eth2_config.spec.min_genesis_active_validator_count = 20;
+
+        let log = context.log();
+
+        info!(log, "Secrets dir"; "secrets_dir" => ?secrets_dir);
+        info!(log, "Datadir"; "datadir" => ?secrets_dir);
+        let _ = env_logger::try_init();
+        let mock_beacon = MockBeacon::default::<MainnetEthSpec>(&context.eth2_config.spec);
+
+        let mut config = Config {
+            init_slashing_protection: true,
+            disable_auto_discover: false,
+            validator_dir: datadir.into_path(),
+            secrets_dir: secrets_dir.into_path(),
+            beacon_nodes: vec![mock_beacon.url()],
+            ..Config::default()
+        };
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+        let spec = context.eth2_config.spec.clone();
+
+        env.runtime().block_on(async move {
+            //TODO: add timeout to VC initialization
+            let validator = ProductionValidatorClient::new(context, config).await.unwrap();
+
+            let duration_to_next_slot = validator.duties_service.slot_clock.duration_to_next_slot().unwrap();
+            sleep(duration_to_next_slot).await;
+
+            // loop update BN response per slot
+            duties_service::start_update_service(validator.duties_service.clone(), tx);
+            validator.attestation_service.start_update_service(&spec);
+
+            sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+
+        });
     }
 }
