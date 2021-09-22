@@ -145,7 +145,7 @@ impl<E: EthSpec> GossipAttestationPackage<E> {
     }
 }
 
-/// Items required to verify an aggregated gossip attestation.
+/// Items required to verify a batch of aggregated gossip attestations.
 #[derive(Debug)]
 pub struct GossipAggregatePackage<E: EthSpec> {
     message_id: MessageId,
@@ -511,7 +511,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             self.process_gossip_aggregate_result(
                 result,
                 package.beacon_block_root,
-                package.message_id.clone(),
+                package.message_id,
                 package.peer_id,
                 reprocess_tx.clone(),
                 package.seen_timestamp,
