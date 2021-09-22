@@ -16,7 +16,7 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::SignatureVerifiedAttestation,
+    attestation_verification::VerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -1066,7 +1066,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
-                            .verify_unaggregated_attestation_for_gossip(attestation.clone(), None)
+                            .verify_unaggregated_attestation_for_gossip(attestation, None)
                         {
                             Ok(attestation) => attestation,
                             Err(e) => {
@@ -1121,7 +1121,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         };
 
-                        if let Err(e) = chain.add_to_naive_aggregation_pool(attestation) {
+                        if let Err(e) = chain.add_to_naive_aggregation_pool(&attestation) {
                             error!(log,
                                 "Failure adding verified attestation to the naive aggregation pool";
                                 "error" => ?e,
@@ -1958,7 +1958,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let mut failures = Vec::new();
 
                     // Verify that all messages in the post are valid before processing further
-                    for (index, aggregate) in aggregates.into_iter().enumerate() {
+                    for (index, aggregate) in aggregates.iter().enumerate() {
                         match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
@@ -1984,8 +1984,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
-                            Err((e, aggregate)) => {
+                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
@@ -2017,7 +2017,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
                             warn!(log,
                                     "Could not add verified aggregate attestation to the inclusion pool";
                                     "error" => format!("{:?}", e),

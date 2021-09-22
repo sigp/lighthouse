@@ -332,7 +332,7 @@ fn epoch_boundary_state_attestation_processing() {
 
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone(), Some(subnet_id));
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;
@@ -344,7 +344,7 @@ fn epoch_boundary_state_attestation_processing() {
         {
             checked_pre_fin = true;
             assert!(matches!(
-                res.err().unwrap().0,
+                res.err().unwrap(),
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,
