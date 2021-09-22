@@ -112,7 +112,7 @@ impl<T: EthSpec> FailedAtt<T> {
     }
 }
 
-/// Items required to verify an unaggregated gossip attestation.
+/// Items required to verify a batch of unaggregated gossip attestations.
 #[derive(Debug)]
 pub struct GossipAttestationPackage<E: EthSpec> {
     message_id: MessageId,
