@@ -444,17 +444,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     ));
                 }
 
-                if current_bitfield
-                    .get(id)
-                    .map_err(|_| String::from("Subnet ID out of bounds"))?
-                    == value
-                {
-                    return Err(format!(
-                        "Subnet id: {} already in the local ENR already has value: {}",
-                        id, value
-                    ));
-                }
-
                 // set the subnet bitfield in the ENR
                 current_bitfield.set(id, value).map_err(|_| {
                     String::from("Subnet ID out of bounds, could not set subnet ID")
@@ -477,17 +466,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         "Subnet id: {} is outside the ENR bitfield length: {}",
                         id,
                         current_bitfield.len()
-                    ));
-                }
-
-                if current_bitfield
-                    .get(id)
-                    .map_err(|_| String::from("Subnet ID out of bounds"))?
-                    == value
-                {
-                    return Err(format!(
-                        "Subnet id: {} already in the local ENR already has value: {}",
-                        id, value
                     ));
                 }
 

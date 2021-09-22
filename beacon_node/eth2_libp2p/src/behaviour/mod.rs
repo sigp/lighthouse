@@ -358,13 +358,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let topic: Topic = topic.into();
 
         match self.gossipsub.subscribe(&topic) {
-            Err(_) => {
-                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic);
+            Err(e) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic, "error" => ?e);
                 false
             }
-            Ok(v) => {
+            Ok(_) => {
                 debug!(self.log, "Subscribed to topic"; "topic" => %topic);
-                v
+                true
             }
         }
     }
