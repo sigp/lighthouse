@@ -8,7 +8,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -32,6 +32,11 @@ fn bls_library_name() -> &'static str {
 }
 
 fn main() {
+    // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
+    if std::env::var("RUST_BACKTRACE").is_err() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
@@ -127,7 +132,7 @@ fn main() {
                 .long("network")
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(&["pyrmont", "mainnet", "prater"])
+                .possible_values(HARDCODED_NET_NAMES)
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
                 .global(true)
@@ -164,7 +169,6 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
-        .subcommand(remote_signer::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -345,20 +349,23 @@ fn run<E: EthSpec>(
                     .map_err(|e| format!("Error serializing config: {:?}", e))?;
             };
 
-            environment.runtime().spawn(async move {
-                if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                    crit!(log, "Failed to start beacon node"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send(ShutdownReason::Failure("Failed to start beacon node"));
-                } else if shutdown_flag {
-                    let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
-                        "Beacon node immediate shutdown triggered.",
-                    ));
-                }
-            });
+            executor.clone().spawn(
+                async move {
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                        crit!(log, "Failed to start beacon node"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start beacon node"));
+                    } else if shutdown_flag {
+                        let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
+                            "Beacon node immediate shutdown triggered.",
+                        ));
+                    }
+                },
+                "beacon_node",
+            );
         }
         ("validator_client", Some(matches)) => {
             let context = environment.core_context();
@@ -375,33 +382,26 @@ fn run<E: EthSpec>(
                     .map_err(|e| format!("Error serializing config: {:?}", e))?;
             };
             if !shutdown_flag {
-                environment.runtime().spawn(async move {
-                    if let Err(e) = ProductionValidatorClient::new(context, config)
-                        .await
-                        .and_then(|mut vc| vc.start_service())
-                    {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
-                        // Ignore the error since it always occurs during normal operation when
-                        // shutting down.
-                        let _ = executor
-                            .shutdown_sender()
-                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
-                    }
-                });
+                executor.clone().spawn(
+                    async move {
+                        if let Err(e) = ProductionValidatorClient::new(context, config)
+                            .await
+                            .and_then(|mut vc| vc.start_service())
+                        {
+                            crit!(log, "Failed to start validator client"; "reason" => e);
+                            // Ignore the error since it always occurs during normal operation when
+                            // shutting down.
+                            let _ = executor.shutdown_sender().try_send(ShutdownReason::Failure(
+                                "Failed to start validator client",
+                            ));
+                        }
+                    },
+                    "validator_client",
+                );
             } else {
                 let _ = executor.shutdown_sender().try_send(ShutdownReason::Success(
                     "Validator client immediate shutdown triggered.",
                 ));
-            }
-        }
-        ("remote_signer", Some(matches)) => {
-            if let Err(e) = remote_signer::run(&mut environment, matches) {
-                crit!(log, "Failed to start remote signer"; "reason" => e);
-                let _ = environment
-                    .core_context()
-                    .executor
-                    .shutdown_sender()
-                    .try_send(ShutdownReason::Failure("Failed to start remote signer"));
             }
         }
         _ => {

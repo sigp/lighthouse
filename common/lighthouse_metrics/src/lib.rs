@@ -283,6 +283,18 @@ pub fn set_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str], value: 
     }
 }
 
+pub fn inc_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) {
+    if let Some(gauge) = get_int_gauge(int_gauge_vec, name) {
+        gauge.inc();
+    }
+}
+
+pub fn dec_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str]) {
+    if let Some(gauge) = get_int_gauge(int_gauge_vec, name) {
+        gauge.dec();
+    }
+}
+
 pub fn set_gauge(gauge: &Result<IntGauge>, value: i64) {
     if let Ok(gauge) = gauge {
         gauge.set(value);

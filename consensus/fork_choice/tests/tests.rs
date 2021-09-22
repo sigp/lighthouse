@@ -48,12 +48,10 @@ impl fmt::Debug for ForkChoiceTest {
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
-        let harness = BeaconChainHarness::new_with_target_aggregators(
+        let harness = BeaconChainHarness::new_with_store_config(
             MainnetEthSpec,
             None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
-            // Ensure we always have an aggregator for each slot.
-            u64::max_value(),
             StoreConfig::default(),
         );
 
@@ -66,8 +64,6 @@ impl ForkChoiceTest {
             MainnetEthSpec,
             None,
             generate_deterministic_keypairs(VALIDATOR_COUNT),
-            // Ensure we always have an aggregator for each slot.
-            u64::max_value(),
             StoreConfig::default(),
             chain_config,
         );
@@ -417,7 +413,7 @@ impl ForkChoiceTest {
         let mut verified_attestation = self
             .harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
             .expect("precondition: should gossip verify attestation");
 
         if let MutationDelay::Blocks(slots) = delay {
@@ -987,7 +983,7 @@ fn weak_subjectivity_fail_on_startup() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config);
@@ -1000,7 +996,7 @@ fn weak_subjectivity_pass_on_startup() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config)
@@ -1025,7 +1021,7 @@ fn weak_subjectivity_check_passes() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
@@ -1055,7 +1051,7 @@ fn weak_subjectivity_check_fails_early_epoch() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
@@ -1084,7 +1080,7 @@ fn weak_subjectivity_check_fails_late_epoch() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
@@ -1113,7 +1109,7 @@ fn weak_subjectivity_check_fails_incorrect_root() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     ForkChoiceTest::new_with_chain_config(chain_config.clone())
@@ -1149,7 +1145,7 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     // recreate the chain exactly
@@ -1190,7 +1186,7 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
-        import_max_skip_slots: None,
+        ..ChainConfig::default()
     };
 
     // recreate the chain exactly

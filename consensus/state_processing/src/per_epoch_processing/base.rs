@@ -18,7 +18,7 @@ pub mod validator_statuses;
 pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary, Error> {
+) -> Result<EpochProcessingSummary<T>, Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -66,7 +66,7 @@ pub fn process_epoch<T: EthSpec>(
     process_participation_record_updates(state)?;
 
     // Rotate the epoch caches to suit the epoch transition.
-    state.advance_caches()?;
+    state.advance_caches(spec)?;
 
     Ok(EpochProcessingSummary::Base {
         total_balances: validator_statuses.total_balances,

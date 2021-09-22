@@ -1,7 +1,8 @@
 use crate::*;
+use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
-use serde_derive::{Deserialize, Serialize};
-use serde_utils::quoted_u64::MaybeQuoted;
+use serde::{Deserializer, Serialize, Serializer};
+use serde_derive::Deserialize;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -237,6 +238,19 @@ impl ChainSpec {
         }
     }
 
+    /// Returns a full `Fork` struct for a given `ForkName` or `None` if the fork does not yet have
+    /// an activation epoch.
+    pub fn fork_for_name(&self, fork_name: ForkName) -> Option<Fork> {
+        let previous_fork_name = fork_name.previous_fork().unwrap_or(ForkName::Base);
+        let epoch = self.fork_epoch(fork_name)?;
+
+        Some(Fork {
+            previous_version: self.fork_version_for_name(previous_fork_name),
+            current_version: self.fork_version_for_name(fork_name),
+            epoch,
+        })
+    }
+
     /// Get the domain number, unmodified by the fork.
     ///
     /// Spec v0.12.1
@@ -454,7 +468,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            altair_fork_epoch: None,
 
             /*
              * Network specific
@@ -493,7 +507,7 @@ impl ChainSpec {
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
-            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            altair_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -520,44 +534,46 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_time: u64,
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     genesis_fork_version: [u8; 4],
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     genesis_delay: u64,
 
-    #[serde(with = "serde_utils::bytes_4_hex")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
-    altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_validator_withdrawability_delay: Epoch,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     shard_committee_period: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     inactivity_score_recovery_rate: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     ejection_balance: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_chain_id: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
 }
@@ -567,6 +583,35 @@ impl Default for Config {
         let chain_spec = MainnetEthSpec::default_spec();
         Config::from_chain_spec::<MainnetEthSpec>(&chain_spec)
     }
+}
+
+/// Util function to serialize a `None` fork epoch value
+/// as `Epoch::max_value()`.
+fn serialize_fork_epoch<S>(val: &Option<MaybeQuoted<Epoch>>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match val {
+        None => MaybeQuoted {
+            value: Epoch::max_value(),
+        }
+        .serialize(s),
+        Some(epoch) => epoch.serialize(s),
+    }
+}
+
+/// Util function to deserialize a u64::max() fork epoch as `None`.
+fn deserialize_fork_epoch<'de, D>(deserializer: D) -> Result<Option<MaybeQuoted<Epoch>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let decoded: Option<MaybeQuoted<Epoch>> = serde::de::Deserialize::deserialize(deserializer)?;
+    if let Some(fork_epoch) = decoded {
+        if fork_epoch.value != Epoch::max_value() {
+            return Ok(Some(fork_epoch));
+        }
+    }
+    Ok(None)
 }
 
 impl Config {
@@ -593,7 +638,7 @@ impl Config {
             altair_fork_version: spec.altair_fork_version,
             altair_fork_epoch: spec
                 .altair_fork_epoch
-                .map(|slot| MaybeQuoted { value: slot }),
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,

@@ -5,11 +5,10 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "1.0.1"
+sloggers = "2.0.2"
 genesis = { path = "../genesis" }
 lazy_static = "1.4.0"
 matches = "0.1.8"
-tempfile = "3.1.0"
 exit-future = "0.2.0"
 slog-term = "2.6.0"
 slog-async = "2.5.0"
@@ -26,12 +25,12 @@ state_processing = { path = "../../consensus/state_processing" }
 slot_clock = { path = "../../common/slot_clock" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 hex = "0.4.2"
-eth2_ssz = "0.1.2"
-eth2_ssz_types = { path =  "../../consensus/ssz_types" }
-tree_hash = "0.1.1"
+eth2_ssz = "0.3.0"
+eth2_ssz_types = "0.2.0"
+tree_hash = "0.3.0"
 futures = "0.3.7"
 error-chain = "0.12.4"
-tokio = { version = "1.7.1", features = ["full"] }
+tokio = { version = "1.10.0", features = ["full"] }
 tokio-stream = "0.1.3"
 parking_lot = "0.11.0"
 smallvec = "1.6.1"
@@ -46,5 +45,5 @@ itertools = "0.10.0"
 num_cpus = "1.13.0"
 lru_cache = { path = "../../common/lru_cache" }
 if-addrs = "0.6.4"
-strum = { version = "0.20"}
+strum = "0.21.0"
 tokio-util = { version = "0.6.3", features = ["time"] }

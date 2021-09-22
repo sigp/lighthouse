@@ -160,7 +160,7 @@ impl SlashingDatabase {
         let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
         for pubkey in public_keys {
             if self.get_validator_id_opt(txn, pubkey)?.is_none() {
-                stmt.execute(&[pubkey.as_hex_string()])?;
+                stmt.execute([pubkey.as_hex_string()])?;
             }
         }
         Ok(())

@@ -1,5 +1,6 @@
 use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -19,7 +20,7 @@ use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slasher::Slasher;
-use slog::{crit, info, Logger};
+use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -27,8 +28,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use task_executor::ShutdownReason;
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, EthSpec, Graffiti, Hash256, PublicKeyBytes, Signature,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -133,6 +134,11 @@ where
     pub fn custom_spec(mut self, spec: ChainSpec) -> Self {
         self.spec = spec;
         self
+    }
+
+    /// Get a reference to the builder's spec.
+    pub fn get_spec(&self) -> &ChainSpec {
+        &self.spec
     }
 
     /// Sets the maximum number of blocks that will be skipped when processing
@@ -276,12 +282,19 @@ where
         Ok(self)
     }
 
-    /// Starts a new chain from a genesis state.
-    pub fn genesis_state(
+    /// Store the genesis state & block in the DB.
+    ///
+    /// Do *not* initialize fork choice, or do anything that assumes starting from genesis.
+    ///
+    /// Return the `BeaconSnapshot` representing genesis as well as the mutated builder.
+    fn set_genesis_state(
         mut self,
         mut beacon_state: BeaconState<TEthSpec>,
-    ) -> Result<Self, String> {
-        let store = self.store.clone().ok_or("genesis_state requires a store")?;
+    ) -> Result<(BeaconSnapshot<TEthSpec>, Self), String> {
+        let store = self
+            .store
+            .clone()
+            .ok_or("set_genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
@@ -291,9 +304,6 @@ where
 
         let beacon_state_root = beacon_block.message().state_root();
         let beacon_block_root = beacon_block.canonical_root();
-
-        self.genesis_state_root = Some(beacon_state_root);
-        self.genesis_block_root = Some(beacon_block_root);
 
         store
             .put_state(&beacon_state_root, &beacon_state)
@@ -312,24 +322,144 @@ where
                 )
             })?;
 
-        let genesis = BeaconSnapshot {
-            beacon_block,
-            beacon_block_root,
-            beacon_state,
-        };
+        self.genesis_state_root = Some(beacon_state_root);
+        self.genesis_block_root = Some(beacon_block_root);
+        self.genesis_time = Some(beacon_state.genesis_time());
+
+        Ok((
+            BeaconSnapshot {
+                beacon_block_root,
+                beacon_block,
+                beacon_state,
+            },
+            self,
+        ))
+    }
+
+    /// Starts a new chain from a genesis state.
+    pub fn genesis_state(mut self, beacon_state: BeaconState<TEthSpec>) -> Result<Self, String> {
+        let store = self.store.clone().ok_or("genesis_state requires a store")?;
+
+        let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
+        self = updated_builder;
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
 
-        let fork_choice = ForkChoice::from_genesis(
+        let fork_choice = ForkChoice::from_anchor(
             fc_store,
             genesis.beacon_block_root,
-            &genesis.beacon_block.deconstruct().0,
+            &genesis.beacon_block,
             &genesis.beacon_state,
         )
-        .map_err(|e| format!("Unable to build initialize ForkChoice: {:?}", e))?;
+        .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
 
         self.fork_choice = Some(fork_choice);
-        self.genesis_time = Some(genesis.beacon_state.genesis_time());
+
+        Ok(self.empty_op_pool())
+    }
+
+    /// Start the chain from a weak subjectivity state.
+    pub fn weak_subjectivity_state(
+        mut self,
+        mut weak_subj_state: BeaconState<TEthSpec>,
+        weak_subj_block: SignedBeaconBlock<TEthSpec>,
+        genesis_state: BeaconState<TEthSpec>,
+    ) -> Result<Self, String> {
+        let store = self.store.clone().ok_or("genesis_state requires a store")?;
+
+        let weak_subj_slot = weak_subj_state.slot();
+        let weak_subj_block_root = weak_subj_block.canonical_root();
+        let weak_subj_state_root = weak_subj_block.state_root();
+
+        // Check that the given block lies on an epoch boundary. Due to the database only storing
+        // full states on epoch boundaries and at restore points it would be difficult to support
+        // starting from a mid-epoch state.
+        if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
+            return Err(format!(
+                "Checkpoint block at slot {} is not aligned to epoch start. \
+                 Please supply an aligned checkpoint with block.slot % 32 == 0",
+                weak_subj_block.slot(),
+            ));
+        }
+
+        // Check that the block and state have consistent slots and state roots.
+        if weak_subj_state.slot() != weak_subj_block.slot() {
+            return Err(format!(
+                "Slot of snapshot block ({}) does not match snapshot state ({})",
+                weak_subj_block.slot(),
+                weak_subj_state.slot(),
+            ));
+        }
+
+        let computed_state_root = weak_subj_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
+
+        if weak_subj_state_root != computed_state_root {
+            return Err(format!(
+                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
+                weak_subj_state_root, computed_state_root
+            ));
+        }
+
+        // Check that the checkpoint state is for the same network as the genesis state.
+        // This check doesn't do much for security but should prevent mistakes.
+        if weak_subj_state.genesis_validators_root() != genesis_state.genesis_validators_root() {
+            return Err(format!(
+                "Snapshot state appears to be from the wrong network. Genesis validators root \
+                 is {:?} but should be {:?}",
+                weak_subj_state.genesis_validators_root(),
+                genesis_state.genesis_validators_root()
+            ));
+        }
+
+        // Set the store's split point *before* storing genesis so that genesis is stored
+        // immediately in the freezer DB.
+        store.set_split(weak_subj_slot, weak_subj_state_root);
+        store
+            .store_split()
+            .map_err(|e| format!("Error storing DB split point: {:?}", e))?;
+
+        let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
+        self = updated_builder;
+
+        store
+            .put_state(&weak_subj_state_root, &weak_subj_state)
+            .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
+        store
+            .put_block(&weak_subj_block_root, weak_subj_block.clone())
+            .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
+
+        // Store anchor info (context for weak subj sync).
+        store
+            .init_anchor_info(weak_subj_block.message())
+            .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?;
+
+        // Store pruning checkpoint to prevent attempting to prune before the anchor state.
+        store
+            .store_pruning_checkpoint(Checkpoint {
+                root: weak_subj_block_root,
+                epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
+            })
+            .map_err(|e| format!("Failed to write pruning checkpoint: {:?}", e))?;
+
+        let snapshot = BeaconSnapshot {
+            beacon_block_root: weak_subj_block_root,
+            beacon_block: weak_subj_block,
+            beacon_state: weak_subj_state,
+        };
+
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot);
+
+        let fork_choice = ForkChoice::from_anchor(
+            fc_store,
+            snapshot.beacon_block_root,
+            &snapshot.beacon_block,
+            &snapshot.beacon_state,
+        )
+        .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
+
+        self.fork_choice = Some(fork_choice);
 
         Ok(self.empty_op_pool())
     }
@@ -354,6 +484,13 @@ where
     pub fn slot_clock(mut self, clock: TSlotClock) -> Self {
         self.slot_clock = Some(clock);
         self
+    }
+
+    /// Fetch a reference to the slot clock.
+    ///
+    /// Can be used for mutation during testing due to `SlotClock`'s internal mutability.
+    pub fn get_slot_clock(&self) -> Option<&TSlotClock> {
+        self.slot_clock.as_ref()
     }
 
     /// Sets a `Sender` to allow the beacon chain to send shutdown signals.
@@ -427,6 +564,7 @@ where
         let mut validator_monitor = self
             .validator_monitor
             .ok_or("Cannot build without a validator monitor")?;
+        let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
@@ -437,19 +575,56 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let head_block_root = fork_choice
+        let initial_head_block_root = fork_choice
             .get_head(current_slot)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
-        let head_block = store
-            .get_block(&head_block_root)
-            .map_err(|e| descriptive_db_error("head block", &e))?
-            .ok_or("Head block not found in store")?;
+        // Try to decode the head block according to the current fork, if that fails, try
+        // to backtrack to before the most recent fork.
+        let (head_block_root, head_block, head_reverted) =
+            match store.get_block(&initial_head_block_root) {
+                Ok(Some(block)) => (initial_head_block_root, block, false),
+                Ok(None) => return Err("Head block not found in store".into()),
+                Err(StoreError::SszDecodeError(_)) => {
+                    error!(
+                        log,
+                        "Error decoding head block";
+                        "message" => "This node has likely missed a hard fork. \
+                                      It will try to revert the invalid blocks and keep running, \
+                                      but any stray blocks and states will not be deleted. \
+                                      Long-term you should consider re-syncing this node."
+                    );
+                    let (block_root, block) = revert_to_fork_boundary(
+                        current_slot,
+                        initial_head_block_root,
+                        store.clone(),
+                        &self.spec,
+                        &log,
+                    )?;
+
+                    // Update head tracker.
+                    head_tracker.register_block(block_root, block.parent_root(), block.slot());
+                    (block_root, block, true)
+                }
+                Err(e) => return Err(descriptive_db_error("head block", &e)),
+            };
+
         let head_state_root = head_block.state_root();
         let head_state = store
             .get_state(&head_state_root, Some(head_block.slot()))
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
+
+        // If the head reverted then we need to reset fork choice using the new head's finalized
+        // checkpoint.
+        if head_reverted {
+            fork_choice = reset_fork_choice_to_finalization(
+                head_block_root,
+                &head_state,
+                store.clone(),
+                &self.spec,
+            )?;
+        }
 
         let mut canonical_head = BeaconSnapshot {
             beacon_block_root: head_block_root,
@@ -469,12 +644,13 @@ where
         let fc_finalized = fork_choice.finalized_checkpoint();
         let head_finalized = canonical_head.beacon_state.finalized_checkpoint();
         if fc_finalized != head_finalized {
-            if head_finalized.root == Hash256::zero()
+            let is_genesis = head_finalized.root.is_zero()
                 && head_finalized.epoch == fc_finalized.epoch
-                && fc_finalized.root == genesis_block_root
-            {
-                // This is a legal edge-case encountered during genesis.
-            } else {
+                && fc_finalized.root == genesis_block_root;
+            let is_wss = store.get_anchor_slot().map_or(false, |anchor_slot| {
+                fc_finalized.epoch == anchor_slot.epoch(TEthSpec::slots_per_epoch())
+            });
+            if !is_genesis && !is_wss {
                 return Err(format!(
                     "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
                     {:?}",
@@ -541,7 +717,7 @@ where
             genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
             event_handler: self.event_handler,
-            head_tracker: Arc::new(self.head_tracker.unwrap_or_default()),
+            head_tracker,
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 canonical_head,
@@ -602,6 +778,11 @@ where
             "head_block" => format!("{}", head.beacon_block_root),
             "head_slot" => format!("{}", head.beacon_block.slot()),
         );
+
+        // Check for states to reconstruct (in the background).
+        if beacon_chain.config.reconstruct_historic_states {
+            beacon_chain.store_migrator.process_reconstruction();
+        }
 
         Ok(beacon_chain)
     }

@@ -5,9 +5,9 @@
 //! Quotes can be optional during decoding. If the length of the `Vec` is greater than `N`, deserialization fails.
 
 use crate::VariableList;
+use eth2_serde_utils::quoted_u64_vec::QuotedIntWrapper;
 use serde::ser::SerializeSeq;
 use serde::{Deserializer, Serializer};
-use serde_utils::quoted_u64_vec::QuotedIntWrapper;
 use std::marker::PhantomData;
 use typenum::Unsigned;
 

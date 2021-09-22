@@ -61,6 +61,21 @@ pub enum SigningDefinition {
         #[serde(skip_serializing_if = "Option::is_none")]
         voting_keystore_password: Option<ZeroizeString>,
     },
+    /// A validator that defers to a Web3Signer HTTP server for signing.
+    ///
+    /// https://github.com/ConsenSys/web3signer
+    #[serde(rename = "web3signer")]
+    Web3Signer {
+        url: String,
+        /// Path to a .pem file.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        root_certificate_path: Option<PathBuf>,
+        /// Specifies a request timeout.
+        ///
+        /// The timeout is applied from when the request starts connecting until the response body has finished.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_timeout_ms: Option<u64>,
+    },
 }
 
 /// A validator that may be initialized by this validator client.
@@ -116,6 +131,12 @@ impl ValidatorDefinition {
 #[derive(Default, Serialize, Deserialize)]
 pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
 
+impl From<Vec<ValidatorDefinition>> for ValidatorDefinitions {
+    fn from(vec: Vec<ValidatorDefinition>) -> Self {
+        Self(vec)
+    }
+}
+
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
@@ -167,11 +188,13 @@ impl ValidatorDefinitions {
         let known_paths: HashSet<&PathBuf> = self
             .0
             .iter()
-            .map(|def| match &def.signing_definition {
+            .filter_map(|def| match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
                     voting_keystore_path,
                     ..
-                } => voting_keystore_path,
+                } => Some(voting_keystore_path),
+                // A Web3Signer validator does not use a local keystore file.
+                SigningDefinition::Web3Signer { .. } => None,
             })
             .collect();
 

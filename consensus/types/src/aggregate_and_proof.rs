@@ -16,7 +16,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec")]
 pub struct AggregateAndProof<T: EthSpec> {
     /// The index of the validator that created the attestation.
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub aggregator_index: u64,
     /// The aggregate attestation.
     pub aggregate: Attestation<T>,

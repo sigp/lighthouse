@@ -27,7 +27,7 @@ fn end_of_epoch_state<T: BeaconChainTypes>(
 fn get_epoch_processing_summary<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
-) -> Result<EpochProcessingSummary, warp::reject::Rejection> {
+) -> Result<EpochProcessingSummary<T>, warp::reject::Rejection> {
     process_epoch(state, spec)
         .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))
 }

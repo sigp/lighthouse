@@ -4,7 +4,7 @@ mod tests;
 
 use crate::ValidatorStore;
 use account_utils::mnemonic_from_phrase;
-use create_validator::create_validators;
+use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
@@ -125,7 +125,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     }
 
     let authorization_header_filter = ctx.api_secret.authorization_header_filter();
-    let api_token = ctx.api_secret.api_token();
+    let api_token_path = ctx.api_secret.api_token_path();
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
 
@@ -273,14 +273,15 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              runtime: Weak<Runtime>| {
                 blocking_signed_json_task(signer, move || {
                     if let Some(runtime) = runtime.upgrade() {
-                        let (validators, mnemonic) = runtime.block_on(create_validators(
-                            None,
-                            None,
-                            &body,
-                            &validator_dir,
-                            &validator_store,
-                            &spec,
-                        ))?;
+                        let (validators, mnemonic) =
+                            runtime.block_on(create_validators_mnemonic(
+                                None,
+                                None,
+                                &body,
+                                &validator_dir,
+                                &validator_store,
+                                &spec,
+                            ))?;
                         let response = api_types::PostValidatorsResponseData {
                             mnemonic: mnemonic.into_phrase().into(),
                             validators,
@@ -322,14 +323,15 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     e
                                 ))
                             })?;
-                        let (validators, _mnemonic) = runtime.block_on(create_validators(
-                            Some(mnemonic),
-                            Some(body.key_derivation_path_offset),
-                            &body.validators,
-                            &validator_dir,
-                            &validator_store,
-                            &spec,
-                        ))?;
+                        let (validators, _mnemonic) =
+                            runtime.block_on(create_validators_mnemonic(
+                                Some(mnemonic),
+                                Some(body.key_derivation_path_offset),
+                                &body.validators,
+                                &validator_dir,
+                                &validator_store,
+                                &spec,
+                            ))?;
                         Ok(api_types::GenericResponse::from(validators))
                     } else {
                         Err(warp_utils::reject::custom_server_error(
@@ -416,6 +418,33 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
+    // POST lighthouse/validators/web3signer
+    let post_validators_web3signer = warp::path("lighthouse")
+        .and(warp::path("validators"))
+        .and(warp::path("web3signer"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and(runtime_filter.clone())
+        .and_then(
+            |body: Vec<api_types::Web3SignerValidatorRequest>,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             signer,
+             runtime: Weak<Runtime>| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(runtime) = runtime.upgrade() {
+                        runtime.block_on(create_validators_web3signer(&body, &validator_store))?;
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Runtime shutdown".into(),
+                        ))
+                    }
+                })
+            },
+        );
+
     // PATCH lighthouse/validators/{validator_pubkey}
     let patch_validators = warp::path("lighthouse")
         .and(warp::path("validators"))
@@ -468,21 +497,27 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let routes = warp::any()
         .and(authorization_header_filter)
+        // Note: it is critical that the `authorization_header_filter` is applied to all routes.
+        // Keeping all the routes inside the following `and` is a reliable way to achieve this.
+        //
+        // When adding a route, don't forget to add it to the `routes_with_invalid_auth` tests!
         .and(
-            warp::get().and(
-                get_node_version
-                    .or(get_lighthouse_health)
-                    .or(get_lighthouse_spec)
-                    .or(get_lighthouse_validators)
-                    .or(get_lighthouse_validators_pubkey),
-            ),
+            warp::get()
+                .and(
+                    get_node_version
+                        .or(get_lighthouse_health)
+                        .or(get_lighthouse_spec)
+                        .or(get_lighthouse_validators)
+                        .or(get_lighthouse_validators_pubkey),
+                )
+                .or(warp::post().and(
+                    post_validators
+                        .or(post_validators_keystore)
+                        .or(post_validators_mnemonic)
+                        .or(post_validators_web3signer),
+                ))
+                .or(warp::patch().and(patch_validators)),
         )
-        .or(warp::post().and(
-            post_validators
-                .or(post_validators_keystore)
-                .or(post_validators_mnemonic),
-        ))
-        .or(warp::patch().and(patch_validators))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
@@ -500,7 +535,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         log,
         "HTTP API started";
         "listen_address" => listening_socket.to_string(),
-        "api_token" => api_token,
+        "api_token_file" => ?api_token_path,
     );
 
     Ok((listening_socket, server))

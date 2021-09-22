@@ -17,10 +17,6 @@ Authorization Basic api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c3
 
 ## Obtaining the API token
 
-The API token can be obtained via two methods:
-
-### Method 1: Reading from a file
-
 The API token is stored as a file in the `validators` directory. For most users
 this is `~/.lighthouse/{network}/validators/api-token.txt`. Here's an
 example using the `cat` command to print the token to the terminal, but any
@@ -31,13 +27,12 @@ $ cat api-token.txt
 api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
 ```
 
-### Method 2: Reading from logs
 
-When starting the validator client it will output a log message containing an
-`api-token` field:
+When starting the validator client it will output a log message containing the path
+to the file containing the api token.
 
 ```
-Sep 28 19:17:52.615 INFO HTTP API started                        api_token: api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123, listen_address: 127.0.0.1:5062
+Sep 28 19:17:52.615 INFO HTTP API started                        api_token_file: "$HOME/prater/validators/api-token.txt", listen_address: 127.0.0.1:5062
 ```
 
 ## Example

@@ -30,7 +30,7 @@ const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
     #[allow(clippy::type_complexity)]
-    tx_thread: Option<Mutex<(mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>)>>,
+    tx_thread: Option<Mutex<(mpsc::Sender<Notification>, thread::JoinHandle<()>)>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
     genesis_block_root: Hash256,
     log: Logger,
@@ -73,7 +73,12 @@ pub enum PruningError {
 }
 
 /// Message sent to the migration thread containing the information it needs to run.
-pub struct MigrationNotification {
+pub enum Notification {
+    Finalization(FinalizationNotification),
+    Reconstruction,
+}
+
+pub struct FinalizationNotification {
     finalized_state_root: BeaconStateHash,
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
@@ -112,13 +117,46 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         finalized_checkpoint: Checkpoint,
         head_tracker: Arc<HeadTracker>,
     ) -> Result<(), BeaconChainError> {
-        let notif = MigrationNotification {
+        let notif = FinalizationNotification {
             finalized_state_root,
             finalized_checkpoint,
             head_tracker,
             genesis_block_root: self.genesis_block_root,
         };
 
+        // Send to background thread if configured, otherwise run in foreground.
+        if let Some(Notification::Finalization(notif)) =
+            self.send_background_notification(Notification::Finalization(notif))
+        {
+            Self::run_migration(self.db.clone(), notif, &self.log);
+        }
+
+        Ok(())
+    }
+
+    pub fn process_reconstruction(&self) {
+        if let Some(Notification::Reconstruction) =
+            self.send_background_notification(Notification::Reconstruction)
+        {
+            Self::run_reconstruction(self.db.clone(), &self.log);
+        }
+    }
+
+    pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
+        if let Err(e) = db.reconstruct_historic_states() {
+            error!(
+                log,
+                "State reconstruction failed";
+                "error" => ?e,
+            );
+        }
+    }
+
+    /// If configured to run in the background, send `notif` to the background thread.
+    ///
+    /// Return `None` if the message was sent to the background thread, `Some(notif)` otherwise.
+    #[must_use = "Message is not processed when this function returns `Some`"]
+    fn send_background_notification(&self, notif: Notification) -> Option<Notification> {
         // Async path, on the background thread.
         if let Some(tx_thread) = &self.tx_thread {
             let (ref mut tx, ref mut thread) = *tx_thread.lock();
@@ -143,17 +181,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // Retry at most once, we could recurse but that would risk overflowing the stack.
                 let _ = tx.send(tx_err.0);
             }
-        }
+            None
         // Synchronous path, on the current thread.
-        else {
-            Self::run_migration(self.db.clone(), notif, &self.log)
+        } else {
+            Some(notif)
         }
-
-        Ok(())
     }
 
     /// Perform the actual work of `process_finalization`.
-    fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: MigrationNotification, log: &Logger) {
+    fn run_migration(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        notif: FinalizationNotification,
+        log: &Logger,
+    ) {
+        debug!(log, "Database consolidation started");
+
         let finalized_state_root = notif.finalized_state_root;
 
         let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
@@ -223,31 +265,44 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         ) {
             warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
         }
+
+        debug!(log, "Database consolidation complete");
     }
 
     /// Spawn a new child thread to run the migration process.
     ///
-    /// Return a channel handle for sending new finalized states to the thread.
+    /// Return a channel handle for sending requests to the thread.
     fn spawn_thread(
         db: Arc<HotColdDB<E, Hot, Cold>>,
         log: Logger,
-    ) -> (mpsc::Sender<MigrationNotification>, thread::JoinHandle<()>) {
+    ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
-                // Read the rest of the messages in the channel, ultimately choosing the `notif`
-                // with the highest finalized epoch.
-                let notif = rx
-                    .try_iter()
-                    .fold(notif, |best, other: MigrationNotification| {
-                        if other.finalized_checkpoint.epoch > best.finalized_checkpoint.epoch {
-                            other
-                        } else {
-                            best
-                        }
-                    });
+                // Read the rest of the messages in the channel, preferring any reconstruction
+                // notification, or the finalization notification with the greatest finalized epoch.
+                let notif =
+                    rx.try_iter()
+                        .fold(notif, |best, other: Notification| match (&best, &other) {
+                            (Notification::Reconstruction, _)
+                            | (_, Notification::Reconstruction) => Notification::Reconstruction,
+                            (
+                                Notification::Finalization(fin1),
+                                Notification::Finalization(fin2),
+                            ) => {
+                                if fin2.finalized_checkpoint.epoch > fin1.finalized_checkpoint.epoch
+                                {
+                                    other
+                                } else {
+                                    best
+                                }
+                            }
+                        });
 
-                Self::run_migration(db.clone(), notif, &log);
+                match notif {
+                    Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
+                    Notification::Finalization(fin) => Self::run_migration(db.clone(), fin, &log),
+                }
             }
         });
         (tx, thread)
@@ -334,16 +389,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         );
 
         for (head_hash, head_slot) in heads {
+            // Load head block. If it fails with a decode error, it's likely a reverted block,
+            // so delete it from the head tracker but leave it and its states in the database
+            // This is suboptimal as it wastes disk space, but it's difficult to fix. A re-sync
+            // can be used to reclaim the space.
+            let head_state_root = match store.get_block(&head_hash) {
+                Ok(Some(block)) => block.state_root(),
+                Ok(None) => {
+                    return Err(BeaconStateError::MissingBeaconBlock(head_hash.into()).into())
+                }
+                Err(Error::SszDecodeError(e)) => {
+                    warn!(
+                        log,
+                        "Forgetting invalid head block";
+                        "block_root" => ?head_hash,
+                        "error" => ?e,
+                    );
+                    abandoned_heads.insert(head_hash);
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
+
             let mut potentially_abandoned_head = Some(head_hash);
             let mut potentially_abandoned_blocks = vec![];
 
-            let head_state_hash = store
-                .get_block(&head_hash)?
-                .ok_or_else(|| BeaconStateError::MissingBeaconBlock(head_hash.into()))?
-                .state_root();
-
             // Iterate backwards from this head, staging blocks and states for deletion.
-            let iter = std::iter::once(Ok((head_hash, head_state_hash, head_slot)))
+            let iter = std::iter::once(Ok((head_hash, head_state_root, head_slot)))
                 .chain(RootsIterator::from_block(store.clone(), head_hash)?);
 
             for maybe_tuple in iter {

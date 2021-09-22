@@ -1,3 +1,4 @@
+use crate::errors::HandleUnavailable;
 use crate::{Error, HotColdDB, ItemStore};
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -201,15 +202,20 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
             (Ok(block_root), Ok(state_root)) => Ok(Some((*block_root, *state_root, self.slot))),
             (Err(BeaconStateError::SlotOutOfBounds), Err(BeaconStateError::SlotOutOfBounds)) => {
                 // Read a `BeaconState` from the store that has access to prior historical roots.
-                let beacon_state =
-                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)?;
+                if let Some(beacon_state) =
+                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)
+                        .handle_unavailable()?
+                {
+                    self.beacon_state = Cow::Owned(beacon_state);
 
-                self.beacon_state = Cow::Owned(beacon_state);
+                    let block_root = *self.beacon_state.get_block_root(self.slot)?;
+                    let state_root = *self.beacon_state.get_state_root(self.slot)?;
 
-                let block_root = *self.beacon_state.get_block_root(self.slot)?;
-                let state_root = *self.beacon_state.get_state_root(self.slot)?;
-
-                Ok(Some((block_root, state_root, self.slot)))
+                    Ok(Some((block_root, state_root, self.slot)))
+                } else {
+                    // No more states available due to weak subjectivity sync.
+                    Ok(None)
+                }
             }
             (Err(e), _) => Err(e.into()),
             (Ok(_), Err(e)) => Err(e.into()),
@@ -232,6 +238,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
 pub struct ParentRootBlockIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     store: &'a HotColdDB<E, Hot, Cold>,
     next_block_root: Hash256,
+    decode_any_variant: bool,
     _phantom: PhantomData<E>,
 }
 
@@ -242,6 +249,17 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         Self {
             store,
             next_block_root: start_block_root,
+            decode_any_variant: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Block iterator that is tolerant of blocks that have the wrong fork for their slot.
+    pub fn fork_tolerant(store: &'a HotColdDB<E, Hot, Cold>, start_block_root: Hash256) -> Self {
+        Self {
+            store,
+            next_block_root: start_block_root,
+            decode_any_variant: true,
             _phantom: PhantomData,
         }
     }
@@ -253,10 +271,12 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             Ok(None)
         } else {
             let block_root = self.next_block_root;
-            let block = self
-                .store
-                .get_block(&block_root)?
-                .ok_or(Error::BlockNotFound(block_root))?;
+            let block = if self.decode_any_variant {
+                self.store.get_block_any_variant(&block_root)
+            } else {
+                self.store.get_block(&block_root)
+            }?
+            .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message().parent_root();
             Ok(Some((block_root, block)))
         }
@@ -315,6 +335,9 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
 }
 
 /// Fetch the next state to use whilst backtracking in `*RootsIterator`.
+///
+/// Return `Err(HistoryUnavailable)` in the case where no more backtrack states are available
+/// due to weak subjectivity sync.
 fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: &HotColdDB<E, Hot, Cold>,
     current_state: &BeaconState<E>,
@@ -324,10 +347,17 @@ fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: Ite
     // not frozen, this just means we might not jump back by the maximum amount on
     // our first jump (i.e. at most 1 extra state load).
     let new_state_slot = slot_of_prev_restore_point::<E>(current_state.slot());
-    let new_state_root = current_state.get_state_root(new_state_slot)?;
-    Ok(store
-        .get_state(new_state_root, Some(new_state_slot))?
-        .ok_or_else(|| BeaconStateError::MissingBeaconState((*new_state_root).into()))?)
+
+    let (_, historic_state_upper_limit) = store.get_historic_state_limits();
+
+    if new_state_slot >= historic_state_upper_limit {
+        let new_state_root = current_state.get_state_root(new_state_slot)?;
+        Ok(store
+            .get_state(new_state_root, Some(new_state_slot))?
+            .ok_or_else(|| BeaconStateError::MissingBeaconState((*new_state_root).into()))?)
+    } else {
+        Err(Error::HistoryUnavailable)
+    }
 }
 
 /// Compute the slot of the last guaranteed restore point in the freezer database.

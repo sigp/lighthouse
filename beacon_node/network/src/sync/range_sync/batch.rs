@@ -14,15 +14,34 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
+/// Allows customisation of the above constants used in other sync methods such as BackFillSync.
+pub trait BatchConfig {
+    /// The maximum batch download attempts.
+    fn max_batch_download_attempts() -> u8;
+    /// The max batch processing attempts.
+    fn max_batch_processing_attempts() -> u8;
+}
+
+pub struct RangeSyncBatchConfig {}
+
+impl BatchConfig for RangeSyncBatchConfig {
+    fn max_batch_download_attempts() -> u8 {
+        MAX_BATCH_DOWNLOAD_ATTEMPTS
+    }
+    fn max_batch_processing_attempts() -> u8 {
+        MAX_BATCH_PROCESSING_ATTEMPTS
+    }
+}
+
 /// Error type of a batch in a wrong state.
 // Such errors should never be encountered.
-pub struct WrongState(pub(super) String);
+pub struct WrongState(pub(crate) String);
 
 /// Auxiliary type alias for readability.
 type IsFailed = bool;
 
 /// A segment of a chain.
-pub struct BatchInfo<T: EthSpec> {
+pub struct BatchInfo<T: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Start slot of the batch.
     start_slot: Slot,
     /// End slot of the batch.
@@ -33,6 +52,8 @@ pub struct BatchInfo<T: EthSpec> {
     failed_download_attempts: Vec<PeerId>,
     /// State of the batch.
     state: BatchState<T>,
+    /// Pin the generic
+    marker: std::marker::PhantomData<B>,
 }
 
 /// Current state of a batch
@@ -73,7 +94,7 @@ impl<T: EthSpec> BatchState<T> {
     }
 }
 
-impl<T: EthSpec> BatchInfo<T> {
+impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     /// Batches are downloaded excluding the first block of the epoch assuming it has already been
     /// downloaded.
     ///
@@ -91,6 +112,7 @@ impl<T: EthSpec> BatchInfo<T> {
             failed_processing_attempts: Vec::new(),
             failed_download_attempts: Vec::new(),
             state: BatchState::AwaitingDownload,
+            marker: std::marker::PhantomData,
         }
     }
 
@@ -120,6 +142,7 @@ impl<T: EthSpec> BatchInfo<T> {
         false
     }
 
+    /// Returns the peer that is currently responsible for progressing the state of the batch.
     pub fn current_peer(&self) -> Option<&PeerId> {
         match &self.state {
             BatchState::AwaitingDownload | BatchState::Failed => None,
@@ -131,6 +154,7 @@ impl<T: EthSpec> BatchInfo<T> {
         }
     }
 
+    /// Returns a BlocksByRange request associated with the batch.
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
         BlocksByRangeRequest {
             start_slot: self.start_slot.into(),
@@ -192,7 +216,7 @@ impl<T: EthSpec> BatchInfo<T> {
                         // can be tried again
                         self.failed_download_attempts.push(peer);
                         self.state = if self.failed_download_attempts.len()
-                            >= MAX_BATCH_DOWNLOAD_ATTEMPTS as usize
+                            >= B::max_batch_download_attempts() as usize
                         {
                             BatchState::Failed
                         } else {
@@ -219,14 +243,21 @@ impl<T: EthSpec> BatchInfo<T> {
         }
     }
 
+    /// Mark the batch as failed and return whether we can attempt a re-download.
+    ///
+    /// This can happen if a peer disconnects or some error occurred that was not the peers fault.
+    /// THe `mark_failed` parameter, when set to false, does not increment the failed attempts of
+    /// this batch and register the peer, rather attempts a re-download.
     #[must_use = "Batch may have failed"]
-    pub fn download_failed(&mut self) -> Result<IsFailed, WrongState> {
+    pub fn download_failed(&mut self, mark_failed: bool) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, _, _request_id) => {
                 // register the attempt and check if the batch can be tried again
-                self.failed_download_attempts.push(peer);
+                if mark_failed {
+                    self.failed_download_attempts.push(peer);
+                }
                 self.state = if self.failed_download_attempts.len()
-                    >= MAX_BATCH_DOWNLOAD_ATTEMPTS as usize
+                    >= B::max_batch_download_attempts as usize
                 {
                     BatchState::Failed
                 } else {
@@ -294,7 +325,7 @@ impl<T: EthSpec> BatchInfo<T> {
 
                     // check if the batch can be downloaded again
                     if self.failed_processing_attempts.len()
-                        >= MAX_BATCH_PROCESSING_ATTEMPTS as usize
+                        >= B::max_batch_processing_attempts() as usize
                     {
                         BatchState::Failed
                     } else {
@@ -324,7 +355,7 @@ impl<T: EthSpec> BatchInfo<T> {
 
                 // check if the batch can be downloaded again
                 self.state = if self.failed_processing_attempts.len()
-                    >= MAX_BATCH_PROCESSING_ATTEMPTS as usize
+                    >= B::max_batch_processing_attempts() as usize
                 {
                     BatchState::Failed
                 } else {
@@ -365,7 +396,7 @@ impl Attempt {
     }
 }
 
-impl<T: EthSpec> slog::KV for &mut BatchInfo<T> {
+impl<T: EthSpec, B: BatchConfig> slog::KV for &mut BatchInfo<T, B> {
     fn serialize(
         &self,
         record: &slog::Record,
@@ -375,7 +406,7 @@ impl<T: EthSpec> slog::KV for &mut BatchInfo<T> {
     }
 }
 
-impl<T: EthSpec> slog::KV for BatchInfo<T> {
+impl<T: EthSpec, B: BatchConfig> slog::KV for BatchInfo<T, B> {
     fn serialize(
         &self,
         record: &slog::Record,

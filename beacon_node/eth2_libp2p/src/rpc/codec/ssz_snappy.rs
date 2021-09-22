@@ -615,7 +615,11 @@ mod tests {
     type Spec = types::MainnetEthSpec;
 
     fn fork_context() -> ForkContext {
-        ForkContext::new::<Spec>(types::Slot::new(0), Hash256::zero(), &Spec::default_spec())
+        let mut chain_spec = Spec::default_spec();
+        // Set fork_epoch to `Some` to ensure that the `ForkContext` object
+        // includes altair in the list of forks
+        chain_spec.altair_fork_epoch = Some(types::Epoch::new(42));
+        ForkContext::new::<Spec>(types::Slot::new(0), Hash256::zero(), &chain_spec)
     }
 
     fn base_block() -> SignedBeaconBlock<Spec> {

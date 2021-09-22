@@ -211,16 +211,13 @@ mod tests {
         let _ = snappy_buf.split_to(1);
 
         // decode message just as snappy message
-        let snappy_decoded_message = snappy_outbound_codec.decode(&mut snappy_buf).unwrap();
+        let _snappy_decoded_message = snappy_outbound_codec.decode(&mut snappy_buf).unwrap();
 
         // build codecs for entire chunk
         let mut snappy_base_outbound_codec = BaseOutboundCodec::new(snappy_outbound_codec);
 
         // decode message as ssz snappy chunk
-        let snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf).unwrap();
-
-        dbg!(snappy_decoded_message);
-        dbg!(snappy_decoded_chunk);
+        let _snappy_decoded_chunk = snappy_base_outbound_codec.decode(&mut buf).unwrap();
     }
 
     #[test]

@@ -7,6 +7,7 @@
 
 mod attester_duties;
 mod block_id;
+mod database;
 mod metrics;
 mod proposer_duties;
 mod state_id;
@@ -15,7 +16,7 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::SignatureVerifiedAttestation,
+    attestation_verification::VerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -40,7 +41,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
@@ -349,7 +350,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )))
                         }
                     }
-                    SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
+                    SyncState::SyncingHead { .. } | SyncState::SyncTransition | SyncState::BackFillSyncing { .. }  => Ok(()),
                     SyncState::Synced => Ok(()),
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
@@ -895,7 +896,10 @@ pub fn serve<T: BeaconChainTypes>(
                             info!(
                                 log,
                                 "Valid block from HTTP API";
-                                "root" => format!("{}", root)
+                                "block_delay" => ?delay,
+                                "root" => format!("{}", root),
+                                "proposer_index" => block.message().proposer_index(),
+                                "slot" => block.slot(),
                             );
 
                             // Notify the validator monitor.
@@ -917,25 +921,25 @@ pub fn serve<T: BeaconChainTypes>(
                             //
                             // Check to see the thresholds are non-zero to avoid logging errors with small
                             // slot times (e.g., during testing)
-                            let crit_threshold = chain.spec.seconds_per_slot / 3;
-                            let warn_threshold = chain.spec.seconds_per_slot / 6;
-                            if crit_threshold > 0 && delay.as_secs() > crit_threshold {
+                            let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
+                            let error_threshold = crit_threshold / 2;
+                            if delay >= crit_threshold {
                                 crit!(
                                     log,
                                     "Block was broadcast too late";
-                                    "root" => ?root,
-                                    "slot" => block.slot(),
-                                    "delay_ms" => delay.as_millis(),
                                     "msg" => "system may be overloaded, block likely to be orphaned",
+                                    "delay_ms" => delay.as_millis(),
+                                    "slot" => block.slot(),
+                                    "root" => ?root,
                                 )
-                            } else if warn_threshold > 0 && delay.as_secs() > warn_threshold {
-                                warn!(
+                            } else if delay >= error_threshold  {
+                                error!(
                                     log,
                                     "Block broadcast was delayed";
-                                    "root" => ?root,
-                                    "slot" => block.slot(),
-                                    "delay_ms" => delay.as_millis(),
                                     "msg" => "system may be overloaded, block may be orphaned",
+                                    "delay_ms" => delay.as_millis(),
+                                    "slot" => block.slot(),
+                                    "root" => ?root,
                                 )
                             }
 
@@ -1062,7 +1066,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
-                            .verify_unaggregated_attestation_for_gossip(attestation.clone(), None)
+                            .verify_unaggregated_attestation_for_gossip(attestation, None)
                         {
                             Ok(attestation) => attestation,
                             Err(e) => {
@@ -1117,7 +1121,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         };
 
-                        if let Err(e) = chain.add_to_naive_aggregation_pool(attestation) {
+                        if let Err(e) = chain.add_to_naive_aggregation_pool(&attestation) {
                             error!(log,
                                 "Failure adding verified attestation to the naive aggregation pool";
                                 "error" => ?e,
@@ -1363,7 +1367,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
-     * config/fork_schedule
+     * config
      */
 
     let config_path = eth1_v1.and(warp::path("config"));
@@ -1375,9 +1379,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                StateId::head()
-                    .fork(&chain)
-                    .map(|fork| api_types::GenericResponse::from(vec![fork]))
+                let forks = ForkName::list_all()
+                    .into_iter()
+                    .filter_map(|fork_name| chain.spec.fork_for_name(fork_name))
+                    .collect::<Vec<_>>();
+                Ok(api_types::GenericResponse::from(forks))
             })
         });
 
@@ -1574,7 +1580,8 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_task(move || match *network_globals.sync_state.read() {
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
-                | SyncState::SyncTransition => Ok(warp::reply::with_status(
+                | SyncState::SyncTransition
+                | SyncState::BackFillSyncing { .. } => Ok(warp::reply::with_status(
                     warp::reply(),
                     warp::http::StatusCode::PARTIAL_CONTENT,
                 )),
@@ -1951,7 +1958,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let mut failures = Vec::new();
 
                     // Verify that all messages in the post are valid before processing further
-                    for (index, aggregate) in aggregates.into_iter().enumerate() {
+                    for (index, aggregate) in aggregates.iter().enumerate() {
                         match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
@@ -1977,8 +1984,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
-                            Err((e, aggregate)) => {
+                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
@@ -2010,7 +2017,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
                             warn!(log,
                                     "Could not add verified aggregate attestation to the inclusion pool";
                                     "error" => format!("{:?}", e),
@@ -2035,7 +2042,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("contribution_and_proofs"))
         .and(warp::path::end())
-        .and(not_while_syncing_filter)
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
@@ -2394,6 +2401,49 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    let database_path = warp::path("lighthouse").and(warp::path("database"));
+
+    // GET lighthouse/database/info
+    let get_lighthouse_database_info = database_path
+        .and(warp::path("info"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| blocking_json_task(move || database::info(chain)));
+
+    // POST lighthouse/database/reconstruct
+    let post_lighthouse_database_reconstruct = database_path
+        .and(warp::path("reconstruct"))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter)
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                chain.store_migrator.process_reconstruction();
+                Ok("success")
+            })
+        });
+
+    // POST lighthouse/database/historical_blocks
+    let post_lighthouse_database_historical_blocks = database_path
+        .and(warp::path("historical_blocks"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| {
+                info!(
+                    log,
+                    "Importing historical blocks";
+                    "count" => blocks.len(),
+                    "source" => "http_api"
+                );
+                blocking_json_task(move || database::historical_blocks(chain, blocks))
+            },
+        );
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2505,6 +2555,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_database_info.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
@@ -2521,7 +2572,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_contribution_and_proofs.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
-                .or(post_lighthouse_liveness.boxed()),
+                .or(post_lighthouse_liveness.boxed())
+                .or(post_lighthouse_database_reconstruct.boxed())
+                .or(post_lighthouse_database_historical_blocks.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

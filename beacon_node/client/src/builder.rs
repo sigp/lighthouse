@@ -12,6 +12,10 @@ use beacon_chain::{
 };
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
+use eth2::{
+    types::{BlockId, StateId},
+    BeaconNodeHttpClient, Error as ApiError, Timeouts,
+};
 use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
@@ -25,10 +29,15 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use types::{test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec};
+use types::{
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
+};
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
+
+/// Timeout for checkpoint sync HTTP requests.
+pub const CHECKPOINT_SYNC_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Builds a `Client` instance.
 ///
@@ -168,11 +177,22 @@ where
         //
         // Alternatively, if there's a beacon chain in the database then always resume
         // using it.
-        let client_genesis = if client_genesis == ClientGenesis::FromStore && !chain_exists {
+        let client_genesis = if matches!(client_genesis, ClientGenesis::FromStore) && !chain_exists
+        {
             info!(context.log(), "Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
         } else if chain_exists {
+            if matches!(client_genesis, ClientGenesis::WeakSubjSszBytes { .. })
+                || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
+            {
+                info!(
+                    context.log(),
+                    "Refusing to checkpoint sync";
+                    "msg" => "database already exists, use --purge-db to force checkpoint sync"
+                );
+            }
+
             ClientGenesis::FromStore
         } else {
             client_genesis
@@ -199,6 +219,103 @@ where
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
+            }
+            ClientGenesis::WeakSubjSszBytes {
+                anchor_state_bytes,
+                anchor_block_bytes,
+                genesis_state_bytes,
+            } => {
+                info!(context.log(), "Starting checkpoint sync");
+
+                let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
+                    .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
+                let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
+                    .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
+                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+
+                builder
+                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    .map(|v| (v, None))?
+            }
+            ClientGenesis::CheckpointSyncUrl {
+                genesis_state_bytes,
+                url,
+            } => {
+                info!(
+                    context.log(),
+                    "Starting checkpoint sync";
+                    "remote_url" => %url,
+                );
+
+                let remote =
+                    BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
+                let slots_per_epoch = TEthSpec::slots_per_epoch();
+
+                // Find a suitable finalized block on an epoch boundary.
+                let mut block = remote
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
+                    .await
+                    .map_err(|e| match e {
+                        ApiError::InvalidSsz(e) => format!(
+                            "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                            node for the correct network",
+                            e
+                        ),
+                        e => format!("Error fetching finalized block from remote: {:?}", e),
+                    })?
+                    .ok_or("Finalized block missing from remote, it returned 404")?;
+
+                let mut block_slot = block.slot();
+
+                while block.slot() % slots_per_epoch != 0 {
+                    block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
+
+                    debug!(
+                        context.log(),
+                        "Searching for aligned checkpoint block";
+                        "block_slot" => block_slot,
+                    );
+
+                    if let Some(found_block) = remote
+                        .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(block_slot), &spec)
+                        .await
+                        .map_err(|e| {
+                            format!("Error fetching block at slot {}: {:?}", block_slot, e)
+                        })?
+                    {
+                        block = found_block;
+                    }
+                }
+
+                let state_root = block.state_root();
+                let state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "Error loading checkpoint state from remote {:?}: {:?}",
+                            state_root, e
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        format!("Checkpoint state missing from remote: {:?}", state_root)
+                    })?;
+
+                let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
+                    .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
+
+                info!(
+                    context.log(),
+                    "Loaded checkpoint block and state";
+                    "slot" => block.slot(),
+                    "block_root" => ?block.canonical_root(),
+                    "state_root" => ?state_root,
+                );
+
+                builder
+                    .weak_subjectivity_state(state, block, genesis_state)
+                    .map(|v| (v, None))?
             }
             ClientGenesis::DepositContract => {
                 info!(

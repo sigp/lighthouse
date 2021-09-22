@@ -216,8 +216,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 chain_spec.attestation_subnet_count,
                 SYNC_COMMITTEE_SUBNET_COUNT,
             ),
-            max_subscribed_topics: 200, //TODO change this to a constant
-            max_subscriptions_per_request: 100, //this is according to the current go implementation
+            max_subscribed_topics: 200,
+            max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
         };
 
         config.gs_config = gossipsub_config(fork_context.clone());
@@ -324,6 +324,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             self.enr_fork_id.fork_digest,
         );
         self.unsubscribe(gossip_topic)
+    }
+
+    /// Subscribe to all currently subscribed topics with the new fork digest.
+    pub fn subscribe_new_fork_topics(&mut self, new_fork_digest: [u8; 4]) {
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        for mut topic in subscriptions.into_iter() {
+            topic.fork_digest = new_fork_digest;
+            self.subscribe(topic);
+        }
     }
 
     /// Unsubscribe from all topics that doesn't have the given fork_digest
@@ -513,7 +522,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Inform the peer that their request produced an error.
-    pub fn _send_error_reponse(
+    pub fn send_error_reponse(
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,
@@ -1004,14 +1013,6 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<IdentifyEvent> for Behaviour<T
                 }
                 // send peer info to the peer manager.
                 self.peer_manager.identify(&peer_id, &info);
-
-                debug!(self.log, "Identified Peer"; "peer" => %peer_id,
-                    "protocol_version" => info.protocol_version,
-                    "agent_version" => info.agent_version,
-                    "listening_ addresses" => ?info.listen_addrs,
-                    "observed_address" => ?info.observed_addr,
-                    "protocols" => ?info.protocols
-                );
             }
             IdentifyEvent::Sent { .. } => {}
             IdentifyEvent::Error { .. } => {}

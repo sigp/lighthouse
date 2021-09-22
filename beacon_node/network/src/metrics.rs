@@ -338,9 +338,17 @@ lazy_static! {
         "beacon_processor_chain_segment_success_total",
         "Total number of chain segments successfully processed."
     );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_backfill_chain_segment_success_total",
+        "Total number of chain segments successfully processed."
+    );
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_chain_segment_failed_total",
         "Total number of chain segments that failed processing."
+    );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_backfill_chain_segment_failed_total",
+        "Total number of backfill chain segments that failed processing."
     );
     // Unaggregated attestations.
     pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
@@ -464,6 +472,10 @@ lazy_static! {
     pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
+    );
+    pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_gossip_arrived_late_total",
+        "Count of times when a gossip block arrived from the network later than the attestation deadline.",
     );
 
     /*

@@ -2,6 +2,7 @@ use crate::{
     doppelganger_service::DoppelgangerStatus,
     duties_service::{DutiesService, Error},
 };
+use futures::future::join_all;
 use itertools::Itertools;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, info, warn};
@@ -330,8 +331,8 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
 
     if !new_pre_compute_duties.is_empty() {
         let sub_duties_service = duties_service.clone();
-        duties_service.context.executor.spawn_blocking(
-            move || {
+        duties_service.context.executor.spawn(
+            async move {
                 fill_in_aggregation_proofs(
                     sub_duties_service,
                     &new_pre_compute_duties,
@@ -339,6 +340,7 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
                     current_epoch,
                     current_pre_compute_epoch,
                 )
+                .await
             },
             "duties_service_sync_selection_proofs",
         );
@@ -370,8 +372,8 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
 
         if !new_pre_compute_duties.is_empty() {
             let sub_duties_service = duties_service.clone();
-            duties_service.context.executor.spawn_blocking(
-                move || {
+            duties_service.context.executor.spawn(
+                async move {
                     fill_in_aggregation_proofs(
                         sub_duties_service,
                         &new_pre_compute_duties,
@@ -379,6 +381,7 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
                         current_epoch,
                         pre_compute_epoch,
                     )
+                    .await
                 },
                 "duties_service_sync_selection_proofs",
             );
@@ -468,7 +471,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     Ok(())
 }
 
-pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
+pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
     duties_service: Arc<DutiesService<T, E>>,
     pre_compute_duties: &[(Epoch, SyncDuty)],
     sync_committee_period: u64,
@@ -487,60 +490,54 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
     // Generate selection proofs for each validator at each slot, one epoch at a time.
     for epoch in (current_epoch.as_u64()..=pre_compute_epoch.as_u64()).map(Epoch::new) {
-        // Generate proofs.
-        let validator_proofs: Vec<(u64, Vec<_>)> = pre_compute_duties
-            .iter()
-            .filter_map(|(validator_start_epoch, duty)| {
-                // Proofs are already known at this epoch for this validator.
-                if epoch < *validator_start_epoch {
-                    return None;
+        let mut validator_proofs = vec![];
+        for (validator_start_epoch, duty) in pre_compute_duties {
+            // Proofs are already known at this epoch for this validator.
+            if epoch < *validator_start_epoch {
+                continue;
+            }
+
+            let subnet_ids = match duty.subnet_ids::<E>() {
+                Ok(subnet_ids) => subnet_ids,
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Arithmetic error computing subnet IDs";
+                        "error" => ?e,
+                    );
+                    continue;
                 }
+            };
 
-                let subnet_ids = duty
-                    .subnet_ids::<E>()
-                    .map_err(|e| {
-                        crit!(
-                            log,
-                            "Arithmetic error computing subnet IDs";
-                            "error" => ?e,
-                        );
-                    })
-                    .ok()?;
+            // Create futures to produce proofs.
+            let duties_service_ref = &duties_service;
+            let futures = epoch
+                .slot_iter(E::slots_per_epoch())
+                .cartesian_product(&subnet_ids)
+                .map(|(duty_slot, subnet_id)| async move {
+                    // Construct proof for prior slot.
+                    let slot = duty_slot - 1;
 
-                let proofs = epoch
-                    .slot_iter(E::slots_per_epoch())
-                    .cartesian_product(&subnet_ids)
-                    .filter_map(|(duty_slot, &subnet_id)| {
-                        // Construct proof for prior slot.
-                        let slot = duty_slot - 1;
+                    let proof = match duties_service_ref
+                        .validator_store
+                        .produce_sync_selection_proof(&duty.pubkey, slot, *subnet_id)
+                        .await
+                    {
+                        Ok(proof) => proof,
+                        Err(e) => {
+                            warn!(
+                                log,
+                                "Unable to sign selection proof";
+                                "error" => ?e,
+                                "pubkey" => ?duty.pubkey,
+                                "slot" => slot,
+                            );
+                            return None;
+                        }
+                    };
 
-                        let proof = duties_service
-                            .validator_store
-                            .produce_sync_selection_proof(&duty.pubkey, slot, subnet_id)
-                            .map_err(|_| {
-                                warn!(
-                                    log,
-                                    "Pubkey missing when signing selection proof";
-                                    "pubkey" => ?duty.pubkey,
-                                    "slot" => slot,
-                                );
-                            })
-                            .ok()?;
-
-                        let is_aggregator = proof
-                            .is_aggregator::<E>()
-                            .map_err(|e| {
-                                warn!(
-                                    log,
-                                    "Error determining is_aggregator";
-                                    "pubkey" => ?duty.pubkey,
-                                    "slot" => slot,
-                                    "error" => ?e,
-                                );
-                            })
-                            .ok()?;
-
-                        if is_aggregator {
+                    match proof.is_aggregator::<E>() {
+                        Ok(true) => {
                             debug!(
                                 log,
                                 "Validator is sync aggregator";
@@ -548,16 +545,31 @@ pub fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                                 "slot" => slot,
                                 "subnet_id" => %subnet_id,
                             );
-                            Some(((slot, subnet_id), proof))
-                        } else {
+                            Some(((slot, *subnet_id), proof))
+                        }
+                        Ok(false) => None,
+                        Err(e) => {
+                            warn!(
+                                log,
+                                "Error determining is_aggregator";
+                                "pubkey" => ?duty.pubkey,
+                                "slot" => slot,
+                                "error" => ?e,
+                            );
                             None
                         }
-                    })
-                    .collect();
+                    }
+                });
 
-                Some((duty.validator_index, proofs))
-            })
-            .collect();
+            // Execute all the futures in parallel, collecting any successful results.
+            let proofs = join_all(futures)
+                .await
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+
+            validator_proofs.push((duty.validator_index, proofs));
+        }
 
         // Add to global storage (we add regularly so the proofs can be used ASAP).
         let sync_map = duties_service.sync_duties.committees.read();
