@@ -13,6 +13,7 @@ DEBUG_LEVEL=${4:-info}
 exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
 	bn \
+	--subscribe-all-subnets \
 	--datadir $1 \
 	--testnet-dir $TESTNET_DIR \
 	--staking \
