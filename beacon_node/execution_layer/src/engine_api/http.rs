@@ -14,6 +14,15 @@ const ENGINE_PREPARE_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(500);
 const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
 const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
+const ENGINE_GET_PAYLOAD: &str = "engine_getPayload";
+const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+
+const ENGINE_CONSENSUS_VALIDATED: &str = "engine_consensusValidated";
+const ENGINE_CONSENSUS_VALIDATED_TIMEOUT: Duration = Duration::from_millis(500);
+
+const ENGINE_FORKCHOICE_UPDATED: &str = "engine_forkchoiceUpdated";
+const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
@@ -82,6 +91,73 @@ impl EngineApi for HttpJsonRpc {
 
         serde_json::from_value(result).map_err(Into::into)
     }
+
+    async fn get_payload<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let params = json!([payload_id]);
+
+        let response_body = send_rpc_request(
+            &self.url,
+            ENGINE_GET_PAYLOAD,
+            params,
+            ENGINE_GET_PAYLOAD_TIMEOUT,
+        )
+        .await
+        .map_err(Error::RequestFailed)?;
+
+        let result = response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
+
+        serde_json::from_value::<JsonExecutionPayload<T>>(result)
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    async fn consensus_validated(
+        &self,
+        block_hash: Hash256,
+        status: ConsensusStatus,
+    ) -> Result<(), Error> {
+        let params = json!([JsonConsensusValidatedRequest { block_hash, status }]);
+
+        let response_body = send_rpc_request(
+            &self.url,
+            ENGINE_CONSENSUS_VALIDATED,
+            params,
+            ENGINE_CONSENSUS_VALIDATED_TIMEOUT,
+        )
+        .await
+        .map_err(Error::RequestFailed)?;
+
+        response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
+
+        Ok(())
+    }
+
+    async fn forkchoice_updated(
+        &self,
+        head_block_hash: Hash256,
+        finalized_block_hash: Hash256,
+    ) -> Result<(), Error> {
+        let params = json!([JsonForkChoiceUpdatedRequest {
+            head_block_hash,
+            finalized_block_hash
+        }]);
+
+        let response_body = send_rpc_request(
+            &self.url,
+            ENGINE_FORKCHOICE_UPDATED,
+            params,
+            ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+        )
+        .await
+        .map_err(Error::RequestFailed)?;
+
+        response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -144,4 +220,38 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
             transactions: e.transactions,
         }
     }
+}
+
+impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
+    fn from(e: JsonExecutionPayload<T>) -> Self {
+        Self {
+            parent_hash: e.parent_hash,
+            coinbase: e.coinbase,
+            state_root: e.state_root,
+            receipt_root: e.receipt_root,
+            logs_bloom: e.logs_bloom,
+            random: e.random,
+            block_number: e.block_number,
+            gas_limit: e.gas_limit,
+            gas_used: e.gas_used,
+            timestamp: e.timestamp,
+            base_fee_per_gas: e.base_fee_per_gas,
+            block_hash: e.block_hash,
+            transactions: e.transactions,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "camelCase")]
+struct JsonConsensusValidatedRequest {
+    block_hash: Hash256,
+    status: ConsensusStatus,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "camelCase")]
+struct JsonForkChoiceUpdatedRequest {
+    head_block_hash: Hash256,
+    finalized_block_hash: Hash256,
 }

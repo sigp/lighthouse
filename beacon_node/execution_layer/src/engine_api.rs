@@ -45,6 +45,23 @@ pub trait EngineApi {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error>;
+
+    async fn get_payload<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T>, Error>;
+
+    async fn consensus_validated(
+        &self,
+        block_hash: Hash256,
+        status: ConsensusStatus,
+    ) -> Result<(), Error>;
+
+    async fn forkchoice_updated(
+        &self,
+        head_block_hash: Hash256,
+        finalized_block_hash: Hash256,
+    ) -> Result<(), Error>;
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -53,4 +70,11 @@ pub enum ExecutePayloadResponse {
     Valid,
     Invalid,
     Syncing,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "SCREAMING_SNAKE_CASE")]
+pub enum ConsensusStatus {
+    Valid,
+    Invalid,
 }
