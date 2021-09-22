@@ -928,7 +928,6 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 
         match check_signature {
             CheckAttestationSignature::Yes => {
-                // The aggregate signature of the attestation is valid.
                 if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
                     return Err(SignatureInvalid(e));
                 }
