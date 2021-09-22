@@ -118,6 +118,18 @@ fn bls_fast_aggregate_verify() {
     BlsFastAggregateVerifyHandler::default().run();
 }
 
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_eth_aggregate_pubkeys() {
+    BlsEthAggregatePubkeysHandler::default().run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_eth_fast_aggregate_verify() {
+    BlsEthFastAggregateVerifyHandler::default().run();
+}
+
 /// As for `ssz_static_test_no_run` (below), but also executes the function as a test.
 #[cfg(feature = "fake_crypto")]
 macro_rules! ssz_static_test {

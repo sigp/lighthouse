@@ -82,10 +82,6 @@ macro_rules! bls_handler {
         impl Handler for $runner_name {
             type Case = cases::$case_name;
 
-            fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-                fork_name == ForkName::Base
-            }
-
             fn runner_name() -> &'static str {
                 "bls"
             }
@@ -109,6 +105,16 @@ bls_handler!(
     BlsFastAggregateVerifyHandler,
     BlsFastAggregateVerify,
     "fast_aggregate_verify"
+);
+bls_handler!(
+    BlsEthAggregatePubkeysHandler,
+    BlsEthAggregatePubkeys,
+    "eth_aggregate_pubkeys"
+);
+bls_handler!(
+    BlsEthFastAggregateVerifyHandler,
+    BlsEthFastAggregateVerify,
+    "eth_fast_aggregate_verify"
 );
 
 /// Handler for SSZ types.

@@ -19,9 +19,6 @@ tests_dir_filename = sys.argv[2]
 # following strings, we will assume they are to be ignored (i.e., we are purposefully *not* running
 # the spec tests).
 excluded_paths = [
-    # FIXME(sproul): these BLS tests commented out for now
-    "tests/general/altair/bls/eth_fast_aggregate_verify",
-    "tests/general/altair/bls/eth_aggregate_pubkeys",
     # Merge tests
     "tests/minimal/merge",
     "tests/mainnet/merge",

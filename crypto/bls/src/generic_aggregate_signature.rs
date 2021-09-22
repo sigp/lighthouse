@@ -194,6 +194,20 @@ where
         }
     }
 
+    /// Wrapper for `fast_aggregate_verify` accepting `G2_POINT_AT_INFINITY` signature when
+    /// `pubkeys` is empty.
+    pub fn eth_fast_aggregate_verify(
+        &self,
+        msg: Hash256,
+        pubkeys: &[&GenericPublicKey<Pub>],
+    ) -> bool {
+        if pubkeys.is_empty() && self.is_infinity() {
+            true
+        } else {
+            self.fast_aggregate_verify(msg, pubkeys)
+        }
+    }
+
     /// Verify that `self` represents an aggregate signature where all `pubkeys` have signed their
     /// corresponding message in `msgs`.
     ///
