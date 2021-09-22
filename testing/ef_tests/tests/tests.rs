@@ -71,12 +71,6 @@ fn operations_sync_aggregate() {
 }
 
 #[test]
-fn operations_sync_aggregate_random() {
-    OperationsHandler::<MinimalEthSpec, SyncAggregateRandom<_>>::default().run();
-    OperationsHandler::<MainnetEthSpec, SyncAggregateRandom<_>>::default().run();
-}
-
-#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();

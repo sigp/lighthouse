@@ -1,5 +1,4 @@
 //! Mapping from types to canonical string identifiers used in testing.
-use crate::cases::SyncAggregateRandom;
 use types::*;
 
 pub trait TypeName {
@@ -73,7 +72,6 @@ type_name_generic!(SyncCommitteeContribution);
 type_name!(SyncCommitteeMessage);
 type_name!(SyncAggregatorSelectionData);
 type_name_generic!(SyncAggregate);
-type_name_generic!(SyncAggregateRandom);
 type_name_generic!(SyncCommittee);
 type_name!(Validator);
 type_name!(VoluntaryExit);

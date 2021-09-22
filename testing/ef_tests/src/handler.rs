@@ -256,6 +256,12 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
     fn handler_name(&self) -> String {
         "blocks".into()
     }
+
+    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+        // NOTE: v1.1.0-beta.4 doesn't mark the historical blocks test as requiring real crypto, so
+        // only run these tests with real crypto for now.
+        cfg!(not(feature = "fake_crypto"))
+    }
 }
 
 #[derive(Derivative)]

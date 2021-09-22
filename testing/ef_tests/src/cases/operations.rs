@@ -202,37 +202,6 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     }
 }
 
-/// New type for "sync_aggregate_random".
-#[derive(Debug)]
-pub struct SyncAggregateRandom<E: EthSpec>(pub SyncAggregate<E>);
-
-impl<E: EthSpec> Operation<E> for SyncAggregateRandom<E> {
-    fn handler_name() -> String {
-        "sync_aggregate_random".into()
-    }
-
-    fn filename() -> String {
-        "sync_aggregate.ssz_snappy".into()
-    }
-
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-    }
-
-    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path).map(SyncAggregateRandom)
-    }
-
-    fn apply_to(
-        &self,
-        state: &mut BeaconState<E>,
-        spec: &ChainSpec,
-    ) -> Result<(), BlockProcessingError> {
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
-        process_sync_aggregate(state, &self.0, proposer_index, VerifySignatures::True, spec)
-    }
-}
-
 impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = &testing_spec::<E>(fork_name);
