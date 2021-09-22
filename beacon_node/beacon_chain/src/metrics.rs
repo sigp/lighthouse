@@ -204,7 +204,7 @@ lazy_static! {
      */
     pub static ref ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_batch_agg_signature_setup_times",
-        "Time spent on setting up for the signature verification of batch unaggregate processing"
+        "Time spent on setting up for the signature verification of batch aggregate processing"
     );
     pub static ref ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_attestation_processing_batch_agg_signature_times",
