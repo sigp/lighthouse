@@ -14,8 +14,8 @@ use super::{
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
 };
 use crate::{
-    beacon_chain::{HEAD_LOCK_TIMEOUT, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics, BeaconChain, BeaconChainError,
+    BeaconChainTypes,
 };
 use bls::verify_signature_sets;
 use state_processing::signature_sets::{
