@@ -183,7 +183,7 @@ where
             .ok_or(BeaconChainError::CanonicalHeadLockTimeout)
             .map(|head| head.beacon_state.fork())?;
 
-        let mut signature_sets = Vec::with_capacity(num_partially_verified * 3);
+        let mut signature_sets = Vec::with_capacity(num_partially_verified);
 
         // Iterate, flattening to get only the `Ok` values.
         for partially_verified in partial_results.iter().flatten() {
