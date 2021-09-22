@@ -2,7 +2,7 @@ use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use eth2_libp2p::rpc::StatusMessage;
 use eth2_libp2p::rpc::*;
 use eth2_libp2p::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -35,6 +35,21 @@ impl<T: BeaconChainTypes> Worker<T> {
             peer_id,
             id,
             response,
+        })
+    }
+
+    pub fn send_error_response(
+        &self,
+        peer_id: PeerId,
+        error: RPCResponseErrorCode,
+        reason: String,
+        id: PeerRequestId,
+    ) {
+        self.send_network_message(NetworkMessage::SendErrorResponse {
+            peer_id,
+            error,
+            reason,
+            id,
         })
     }
 
@@ -163,6 +178,20 @@ impl<T: BeaconChainTypes> Worker<T> {
             .forwards_iter_block_roots(Slot::from(req.start_slot))
         {
             Ok(iter) => iter,
+            Err(BeaconChainError::HistoricalBlockError(
+                HistoricalBlockError::BlockOutOfRange {
+                    slot,
+                    oldest_block_slot,
+                },
+            )) => {
+                debug!(self.log, "Range request failed during backfill"; "requested_slot" => slot, "oldest_known_slot" => oldest_block_slot);
+                return self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Backfilling".into(),
+                    request_id,
+                );
+            }
             Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
         };
 

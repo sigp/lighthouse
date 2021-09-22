@@ -578,8 +578,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ResourceUnavailable => {
                     // NOTE: This error only makes sense for the `BlocksByRange` and `BlocksByRoot`
-                    // protocols. For the time being, there is no reason why a peer should send
-                    // this error.
+                    // protocols.
+                    //
+                    // If we are syncing, there is no point keeping these peers around and
+                    // continually failing to request blocks. We instantly ban them and hope that
+                    // by the time the ban lifts, the peers will have completed their backfill
+                    // sync.
+                    //
+                    // TODO: Potentially a more graceful way of handling such peers, would be to
+                    // implement a new sync type which tracks these peers and prevents the sync
+                    // algorithms from requesting blocks from them (at least for a set period of
+                    // time, multiple failures would then lead to a ban).
                     PeerAction::Fatal
                 }
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,

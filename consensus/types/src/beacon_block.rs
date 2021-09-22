@@ -197,6 +197,11 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         }
     }
 
+    /// Returns the epoch corresponding to `self.slot()`.
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(T::slots_per_epoch())
+    }
+
     /// Returns a full `BeaconBlockHeader` of this block.
     pub fn block_header(&self) -> BeaconBlockHeader {
         BeaconBlockHeader {

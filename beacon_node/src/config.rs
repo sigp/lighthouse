@@ -292,15 +292,62 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
-        // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-        // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-        // effects.
-        client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes,
-        };
+    client_config.genesis = if let Some(genesis_state_bytes) =
+        eth2_network_config.genesis_state_bytes
+    {
+        // Set up weak subjectivity sync, or start from the hardcoded genesis state.
+        if let (Some(initial_state_path), Some(initial_block_path)) = (
+            cli_args.value_of("checkpoint-state"),
+            cli_args.value_of("checkpoint-block"),
+        ) {
+            let read = |path: &str| {
+                use std::fs::File;
+                use std::io::Read;
+                File::open(Path::new(path))
+                    .and_then(|mut f| {
+                        let mut buffer = vec![];
+                        f.read_to_end(&mut buffer)?;
+                        Ok(buffer)
+                    })
+                    .map_err(|e| format!("Unable to open {}: {:?}", path, e))
+            };
+
+            let anchor_state_bytes = read(initial_state_path)?;
+            let anchor_block_bytes = read(initial_block_path)?;
+
+            ClientGenesis::WeakSubjSszBytes {
+                genesis_state_bytes,
+                anchor_state_bytes,
+                anchor_block_bytes,
+            }
+        } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
+            let url = SensitiveUrl::parse(remote_bn_url)
+                .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+
+            ClientGenesis::CheckpointSyncUrl {
+                genesis_state_bytes,
+                url,
+            }
+        } else {
+            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
+            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
+            // effects.
+            ClientGenesis::SszBytes {
+                genesis_state_bytes,
+            }
+        }
     } else {
-        client_config.genesis = ClientGenesis::DepositContract;
+        if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
+            return Err(
+                "Checkpoint sync is not available for this network as no genesis state is known"
+                    .to_string(),
+            );
+        }
+        ClientGenesis::DepositContract
+    };
+
+    if cli_args.is_present("reconstruct-historic-states") {
+        client_config.chain.reconstruct_historic_states = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {

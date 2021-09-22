@@ -9,6 +9,7 @@ use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use store::{AnchorInfo, Split};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
 
@@ -311,6 +312,13 @@ impl Eth1Block {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DatabaseInfo {
+    pub schema_version: u64,
+    pub split: Split,
+    pub anchor: Option<AnchorInfo>,
+}
+
 impl BeaconNodeHttpClient {
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
@@ -489,5 +497,31 @@ impl BeaconNodeHttpClient {
             .push("staking");
 
         self.get_opt::<(), _>(path).await.map(|opt| opt.is_some())
+    }
+
+    /// `GET lighthouse/database/info`
+    pub async fn get_lighthouse_database_info(&self) -> Result<DatabaseInfo, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("database")
+            .push("info");
+
+        self.get(path).await
+    }
+
+    /// `POST lighthouse/database/reconstruct`
+    pub async fn post_lighthouse_database_reconstruct(&self) -> Result<String, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("database")
+            .push("reconstruct");
+
+        self.post_with_response(path, &()).await
     }
 }

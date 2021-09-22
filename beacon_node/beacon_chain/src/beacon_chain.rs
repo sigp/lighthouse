@@ -14,6 +14,7 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::head_tracker::HeadTracker;
+use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -431,10 +432,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - Skipped slots contain the root of the closest prior
     ///     non-skipped slot (identical to the way they are stored in `state.block_roots`).
     /// - Iterator returns `(Hash256, Slot)`.
+    ///
+    /// Will return a `BlockOutOfRange` error if the requested start slot is before the period of
+    /// history for which we have blocks stored. See `get_oldest_block_slot`.
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+        let oldest_block_slot = self.store.get_oldest_block_slot();
+        if start_slot < oldest_block_slot {
+            return Err(Error::HistoricalBlockError(
+                HistoricalBlockError::BlockOutOfRange {
+                    slot: start_slot,
+                    oldest_block_slot,
+                },
+            ));
+        }
+
         let local_head = self.head()?;
 
         let iter = HotColdDB::forwards_block_roots_iterator(
@@ -620,6 +634,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(Some(self.genesis_state_root));
         }
 
+        // Check limits w.r.t historic state bounds.
+        let (historic_lower_limit, historic_upper_limit) = self.store.get_historic_state_limits();
+        if request_slot > historic_lower_limit && request_slot < historic_upper_limit {
+            return Ok(None);
+        }
+
         // Try an optimized path of reading the root directly from the head state.
         let fast_lookup: Option<Hash256> = self.with_head(|head| {
             if head.beacon_block.slot() <= request_slot {
@@ -657,7 +677,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Notes
     ///
     /// - Use the `skips` parameter to define the behaviour when `request_slot` is a skipped slot.
-    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot.
+    /// - Returns `Ok(None)` for any slot higher than the current wall-clock slot, or less than
+    ///   the oldest known block slot.
     pub fn block_root_at_slot(
         &self,
         request_slot: Slot,
@@ -667,6 +688,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             WhenSlotSkipped::None => self.block_root_at_slot_skips_none(request_slot),
             WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(request_slot),
         }
+        .or_else(|e| match e {
+            Error::HistoricalBlockError(_) => Ok(None),
+            e => Err(e),
+        })
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.

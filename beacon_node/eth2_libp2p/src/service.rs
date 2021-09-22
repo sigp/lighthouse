@@ -275,7 +275,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
     ) {
         self.swarm
             .behaviour_mut()
-            ._send_error_reponse(peer_id, id, error, reason);
+            .send_error_reponse(peer_id, id, error, reason);
     }
 
     /// Report a peer's action.

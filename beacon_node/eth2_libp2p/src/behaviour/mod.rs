@@ -522,7 +522,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Inform the peer that their request produced an error.
-    pub fn _send_error_reponse(
+    pub fn send_error_reponse(
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,

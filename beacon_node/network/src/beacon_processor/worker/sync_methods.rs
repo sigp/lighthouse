@@ -2,9 +2,11 @@ use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::BlockResultSender;
 use crate::metrics;
-use crate::sync::manager::SyncMessage;
+use crate::sync::manager::{SyncMessage, SyncRequestType};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::{BeaconChainTypes, BlockError, ChainSegmentResult};
+use beacon_chain::{
+    BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
+};
 use eth2_libp2p::PeerId;
 use slog::{crit, debug, error, info, trace, warn};
 use tokio::sync::mpsc;
@@ -15,6 +17,8 @@ use types::{Epoch, Hash256, SignedBeaconBlock};
 pub enum ProcessId {
     /// Processing Id of a range syncing batch.
     RangeBatchId(ChainId, Epoch),
+    /// Processing ID for a backfill syncing batch.
+    BackSyncBatchId(Epoch),
     /// Processing Id of the parent lookup of a block.
     ParentLookup(PeerId, Hash256),
 }
@@ -99,11 +103,40 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 };
 
-                self.send_sync_message(SyncMessage::BatchProcessed {
-                    chain_id,
-                    epoch,
-                    result,
-                });
+                let sync_type = SyncRequestType::RangeSync(epoch, chain_id);
+
+                self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+            }
+            // this a request from the Backfill sync
+            ProcessId::BackSyncBatchId(epoch) => {
+                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
+                let sent_blocks = downloaded_blocks.len();
+
+                let result = match self.process_backfill_blocks(&downloaded_blocks) {
+                    (_, Ok(_)) => {
+                        debug!(self.log, "Backfill batch processed";
+                            "batch_epoch" => epoch,
+                            "first_block_slot" => start_slot,
+                            "last_block_slot" => end_slot,
+                            "processed_blocks" => sent_blocks,
+                            "service"=> "sync");
+                        BatchProcessResult::Success(sent_blocks > 0)
+                    }
+                    (_, Err(e)) => {
+                        debug!(self.log, "Backfill batch processing failed";
+                            "batch_epoch" => epoch,
+                            "first_block_slot" => start_slot,
+                            "last_block_slot" => end_slot,
+                            "error" => e,
+                            "service" => "sync");
+                        BatchProcessResult::Failed(false)
+                    }
+                };
+
+                let sync_type = SyncRequestType::BackFillSync(epoch);
+
+                self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
             }
             // this is a parent lookup request from the sync manager
             ProcessId::ParentLookup(peer_id, chain_head) => {
@@ -156,6 +189,80 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.run_fork_choice();
                 }
                 (imported_blocks, r)
+            }
+        }
+    }
+
+    /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
+    fn process_backfill_blocks(
+        &self,
+        blocks: &[SignedBeaconBlock<T::EthSpec>],
+    ) -> (usize, Result<(), String>) {
+        match self.chain.import_historical_block_batch(blocks) {
+            Ok(imported_blocks) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
+                );
+
+                (imported_blocks, Ok(()))
+            }
+            Err(error) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
+                );
+                let err = match error {
+                    // Handle the historical block errors specifically
+                    BeaconChainError::HistoricalBlockError(e) => match e {
+                        HistoricalBlockError::MismatchedBlockRoot {
+                            block_root,
+                            expected_block_root,
+                        } => {
+                            debug!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => "mismatched_block_root",
+                                "block_root" => ?block_root,
+                                "expected_root" => ?expected_block_root
+                            );
+                            String::from("mismatched_block_root")
+                        }
+                        HistoricalBlockError::InvalidSignature
+                        | HistoricalBlockError::SignatureSet(_) => {
+                            warn!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => ?e
+                            );
+                            "invalid_signature".into()
+                        }
+                        HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
+                            warn!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => "pubkey_cache_timeout"
+                            );
+                            "pubkey_cache_timeout".into()
+                        }
+                        HistoricalBlockError::NoAnchorInfo => {
+                            warn!(self.log, "Backfill not required");
+                            String::from("no_anchor_info")
+                        }
+                        HistoricalBlockError::IndexOutOfBounds
+                        | HistoricalBlockError::BlockOutOfRange { .. } => {
+                            error!(
+                                self.log,
+                                "Backfill batch processing error";
+                                "error" => ?e,
+                            );
+                            String::from("logic_error")
+                        }
+                    },
+                    other => {
+                        warn!(self.log, "Backfill batch processing error"; "error" => ?other);
+                        format!("{:?}", other)
+                    }
+                };
+                (0, Err(err))
             }
         }
     }

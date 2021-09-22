@@ -1,15 +1,21 @@
 #![cfg(test)]
 use crate::test_utils::*;
+use crate::test_utils::{SeedableRng, XorShiftRng};
 use beacon_chain::store::config::StoreConfig;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{
+    interop_genesis_state, test_spec, BeaconChainHarness, EphemeralHarnessType,
+};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
     ChainSpec, CloneConfig, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair, MainnetEthSpec,
     MinimalEthSpec, RelativeEpoch, Slot,
 };
+use safe_arith::SafeArith;
 use ssz::{Decode, Encode};
+use state_processing::per_slot_processing;
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;
+use tree_hash::TreeHash;
 
 pub const MAX_VALIDATOR_COUNT: usize = 129;
 pub const SLOT_OFFSET: Slot = Slot::new(1);
@@ -489,9 +495,6 @@ fn decode_base_and_altair() {
 
 #[test]
 fn tree_hash_cache_linear_history() {
-    use crate::test_utils::{SeedableRng, XorShiftRng};
-    use tree_hash::TreeHash;
-
     let mut rng = XorShiftRng::from_seed([42; 16]);
 
     let mut state: BeaconState<MainnetEthSpec> =
@@ -544,4 +547,60 @@ fn tree_hash_cache_linear_history() {
 
     let root = state.update_tree_hash_cache().unwrap();
     assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
+}
+
+// Check how the cache behaves when there's a distance larger than `SLOTS_PER_HISTORICAL_ROOT`
+// since its last update.
+#[test]
+fn tree_hash_cache_linear_history_long_skip() {
+    let validator_count = 128;
+    let keypairs = generate_deterministic_keypairs(validator_count);
+
+    let spec = &test_spec::<MinimalEthSpec>();
+
+    // This state has a cache that advances normally each slot.
+    let mut state: BeaconState<MinimalEthSpec> = interop_genesis_state(&keypairs, 0, spec).unwrap();
+
+    state.update_tree_hash_cache().unwrap();
+
+    // This state retains its original cache until it is updated after a long skip.
+    let mut original_cache_state = state.clone();
+    assert!(original_cache_state.tree_hash_cache().is_initialized());
+
+    // Advance the states to a slot beyond the historical state root limit, using the state root
+    // from the first state to avoid touching the original state's cache.
+    let start_slot = state.slot();
+    let target_slot = start_slot
+        .safe_add(MinimalEthSpec::slots_per_historical_root() as u64 + 1)
+        .unwrap();
+
+    let mut prev_state_root;
+    while state.slot() < target_slot {
+        prev_state_root = state.update_tree_hash_cache().unwrap();
+        per_slot_processing(&mut state, None, spec).unwrap();
+        per_slot_processing(&mut original_cache_state, Some(prev_state_root), spec).unwrap();
+    }
+
+    // The state with the original cache should still be initialized at the starting slot.
+    assert_eq!(
+        original_cache_state
+            .tree_hash_cache()
+            .initialized_slot()
+            .unwrap(),
+        start_slot
+    );
+
+    // Updating the tree hash cache should be successful despite the long skip.
+    assert_eq!(
+        original_cache_state.update_tree_hash_cache().unwrap(),
+        state.update_tree_hash_cache().unwrap()
+    );
+
+    assert_eq!(
+        original_cache_state
+            .tree_hash_cache()
+            .initialized_slot()
+            .unwrap(),
+        target_slot
+    );
 }

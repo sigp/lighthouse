@@ -118,6 +118,13 @@ impl<T: EthSpec> BeaconTreeHashCache<T> {
     pub fn uninitialize(&mut self) {
         self.inner = None;
     }
+
+    /// Return the slot at which the cache was last updated.
+    ///
+    /// This should probably only be used during testing.
+    pub fn initialized_slot(&self) -> Option<Slot> {
+        Some(self.inner.as_ref()?.previous_state?.1)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -206,7 +213,8 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
     /// Updates the cache and returns the tree hash root for the given `state`.
     ///
     /// The provided `state` should be a descendant of the last `state` given to this function, or
-    /// the `Self::new` function.
+    /// the `Self::new` function. If the state is more than `SLOTS_PER_HISTORICAL_ROOT` slots
+    /// after `self.previous_state` then the whole cache will be re-initialized.
     pub fn recalculate_tree_hash_root(&mut self, state: &BeaconState<T>) -> Result<Hash256, Error> {
         // If this cache has previously produced a root, ensure that it is in the state root
         // history of this state.
@@ -224,10 +232,15 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             }
 
             // If the state is newer, the previous root must be in the history of the given state.
-            if previous_slot < state.slot()
-                && *state.get_state_root(previous_slot)? != previous_root
-            {
-                return Err(Error::NonLinearTreeHashCacheHistory);
+            // If the previous slot is out of range of the `state_roots` array (indicating a long
+            // gap between the cache's last use and the current state) then we re-initialize.
+            match state.get_state_root(previous_slot) {
+                Ok(state_previous_root) if *state_previous_root == previous_root => {}
+                Ok(_) => return Err(Error::NonLinearTreeHashCacheHistory),
+                Err(Error::SlotOutOfBounds) => {
+                    *self = Self::new(state);
+                }
+                Err(e) => return Err(e),
             }
         }
 

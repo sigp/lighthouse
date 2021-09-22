@@ -81,26 +81,56 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
+    let block = signed_block.message();
+    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)? as u64;
+
+    if proposer_index != block.proposer_index() {
+        return Err(Error::IncorrectBlockProposer {
+            block: block.proposer_index(),
+            local_shuffling: proposer_index,
+        });
+    }
+
+    block_proposal_signature_set_from_parts(
+        signed_block,
+        block_root,
+        proposer_index,
+        &state.fork(),
+        state.genesis_validators_root(),
+        get_pubkey,
+        spec,
+    )
+}
+
+/// A signature set that is valid if a block was signed by the expected block producer.
+///
+/// Unlike `block_proposal_signature_set` this does **not** check that the proposer index is
+/// correct according to the shuffling. It should only be used if no suitable `BeaconState` is
+/// available.
+pub fn block_proposal_signature_set_from_parts<'a, T, F>(
+    signed_block: &'a SignedBeaconBlock<T>,
+    block_root: Option<Hash256>,
+    proposer_index: u64,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    get_pubkey: F,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    T: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
     // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
     signed_block
         .fork_name(spec)
         .map_err(Error::InconsistentBlockFork)?;
 
     let block = signed_block.message();
-    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
-
-    if proposer_index as u64 != block.proposer_index() {
-        return Err(Error::IncorrectBlockProposer {
-            block: block.proposer_index(),
-            local_shuffling: proposer_index as u64,
-        });
-    }
-
     let domain = spec.get_domain(
         block.slot().epoch(T::slots_per_epoch()),
         Domain::BeaconProposer,
-        &state.fork(),
-        state.genesis_validators_root(),
+        fork,
+        genesis_validators_root,
     );
 
     let message = if let Some(root) = block_root {
@@ -115,7 +145,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signed_block.signature(),
-        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
         message,
     ))
 }

@@ -16,7 +16,6 @@ mod transition_blocks;
 use clap::{App, Arg, ArgMatches, SubCommand};
 use clap_utils::parse_path_with_default_in_home_dir;
 use environment::EnvironmentBuilder;
-use log::LevelFilter;
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
@@ -25,10 +24,7 @@ use transition_blocks::run_transition_blocks;
 use types::{EthSpec, EthSpecId};
 
 fn main() {
-    simple_logger::SimpleLogger::new()
-        .with_level(LevelFilter::Info)
-        .init()
-        .expect("Logger should be initialised");
+    env_logger::init();
 
     let matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
@@ -111,6 +107,17 @@ fn main() {
             SubCommand::with_name("pretty-ssz")
                 .about("Parses SSZ-encoded data from a file")
                 .arg(
+                    Arg::with_name("format")
+                        .short("f")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .takes_value(true)
+                        .required(true)
+                        .default_value("json")
+                        .possible_values(&["json", "yaml"])
+                        .help("Output format to use")
+                )
+                .arg(
                     Arg::with_name("type")
                         .value_name("TYPE")
                         .takes_value(true)
@@ -123,7 +130,7 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("Path to SSZ bytes"),
-                ),
+                )
         )
         .subcommand(
             SubCommand::with_name("deploy-deposit-contract")

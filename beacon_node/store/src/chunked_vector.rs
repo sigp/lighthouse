@@ -34,8 +34,8 @@ pub enum UpdatePattern {
 /// Map a chunk index to bytes that can be used to key the NoSQL database.
 ///
 /// We shift chunks up by 1 to make room for a genesis chunk that is handled separately.
-pub fn chunk_key(cindex: u64) -> [u8; 8] {
-    (cindex + 1).to_be_bytes()
+pub fn chunk_key(cindex: usize) -> [u8; 8] {
+    (cindex as u64 + 1).to_be_bytes()
 }
 
 /// Return the database key for the genesis value.
@@ -71,6 +71,11 @@ pub trait Field<E: EthSpec>: Copy {
     // TODO: benchmark and optimise this parameter
     fn chunk_size() -> usize {
         128
+    }
+
+    /// Convert a v-index (vector index) to a chunk index.
+    fn chunk_index(vindex: usize) -> usize {
+        vindex / Self::chunk_size()
     }
 
     /// Get the value of this field at the given vector index, from the state.
@@ -399,7 +404,7 @@ where
     I: Iterator<Item = usize>,
 {
     for chunk_index in range {
-        let chunk_key = &chunk_key(chunk_index as u64)[..];
+        let chunk_key = &chunk_key(chunk_index)[..];
 
         let existing_chunk =
             Chunk::<F::Value>::load(store, F::column(), chunk_key)?.unwrap_or_else(Chunk::default);
@@ -440,7 +445,7 @@ fn range_query<S: KeyValueStore<E>, E: EthSpec, T: Decode + Encode>(
     let mut result = Vec::with_capacity(len);
 
     for chunk_index in range {
-        let key = &chunk_key(chunk_index as u64)[..];
+        let key = &chunk_key(chunk_index)[..];
         let chunk = Chunk::load(store, column, key)?.ok_or(ChunkError::Missing { chunk_index })?;
         result.push(chunk);
     }
