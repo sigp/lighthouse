@@ -25,7 +25,7 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, ForkName, RelativeEpoch, Slot, SubnetId,
+    ChainSpec, Epoch, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId,
     SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
@@ -281,28 +281,47 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
         let fork_context = &self.fork_context;
         let spec = &self.beacon_chain.spec;
-        match fork_context.current_fork() {
-            ForkName::Base => {
-                // If we are SUBSCRIBE_DELAY_SLOTS before the fork slot, subscribe only to Base,
-                // else subscribe to Base and Altair.
-                let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
-                match spec.next_fork_epoch::<T::EthSpec>(current_slot) {
-                    Some((_, fork_epoch)) => {
-                        if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
-                            >= fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
-                        {
-                            fork_context.all_fork_digests()
-                        } else {
-                            vec![fork_context.genesis_context_bytes()]
-                        }
-                    }
-                    None => vec![fork_context.genesis_context_bytes()],
-                }
+
+        let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        let current_fork = fork_context.current_fork();
+        let current_fork_epoch = spec.fork_epoch(current_fork).expect(&format!(
+            "current fork {:?} must have an activation epoch",
+            current_fork
+        ));
+
+        let mut result = Vec::new();
+        if current_fork_epoch.saturating_add(Epoch::new(UNSUBSCRIBE_DELAY_EPOCHS)) >= current_epoch
+        {
+            if let Some(previous_fork) = current_fork.previous_fork() {
+                let previous_fork_context_bytes = fork_context
+                    .to_context_bytes(previous_fork)
+                    .expect(&format!("previous fork {} context bytes should exist as it's initialized in ForkContext", previous_fork));
+                result.push(previous_fork_context_bytes);
             }
-            ForkName::Altair => vec![fork_context
-                .to_context_bytes(ForkName::Altair)
-                .expect("Altair fork bytes should exist as it's initialized in ForkContext")],
         }
+
+        let current_fork_context_bytes =
+            fork_context.to_context_bytes(current_fork).expect(&format!(
+                "{} fork bytes should exist as it's initialized in ForkContext",
+                current_fork
+            ));
+        result.push(current_fork_context_bytes);
+
+        if let Some((next_fork, fork_epoch)) = spec.next_fork_epoch::<T::EthSpec>(current_slot) {
+            if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
+                >= fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            {
+                let next_fork_context_bytes =
+                    fork_context.to_context_bytes(next_fork).expect(&format!(
+                        "{} fork bytes should exist as it's initialized in ForkContext",
+                        next_fork
+                    ));
+                result.push(next_fork_context_bytes);
+            }
+        }
+
+        result
     }
 }
 
