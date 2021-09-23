@@ -384,10 +384,12 @@ fn context_bytes<T: EthSpec>(
     // Add the context bytes if required
     if protocol.has_context_bytes() {
         if let RPCCodedResponse::Success(rpc_variant) = resp {
-            if let RPCResponse::BlocksByRange(block_ref_ref)
-            | RPCResponse::BlocksByRoot(block_ref_ref) = rpc_variant
+            if let RPCResponse::BlocksByRange(ref_box_block)
+            | RPCResponse::BlocksByRoot(ref_box_block) = rpc_variant
             {
-                return match **block_ref_ref {
+                return match **ref_box_block {
+                    // NOTE: If you are adding another fork type here, be sure to modify the
+                    //       `fork_context.to_context_bytes()` function to support it as well!
                     SignedBeaconBlock::Merge { .. } => {
                         // TODO: check this
                         // Merge context being `None` implies that "merge never happened".

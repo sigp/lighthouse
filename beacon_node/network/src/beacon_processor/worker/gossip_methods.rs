@@ -5,7 +5,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
+    GossipVerifiedBlock,
 };
 use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{debug, error, info, trace, warn};
@@ -357,6 +358,16 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
+            // TODO: check that this is what we're supposed to do when we don't want to
+            //       penalize a peer for our configuration issue
+            // in the verification process BUT is this the proper way to handle it?
+            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::Eth1VerificationError(_)))
+            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoEth1Connection)) => {
+                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return;
+            }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
@@ -371,21 +382,12 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             // TODO: is this what we should be doing when block verification fails?
-            | Err(e @BlockError::FailedEth1Verification)
+            | Err(e @BlockError::ExecutionPayloadError(_))
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
-                return;
-            }
-            // TODO: shouldn't be penalizing the peer when something goes wrong
-            // in the verification process BUT is this the proper way to handle it?
-            Err(e @BlockError::Eth1VerificationError(_))
-            | Err(e @BlockError::NoEth1Connection) => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
-                            "error" => %e);
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return;
             }
         };
