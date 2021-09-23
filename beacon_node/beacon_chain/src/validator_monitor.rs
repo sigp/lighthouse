@@ -137,9 +137,12 @@ impl EpochSummary {
         self.sync_signature_contribution_inclusions += 1;
     }
 
-    pub fn register_attestation_block_inclusion(&mut self, delay: Slot) {
+    pub fn register_attestation_block_inclusion(&mut self, inclusion_distance: Slot) {
         self.attestation_block_inclusions += 1;
-        Self::update_if_lt(&mut self.attestation_min_block_inclusion_distance, delay);
+        Self::update_if_lt(
+            &mut self.attestation_min_block_inclusion_distance,
+            inclusion_distance,
+        );
     }
 
     pub fn register_sync_signature_block_inclusions(&mut self) {
@@ -187,6 +190,22 @@ impl MonitoredValidator {
             self.index = Some(validator_index);
             self.id = validator_index.to_string();
         }
+    }
+
+    /// Returns minimum inclusion distance for the given epoch as recorded by the validator monitor.
+    ///
+    /// Note: this value may be different from the one obtained from epoch summary
+    /// as the value recorded by the validator monitor ignores skip slots.
+    fn min_inclusion_distance(&self, epoch: &Epoch) -> Option<u64> {
+        let summaries = self.summaries.read();
+        summaries
+            .get(epoch)
+            .map(|summary| {
+                summary
+                    .attestation_min_block_inclusion_distance
+                    .map(Into::into)
+            })
+            .flatten()
     }
 
     /// Maps `func` across the `self.summaries`.
@@ -474,15 +493,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                 }
 
-                // For pre-Altair, state the inclusion distance. This information is not retained in
-                // the Altair state.
-                if let Some(inclusion_info) = summary.previous_epoch_inclusion_info(i) {
-                    if inclusion_info.delay > spec.min_attestation_inclusion_delay {
+                // Get the minimum value among the validator monitor observed inclusion distance
+                // and the epoch summary inclusion distance.
+                // The inclusion data is not retained in the epoch summary post Altair.
+                let min_inclusion_distance = min_opt(
+                    monitored_validator.min_inclusion_distance(&prev_epoch),
+                    summary
+                        .previous_epoch_inclusion_info(i)
+                        .map(|info| info.delay),
+                );
+                if let Some(inclusion_delay) = min_inclusion_distance {
+                    if inclusion_delay > spec.min_attestation_inclusion_delay {
                         warn!(
                             self.log,
                             "Potential sub-optimal inclusion delay";
                             "optimal" => spec.min_attestation_inclusion_delay,
-                            "delay" => inclusion_info.delay,
+                            "delay" => inclusion_delay,
                             "epoch" => prev_epoch,
                             "validator" => id,
                         );
@@ -491,7 +517,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
                         &[id],
-                        inclusion_info.delay as i64,
+                        inclusion_delay as i64,
                     );
                 }
 
@@ -840,11 +866,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         spec: &ChainSpec,
     ) {
         let data = &indexed_attestation.data;
-        let mut delay = parent_slot
-            .saturating_sub(data.slot)
-            // Subtracting 1 to account for using the parent slot instead of block slot.
-            .saturating_sub(spec.min_attestation_inclusion_delay.saturating_sub(1));
+        // best effort inclusion distance which ignores skip slots
+        let inclusion_distance = parent_slot.saturating_sub(data.slot) + 1;
 
+        let delay = inclusion_distance - spec.min_attestation_inclusion_delay;
         let epoch = data.slot.epoch(T::slots_per_epoch());
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
@@ -873,7 +898,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 );
 
                 validator.with_epoch_summary(epoch, |summary| {
-                    summary.register_attestation_block_inclusion(delay)
+                    summary.register_attestation_block_inclusion(inclusion_distance)
                 });
             }
         })
@@ -1440,4 +1465,15 @@ fn get_message_delay_ms<S: SlotClock>(
         .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
         .and_then(|gross_delay| gross_delay.checked_sub(message_production_delay))
         .unwrap_or_else(|| Duration::from_secs(0))
+}
+
+/// Returns minimum value from the two options if both are `Some` or the
+/// value contained if only one of them is Some. Returns `None` if both options are `None`
+fn min_opt<T: Ord>(a: Option<T>, b: Option<T>) -> Option<T> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(std::cmp::min(x, y)),
+        (Some(x), None) => Some(x),
+        (None, Some(y)) => Some(y),
+        _ => None,
+    }
 }
