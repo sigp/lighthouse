@@ -1,8 +1,8 @@
 use super::*;
 use async_trait::async_trait;
 use eth1::http::{response_result_or_error, send_rpc_request, EIP155_ERROR_STR};
+use reqwest::header::CONTENT_TYPE;
 pub use reqwest::Client;
-use reqwest::{header::CONTENT_TYPE, ClientBuilder, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
@@ -43,7 +43,7 @@ impl HttpJsonRpc {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<T, Error> {
-        let body = JsonBody {
+        let body = JsonRequestBody {
             jsonrpc: "2.0",
             method: method,
             params,
@@ -52,7 +52,7 @@ impl HttpJsonRpc {
 
         let url: &str = self.url.as_ref();
 
-        let body: serde_json::Value = self
+        let body: JsonResponseBody = self
             .client
             .post(url)
             .timeout(timeout)
@@ -64,38 +64,17 @@ impl HttpJsonRpc {
             .json()
             .await?;
 
-        if let Some(error) = body.get("error").map(|e| e.get("message")).flatten() {
-            let error = error.to_string();
-            if error.contains(EIP155_ERROR_STR) {
-                Err(Error::Eip155Error)
-            } else {
-                Err(Error::ServerMessage(error))
+        match (body.result, body.error) {
+            (Some(result), None) => serde_json::from_value(result).map_err(Into::into),
+            (_, Some(error)) => {
+                if error.contains(EIP155_ERROR_STR) {
+                    Err(Error::Eip155Error)
+                } else {
+                    Err(Error::ServerMessage(error))
+                }
             }
-        } else {
-            body.get("result").cloned().ok_or(Error::NoResultField)
+            (None, None) => Err(Error::NoResultOrError),
         }
-
-        /*
-        let encoding = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .ok_or("No content-type header in response")?
-            .to_str()
-            .map(|s| s.to_string())
-            .map_err(|e| format!("Failed to parse content-type header: {}", e))?;
-
-        response
-            .bytes()
-            .map_err(|e| format!("Failed to receive body: {:?}", e))
-            .await
-            .and_then(move |bytes| match encoding.as_str() {
-                "application/json" => Ok(bytes),
-                "application/json; charset=utf-8" => Ok(bytes),
-                other => Err(format!("Unsupported encoding: {}", other)),
-            })
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-            .map_err(|e| format!("Failed to receive body: {:?}", e))
-        */
     }
 }
 
@@ -224,10 +203,19 @@ impl EngineApi for HttpJsonRpc {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename = "camelCase")]
-struct JsonBody<'a> {
+struct JsonRequestBody<'a> {
     jsonrpc: &'a str,
     method: &'a str,
     params: serde_json::Value,
+    id: u32,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename = "camelCase")]
+struct JsonResponseBody {
+    jsonrpc: String,
+    error: Option<String>,
+    result: Option<serde_json::Value>,
     id: u32,
 }
 

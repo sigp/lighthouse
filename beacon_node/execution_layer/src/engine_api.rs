@@ -17,7 +17,7 @@ pub enum Error {
     Json(serde_json::Error),
     ServerMessage(String),
     Eip155Error,
-    NoResultField,
+    NoResultOrError,
 }
 
 impl From<reqwest::Error> for Error {
