@@ -197,6 +197,7 @@ impl Default for Config {
 
 /// Controls sizes of gossipsub meshes to tune a Lighthouse node's bandwidth/performance.
 pub struct NetworkLoad {
+    pub name: &'static str,
     pub mesh_n_low: usize,
     pub outbound_min: usize,
     pub mesh_n: usize,
@@ -209,6 +210,7 @@ impl From<u8> for NetworkLoad {
     fn from(load: u8) -> NetworkLoad {
         match load {
             1 => NetworkLoad {
+                name: "Low",
                 mesh_n_low: 1,
                 outbound_min: 1,
                 mesh_n: 2,
@@ -217,6 +219,7 @@ impl From<u8> for NetworkLoad {
                 history_gossip: 12,
             },
             2 => NetworkLoad {
+                name: "Low",
                 mesh_n_low: 2,
                 outbound_min: 2,
                 mesh_n: 4,
@@ -225,6 +228,7 @@ impl From<u8> for NetworkLoad {
                 history_gossip: 12,
             },
             3 => NetworkLoad {
+                name: "Average",
                 mesh_n_low: 3,
                 outbound_min: 2,
                 mesh_n: 5,
@@ -233,6 +237,7 @@ impl From<u8> for NetworkLoad {
                 history_gossip: 12,
             },
             4 => NetworkLoad {
+                name: "Average",
                 mesh_n_low: 4,
                 outbound_min: 3,
                 mesh_n: 8,
@@ -242,6 +247,7 @@ impl From<u8> for NetworkLoad {
             },
             // 5 and above
             _ => NetworkLoad {
+                name: "High",
                 mesh_n_low: 5,
                 outbound_min: 3,
                 mesh_n: 10,
