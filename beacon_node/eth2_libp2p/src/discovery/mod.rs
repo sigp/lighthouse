@@ -24,7 +24,7 @@ pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
         protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction as NBAction,
-        NotifyHandler, PollParameters, SubstreamProtocol,
+        NotifyHandler, PollParameters, SubstreamProtocol, DialError
     },
 };
 use lru::LruCache;
@@ -947,6 +947,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         _: &PeerId,
         _: &ConnectionId,
         _connected_point: &ConnectedPoint,
+        _handler: Self::ProtocolsHandler,
     ) {
     }
     fn inject_event(
@@ -957,7 +958,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     ) {
     }
 
-    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
+    fn inject_dial_failure(&mut self, peer_id: &PeerId, _handler: Self::ProtocolsHandler, _error: DialError) {
         // set peer as disconnected in discovery DHT
         debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
         self.disconnect_peer(peer_id);
@@ -968,7 +969,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+    ) -> Poll<NBAction<Self::OutEvent, Self::ProtocolsHandler>> {
         if !self.started {
             return Poll::Pending;
         }

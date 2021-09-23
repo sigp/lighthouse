@@ -101,7 +101,7 @@ pub struct RPC<TSpec: EthSpec> {
     /// Rate limiter
     limiter: RateLimiter,
     /// Queue of events to be processed.
-    events: Vec<NetworkBehaviourAction<RPCSend<TSpec>, RPCMessage<TSpec>>>,
+    events: Vec<NetworkBehaviourAction<RPCMessage<TSpec>, RPCHandler<TSpec>>>,
     fork_context: Arc<ForkContext>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
@@ -228,6 +228,7 @@ where
         _peer_id: &PeerId,
         _: &ConnectionId,
         _connected_point: &ConnectedPoint,
+        _handler: Self::ProtocolsHandler,
     ) {
     }
 
@@ -297,12 +298,7 @@ where
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<
-        NetworkBehaviourAction<
-            <Self::ProtocolsHandler as ProtocolsHandler>::InEvent,
-            Self::OutEvent,
-        >,
-    > {
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
         // let the rate limiter prune
         let _ = self.limiter.poll_unpin(cx);
         if !self.events.is_empty() {
