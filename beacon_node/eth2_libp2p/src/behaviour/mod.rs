@@ -4,7 +4,7 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
+    score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent, score::PeerAction
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
@@ -843,6 +843,10 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.peer_manager.remove_subscription(&peer_id, subnet_id);
                 }
+            }
+            GossipsubEvent::GossipsubNotSupported { peer_id } => {
+                debug!(self.log, "Peer does not support gossipsub"; "peer_id" => %peer_id);
+                self.peer_manager.report_peer(&peer_id, PeerAction::LowToleranceError, ReportSource::Gossipsub);
             }
         }
     }
