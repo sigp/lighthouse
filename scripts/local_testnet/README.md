@@ -15,45 +15,27 @@ make install-lcli
 
 ## Starting the testnet
 
-Start a local eth1 ganache server
-```bash
-./ganache_test_node.sh
-```
+Modify `vars.env` as desired.
 
-Assuming you are happy with the configuration in `vars.env`, deploy the deposit contract, make deposits,
-create the testnet directory, genesis state and validator keys with:
+Start a local eth1 ganache server plus boot node along with NODE_COUNT
+number of beacon nodes and VC_COUNT validator clients.
 
-```bash
-./setup.sh
-```
+This script takes two options `-c VC_COUNT` and `-d DEBUG_LEVEL`.
+The options maybe in any order or absent in which case they take the default value specified.
+- VC_COUNT: the number of validator clients to create, default: `1`
+- [DEBUG_LEVEL](https://docs.rs/log/latest/log/enum.Level.html): one of { error, warn, info, debug, trace }, default: `info`
 
-Generate bootnode enr and start a discv5 bootnode so that multiple beacon nodes can find each other
-```bash
-./bootnode.sh
-```
-
-Start a beacon node:
 
 ```bash
-./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <OPTIONAL-DEBUG-LEVEL>
-```
-e.g.
-```bash
-./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000
+./start_local_testnet.sh
 ```
 
-In a new terminal, start the validator client which will attach to the first
-beacon node:
+## Stoping the testnet
 
+This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_testnet.sh` automatically.
 ```bash
-./validator_client.sh <DATADIR> <BEACON-NODE-HTTP> <OPTIONAL-DEBUG-LEVEL>
+./stop_local_testnet.sh
 ```
-e.g. to attach to the above created beacon node
-```bash
-./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000
-```
-
-You can create additional beacon node and validator client instances with appropriate parameters.
 
 ## Additional Info
 
@@ -65,7 +47,7 @@ instances using the `--datadir` parameter.
 
 ### Starting fresh
 
-Delete the current testnet and all related files using:
+Delete the current testnet and all related files using. Generally not necessary as `start_local_test.sh` does this each time it starts.
 
 ```bash
 ./clean.sh
@@ -82,6 +64,5 @@ Update the genesis time to now using:
 ./reset_genesis_time.sh
 ```
 
-> Note: you probably want to drop the beacon node database and the validator
-> client slashing database if you do this. When using small validator counts
-> it's probably easy to just use `./clean.sh && ./setup.sh`.
+> Note: you probably want to just rerun `./start_local_testnet.sh` to start over
+> but this is another option.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shutdown the processes that were started for local testnets
+# Stop all processes that were started with start_local_testnet.sh
 
 source ./vars.env
 
