@@ -257,7 +257,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                     self.failed_download_attempts.push(peer);
                 }
                 self.state = if self.failed_download_attempts.len()
-                    >= B::max_batch_download_attempts as usize
+                    >= B::max_batch_download_attempts() as usize
                 {
                     BatchState::Failed
                 } else {
