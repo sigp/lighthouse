@@ -640,7 +640,7 @@ mod http {
                 // Check the block hash.
                 let new_block = get_block(&eth1, block_number).await;
                 assert_ne!(
-                    new_block.hash, old_block.hash,
+                    new_block.block_hash, old_block.block_hash,
                     "block hash should change with each deposit"
                 );
 
@@ -662,7 +662,7 @@ mod http {
                 // Check to ensure the block root is changing
                 assert_ne!(
                     new_root,
-                    Some(new_block.hash),
+                    Some(new_block.block_hash),
                     "the deposit root should be different to the block hash"
                 );
             }
