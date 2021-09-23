@@ -15,6 +15,9 @@ pub enum Error {
     RequestFailed(String),
     JsonRpc(RpcError),
     Json(serde_json::Error),
+    ServerMessage(String),
+    Eip155Error,
+    NoResultField,
 }
 
 impl From<reqwest::Error> for Error {
