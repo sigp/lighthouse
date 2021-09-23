@@ -1,6 +1,10 @@
 pub use lighthouse_metrics::*;
 
 lazy_static! {
+    pub static ref NAT_OPEN: Result<IntCounter> = try_create_int_counter(
+        "nat_open",
+        "An estimate indicating if the local node is exposed to the internet."
+    );
     pub static ref ADDRESS_UPDATE_COUNT: Result<IntCounter> = try_create_int_counter(
         "libp2p_address_update_total",
         "Count of libp2p socked updated events (when our view of our IP address has changed)"
@@ -55,6 +59,11 @@ lazy_static! {
         "RPC errors per client",
         &["client", "rpc_error", "direction"]
     );
+    pub static ref TOTAL_RPC_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "libp2p_rpc_requests_total",
+        "RPC requests total",
+        &["type"]
+    );
     pub static ref PEER_ACTION_EVENTS_PER_CLIENT: Result<IntCounterVec> =
         try_create_int_counter_vec(
             "libp2p_peer_actions_per_client",
@@ -67,6 +76,52 @@ lazy_static! {
             "Gossipsub messages that we did not accept, per client",
             &["client", "validation_result"]
         );
+
+    pub static ref PEER_SCORE_DISTRIBUTION: Result<IntGaugeVec> =
+        try_create_int_gauge_vec(
+            "peer_score_distribution",
+            "The distribution of connected peer scores",
+            &["position"]
+        );
+
+    pub static ref PEER_SCORE_PER_CLIENT: Result<GaugeVec> =
+        try_create_float_gauge_vec(
+            "peer_score_per_client",
+            "Average score per client",
+            &["client"]
+        );
+
+    /*
+     * Inbound/Outbound peers
+     */
+    /// The number of peers that dialed us.
+    pub static ref NETWORK_INBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_inbound_peers","The number of peers that are currently connected that have dialed us.");
+
+    /// The number of peers that we dialed us.
+    pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
+        try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
+
+}
+
+/// Checks if we consider the NAT open.
+///
+/// Conditions for an open NAT:
+/// 1. We have 1 or more SOCKET_UPDATED messages. This occurs when discovery has a majority of
+///    users reporting an external port and our ENR gets updated.
+/// 2. We have 0 SOCKET_UPDATED messages (can be true if the port was correct on boot), then we
+///    rely on whether we have any inbound messages. If we have no socket update messages, but
+///    manage to get at least one inbound peer, we are exposed correctly.
+pub fn check_nat() {
+    // NAT is already deemed open.
+    if NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0 {
+        return;
+    }
+    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) == 0
+        || NETWORK_INBOUND_PEERS.as_ref().map(|v| v.get()).unwrap_or(0) != 0_i64
+    {
+        inc_counter(&NAT_OPEN);
+    }
 }
 
 pub fn scrape_discovery_metrics() {

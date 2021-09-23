@@ -2886,7 +2886,11 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 [[package]]
 name = "libp2p"
 version = "0.40.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "atomic",
  "bytes 1.1.0",
@@ -2948,7 +2952,11 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.30.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2981,7 +2989,11 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.30.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -2993,7 +3005,11 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.33.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -3011,6 +3027,8 @@ dependencies = [
  "regex",
  "sha2",
  "smallvec",
+ "strum",
+ "strum_macros",
  "unsigned-varint 0.7.0",
  "wasm-timer",
 ]
@@ -3018,7 +3036,11 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.31.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -3033,7 +3055,11 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.1.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "libp2p-core 0.30.0",
  "libp2p-identify",
@@ -3044,7 +3070,11 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.30.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "asynchronous-codec",
  "bytes 1.1.0",
@@ -3061,7 +3091,11 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.33.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "bytes 1.1.0",
  "curve25519-dalek",
@@ -3082,7 +3116,11 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.31.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "either",
  "futures",
@@ -3096,8 +3134,13 @@ dependencies = [
 
 [[package]]
 name = "libp2p-swarm-derive"
+<<<<<<< HEAD
 version = "0.25.0"
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+version = "0.24.0"
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "quote",
  "syn",
@@ -3106,7 +3149,11 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.30.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "futures",
  "futures-timer",
@@ -3122,7 +3169,11 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.31.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "either",
  "futures",
@@ -3139,7 +3190,11 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.34.0"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "futures",
  "libp2p-core 0.30.0",
@@ -3621,7 +3676,11 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.10.4"
+<<<<<<< HEAD
 source = "git+https://github.com/sigp/rust-libp2p?rev=6c804dd63855855285df92258460b4b069a1b1a7#6c804dd63855855285df92258460b4b069a1b1a7"
+=======
+source = "git+https://github.com/sigp/rust-libp2p?rev=18cd6bc93c804df45579072786ddc1cd17332159#18cd6bc93c804df45579072786ddc1cd17332159"
+>>>>>>> gossip-metrics
 dependencies = [
  "bytes 1.1.0",
  "futures",
@@ -6105,9 +6164,15 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
+<<<<<<< HEAD
 version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdd0568dbfe3baf7048b7908d2b32bca0d81cd56bec6d2a8f894b01d74f86be3"
+=======
+version = "0.2.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c42e73a9d277d4d2b6a88389a137ccf3c58599660b17e8f5fc39305e490669"
+>>>>>>> gossip-metrics
 dependencies = [
  "ansi_term 0.12.1",
  "chrono",

@@ -104,6 +104,8 @@ pub enum BehaviourEvent<TSpec: EthSpec> {
         /// The message itself.
         message: PubsubMessage<TSpec>,
     },
+    // We have unsubscribed from a gossipsub topic.
+    UnsubscribedTopic(GossipTopic),
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
 }
@@ -382,15 +384,17 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .remove(&topic);
 
         // unsubscribe from the topic
-        let topic: Topic = topic.into();
+        let libp2p_topic: Topic = topic.clone().into();
 
-        match self.gossipsub.unsubscribe(&topic) {
+        match self.gossipsub.unsubscribe(&libp2p_topic) {
             Err(_) => {
-                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %topic);
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %libp2p_topic);
                 false
             }
             Ok(v) => {
+                // Inform the network
                 debug!(self.log, "Unsubscribed to topic"; "topic" => %topic);
+                self.add_event(BehaviourEvent::UnsubscribedTopic(topic));
                 v
             }
         }
@@ -721,6 +725,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Convenience function to propagate a request.
     fn propagate_request(&mut self, id: PeerRequestId, peer_id: PeerId, request: Request) {
+        // Increment metrics
+        match &request {
+            Request::Status(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
+            }
+            Request::BlocksByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
+            }
+            Request::BlocksByRoot { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
+            }
+        }
         self.add_event(BehaviourEvent::RequestReceived {
             peer_id,
             id,

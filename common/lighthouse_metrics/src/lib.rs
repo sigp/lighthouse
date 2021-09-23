@@ -307,6 +307,12 @@ pub fn set_float_gauge(gauge: &Result<Gauge>, value: f64) {
     }
 }
 
+pub fn set_float_gauge_vec(gauge_vec: &Result<GaugeVec>, name: &[&str], value: f64) {
+    if let Some(gauge) = get_gauge(gauge_vec, name) {
+        gauge.set(value);
+    }
+}
+
 pub fn inc_gauge(gauge: &Result<IntGauge>) {
     if let Ok(gauge) = gauge {
         gauge.inc();
