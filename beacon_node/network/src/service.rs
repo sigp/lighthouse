@@ -285,10 +285,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let current_fork = fork_context.current_fork();
-        let current_fork_epoch = spec.fork_epoch(current_fork).expect(&format!(
-            "current fork {:?} must have an activation epoch",
-            current_fork
-        ));
+        let current_fork_epoch = spec.fork_epoch(current_fork).unwrap_or_else(|| {
+            panic!(
+                "current fork {:?} must have an activation epoch",
+                current_fork
+            )
+        });
 
         let mut result = Vec::new();
         if current_fork_epoch.saturating_add(Epoch::new(UNSUBSCRIBE_DELAY_EPOCHS)) >= current_epoch
@@ -296,16 +298,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             if let Some(previous_fork) = current_fork.previous_fork() {
                 let previous_fork_context_bytes = fork_context
                     .to_context_bytes(previous_fork)
-                    .expect(&format!("previous fork {} context bytes should exist as it's initialized in ForkContext", previous_fork));
+                    .unwrap_or_else(|| panic!("previous fork {} context bytes should exist as it's initialized in ForkContext", previous_fork));
                 result.push(previous_fork_context_bytes);
             }
         }
 
-        let current_fork_context_bytes =
-            fork_context.to_context_bytes(current_fork).expect(&format!(
-                "{} fork bytes should exist as it's initialized in ForkContext",
-                current_fork
-            ));
+        let current_fork_context_bytes = fork_context
+            .to_context_bytes(current_fork)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} fork bytes should exist as it's initialized in ForkContext",
+                    current_fork
+                )
+            });
         result.push(current_fork_context_bytes);
 
         if let Some((next_fork, fork_epoch)) = spec.next_fork_epoch::<T::EthSpec>(current_slot) {
@@ -313,10 +318,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 >= fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
             {
                 let next_fork_context_bytes =
-                    fork_context.to_context_bytes(next_fork).expect(&format!(
-                        "{} fork bytes should exist as it's initialized in ForkContext",
-                        next_fork
-                    ));
+                    fork_context.to_context_bytes(next_fork).unwrap_or_else(|| {
+                        panic!(
+                            "{} fork bytes should exist as it's initialized in ForkContext",
+                            next_fork
+                        )
+                    });
                 result.push(next_fork_context_bytes);
             }
         }
