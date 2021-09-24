@@ -101,9 +101,13 @@ impl<T: EthSpec> BeaconBlock<T> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockAltair::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Altair)
-            .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
+        BeaconBlockMerge::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Merge)
+            .or_else(|_| {
+                BeaconBlockAltair::from_ssz_bytes(bytes)
+                    .map(BeaconBlock::Altair)
+                    .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
+            })
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.

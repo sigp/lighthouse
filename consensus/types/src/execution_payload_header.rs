@@ -1,4 +1,4 @@
-use crate::{execution_payload::serde_logs_bloom, test_utils::TestRandom, *};
+use crate::{test_utils::TestRandom, *};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -13,7 +13,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub coinbase: Address,
     pub state_root: Hash256,
     pub receipt_root: Hash256,
-    #[serde(with = "serde_logs_bloom")]
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     pub random: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]

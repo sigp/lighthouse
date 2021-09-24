@@ -139,10 +139,10 @@ pub fn per_block_processing<T: EthSpec>(
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
-    if let BeaconBlockRef::Altair(inner) = block {
+    if let Some(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
             state,
-            &inner.body.sync_aggregate,
+            sync_aggregate,
             proposer_index,
             verify_signatures,
             spec,
@@ -150,7 +150,11 @@ pub fn per_block_processing<T: EthSpec>(
     }
 
     if is_execution_enabled(state, block.body()) {
-        process_execution_payload(state, block.body().execution_payload().unwrap(), spec)?
+        let payload = block
+            .body()
+            .execution_payload()
+            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        process_execution_payload(state, payload, spec)?;
     }
 
     Ok(())
