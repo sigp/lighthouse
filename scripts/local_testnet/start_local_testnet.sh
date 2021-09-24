@@ -1,36 +1,34 @@
 #!/usr/bin/env bash
-# Start all processes necessary to create a
-# local testnet with 1 eth1 client,
-# 4 beacon nodes and 1 validator with 20 vc's.
-#
-# Takes three optional parameters:
-#   -c which is VC_COUNT which should be <= NODE_COUNT defaults to 1
-#   -d which id DEBUG_LEVEL and should be one of [log::Level](https://docs.rs/log/0.4.14/log/enum.Level.html)
-#   -h help
+# Start all processes necessary to create a local testnet
 
 source ./vars.env
 
-# Parse parameters
-while getopts "c:d:h" flag; do
+# VC_COUNT is defaulted in vars.env
+DEBUG_LEVEL=${DEBUG_LEVEL:-info}
+
+# Get options
+while getopts "v:d:h" flag; do
   case "${flag}" in
-    c) VC_COUNT=${OPTARG};;
+    v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
     h)
-        echo "usage: $0 <options>"
-        echo " options:"
-        echo "   -c: VC_COUNT default: 1"
+        validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
+        echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
+        echo "and $VC_COUNT validator clients with each vc having $validators validators."
+        echo
+        echo "usage: $0 <Options>"
+        echo
+        echo "Options:"
+        echo "   -v: VC_COUNT    default: $VC_COUNT"
         echo "   -d: DEBUG_LEVEL default: info"
-        echo "   -h: this help"
+        echo "   -h:             this help"
         exit
         ;;
   esac
 done
 
-VC_COUNT=${VC_COUNT:-1}
-DEBUG_LEVEL=${DEBUG_LEVEL:-info}
-
-if (( $VC_COUNT > $NODE_COUNT )); then
-    echo "Error $VC_COUNT is too large, must be <= NODE_COUNT=$NODE_COUNT"
+if (( $VC_COUNT > $BN_COUNT )); then
+    echo "Error $VC_COUNT is too large, must be <= BN_COUNT=$BN_COUNT"
     exit
 fi
 
@@ -46,8 +44,8 @@ LOG_DIR=$TESTNET_DIR
 # even before its done.
 ./clean.sh
 mkdir -p $LOG_DIR
-for (( node=1; node<=$NODE_COUNT; node++ )); do
-    touch $LOG_DIR/becacon_node_$node.log
+for (( bn=1; bn<=$BN_COUNT; bn++ )); do
+    touch $LOG_DIR/beacon_node_$bn.log
 done
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
     touch $LOG_DIR/validator_node_$vc.log
@@ -105,8 +103,10 @@ sleeping 1
 BN_udp_tcp_base=9000
 BN_http_port_base=8000
 
-for (( node=1; node<=$NODE_COUNT; node++ )); do
-    execute_command_add_PID becacon_node_$node.log ./beacon_node.sh $DATADIR/node_$node $((BN_udp_tcp_base + $node)) $((BN_http_port_base + $node)) $DEBUG_LEVEL
+(( $VC_COUNT < $BN_COUNT )) && SAS=-s || SAS=
+
+for (( bn=1; bn<=$BN_COUNT; bn++ )); do
+    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn))
 done
 
 # Start requested number of validator clients
