@@ -152,6 +152,17 @@ pub fn per_block_processing<T: EthSpec>(
         )?;
     }
 
+<<<<<<< HEAD
+=======
+    if is_execution_enabled(state, block.body()) {
+        let payload = block
+            .body()
+            .execution_payload()
+            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        process_execution_payload(state, payload, spec)?;
+    }
+
+>>>>>>> 5a35ac060 (Fix consensus, SSZ, tree hash & run merge EF tests (#2622))
     Ok(())
 }
 
