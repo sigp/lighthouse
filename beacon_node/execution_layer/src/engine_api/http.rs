@@ -53,11 +53,9 @@ impl HttpJsonRpc {
             id: 1,
         };
 
-        let url: &str = self.url.as_ref();
-
         let body: JsonResponseBody = self
             .client
-            .post(url)
+            .post(self.url.full.clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
             .json(&body)
@@ -296,4 +294,68 @@ struct JsonConsensusValidatedRequest {
 struct JsonForkChoiceUpdatedRequest {
     head_block_hash: Hash256,
     finalized_block_hash: Hash256,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::MockServer;
+    use std::future::Future;
+    use std::sync::Arc;
+    use types::MainnetEthSpec;
+
+    struct Tester {
+        server: MockServer,
+        echo_client: Arc<HttpJsonRpc>,
+    }
+
+    impl Tester {
+        pub fn new() -> Self {
+            let server = MockServer::unit_testing::<MainnetEthSpec>();
+            let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
+            let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());
+
+            Self {
+                server,
+                echo_client,
+            }
+        }
+
+        pub async fn assert_request_equals<R, F>(
+            self,
+            request_func: R,
+            expected_json: serde_json::Value,
+        ) -> Self
+        where
+            R: Fn(Arc<HttpJsonRpc>) -> F,
+            F: Future<Output = ()>,
+        {
+            request_func(self.echo_client.clone()).await;
+            let request_bytes = self.server.last_echo_request().await;
+            let request_json: serde_json::Value =
+                serde_json::from_slice(&request_bytes).expect("request was not valid json");
+            if request_json != expected_json {
+                panic!(
+                    "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
+                    request_json.to_string(),
+                    expected_json.to_string()
+                )
+            }
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .forkchoice_updated(Hash256::repeat_byte(0), Hash256::repeat_byte(1))
+                        .await;
+                },
+                json!("meow"),
+            )
+            .await;
+    }
 }

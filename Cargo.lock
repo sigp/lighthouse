@@ -2066,6 +2066,8 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes 1.1.0",
+ "environment",
  "eth1",
  "eth2_serde_utils 0.1.0",
  "futures",
@@ -2076,6 +2078,8 @@ dependencies = [
  "slog",
  "tokio",
  "types",
+ "warp",
+ "warp_utils",
 ]
 
 [[package]]

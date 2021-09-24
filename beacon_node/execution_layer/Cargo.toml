@@ -17,3 +17,7 @@ eth2_serde_utils = { path = "../../consensus/serde_utils" }
 serde_json = "1.0.58"
 serde = { version = "1.0.116", features = ["derive"] }
 eth1 = { path = "../eth1" }
+warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
+warp_utils = { path = "../../common/warp_utils" }
+environment = { path = "../../lighthouse/environment" }
+bytes = "1.1.0"

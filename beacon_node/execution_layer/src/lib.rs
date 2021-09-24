@@ -5,6 +5,7 @@ use slog::Logger;
 
 mod engine_api;
 mod engines;
+pub mod test_utils;
 
 #[derive(Debug)]
 pub enum Error {
