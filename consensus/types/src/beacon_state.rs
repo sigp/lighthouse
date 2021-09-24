@@ -1684,7 +1684,8 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
         match (self, other) {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
-            _ => panic!("compare_fields: mismatched state variants"),
+            (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
+            _ => panic!("compare_fields: mismatched state variants",),
         }
     }
 }
