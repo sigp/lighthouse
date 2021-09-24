@@ -2,7 +2,7 @@ use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
 use crate::config::gossipsub_config;
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
+use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent};
 use crate::peer_manager::{
     score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent, score::PeerAction
 };
@@ -49,6 +49,9 @@ use types::{
 };
 
 pub mod gossipsub_scoring_parameters;
+
+/// The number of peers we target per subnet for discovery queries.
+pub const TARGET_SUBNET_PEERS: usize = 2;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -226,7 +229,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
         };
 
-        config.gs_config = gossipsub_config(fork_context.clone());
+        config.gs_config = gossipsub_config(config.network_load, fork_context.clone());
 
         // Build and configure the Gossipsub behaviour
         let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
