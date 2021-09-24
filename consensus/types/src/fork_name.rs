@@ -15,7 +15,7 @@ pub enum ForkName {
 
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![ForkName::Base, ForkName::Altair]
+        vec![ForkName::Base, ForkName::Altair, ForkName::Merge]
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
