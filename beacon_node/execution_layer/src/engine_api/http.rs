@@ -9,6 +9,9 @@ use serde_json::json;
 use std::time::Duration;
 use types::{execution_payload::serde_logs_bloom, EthSpec, FixedVector, Transaction, VariableList};
 
+const STATIC_ID: u32 = 1;
+const JSONRPC_VERSION: &str = "2.0";
+
 const ETH_SYNCING: &str = "eth_syncing";
 const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
@@ -47,10 +50,10 @@ impl HttpJsonRpc {
         timeout: Duration,
     ) -> Result<T, Error> {
         let body = JsonRequestBody {
-            jsonrpc: "2.0",
+            jsonrpc: JSONRPC_VERSION,
             method: method,
             params,
-            id: 1,
+            id: STATIC_ID,
         };
 
         let body: JsonResponseBody = self
@@ -183,7 +186,7 @@ impl EngineApi for HttpJsonRpc {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct JsonRequestBody<'a> {
     jsonrpc: &'a str,
     method: &'a str,
@@ -192,7 +195,7 @@ struct JsonRequestBody<'a> {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct JsonResponseBody {
     jsonrpc: String,
     error: Option<String>,
@@ -201,7 +204,7 @@ struct JsonResponseBody {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct JsonPreparePayloadRequest {
     parent_hash: Hash256,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -211,7 +214,7 @@ struct JsonPreparePayloadRequest {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent, rename = "camelCase")]
+#[serde(transparent, rename_all = "camelCase")]
 struct JsonPreparePayloadResponse {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     payload_id: u64,
@@ -283,14 +286,14 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct JsonConsensusValidatedRequest {
     block_hash: Hash256,
     status: ConsensusStatus,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "camelCase")]
+#[serde(rename_all = "camelCase")]
 struct JsonForkChoiceUpdatedRequest {
     head_block_hash: Hash256,
     finalized_block_hash: Hash256,
@@ -345,6 +348,9 @@ mod test {
         }
     }
 
+    const HASH_00: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
+    const HASH_01: &str = "0x0101010101010101010101010101010101010101010101010101010101010101";
+
     #[tokio::test]
     async fn forkchoice_updated_request() {
         Tester::new()
@@ -354,7 +360,15 @@ mod test {
                         .forkchoice_updated(Hash256::repeat_byte(0), Hash256::repeat_byte(1))
                         .await;
                 },
-                json!("meow"),
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_FORKCHOICE_UPDATED,
+                    "params": [{
+                        "headBlockHash": HASH_00,
+                        "finalizedBlockHash": HASH_01,
+                    }]
+                }),
             )
             .await;
     }
