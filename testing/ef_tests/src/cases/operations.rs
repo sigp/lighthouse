@@ -7,7 +7,7 @@ use crate::type_name::TypeName;
 use serde_derive::Deserialize;
 use state_processing::per_block_processing::{
     errors::BlockProcessingError,
-    process_block_header,
+    process_block_header, process_execution_payload,
     process_operations::{
         altair, base, process_attester_slashings, process_deposits, process_exits,
         process_proposer_slashings,
@@ -17,8 +17,8 @@ use state_processing::per_block_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec, ForkName,
-    ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
+    ExecutionPayload, ForkName, ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -27,9 +27,15 @@ struct Metadata {
     bls_setting: Option<BlsSetting>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ExecutionMetadata {
+    execution_valid: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
     metadata: Metadata,
+    execution_metadata: Option<ExecutionMetadata>,
     pub pre: BeaconState<E>,
     pub operation: Option<O>,
     pub post: Option<BeaconState<E>>,
@@ -54,6 +60,7 @@ pub trait Operation<E: EthSpec>: TypeName + Debug + Sync + Sized {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError>;
 }
 
@@ -66,6 +73,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         match state {
@@ -97,6 +105,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_attester_slashings(state, &[self.clone()], VerifySignatures::True, spec)
     }
@@ -111,6 +120,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_deposits(state, &[self.clone()], spec)
     }
@@ -129,6 +139,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_proposer_slashings(state, &[self.clone()], VerifySignatures::True, spec)
     }
@@ -147,6 +158,7 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_exits(state, &[self.clone()], VerifySignatures::True, spec)
     }
@@ -169,6 +181,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_block_header(state, self.to_ref(), spec)?;
         Ok(())
@@ -196,9 +209,46 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
+        _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         process_sync_aggregate(state, self, proposer_index, VerifySignatures::True, spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ExecutionPayload<E> {
+    fn handler_name() -> String {
+        "execution_payload".into()
+    }
+
+    fn filename() -> String {
+        "execution_payload.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base && fork_name != ForkName::Altair
+    }
+
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        // FIXME(merge): we may want to plumb the validity bool into state processing
+        let valid = extra
+            .execution_metadata
+            .as_ref()
+            .map_or(false, |e| e.execution_valid);
+        if valid {
+            process_execution_payload(state, self, spec)
+        } else {
+            Err(BlockProcessingError::ExecutionInvalid)
+        }
     }
 }
 
@@ -210,6 +260,14 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
             yaml_decode_file(&metadata_path)?
         } else {
             Metadata::default()
+        };
+
+        // For execution payloads only.
+        let execution_yaml_path = path.join("execution.yaml");
+        let execution_metadata = if execution_yaml_path.is_file() {
+            Some(yaml_decode_file(&execution_yaml_path)?)
+        } else {
+            None
         };
 
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
@@ -237,6 +295,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
         Ok(Self {
             metadata,
+            execution_metadata,
             pre,
             operation,
             post,
@@ -270,7 +329,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .operation
             .as_ref()
             .ok_or(Error::SkippedBls)?
-            .apply_to(&mut state, spec)
+            .apply_to(&mut state, spec, self)
             .map(|()| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
