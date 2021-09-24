@@ -77,6 +77,7 @@ pub enum BlockProcessingError {
         expected: u64,
         found: u64,
     },
+    ExecutionInvalid,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
