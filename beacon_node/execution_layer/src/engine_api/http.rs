@@ -1,6 +1,6 @@
 use super::*;
 use async_trait::async_trait;
-use eth1::http::{response_result_or_error, send_rpc_request, EIP155_ERROR_STR};
+use eth1::http::EIP155_ERROR_STR;
 use reqwest::header::CONTENT_TYPE;
 pub use reqwest::Client;
 use sensitive_url::SensitiveUrl;
@@ -8,6 +8,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 use types::{execution_payload::serde_logs_bloom, EthSpec, FixedVector, Transaction, VariableList};
+
+const ETH_SYNCING: &str = "eth_syncing";
+const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
 const ENGINE_PREPARE_PAYLOAD: &str = "engine_preparePayload";
 const ENGINE_PREPARE_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(500);
@@ -81,7 +84,21 @@ impl HttpJsonRpc {
 #[async_trait]
 impl EngineApi for HttpJsonRpc {
     async fn upcheck(&self) -> Result<(), Error> {
-        todo!()
+        let result: serde_json::Value = self
+            .rpc_request(ETH_SYNCING, json!([]), ETH_SYNCING_TIMEOUT)
+            .await?;
+
+        /*
+         * TODO
+         *
+         * Check the network and chain ids. We omit this to save time for the merge f2f and since it
+         * also seems like it might get annoying during development.
+         */
+
+        match result.as_bool() {
+            Some(false) => Ok(()),
+            _ => Err(Error::IsSyncing),
+        }
     }
 
     async fn prepare_payload(
@@ -98,17 +115,13 @@ impl EngineApi for HttpJsonRpc {
             fee_recipient
         }]);
 
-        let response_body = send_rpc_request(
-            &self.url,
-            ENGINE_PREPARE_PAYLOAD,
-            params,
-            ENGINE_PREPARE_PAYLOAD_TIMEOUT,
-        )
-        .await
-        .map_err(Error::RequestFailed)?;
-
-        let result = response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
-        let response: JsonPreparePayloadResponse = serde_json::from_value(result)?;
+        let response: JsonPreparePayloadResponse = self
+            .rpc_request(
+                ENGINE_PREPARE_PAYLOAD,
+                params,
+                ENGINE_PREPARE_PAYLOAD_TIMEOUT,
+            )
+            .await?;
 
         Ok(response.payload_id)
     }
@@ -119,18 +132,12 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<ExecutePayloadResponse, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
-        let response_body = send_rpc_request(
-            &self.url,
+        self.rpc_request(
             ENGINE_EXECUTE_PAYLOAD,
             params,
             ENGINE_EXECUTE_PAYLOAD_TIMEOUT,
         )
         .await
-        .map_err(Error::RequestFailed)?;
-
-        let result = response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
-
-        serde_json::from_value(result).map_err(Into::into)
     }
 
     async fn get_payload<T: EthSpec>(
@@ -139,20 +146,8 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([payload_id]);
 
-        let response_body = send_rpc_request(
-            &self.url,
-            ENGINE_GET_PAYLOAD,
-            params,
-            ENGINE_GET_PAYLOAD_TIMEOUT,
-        )
-        .await
-        .map_err(Error::RequestFailed)?;
-
-        let result = response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
-
-        serde_json::from_value::<JsonExecutionPayload<T>>(result)
-            .map(Into::into)
-            .map_err(Into::into)
+        self.rpc_request(ENGINE_GET_PAYLOAD, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await
     }
 
     async fn consensus_validated(
@@ -162,18 +157,12 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<(), Error> {
         let params = json!([JsonConsensusValidatedRequest { block_hash, status }]);
 
-        let response_body = send_rpc_request(
-            &self.url,
+        self.rpc_request(
             ENGINE_CONSENSUS_VALIDATED,
             params,
             ENGINE_CONSENSUS_VALIDATED_TIMEOUT,
         )
         .await
-        .map_err(Error::RequestFailed)?;
-
-        response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
-
-        Ok(())
     }
 
     async fn forkchoice_updated(
@@ -186,18 +175,12 @@ impl EngineApi for HttpJsonRpc {
             finalized_block_hash
         }]);
 
-        let response_body = send_rpc_request(
-            &self.url,
+        self.rpc_request(
             ENGINE_FORKCHOICE_UPDATED,
             params,
             ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
         )
         .await
-        .map_err(Error::RequestFailed)?;
-
-        response_result_or_error(&response_body).map_err(Error::JsonRpc)?;
-
-        Ok(())
     }
 }
 

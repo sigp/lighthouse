@@ -18,6 +18,7 @@ pub enum Error {
     ServerMessage(String),
     Eip155Error,
     NoResultOrError,
+    IsSyncing,
 }
 
 impl From<reqwest::Error> for Error {
