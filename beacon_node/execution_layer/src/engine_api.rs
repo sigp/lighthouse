@@ -69,7 +69,7 @@ pub trait EngineApi {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExecutePayloadResponse {
     Valid,
     Invalid,
@@ -77,7 +77,7 @@ pub enum ExecutePayloadResponse {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConsensusStatus {
     Valid,
     Invalid,

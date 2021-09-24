@@ -116,7 +116,7 @@ impl EngineApi for HttpJsonRpc {
             fee_recipient
         }]);
 
-        let response: JsonPreparePayloadResponse = self
+        let response: JsonPayloadId = self
             .rpc_request(
                 ENGINE_PREPARE_PAYLOAD,
                 params,
@@ -145,7 +145,7 @@ impl EngineApi for HttpJsonRpc {
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let params = json!([payload_id]);
+        let params = json!([JsonPayloadId { payload_id }]);
 
         self.rpc_request(ENGINE_GET_PAYLOAD, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await
@@ -215,13 +215,13 @@ struct JsonPreparePayloadRequest {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent, rename_all = "camelCase")]
-struct JsonPreparePayloadResponse {
+struct JsonPayloadId {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     payload_id: u64,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,
     pub coinbase: Address,
@@ -239,6 +239,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub base_fee_per_gas: Hash256,
+    // FIXME(paul): add extraData
     pub block_hash: Hash256,
     // FIXME(paul): add transaction parsing.
     #[serde(default)]
@@ -350,6 +351,143 @@ mod test {
 
     const HASH_00: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
     const HASH_01: &str = "0x0101010101010101010101010101010101010101010101010101010101010101";
+
+    const ADDRESS_00: &str = "0x0000000000000000000000000000000000000000";
+    const ADDRESS_01: &str = "0x0101010101010101010101010101010101010101";
+
+    const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
+
+    #[tokio::test]
+    async fn prepare_payload_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .prepare_payload(
+                            Hash256::repeat_byte(0),
+                            42,
+                            Hash256::repeat_byte(1),
+                            Address::repeat_byte(0),
+                        )
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_PREPARE_PAYLOAD,
+                    "params": [{
+                        "parentHash": HASH_00,
+                        "timestamp": "0x2a",
+                        "random": HASH_01,
+                        "feeRecipient": ADDRESS_00,
+                    }]
+                }),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_payload_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client.get_payload::<MainnetEthSpec>(42).await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_GET_PAYLOAD,
+                    "params": ["0x2a"]
+                }),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn execute_payload_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .execute_payload::<MainnetEthSpec>(ExecutionPayload {
+                            parent_hash: Hash256::repeat_byte(0),
+                            coinbase: Address::repeat_byte(1),
+                            state_root: Hash256::repeat_byte(1),
+                            receipt_root: Hash256::repeat_byte(0),
+                            logs_bloom: vec![01; 256].into(),
+                            random: Hash256::repeat_byte(1),
+                            block_number: 0,
+                            gas_limit: 1,
+                            gas_used: 2,
+                            timestamp: 42,
+                            base_fee_per_gas: Hash256::repeat_byte(0),
+                            block_hash: Hash256::repeat_byte(1),
+                            transactions: vec![].into(),
+                        })
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_EXECUTE_PAYLOAD,
+                    "params": [{
+                        "parentHash": HASH_00,
+                        "coinbase": ADDRESS_01,
+                        "stateRoot": HASH_01,
+                        "receiptRoot": HASH_00,
+                        "logsBloom": LOGS_BLOOM_01,
+                        "random": HASH_01,
+                        "blockNumber": "0x0",
+                        "gasLimit": "0x1",
+                        "gasUsed": "0x2",
+                        "timestamp": "0x2a",
+                        "baseFeePerGas": HASH_00,
+                        "blockHash": HASH_01,
+                        "transactions": [],
+                    }]
+                }),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn consensus_validated_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .consensus_validated(Hash256::repeat_byte(0), ConsensusStatus::Valid)
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_CONSENSUS_VALIDATED,
+                    "params": [{
+                        "blockHash": HASH_00,
+                        "status": "VALID",
+                    }]
+                }),
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .consensus_validated(Hash256::repeat_byte(1), ConsensusStatus::Invalid)
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_CONSENSUS_VALIDATED,
+                    "params": [{
+                        "blockHash": HASH_01,
+                        "status": "INVALID",
+                    }]
+                }),
+            )
+            .await;
+    }
 
     #[tokio::test]
     async fn forkchoice_updated_request() {
