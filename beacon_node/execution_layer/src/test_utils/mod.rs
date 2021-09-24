@@ -95,7 +95,6 @@ pub struct Context<T> {
 pub struct Config {
     pub listen_addr: Ipv4Addr,
     pub listen_port: u16,
-    pub allow_origin: Option<String>,
 }
 
 impl Default for Config {
@@ -103,7 +102,6 @@ impl Default for Config {
         Self {
             listen_addr: Ipv4Addr::new(127, 0, 0, 1),
             listen_port: 0,
-            allow_origin: None,
         }
     }
 }
@@ -130,19 +128,6 @@ pub fn serve<T: EthSpec>(
     let config = &ctx.config;
     let log = ctx.log.clone();
 
-    // Configure CORS.
-    let cors_builder = {
-        let builder = warp::cors()
-            .allow_method("GET")
-            .allow_headers(vec!["Content-Type"]);
-
-        warp_utils::cors::set_builder_origins(
-            builder,
-            config.allow_origin.as_deref(),
-            (config.listen_addr, config.listen_port),
-        )?
-    };
-
     let inner_ctx = ctx.clone();
     let routes = warp::post()
         .and(warp::path("echo"))
@@ -155,8 +140,7 @@ pub fn serve<T: EthSpec>(
             )
         })
         // Add a `Server` header.
-        .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"))
-        .with(cors_builder.build());
+        .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"));
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
         SocketAddrV4::new(config.listen_addr, config.listen_port),

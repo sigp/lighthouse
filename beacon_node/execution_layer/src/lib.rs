@@ -1,7 +1,10 @@
-use engine_api::{http::HttpJsonRpc, Error as ApiError, *};
+use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
+use task_executor::TaskExecutor;
+
+pub use engine_api::http::HttpJsonRpc;
 
 mod engine_api;
 mod engines;
@@ -19,12 +22,18 @@ impl From<ApiError> for Error {
     }
 }
 
-pub struct ExecutionLayer<T> {
-    engines: Engines<T>,
+pub struct ExecutionLayer {
+    engines: Engines<HttpJsonRpc>,
+    /// Allows callers to execute async tasks in a non-async environment, if they desire.
+    pub executor: TaskExecutor,
 }
 
-impl ExecutionLayer<HttpJsonRpc> {
-    pub fn from_urls(urls: Vec<SensitiveUrl>, log: Logger) -> Result<Self, Error> {
+impl ExecutionLayer {
+    pub fn from_urls(
+        urls: Vec<SensitiveUrl>,
+        executor: TaskExecutor,
+        log: Logger,
+    ) -> Result<Self, Error> {
         let engines = urls
             .into_iter()
             .map(|url| {
@@ -36,11 +45,12 @@ impl ExecutionLayer<HttpJsonRpc> {
 
         Ok(Self {
             engines: Engines { engines, log },
+            executor,
         })
     }
 }
 
-impl<T: EngineApi> ExecutionLayer<T> {
+impl ExecutionLayer {
     pub async fn prepare_payload(
         &self,
         parent_hash: Hash256,
