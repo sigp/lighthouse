@@ -65,6 +65,7 @@ impl ForkChoiceTestDefinition {
             self.finalized_root,
             junk_shuffling_id.clone(),
             junk_shuffling_id,
+            true,
         )
         .expect("should create fork choice struct");
 
@@ -139,6 +140,7 @@ impl ForkChoiceTestDefinition {
                         ),
                         justified_epoch,
                         finalized_epoch,
+                        is_merge_complete: true,
                     };
                     fork_choice.process_block(block).unwrap_or_else(|e| {
                         panic!(

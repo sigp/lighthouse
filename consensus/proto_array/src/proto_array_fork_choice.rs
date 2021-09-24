@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::proto_array::ProtoArray;
-use crate::ssz_container::SszContainer;
+use crate::ssz_container::{LegacySszContainer, SszContainer};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
@@ -29,6 +29,7 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
+    pub is_merge_complete: bool,
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -74,6 +75,7 @@ impl ProtoArrayForkChoice {
         finalized_root: Hash256,
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
+        is_merge_complete: bool,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -95,6 +97,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id,
             justified_epoch,
             finalized_epoch,
+            is_merge_complete,
         };
 
         proto_array
@@ -204,6 +207,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
             justified_epoch: block.justified_epoch,
             finalized_epoch: block.finalized_epoch,
+            is_merge_complete: block.is_merge_complete,
         })
     }
 
@@ -250,6 +254,20 @@ impl ProtoArrayForkChoice {
         SszContainer::from_ssz_bytes(bytes)
             .map(Into::into)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
+    }
+
+    pub fn from_bytes_legacy(bytes: &[u8]) -> Result<Self, String> {
+        LegacySszContainer::from_ssz_bytes(bytes)
+            .map(|legacy_container| {
+                let container: SszContainer = legacy_container.into();
+                container.into()
+            })
+            .map_err(|e| {
+                format!(
+                    "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
+                    e
+                )
+            })
     }
 
     /// Returns a read-lock to core `ProtoArray` struct.
@@ -360,6 +378,7 @@ mod test_compute_deltas {
             finalized_root,
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
+            true,
         )
         .unwrap();
 
