@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_block_processing::is_merge_block;
+use state_processing::per_block_processing::{is_merge_block, is_merge_complete};
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
     Epoch, EthSpec, Hash256, IndexedAttestation, PowBlock, RelativeEpoch, SignedBeaconBlock, Slot,
@@ -23,6 +23,7 @@ pub enum Error<T> {
     InvalidBlock(InvalidBlock),
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
+    InvalidLegacyProtoArrayBytes(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -278,6 +279,7 @@ where
         let next_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
+        let is_merge_complete = is_merge_complete(anchor_state);
 
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
@@ -287,6 +289,7 @@ where
             fc_store.finalized_checkpoint().root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
+            is_merge_complete,
         )?;
 
         Ok(Self {
@@ -598,6 +601,7 @@ where
             state_root: block.state_root(),
             justified_epoch: state.current_justified_checkpoint().epoch,
             finalized_epoch: state.finalized_checkpoint().epoch,
+            is_merge_complete: is_merge_complete(&state),
         })?;
 
         Ok(())
@@ -893,7 +897,7 @@ where
 /// This is used when persisting the state of the fork choice to disk.
 #[derive(Encode, Decode, Clone)]
 pub struct PersistedForkChoice {
-    proto_array_bytes: Vec<u8>,
+    pub proto_array_bytes: Vec<u8>,
     queued_attestations: Vec<QueuedAttestation>,
 }
 
