@@ -25,8 +25,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, Epoch, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId,
-    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -281,37 +281,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
         let fork_context = &self.fork_context;
         let spec = &self.beacon_chain.spec;
-
         let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
-        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let current_fork = fork_context.current_fork();
-        let current_fork_epoch = spec.fork_epoch(current_fork).unwrap_or_else(|| {
-            panic!(
-                "current fork {:?} must have an activation epoch",
-                current_fork
-            )
-        });
 
-        let mut result = Vec::new();
-        if current_fork_epoch.saturating_add(Epoch::new(UNSUBSCRIBE_DELAY_EPOCHS)) >= current_epoch
-        {
-            if let Some(previous_fork) = current_fork.previous_fork() {
-                let previous_fork_context_bytes = fork_context
-                    .to_context_bytes(previous_fork)
-                    .unwrap_or_else(|| panic!("previous fork {} context bytes should exist as it's initialized in ForkContext", previous_fork));
-                result.push(previous_fork_context_bytes);
-            }
-        }
-
-        let current_fork_context_bytes = fork_context
+        let mut result = vec![fork_context
             .to_context_bytes(current_fork)
             .unwrap_or_else(|| {
                 panic!(
                     "{} fork bytes should exist as it's initialized in ForkContext",
                     current_fork
                 )
-            });
-        result.push(current_fork_context_bytes);
+            })];
 
         if let Some((next_fork, fork_epoch)) = spec.next_fork_epoch::<T::EthSpec>(current_slot) {
             if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
