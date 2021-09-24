@@ -197,12 +197,17 @@ impl<T: EthSpec> PartialBeaconState<T> {
         let epoch = slot.epoch(T::slots_per_epoch());
 
         if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
+            .merge_fork_epoch
+            .map_or(false, |merge_epoch| epoch >= merge_epoch)
         {
-            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
+            PartialBeaconStateMerge::from_ssz_bytes(bytes).map(Self::Merge)
+        } else if spec
+            .altair_fork_epoch
+            .map_or(false, |altair_epoch| epoch >= altair_epoch)
+        {
             PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
+        } else {
+            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
         }
     }
 
