@@ -7,7 +7,7 @@ use std::convert::TryInto;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct BlsFastAggregateVerifyInput {
+pub struct BlsEthFastAggregateVerifyInput {
     pub pubkeys: Vec<PublicKeyBytes>,
     #[serde(alias = "messages")]
     pub message: String,
@@ -15,16 +15,16 @@ pub struct BlsFastAggregateVerifyInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct BlsFastAggregateVerify {
-    pub input: BlsFastAggregateVerifyInput,
+pub struct BlsEthFastAggregateVerify {
+    pub input: BlsEthFastAggregateVerifyInput,
     pub output: bool,
 }
 
-impl BlsCase for BlsFastAggregateVerify {}
+impl BlsCase for BlsEthFastAggregateVerify {}
 
-impl Case for BlsFastAggregateVerify {
+impl Case for BlsEthFastAggregateVerify {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name == ForkName::Base
+        fork_name == ForkName::Altair
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
@@ -53,7 +53,7 @@ impl Case for BlsFastAggregateVerify {
         let signature_ok = hex::decode(&self.input.signature[2..])
             .ok()
             .and_then(|bytes: Vec<u8>| AggregateSignature::deserialize(&bytes).ok())
-            .map(|signature| signature.fast_aggregate_verify(message, &pubkey_refs))
+            .map(|signature| signature.eth_fast_aggregate_verify(message, &pubkey_refs))
             .unwrap_or(false);
 
         compare_result::<bool, ()>(&Ok(signature_ok), &Some(self.output))
