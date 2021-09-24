@@ -353,15 +353,15 @@ pub fn process_deposit<T: EthSpec>(
         state.validators_mut().push(validator)?;
         state.balances_mut().push(deposit.data.amount)?;
 
-        // Altair-specific initializations.
-        if let BeaconState::Altair(altair_state) = state {
-            altair_state
-                .previous_epoch_participation
-                .push(ParticipationFlags::default())?;
-            altair_state
-                .current_epoch_participation
-                .push(ParticipationFlags::default())?;
-            altair_state.inactivity_scores.push(0)?;
+        // Altair or later initializations.
+        if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
+            previous_epoch_participation.push(ParticipationFlags::default())?;
+        }
+        if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
+            current_epoch_participation.push(ParticipationFlags::default())?;
+        }
+        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
+            inactivity_scores.push(0)?;
         }
     }
 
