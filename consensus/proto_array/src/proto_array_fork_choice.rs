@@ -394,6 +394,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id.clone(),
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
+                is_merge_complete: true,
             })
             .unwrap();
 
@@ -409,6 +410,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id,
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
+                is_merge_complete: true
             })
             .unwrap();
 
