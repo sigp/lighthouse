@@ -160,7 +160,7 @@ impl ChainSpec {
     ) -> EnrForkId {
         EnrForkId {
             fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.next_fork_version(),
+            next_fork_version: self.next_fork_version::<T>(slot),
             next_fork_epoch: self
                 .next_fork_epoch::<T>(slot)
                 .map(|(_, e)| e)
@@ -182,10 +182,12 @@ impl ChainSpec {
 
     /// Returns the `next_fork_version`.
     ///
-    /// Since `next_fork_version = current_fork_version` if no future fork is planned,
-    /// this function returns `altair_fork_version` until the next fork is planned.
-    pub fn next_fork_version(&self) -> [u8; 4] {
-        self.altair_fork_version
+    /// `next_fork_version = current_fork_version` if no future fork is planned,
+    pub fn next_fork_version<E: EthSpec>(&self, slot: Slot) -> [u8; 4] {
+        match self.next_fork_epoch::<E>(slot) {
+            Some((fork, _)) => self.fork_version_for_name(fork),
+            None => self.fork_version_for_name(self.fork_name_at_slot::<E>(slot)),
+        }
     }
 
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
@@ -477,9 +479,9 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: Some(Epoch::new(u64::MAX)),
+            altair_fork_epoch: None,
             merge_fork_version: [0x02, 0x00, 0x00, 0x00],
-            merge_fork_epoch: Some(Epoch::new(u64::MAX)),
+            merge_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX,
 
             /*
@@ -504,6 +506,7 @@ impl ChainSpec {
         Self {
             max_committees_per_slot: 4,
             target_committee_size: 4,
+            churn_limit_quotient: 32,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
             min_genesis_time: 1578009600,

@@ -139,7 +139,6 @@ impl Case for SszGeneric {
                 let mut limit = parts[1];
 
                 // Test format is inconsistent, pretend the limit is 32 (arbitrary)
-                // https://github.com/ethereum/eth2.0-spec-tests
                 if limit == "no" {
                     limit = "32";
                 }

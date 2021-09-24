@@ -36,15 +36,15 @@ you can run them locally and avoid CI failures:
 
 _The lighthouse test suite is quite extensive, running the whole suite may take 30+ minutes._
 
-### Ethereum 2.0 Spec Tests
+### Consensus Spec Tests
 
 The
-[ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/)
+[ethereum/consensus-spec-tests](https://github.com/ethereum/consensus-spec-tests/)
 repository contains a large set of tests that verify Lighthouse behaviour
 against the Ethereum Foundation specifications.
 
 These tests are quite large (100's of MB) so they're only downloaded if you run
-`$ make test-ef` (or anything that run it). You may want to avoid
+`$ make test-ef` (or anything that runs it). You may want to avoid
 downloading these tests if you're on a slow or metered Internet connection. CI
 will require them to pass, though.
 

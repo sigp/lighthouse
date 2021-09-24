@@ -1,6 +1,6 @@
-# Ethereum 2.0 Specification Tests
+# Consensus Specification Tests
 
-This crate parses and executes the test vectors at [ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests).
+This crate parses and executes the test vectors at [ethereum/consensus-spec-tests](https://github.com/ethereum/consensus-spec-tests).
 
 Functionality is achieved only via the `$ cargo test --features ef_tests` command.
 
@@ -14,10 +14,10 @@ $ make
 ```
 
 _Note: this may download hundreds of MB of compressed archives from the
-[ethereum/eth2.0-spec-tests](https://github.com/ethereum/eth2.0-spec-tests/),
+[ethereum/consensus-spec-tests](https://github.com/ethereum/consensus-spec-tests/),
 which may expand into several GB of files._
 
-If successful, you should now have the extracted tests in `./eth2.0-spec-tests`.
+If successful, you should now have the extracted tests in `./consensus-spec-tests`.
 
 Run them with:
 

@@ -34,11 +34,11 @@ pub trait Handler {
         let fork_name_str = match fork_name {
             ForkName::Base => "phase0",
             ForkName::Altair => "altair",
-            ForkName::Merge => "merge", // TODO: check this
+            ForkName::Merge => "merge",
         };
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("eth2.0-spec-tests")
+            .join("consensus-spec-tests")
             .join("tests")
             .join(Self::config_name())
             .join(fork_name_str)
@@ -83,10 +83,6 @@ macro_rules! bls_handler {
         impl Handler for $runner_name {
             type Case = cases::$case_name;
 
-            fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-                fork_name == ForkName::Base
-            }
-
             fn runner_name() -> &'static str {
                 "bls"
             }
@@ -110,6 +106,16 @@ bls_handler!(
     BlsFastAggregateVerifyHandler,
     BlsFastAggregateVerify,
     "fast_aggregate_verify"
+);
+bls_handler!(
+    BlsEthAggregatePubkeysHandler,
+    BlsEthAggregatePubkeys,
+    "eth_aggregate_pubkeys"
+);
+bls_handler!(
+    BlsEthFastAggregateVerifyHandler,
+    BlsEthFastAggregateVerify,
+    "eth_fast_aggregate_verify"
 );
 
 /// Handler for SSZ types.
@@ -138,6 +144,18 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn altair_only() -> Self {
         Self::for_forks(vec![ForkName::Altair])
+    }
+
+    pub fn altair_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[1..].to_vec())
+    }
+
+    pub fn merge_only() -> Self {
+        Self::for_forks(vec![ForkName::Merge])
+    }
+
+    pub fn merge_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[2..].to_vec())
     }
 }
 
@@ -259,8 +277,8 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
-        // FIXME(altair): v1.1.0-alpha.3 doesn't mark the historical blocks test as
-        // requiring real crypto, so only run these tests with real crypto for now.
+        // NOTE: v1.1.0-beta.4 doesn't mark the historical blocks test as requiring real crypto, so
+        // only run these tests with real crypto for now.
         cfg!(not(feature = "fake_crypto"))
     }
 }
@@ -282,6 +300,31 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
 
     fn handler_name(&self) -> String {
         "slots".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct RandomHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
+    type Case = cases::SanityBlocks<E>;
+
+    // FIXME(merge): enable merge tests once available
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Merge
+    }
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "random"
+    }
+
+    fn handler_name(&self) -> String {
+        "random".into()
     }
 }
 
@@ -402,6 +445,11 @@ pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
     type Case = cases::GenesisValidity<E>;
+
+    // FIXME(merge): enable merge test once available
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Merge
+    }
 
     fn config_name() -> &'static str {
         E::name()
