@@ -34,7 +34,7 @@ pub trait Handler {
         let fork_name_str = match fork_name {
             ForkName::Base => "phase0",
             ForkName::Altair => "altair",
-            ForkName::Merge => "merge", // TODO: check this
+            ForkName::Merge => "merge",
         };
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -144,6 +144,18 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn altair_only() -> Self {
         Self::for_forks(vec![ForkName::Altair])
+    }
+
+    pub fn altair_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[1..].to_vec())
+    }
+
+    pub fn merge_only() -> Self {
+        Self::for_forks(vec![ForkName::Merge])
+    }
+
+    pub fn merge_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[2..].to_vec())
     }
 }
 
@@ -297,6 +309,11 @@ pub struct RandomHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
     type Case = cases::SanityBlocks<E>;
+
+    // FIXME(merge): enable merge tests once available
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Merge
+    }
 
     fn config_name() -> &'static str {
         E::name()
@@ -480,6 +497,11 @@ pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
     type Case = cases::GenesisValidity<E>;
+
+    // FIXME(merge): enable merge test once available
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Merge
+    }
 
     fn config_name() -> &'static str {
         E::name()
