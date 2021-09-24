@@ -3,6 +3,7 @@ use crate::case_result::compare_result_detailed;
 use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use compare_fields_derive::CompareFields;
 use serde_derive::Deserialize;
+use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_epoch_processing::{
@@ -26,11 +27,16 @@ pub struct Deltas {
     penalties: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, CompareFields)]
+// Define "legacy" implementations of `Option<Epoch>`, `Option<NonZeroUsize>` which use four bytes
+// for encoding the union selector.
+four_byte_option_impl!(four_byte_option_deltas, Deltas);
+
+#[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
 pub struct AllDeltas {
     source_deltas: Deltas,
     target_deltas: Deltas,
     head_deltas: Deltas,
+    #[ssz(with = "four_byte_option_deltas")]
     inclusion_delay_deltas: Option<Deltas>,
     inactivity_penalty_deltas: Deltas,
 }
