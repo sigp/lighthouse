@@ -12,6 +12,7 @@ use eth2_hashing::{hash_fixed, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
 pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
+pub const MAX_UNION_SELECTOR: u8 = 127;
 
 pub type Hash256 = ethereum_types::H256;
 
@@ -61,6 +62,31 @@ pub fn mix_in_length(root: &Hash256, length: usize) -> Hash256 {
     length_bytes[0..usize_len].copy_from_slice(&length.to_le_bytes());
 
     Hash256::from_slice(&eth2_hashing::hash32_concat(root.as_bytes(), &length_bytes)[..])
+}
+
+/// Returns `Some(root)` created by hashing `root` and `selector`, if `selector <=
+/// MAX_UNION_SELECTOR`. Otherwise, returns `None`.
+///
+/// Used in `TreeHash` for the "union" type.
+///
+/// ## Specification
+///
+/// ```ignore,text
+/// mix_in_selector: Given a Merkle root root and a type selector selector ("uint256" little-endian
+/// serialization) return hash(root + selector).
+/// ```
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.0-beta.3/ssz/simple-serialize.md#union
+pub fn mix_in_selector(root: &Hash256, selector: u8) -> Option<Hash256> {
+    if selector > MAX_UNION_SELECTOR {
+        return None;
+    }
+
+    let mut chunk = [0; BYTES_PER_CHUNK];
+    chunk[0] = selector;
+
+    let root = eth2_hashing::hash32_concat(root.as_bytes(), &chunk);
+    Some(Hash256::from_slice(&root))
 }
 
 /// Returns a cached padding node for a given height.

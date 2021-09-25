@@ -28,14 +28,19 @@ use tree_hash_derive::TreeHash;
             TestRandom
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
     ),
-    ref_attributes(derive(Debug, PartialEq, TreeHash))
+    ref_attributes(
+        derive(Debug, PartialEq, TreeHash),
+        tree_hash(enum_behaviour = "transparent")
+    )
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub slot: Slot,

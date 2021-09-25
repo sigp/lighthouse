@@ -10,11 +10,11 @@ discv5 = { git = "https://github.com/sigp/discv5", rev="10247bbd299227fef20233f2
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
-eth2_ssz_types = "0.2.0"
+eth2_ssz_types = "0.2.1"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_derive = "1.0.116"
-eth2_ssz = "0.3.0"
-eth2_ssz_derive = "0.2.1"
+eth2_ssz = "0.4.0"
+eth2_ssz_derive = "0.3.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "1.10.0", features = ["time", "macros"] }

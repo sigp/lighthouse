@@ -103,6 +103,7 @@ pub struct Ping {
 )]
 #[derive(Clone, Debug, PartialEq, Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct MetaData<T: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,

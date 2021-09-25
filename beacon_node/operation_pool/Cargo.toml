@@ -13,8 +13,8 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 state_processing = { path = "../../consensus/state_processing" }
-eth2_ssz = "0.3.0"
-eth2_ssz_derive = "0.2.1"
+eth2_ssz = "0.4.0"
+eth2_ssz_derive = "0.3.0"
 rayon = "1.5.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"

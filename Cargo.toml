@@ -81,3 +81,11 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 ]
+
+[patch]
+[patch.crates-io]
+eth2_ssz = { path = "consensus/ssz" }
+eth2_ssz_types = { path = "consensus/ssz_types" }
+eth2_ssz_derive = { path = "consensus/ssz_derive" }
+tree_hash = { path = "consensus/tree_hash" }
+tree_hash_derive = { path = "consensus/tree_hash_derive" }

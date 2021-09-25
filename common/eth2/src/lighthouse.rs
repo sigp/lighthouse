@@ -8,10 +8,16 @@ use crate::{
 use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
+use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use store::{AnchorInfo, Split};
 
 pub use eth2_libp2p::{types::SyncState, PeerInfo};
+
+// Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
+// selector.
+four_byte_option_impl!(four_byte_option_u64, u64);
+four_byte_option_impl!(four_byte_option_hash256, Hash256);
 
 /// Information returned by `peers` and `connected_peers`.
 // TODO: this should be deserializable..
@@ -298,7 +304,9 @@ pub struct Eth1Block {
     pub hash: Hash256,
     pub timestamp: u64,
     pub number: u64,
+    #[ssz(with = "four_byte_option_hash256")]
     pub deposit_root: Option<Hash256>,
+    #[ssz(with = "four_byte_option_u64")]
     pub deposit_count: Option<u64>,
 }
 
