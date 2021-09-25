@@ -3065,6 +3065,7 @@ dependencies = [
  "env_logger 0.9.0",
  "environment",
  "eth1_test_rig",
+ "eth2",
  "eth2_keystore",
  "eth2_libp2p",
  "eth2_network_config",

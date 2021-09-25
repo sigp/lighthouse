@@ -7,6 +7,7 @@ edition = "2018"
 
 [features]
 portable = ["bls/supranational-portable"]
+fake_crypto = ['bls/fake_crypto']
 
 [dependencies]
 bls = { path = "../crypto/bls" }
@@ -41,3 +42,4 @@ eth2_wallet = { path = "../crypto/eth2_wallet" }
 web3 = { version = "0.17.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
+eth2 = { path = "../common/eth2" }
