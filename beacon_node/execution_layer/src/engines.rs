@@ -156,4 +156,35 @@ impl<T: EngineApi> Engines<T> {
 
         Err(errors)
     }
+
+    pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
+    where
+        F: Fn(&'a Engine<T>) -> G,
+        G: Future<Output = Result<H, EngineApiError>>,
+    {
+        let func = &func;
+        let futures = self.engines.iter().map(|engine| async move {
+            let engine_online = engine.state.read().await.is_online();
+            if engine_online {
+                func(engine).await.map_err(|error| {
+                    error!(
+                        self.log,
+                        "Execution engine call failed";
+                        "error" => ?error,
+                        "id" => &engine.id
+                    );
+                    EngineError::Api {
+                        id: engine.id.clone(),
+                        error,
+                    }
+                })
+            } else {
+                Err(EngineError::Offline {
+                    id: engine.id.clone(),
+                })
+            }
+        });
+
+        join_all(futures).await
+    }
 }
