@@ -17,7 +17,7 @@ types = { path = "../../consensus/types" }
 rand = "0.7.3"
 deposit_contract = { path = "../deposit_contract" }
 rayon = "1.4.1"
-tree_hash = "0.3.0"
+tree_hash = "0.4.0"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 hex = "0.4.2"
 derivative = "2.1.1"

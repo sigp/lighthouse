@@ -2472,6 +2472,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ChainReorg => {
                                     event_handler.subscribe_reorgs()
                                 }
+                                api_types::EventTopic::ContributionAndProof => {
+                                    event_handler.subscribe_contributions()
+                                }
                             };
 
                             receivers.push(BroadcastStream::new(receiver).map(|msg| {

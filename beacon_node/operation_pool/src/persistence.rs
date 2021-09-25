@@ -28,6 +28,7 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 #[derive(PartialEq, Debug, Serialize, Deserialize, Encode)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PersistedOperationPool<T: EthSpec> {
     /// Mapping from attestation ID to attestation mappings.
     // We could save space by not storing the attestation ID, but it might

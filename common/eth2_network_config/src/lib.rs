@@ -251,6 +251,12 @@ mod tests {
     }
 
     #[test]
+    fn mainnet_genesis_state() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
+        config.beacon_state::<E>().expect("beacon state can decode");
+    }
+
+    #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)

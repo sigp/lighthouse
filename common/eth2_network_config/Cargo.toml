@@ -17,6 +17,6 @@ tempfile = "3.1.0"
 serde = "1.0.116"
 serde_yaml = "0.8.13"
 types = { path = "../../consensus/types"}
-eth2_ssz = "0.3.0"
+eth2_ssz = "0.4.0"
 eth2_config = { path = "../eth2_config"}
 enr = { version = "0.5.1", features = ["ed25519", "k256"] }
