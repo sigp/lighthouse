@@ -67,6 +67,7 @@ pub struct ProtoArrayForkChoice {
 }
 
 impl ProtoArrayForkChoice {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
