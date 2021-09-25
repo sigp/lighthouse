@@ -17,6 +17,7 @@ use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
 use eth2_libp2p::NetworkGlobals;
+use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
@@ -146,6 +147,19 @@ where
             None
         };
 
+        let execution_layer = if let Some(execution_endpoints) = config.execution_endpoints {
+            let context = runtime_context.service_context("exec".into());
+            let execution_layer = ExecutionLayer::from_urls(
+                execution_endpoints,
+                context.executor.clone(),
+                context.log().clone(),
+            )
+            .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
+            Some(execution_layer)
+        } else {
+            None
+        };
+
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
@@ -154,6 +168,7 @@ where
             .disabled_forks(disabled_forks)
             .graffiti(graffiti)
             .event_handler(event_handler)
+            .execution_layer(execution_layer)
             .monitor_validators(
                 config.validator_monitor_auto,
                 config.validator_monitor_pubkeys.clone(),

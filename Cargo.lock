@@ -900,6 +900,7 @@ dependencies = [
  "eth2_config",
  "eth2_libp2p",
  "eth2_ssz",
+ "execution_layer",
  "futures",
  "genesis",
  "http_api",
