@@ -351,7 +351,7 @@ where
             .chain_config(chain_config)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
                 log.clone(),
-                1,
+                5,
             )))
             .monitor_validators(true, vec![], log);
 

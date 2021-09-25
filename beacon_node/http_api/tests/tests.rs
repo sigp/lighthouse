@@ -1,4 +1,5 @@
 use crate::common::{create_api_server, ApiServer};
+use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -50,6 +51,7 @@ struct ApiTester {
     next_block: SignedBeaconBlock<E>,
     reorg_block: SignedBeaconBlock<E>,
     attestations: Vec<Attestation<E>>,
+    contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
@@ -65,10 +67,13 @@ impl ApiTester {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
+        Self::new_from_spec(spec)
+    }
 
+    pub fn new_from_spec(spec: ChainSpec) -> Self {
         let harness = BeaconChainHarness::new(
             MainnetEthSpec,
-            Some(spec),
+            Some(spec.clone()),
             generate_deterministic_keypairs(VALIDATOR_COUNT),
         );
 
@@ -122,6 +127,30 @@ impl ApiTester {
             "precondition: attestations for testing"
         );
 
+        let current_epoch = harness
+            .chain
+            .slot()
+            .expect("should get current slot")
+            .epoch(E::slots_per_epoch());
+        let is_altair = spec
+            .altair_fork_epoch
+            .map(|epoch| epoch <= current_epoch)
+            .unwrap_or(false);
+        let contribution_and_proofs = if is_altair {
+            harness
+                .make_sync_contributions(
+                    &head.beacon_state,
+                    head_state_root,
+                    harness.chain.slot().unwrap(),
+                    RelativeSyncCommittee::Current,
+                )
+                .into_iter()
+                .filter_map(|(_, contribution)| contribution)
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
+
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
@@ -172,6 +201,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
+            contribution_and_proofs,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -250,6 +280,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
+            contribution_and_proofs: vec![],
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -2325,6 +2356,40 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_events_altair(self) -> Self {
+        let topics = vec![EventTopic::ContributionAndProof];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let expected_contribution_len = self.contribution_and_proofs.len();
+
+        self.client
+            .post_validator_contribution_and_proofs(self.contribution_and_proofs.as_slice())
+            .await
+            .unwrap();
+
+        let contribution_events = poll_events(
+            &mut events_future,
+            expected_contribution_len,
+            Duration::from_millis(10000),
+        )
+        .await;
+        assert_eq!(
+            contribution_events.as_slice(),
+            self.contribution_and_proofs
+                .clone()
+                .into_iter()
+                .map(|contribution| EventKind::ContributionAndProof(Box::new(contribution)))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+
+        self
+    }
+
     pub async fn test_get_events_from_genesis(self) -> Self {
         let topics = vec![EventTopic::Block, EventTopic::Head];
         let mut events_future = self
@@ -2389,6 +2454,15 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events() {
     ApiTester::new().test_get_events().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_events_altair() {
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_spec(spec)
+        .test_get_events_altair()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
