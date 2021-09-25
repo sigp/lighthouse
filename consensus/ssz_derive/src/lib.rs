@@ -338,7 +338,10 @@ fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
             fn ssz_bytes_len(&self) -> usize {
                 match self {
                     #(
-                        #patterns => inner.ssz_bytes_len() + 1,
+                        #patterns => inner
+                            .ssz_bytes_len()
+                            .checked_add(1)
+                            .expect("encoded length must be less than usize::max_value"),
                     )*
                 }
             }
