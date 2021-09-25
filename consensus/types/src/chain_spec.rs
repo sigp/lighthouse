@@ -492,6 +492,7 @@ impl ChainSpec {
         Self {
             max_committees_per_slot: 4,
             target_committee_size: 4,
+            churn_limit_quotient: 32,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
             min_genesis_time: 1578009600,

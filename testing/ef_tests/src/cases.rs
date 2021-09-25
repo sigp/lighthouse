@@ -6,6 +6,8 @@ use types::ForkName;
 
 mod bls_aggregate_sigs;
 mod bls_aggregate_verify;
+mod bls_eth_aggregate_pubkeys;
+mod bls_eth_fast_aggregate_verify;
 mod bls_fast_aggregate_verify;
 mod bls_sign_msg;
 mod bls_verify_msg;
@@ -25,6 +27,8 @@ mod transition;
 
 pub use bls_aggregate_sigs::*;
 pub use bls_aggregate_verify::*;
+pub use bls_eth_aggregate_pubkeys::*;
+pub use bls_eth_fast_aggregate_verify::*;
 pub use bls_fast_aggregate_verify::*;
 pub use bls_sign_msg::*;
 pub use bls_verify_msg::*;
