@@ -21,3 +21,4 @@ warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 environment = { path = "../../lighthouse/environment" }
 bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }
+hex = "0.4.2"

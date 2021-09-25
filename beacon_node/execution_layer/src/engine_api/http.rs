@@ -7,7 +7,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
-use types::{execution_payload::serde_logs_bloom, EthSpec, FixedVector, Transaction, VariableList};
+use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
 
 const STATIC_ID: u32 = 1;
 const JSONRPC_VERSION: &str = "2.0";
@@ -51,7 +51,7 @@ impl HttpJsonRpc {
     ) -> Result<T, Error> {
         let body = JsonRequestBody {
             jsonrpc: JSONRPC_VERSION,
-            method: method,
+            method,
             params,
             id: STATIC_ID,
         };
@@ -72,12 +72,12 @@ impl HttpJsonRpc {
             (Some(result), None) => serde_json::from_value(result).map_err(Into::into),
             (_, Some(error)) => {
                 if error.contains(EIP155_ERROR_STR) {
-                    Err(Error::Eip155Error)
+                    Err(Error::Eip155Failure)
                 } else {
                     Err(Error::ServerMessage(error))
                 }
             }
-            (None, None) => Err(Error::NoResultOrError),
+            (None, None) => Err(Error::NoErrorOrResult),
         }
     }
 }
@@ -300,6 +300,35 @@ struct JsonForkChoiceUpdatedRequest {
     finalized_block_hash: Hash256,
 }
 
+// Serializes the `logs_bloom` field.
+pub mod serde_logs_bloom {
+    use super::*;
+    use eth2_serde_utils::hex::PrefixedHexVisitor;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S, U>(bytes: &FixedVector<u8, U>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        U: Unsigned,
+    {
+        let mut hex_string: String = "0x".to_string();
+        hex_string.push_str(&hex::encode(&bytes[..]));
+
+        serializer.serialize_str(&hex_string)
+    }
+
+    pub fn deserialize<'de, D, U>(deserializer: D) -> Result<FixedVector<u8, U>, D::Error>
+    where
+        D: Deserializer<'de>,
+        U: Unsigned,
+    {
+        let vec = deserializer.deserialize_string(PrefixedHexVisitor)?;
+
+        FixedVector::new(vec)
+            .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -414,7 +443,7 @@ mod test {
                             coinbase: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
                             receipt_root: Hash256::repeat_byte(0),
-                            logs_bloom: vec![01; 256].into(),
+                            logs_bloom: vec![1; 256].into(),
                             random: Hash256::repeat_byte(1),
                             block_number: 0,
                             gas_limit: 1,

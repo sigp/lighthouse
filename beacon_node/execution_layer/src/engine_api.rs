@@ -16,8 +16,8 @@ pub enum Error {
     JsonRpc(RpcError),
     Json(serde_json::Error),
     ServerMessage(String),
-    Eip155Error,
-    NoResultOrError,
+    Eip155Failure,
+    NoErrorOrResult,
     IsSyncing,
 }
 
