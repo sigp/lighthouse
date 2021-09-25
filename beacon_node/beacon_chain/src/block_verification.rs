@@ -1071,19 +1071,20 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                     ExecutionPayloadError::NoEth1Connection,
                 ))?;
 
-            if !eth1_chain
-                .on_payload(block.message().body().execution_payload().ok_or(
+            let payload_valid = eth1_chain
+                .on_payload(block.message().body().execution_payload().ok_or_else(|| {
                     BlockError::InconsistentFork(InconsistentFork {
                         fork_at_slot: eth2::types::ForkName::Merge,
                         object_fork: block.message().body().fork_name(),
-                    }),
-                )?)
+                    })
+                })?)
                 .map_err(|e| {
                     BlockError::ExecutionPayloadError(ExecutionPayloadError::Eth1VerificationError(
                         e,
                     ))
-                })?
-            {
+                })?;
+
+            if !payload_valid {
                 return Err(BlockError::ExecutionPayloadError(
                     ExecutionPayloadError::RejectedByExecutionEngine,
                 ));
@@ -1212,17 +1213,17 @@ fn validate_execution_payload<E: EthSpec>(
         .execution_payload()
         // TODO: this really should never error so maybe
         //       we should make this simpler..
-        .ok_or(BlockError::InconsistentFork(InconsistentFork {
-            fork_at_slot: eth2::types::ForkName::Merge,
-            object_fork: block.body().fork_name(),
-        }))?;
+        .ok_or_else(|| {
+            BlockError::InconsistentFork(InconsistentFork {
+                fork_at_slot: eth2::types::ForkName::Merge,
+                object_fork: block.body().fork_name(),
+            })
+        })?;
 
-    if is_merge_complete(state) {
-        if *execution_payload == <ExecutionPayload<E>>::default() {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::PayloadEmpty,
-            ));
-        }
+    if is_merge_complete(state) && *execution_payload == <ExecutionPayload<E>>::default() {
+        return Err(BlockError::ExecutionPayloadError(
+            ExecutionPayloadError::PayloadEmpty,
+        ));
     }
 
     // TODO: finish these
