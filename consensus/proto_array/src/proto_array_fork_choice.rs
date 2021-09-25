@@ -256,6 +256,8 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
     }
 
+    /// Only used for SSZ deserialization of the persisted fork choice during the database migration
+    /// from schema 4 to schema 5.
     pub fn from_bytes_legacy(bytes: &[u8]) -> Result<Self, String> {
         LegacySszContainer::from_ssz_bytes(bytes)
             .map(|legacy_container| {
@@ -369,6 +371,7 @@ mod test_compute_deltas {
         let unknown = Hash256::from_low_u64_be(4);
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let is_merge_complete = true;
 
         let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
@@ -378,7 +381,7 @@ mod test_compute_deltas {
             finalized_root,
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
-            true,
+            is_merge_complete,
         )
         .unwrap();
 
@@ -394,7 +397,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id.clone(),
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
-                is_merge_complete: true,
+                is_merge_complete,
             })
             .unwrap();
 
@@ -410,7 +413,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id,
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
-                is_merge_complete: true
+                is_merge_complete,
             })
             .unwrap();
 
