@@ -601,7 +601,7 @@ where
             state_root: block.state_root(),
             justified_epoch: state.current_justified_checkpoint().epoch,
             finalized_epoch: state.finalized_checkpoint().epoch,
-            is_merge_complete: is_merge_complete(&state),
+            is_merge_complete: is_merge_complete(state),
         })?;
 
         Ok(())
