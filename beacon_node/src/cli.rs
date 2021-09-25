@@ -348,6 +348,38 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
+        /*
+         * Execution Layer Integration
+         */
+        .arg(
+            Arg::with_name("merge")
+                .long("merge")
+                .help("Enable the features necessary to run merge testnets. This feature \
+                       is unstable and is for developers only.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("execution-endpoints")
+                .long("execution-endpoints")
+                .value_name("EXECUTION-ENDPOINTS")
+                .help("One or more comma-delimited server endpoints for HTTP JSON-RPC connection. \
+                       If multiple endpoints are given the endpoints are used as fallback in the \
+                       given order. Also enables the --merge flag. \
+                       If this flag is omitted and the --eth1-endpoints is supplied, those values \
+                       will be used. Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-total-difficulty-override")
+                .long("terminal-total-difficulty-override")
+                .value_name("TERMINAL_TOTAL_DIFFICULTY")
+                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal difficulty. \
+                       Failure to do so will cause your node to experience a consensus failure. \
+                       Be extremely careful with the use of this flag.")
+                .takes_value(true)
+        )
 
         /*
          * Database purging and compaction.
