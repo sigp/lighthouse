@@ -18,6 +18,8 @@ pub struct SszContainer {
     indices: Vec<(Hash256, usize)>,
 }
 
+/// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// from schema 4 to schema 5.
 #[derive(Encode, Decode)]
 pub struct LegacySszContainer {
     votes: Vec<VoteTracker>,
