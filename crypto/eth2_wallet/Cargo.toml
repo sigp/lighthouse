@@ -14,7 +14,7 @@ uuid = { version = "0.8.1", features = ["serde", "v4"] }
 rand = "0.7.3"
 eth2_keystore = { path = "../eth2_keystore" }
 eth2_key_derivation = { path = "../eth2_key_derivation" }
-tiny-bip39 = "0.8.0"
+tiny-bip39 = "0.8.1"
 
 [dev-dependencies]
 hex = "0.4.2"
