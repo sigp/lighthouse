@@ -57,6 +57,8 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub gas_used: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Hash256,
     pub block_hash: Hash256,
     #[test_random(default)]
@@ -77,6 +79,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             gas_limit: 0,
             gas_used: 0,
             timestamp: 0,
+            extra_data: VariableList::empty(),
             base_fee_per_gas: Hash256::zero(),
             block_hash: Hash256::zero(),
             transactions: VariableList::empty(),
