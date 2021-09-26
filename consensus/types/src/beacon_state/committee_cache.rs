@@ -5,19 +5,26 @@ use crate::*;
 use core::num::NonZeroUsize;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
+use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
 
 mod tests;
 
+// Define "legacy" implementations of `Option<Epoch>`, `Option<NonZeroUsize>` which use four bytes
+// for encoding the union selector.
+four_byte_option_impl!(four_byte_option_epoch, Epoch);
+four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
+
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct CommitteeCache {
+    #[ssz(with = "four_byte_option_epoch")]
     initialized_epoch: Option<Epoch>,
     shuffling: Vec<usize>,
-    shuffling_positions: Vec<Option<NonZeroUsize>>,
+    shuffling_positions: Vec<NonZeroUsizeOption>,
     committees_per_slot: u64,
     slots_per_epoch: u64,
 }
@@ -63,11 +70,11 @@ impl CommitteeCache {
             return Err(Error::TooManyValidators);
         }
 
-        let mut shuffling_positions = vec![None; state.validators().len()];
+        let mut shuffling_positions = vec![<_>::default(); state.validators().len()];
         for (i, &v) in shuffling.iter().enumerate() {
             *shuffling_positions
                 .get_mut(v)
-                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1);
+                .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1).into();
         }
 
         Ok(CommitteeCache {
@@ -258,7 +265,8 @@ impl CommitteeCache {
     pub fn shuffled_position(&self, validator_index: usize) -> Option<usize> {
         self.shuffling_positions
             .get(validator_index)?
-            .and_then(|p| Some(p.get() - 1))
+            .0
+            .map(|p| p.get() - 1)
     }
 }
 
@@ -322,5 +330,54 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
 impl arbitrary::Arbitrary for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())
+    }
+}
+
+/// This is a shim struct to ensure that we can encode a `Vec<Option<NonZeroUsize>>` an SSZ union
+/// with a four-byte selector. The SSZ specification changed from four bytes to one byte during 2021
+/// and we use this shim to avoid breaking the Lighthouse database.
+#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+struct NonZeroUsizeOption(Option<NonZeroUsize>);
+
+impl From<Option<NonZeroUsize>> for NonZeroUsizeOption {
+    fn from(opt: Option<NonZeroUsize>) -> Self {
+        Self(opt)
+    }
+}
+
+impl Encode for NonZeroUsizeOption {
+    fn is_ssz_fixed_len() -> bool {
+        four_byte_option_non_zero_usize::encode::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        four_byte_option_non_zero_usize::encode::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        four_byte_option_non_zero_usize::encode::ssz_bytes_len(&self.0)
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        four_byte_option_non_zero_usize::encode::ssz_append(&self.0, buf)
+    }
+
+    fn as_ssz_bytes(&self) -> Vec<u8> {
+        four_byte_option_non_zero_usize::encode::as_ssz_bytes(&self.0)
+    }
+}
+
+impl Decode for NonZeroUsizeOption {
+    fn is_ssz_fixed_len() -> bool {
+        four_byte_option_non_zero_usize::decode::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        four_byte_option_non_zero_usize::decode::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        four_byte_option_non_zero_usize::decode::from_ssz_bytes(bytes).map(Self)
     }
 }

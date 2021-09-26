@@ -1,6 +1,6 @@
 [package]
 name = "eth2_ssz_types"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 description = "Provides types with unique properties required for SSZ serialization and Merklization."
@@ -10,14 +10,14 @@ license = "Apache-2.0"
 name = "ssz_types"
 
 [dependencies]
-tree_hash = "0.3.0"
+tree_hash = "0.4.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.0"
-eth2_ssz = "0.3.0"
+eth2_ssz = "0.4.0"
 typenum = "1.12.0"
 arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
 
 [dev-dependencies]
 serde_json = "1.0.58"
-tree_hash_derive = "0.3.1"
+tree_hash_derive = "0.4.0"

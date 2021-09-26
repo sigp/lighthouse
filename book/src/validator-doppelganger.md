@@ -15,6 +15,10 @@ instances of a validator operating on the network before any slashable offences 
 achieves this by staying silent for 2-3 epochs after a validator is started so it can listen for
 other instances of that validator before starting to sign potentially slashable messages.
 
+> Note: Doppelganger Protection is not yet interoperable, so if it is configured on a Lighthouse
+> validator client, the client must be connected to a Lighthouse beacon node. Because Infura
+> uses Teku, Lighthouse's Doppelganger Protection cannot yet be used with Infura's Eth2 service.
+
 ## Initial Considerations
 
 There are two important initial considerations when using DP:

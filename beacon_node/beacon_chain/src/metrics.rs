@@ -200,6 +200,26 @@ lazy_static! {
     );
 
     /*
+     * Batch Attestation Processing
+     */
+    pub static ref ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_agg_signature_setup_times",
+        "Time spent on setting up for the signature verification of batch aggregate processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_agg_signature_times",
+        "Time spent on the signature verification of batch aggregate attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_unagg_signature_setup_times",
+        "Time spent on setting up for the signature verification of batch unaggregate processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_unagg_signature_times",
+        "Time spent on the signature verification of batch unaggregate attestation processing"
+    );
+
+    /*
      * Shuffling cache
      */
     pub static ref SHUFFLING_CACHE_HITS: Result<IntCounter> =

@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // fail the batches
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
-                    if batch.download_failed()? {
+                    if batch.download_failed(true)? {
                         return Err(RemoveChain::ChainFailed(id));
                     }
                     self.retry_batch_download(network, id)?;
@@ -273,7 +273,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Sends to process the batch with the given id.
+    /// Processes the batch with the given id.
     /// The batch must exist and be ready for processing
     fn process_batch(
         &mut self,
@@ -794,7 +794,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
-            if batch.download_failed()? {
+            if batch.download_failed(true)? {
                 return Err(RemoveChain::ChainFailed(batch_id));
             }
             self.retry_batch_download(network, batch_id)
@@ -837,7 +837,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Requests the batch asigned to the given id from a given peer.
+    /// Requests the batch assigned to the given id from a given peer.
     pub fn send_batch(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
@@ -883,7 +883,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.peers
                         .get_mut(&peer)
                         .map(|request| request.remove(&batch_id));
-                    if batch.download_failed()? {
+                    if batch.download_failed(true)? {
                         return Err(RemoveChain::ChainFailed(batch_id));
                     } else {
                         return self.retry_batch_download(network, batch_id);
@@ -990,7 +990,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // this batch could have been included already being an optimistic batch
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
-                // this batch doesn't need downlading, let this same function decide the next batch
+                // this batch doesn't need downloading, let this same function decide the next batch
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 self.include_next_batch()
             }

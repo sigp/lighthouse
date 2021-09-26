@@ -183,7 +183,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Checks if the status is banned.
     pub fn is_banned(&self) -> bool {
-        matches!(self.connection_status, PeerConnectionStatus::Banned { .. })
+        matches!(self.score.state(), ScoreState::Banned)
     }
 
     /// Checks if the status is disconnected.
@@ -208,7 +208,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Disconnected and sets the last seen instant to now. Returns None if
     /// no changes were made. Returns Some(bool) where the bool represents if peer is to now be
-    /// baned
+    /// banned.
     pub fn notify_disconnect(&mut self) -> Option<bool> {
         match self.connection_status {
             Banned { .. } | Disconnected { .. } => None,
@@ -233,17 +233,18 @@ impl<T: EthSpec> PeerInfo<T> {
         self.connection_status = Disconnecting { to_ban }
     }
 
-    /// Modifies the status to Banned
-    pub fn ban(&mut self) {
-        self.connection_status = Banned {
-            since: Instant::now(),
-        };
-    }
-
-    /// The score system has unbanned the peer. Update the connection status
-    pub fn unban(&mut self) {
-        if let PeerConnectionStatus::Banned { since, .. } = self.connection_status {
-            self.connection_status = PeerConnectionStatus::Disconnected { since };
+    /// Modifies the status to banned or unbanned based on the underlying score.
+    pub fn update_state(&mut self) {
+        match (&self.connection_status, self.score.state()) {
+            (Disconnected { .. } | Unknown, ScoreState::Banned) => {
+                self.connection_status = Banned {
+                    since: Instant::now(),
+                }
+            }
+            (Banned { since }, ScoreState::Healthy | ScoreState::Disconnected) => {
+                self.connection_status = Disconnected { since: *since }
+            }
+            (_, _) => {}
         }
     }
 
@@ -358,7 +359,6 @@ pub enum PeerConnectionStatus {
         /// last time the peer was connected or discovered.
         since: Instant,
     },
-
     /// The peer has been banned and is disconnected.
     Banned {
         /// moment when the peer was banned.

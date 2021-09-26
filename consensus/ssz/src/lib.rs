@@ -36,11 +36,15 @@
 
 mod decode;
 mod encode;
+pub mod legacy;
+mod union_selector;
 
 pub use decode::{
-    impls::decode_list_of_variable_length_items, Decode, DecodeError, SszDecoder, SszDecoderBuilder,
+    impls::decode_list_of_variable_length_items, read_offset, split_union_bytes, Decode,
+    DecodeError, SszDecoder, SszDecoderBuilder,
 };
-pub use encode::{Encode, SszEncoder};
+pub use encode::{encode_length, Encode, SszEncoder};
+pub use union_selector::UnionSelector;
 
 /// The number of bytes used to represent an offset.
 pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
@@ -49,6 +53,12 @@ pub const BYTES_PER_LENGTH_OFFSET: usize = 4;
 pub const MAX_LENGTH_VALUE: usize = (std::u32::MAX >> (8 * (4 - BYTES_PER_LENGTH_OFFSET))) as usize;
 #[cfg(target_pointer_width = "64")]
 pub const MAX_LENGTH_VALUE: usize = (std::u64::MAX >> (8 * (8 - BYTES_PER_LENGTH_OFFSET))) as usize;
+
+/// The number of bytes used to indicate the variant of a union.
+pub const BYTES_PER_UNION_SELECTOR: usize = 1;
+/// The highest possible union selector value (higher values are reserved for backwards compatible
+/// extensions).
+pub const MAX_UNION_SELECTOR: u8 = 127;
 
 /// Convenience function to SSZ encode an object supporting ssz::Encode.
 ///

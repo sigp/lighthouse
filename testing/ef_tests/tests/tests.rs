@@ -83,6 +83,12 @@ fn sanity_slots() {
 }
 
 #[test]
+fn random() {
+    RandomHandler::<MinimalEthSpec>::default().run();
+    RandomHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_aggregate() {
     BlsAggregateSigsHandler::default().run();
@@ -110,6 +116,18 @@ fn bls_aggregate_verify() {
 #[cfg(not(feature = "fake_crypto"))]
 fn bls_fast_aggregate_verify() {
     BlsFastAggregateVerifyHandler::default().run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_eth_aggregate_pubkeys() {
+    BlsEthAggregatePubkeysHandler::default().run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
+fn bls_eth_fast_aggregate_verify() {
+    BlsEthFastAggregateVerifyHandler::default().run();
 }
 
 /// As for `ssz_static_test_no_run` (below), but also executes the function as a test.
@@ -177,7 +195,6 @@ mod ssz_static {
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(beacon_state, SszStaticTHCHandler, BeaconState<_>);
     ssz_static_test!(checkpoint, Checkpoint);
-    // FIXME(altair): add ContributionAndProof
     ssz_static_test!(deposit, Deposit);
     ssz_static_test!(deposit_data, DepositData);
     ssz_static_test!(deposit_message, DepositMessage);
@@ -197,10 +214,8 @@ mod ssz_static {
         SignedBeaconBlock<_>
     );
     ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
-    // FIXME(altair): add SignedContributionAndProof
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
-    // FIXME(altair): add SyncCommitteeContribution/Signature/SigningData
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
 

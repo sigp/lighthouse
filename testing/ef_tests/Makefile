@@ -1,8 +1,8 @@
-TESTS_TAG := v1.1.0-beta.2
+TESTS_TAG := v1.1.0-beta.4
 TESTS = general minimal mainnet
 TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 
-REPO_NAME := eth2.0-spec-tests
+REPO_NAME := consensus-spec-tests
 OUTPUT_DIR := ./$(REPO_NAME)
 
 BASE_URL := https://github.com/ethereum/$(REPO_NAME)/releases/download/$(TESTS_TAG)

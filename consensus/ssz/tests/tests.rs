@@ -292,68 +292,6 @@ mod round_trip {
         );
     }
 
-    #[derive(Debug, PartialEq, Encode, Decode)]
-    struct TwoVariableLenOptions {
-        a: u16,
-        b: Option<u16>,
-        c: Option<Vec<u16>>,
-        d: Option<Vec<u16>>,
-    }
-
-    #[test]
-    #[allow(clippy::zero_prefixed_literal)]
-    fn two_variable_len_options_encoding() {
-        let s = TwoVariableLenOptions {
-            a: 42,
-            b: None,
-            c: Some(vec![0]),
-            d: None,
-        };
-
-        let bytes = vec![
-            //  1   2   3   4   5   6   7   8   9   10  11  12  13  14  15  16  17  18  19  20  21
-            //      | option<u16>   | offset        | offset        | option<u16    | 1st list
-            42, 00, 14, 00, 00, 00, 18, 00, 00, 00, 24, 00, 00, 00, 00, 00, 00, 00, 01, 00, 00, 00,
-            //  23  24  25  26  27
-            //      | 2nd list
-            00, 00, 00, 00, 00, 00,
-        ];
-
-        assert_eq!(s.as_ssz_bytes(), bytes);
-    }
-
-    #[test]
-    fn two_variable_len_options_round_trip() {
-        let vec: Vec<TwoVariableLenOptions> = vec![
-            TwoVariableLenOptions {
-                a: 42,
-                b: Some(12),
-                c: Some(vec![0]),
-                d: Some(vec![1]),
-            },
-            TwoVariableLenOptions {
-                a: 42,
-                b: Some(12),
-                c: Some(vec![0]),
-                d: None,
-            },
-            TwoVariableLenOptions {
-                a: 42,
-                b: None,
-                c: Some(vec![0]),
-                d: None,
-            },
-            TwoVariableLenOptions {
-                a: 42,
-                b: None,
-                c: None,
-                d: None,
-            },
-        ];
-
-        round_trip(vec);
-    }
-
     #[test]
     fn tuple_u8_u16() {
         let vec: Vec<(u8, u16)> = vec![
@@ -382,5 +320,147 @@ mod round_trip {
         ];
 
         round_trip(vec);
+    }
+}
+
+mod derive_macro {
+    use ssz::{Decode, Encode};
+    use ssz_derive::{Decode, Encode};
+    use std::fmt::Debug;
+
+    fn assert_encode<T: Encode>(item: &T, bytes: &[u8]) {
+        assert_eq!(item.as_ssz_bytes(), bytes);
+    }
+
+    fn assert_encode_decode<T: Encode + Decode + PartialEq + Debug>(item: &T, bytes: &[u8]) {
+        assert_encode(item, bytes);
+        assert_eq!(T::from_ssz_bytes(bytes).unwrap(), *item);
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(enum_behaviour = "union")]
+    enum TwoFixedUnion {
+        U8(u8),
+        U16(u16),
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    struct TwoFixedUnionStruct {
+        a: TwoFixedUnion,
+    }
+
+    #[test]
+    fn two_fixed_union() {
+        let eight = TwoFixedUnion::U8(1);
+        let sixteen = TwoFixedUnion::U16(1);
+
+        assert_encode_decode(&eight, &[0, 1]);
+        assert_encode_decode(&sixteen, &[1, 1, 0]);
+
+        assert_encode_decode(&TwoFixedUnionStruct { a: eight }, &[4, 0, 0, 0, 0, 1]);
+        assert_encode_decode(&TwoFixedUnionStruct { a: sixteen }, &[4, 0, 0, 0, 1, 1, 0]);
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    struct VariableA {
+        a: u8,
+        b: Vec<u8>,
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    struct VariableB {
+        a: Vec<u8>,
+        b: u8,
+    }
+
+    #[derive(PartialEq, Debug, Encode)]
+    #[ssz(enum_behaviour = "transparent")]
+    enum TwoVariableTrans {
+        A(VariableA),
+        B(VariableB),
+    }
+
+    #[derive(PartialEq, Debug, Encode)]
+    struct TwoVariableTransStruct {
+        a: TwoVariableTrans,
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(enum_behaviour = "union")]
+    enum TwoVariableUnion {
+        A(VariableA),
+        B(VariableB),
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    struct TwoVariableUnionStruct {
+        a: TwoVariableUnion,
+    }
+
+    #[test]
+    fn two_variable_trans() {
+        let trans_a = TwoVariableTrans::A(VariableA {
+            a: 1,
+            b: vec![2, 3],
+        });
+        let trans_b = TwoVariableTrans::B(VariableB {
+            a: vec![1, 2],
+            b: 3,
+        });
+
+        assert_encode(&trans_a, &[1, 5, 0, 0, 0, 2, 3]);
+        assert_encode(&trans_b, &[5, 0, 0, 0, 3, 1, 2]);
+
+        assert_encode(
+            &TwoVariableTransStruct { a: trans_a },
+            &[4, 0, 0, 0, 1, 5, 0, 0, 0, 2, 3],
+        );
+        assert_encode(
+            &TwoVariableTransStruct { a: trans_b },
+            &[4, 0, 0, 0, 5, 0, 0, 0, 3, 1, 2],
+        );
+    }
+
+    #[test]
+    fn two_variable_union() {
+        let union_a = TwoVariableUnion::A(VariableA {
+            a: 1,
+            b: vec![2, 3],
+        });
+        let union_b = TwoVariableUnion::B(VariableB {
+            a: vec![1, 2],
+            b: 3,
+        });
+
+        assert_encode_decode(&union_a, &[0, 1, 5, 0, 0, 0, 2, 3]);
+        assert_encode_decode(&union_b, &[1, 5, 0, 0, 0, 3, 1, 2]);
+
+        assert_encode_decode(
+            &TwoVariableUnionStruct { a: union_a },
+            &[4, 0, 0, 0, 0, 1, 5, 0, 0, 0, 2, 3],
+        );
+        assert_encode_decode(
+            &TwoVariableUnionStruct { a: union_b },
+            &[4, 0, 0, 0, 1, 5, 0, 0, 0, 3, 1, 2],
+        );
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(enum_behaviour = "union")]
+    enum TwoVecUnion {
+        A(Vec<u8>),
+        B(Vec<u8>),
+    }
+
+    #[test]
+    fn two_vec_union() {
+        assert_encode_decode(&TwoVecUnion::A(vec![]), &[0]);
+        assert_encode_decode(&TwoVecUnion::B(vec![]), &[1]);
+
+        assert_encode_decode(&TwoVecUnion::A(vec![0]), &[0, 0]);
+        assert_encode_decode(&TwoVecUnion::B(vec![0]), &[1, 0]);
+
+        assert_encode_decode(&TwoVecUnion::A(vec![0, 1]), &[0, 0, 1]);
+        assert_encode_decode(&TwoVecUnion::B(vec![0, 1]), &[1, 0, 1]);
     }
 }

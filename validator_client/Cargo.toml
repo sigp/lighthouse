@@ -12,7 +12,7 @@ path = "src/lib.rs"
 tokio = { version = "1.10.0", features = ["time", "rt-multi-thread", "macros"] }
 
 [dependencies]
-tree_hash = "0.3.0"
+tree_hash = "0.4.0"
 clap = "2.33.3"
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
