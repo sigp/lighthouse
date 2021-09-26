@@ -29,6 +29,7 @@ bs58 = "0.4.0"
 futures = "0.3.8"
 
 [dev-dependencies]
+store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.4.0"
 sensitive_url = { path = "../../common/sensitive_url" }

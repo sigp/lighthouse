@@ -2631,6 +2631,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "state_processing",
+ "store",
  "tokio",
  "tokio-stream",
  "tree_hash",
