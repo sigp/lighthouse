@@ -91,6 +91,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type BytesPerLogsBloom: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type GasLimitDenominator: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -262,6 +263,7 @@ impl EthSpec for MainnetEthSpec {
     type BytesPerLogsBloom = U256;
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
+    type MaxExtraDataBytes = U32;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -308,7 +310,8 @@ impl EthSpec for MinimalEthSpec {
         MaxTransactionsPerPayload,
         BytesPerLogsBloom,
         GasLimitDenominator,
-        MinGasLimit
+        MinGasLimit,
+        MaxExtraDataBytes
     });
 
     fn default_spec() -> ChainSpec {
