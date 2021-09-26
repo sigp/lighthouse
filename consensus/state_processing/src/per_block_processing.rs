@@ -135,6 +135,17 @@ pub fn per_block_processing<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
+    // The call to the `process_execution_payload` must happen before the call to the
+    // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
+    // previous block.
+    if is_execution_enabled(state, block.body()) {
+        let payload = block
+            .body()
+            .execution_payload()
+            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        process_execution_payload(state, payload, spec)?;
+    }
+
     process_randao(state, block, verify_randao, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
@@ -147,14 +158,6 @@ pub fn per_block_processing<T: EthSpec>(
             verify_signatures,
             spec,
         )?;
-    }
-
-    if is_execution_enabled(state, block.body()) {
-        let payload = block
-            .body()
-            .execution_payload()
-            .ok_or(BlockProcessingError::IncorrectStateType)?;
-        process_execution_payload(state, payload, spec)?;
     }
 
     Ok(())
@@ -353,13 +356,6 @@ pub fn process_execution_payload<T: EthSpec>(
             }
         );
         block_verify!(
-            payload.random == *state.get_randao_mix(state.current_epoch())?,
-            BlockProcessingError::ExecutionRandaoMismatch {
-                expected: *state.get_randao_mix(state.current_epoch())?,
-                found: payload.random,
-            }
-        );
-        block_verify!(
             is_valid_gas_limit(payload, state.latest_execution_payload_header()?)?,
             BlockProcessingError::ExecutionInvalidGasLimit {
                 used: payload.gas_used,
@@ -367,6 +363,13 @@ pub fn process_execution_payload<T: EthSpec>(
             }
         );
     }
+    block_verify!(
+        payload.random == *state.get_randao_mix(state.current_epoch())?,
+        BlockProcessingError::ExecutionRandaoMismatch {
+            expected: *state.get_randao_mix(state.current_epoch())?,
+            found: payload.random,
+        }
+    );
 
     let timestamp = compute_timestamp_at_slot(state, spec)?;
     block_verify!(
@@ -388,6 +391,7 @@ pub fn process_execution_payload<T: EthSpec>(
         gas_limit: payload.gas_limit,
         gas_used: payload.gas_used,
         timestamp: payload.timestamp,
+        extra_data: payload.extra_data.clone(),
         base_fee_per_gas: payload.base_fee_per_gas,
         block_hash: payload.block_hash,
         transactions_root: payload.transactions.tree_hash_root(),
