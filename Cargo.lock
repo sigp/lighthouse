@@ -875,6 +875,7 @@ dependencies = [
  "monitoring_api",
  "network",
  "parking_lot",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "slasher",
@@ -1489,6 +1490,7 @@ name = "ef_tests"
 version = "0.2.0"
 dependencies = [
  "bls",
+ "cached_tree_hash",
  "compare_fields",
  "compare_fields_derive",
  "derivative",
@@ -2988,8 +2990,10 @@ dependencies = [
  "clap_utils",
  "deposit_contract",
  "directory",
+ "env_logger 0.9.0",
  "environment",
  "eth1_test_rig",
+ "eth2",
  "eth2_libp2p",
  "eth2_network_config",
  "eth2_ssz",
@@ -6493,6 +6497,7 @@ dependencies = [
  "ethereum-types 0.11.0",
  "rand 0.7.3",
  "smallvec",
+ "tree_hash_derive",
  "types",
 ]
 
