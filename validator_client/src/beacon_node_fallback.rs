@@ -244,17 +244,35 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             );
         }
 
-        if *spec == beacon_node_spec {
-            Ok(())
-        } else {
+        if beacon_node_spec.genesis_fork_version != spec.genesis_fork_version {
             error!(
                 log,
-                "The beacon node is using a different Eth2 specification to this validator client. \
-                See the --network command.";
+                "Beacon node is configured for a different network";
                 "endpoint" => %self.beacon_node,
+                "bn_genesis_fork" => ?beacon_node_spec.genesis_fork_version,
+                "our_genesis_fork" => ?spec.genesis_fork_version,
             );
-            Err(CandidateError::Incompatible)
+            return Err(CandidateError::Incompatible);
+        } else if *spec != beacon_node_spec {
+            warn!(
+                log,
+                "Beacon node config does not match exactly";
+                "endpoint" => %self.beacon_node,
+                "advice" => "check that the BN is updated and configured for any upcoming forks",
+            );
+            debug!(
+                log,
+                "Beacon node config";
+                "config" => ?beacon_node_spec,
+            );
+            debug!(
+                log,
+                "Our config";
+                "config" => ?spec,
+            );
         }
+
+        Ok(())
     }
 
     /// Checks if the beacon node is synced.
