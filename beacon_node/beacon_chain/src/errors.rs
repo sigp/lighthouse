@@ -134,6 +134,8 @@ pub enum BeaconChainError {
         new_slot: Slot,
     },
     AltairForkDisabled,
+    ExecutionLayerMissing,
+    ExecutionForkChoiceUpdateFailed(execution_layer::Error),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

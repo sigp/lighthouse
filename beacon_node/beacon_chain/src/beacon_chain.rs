@@ -3037,6 +3037,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
         let head_proposer_index = new_head.beacon_block.message().proposer_index();
 
+        // Used later for the execution engine.
+        let new_head_execution_block_hash = new_head
+            .beacon_block
+            .message()
+            .body()
+            .execution_payload()
+            .map(|ep| ep.block_hash);
+
         drop(lag_timer);
 
         // Update the snapshot that stores the head of the chain at the time it received the
@@ -3174,7 +3182,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // If this is a post-merge block, update the execution layer.
+        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash {
+            let execution_layer = self
+                .execution_layer
+                .clone()
+                .ok_or(Error::ExecutionLayerMissing)?;
+            let store = self.store.clone();
+            let log = self.log.clone();
+
+            // Spawn the update task, without waiting for it to complete.
+            execution_layer.spawn(
+                move |execution_layer| async move {
+                    if let Err(e) = Self::update_execution_engine_forkchoice(
+                        execution_layer,
+                        store,
+                        new_finalized_checkpoint.root,
+                        new_head_execution_block_hash,
+                    )
+                    .await
+                    {
+                        error!(
+                            log,
+                            "Failed to update execution head";
+                            "error" => ?e
+                        );
+                    }
+                },
+                "update_execution_engine_forkchoice",
+            )
+        }
+
         Ok(())
+    }
+
+    pub async fn update_execution_engine_forkchoice(
+        execution_layer: ExecutionLayer,
+        store: BeaconStore<T>,
+        finalized_beacon_block_root: Hash256,
+        head_execution_block_hash: Hash256,
+    ) -> Result<(), Error> {
+        // Loading the finalized block from the store is not ideal. Perhaps it would be better to
+        // store it on fork-choice so we can do a lookup without hitting the database.
+        //
+        // See: https://github.com/sigp/lighthouse/pull/2627#issuecomment-927537245
+        let finalized_block = store
+            .get_block(&finalized_beacon_block_root)?
+            .ok_or(Error::MissingBeaconBlock(finalized_beacon_block_root))?;
+
+        let finalized_execution_block_hash = finalized_block
+            .message()
+            .body()
+            .execution_payload()
+            .map(|ep| ep.block_hash)
+            .unwrap_or_else(Hash256::zero);
+
+        execution_layer
+            .forkchoice_updated(head_execution_block_hash, finalized_execution_block_hash)
+            .await
+            .map_err(Error::ExecutionForkChoiceUpdateFailed)
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.

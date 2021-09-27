@@ -74,23 +74,36 @@ impl ExecutionLayer {
         &self.inner.engines
     }
 
+    fn executor(&self) -> &TaskExecutor {
+        &self.inner.executor
+    }
+
     fn log(&self) -> &Logger {
         &self.inner.log
     }
 
     /// Convenience function to allow calling async functions in a non-async context.
-    pub fn block_on<'a, T, U, V>(&'a self, future: T) -> Result<V, Error>
+    pub fn block_on<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
     where
         T: Fn(&'a Self) -> U,
         U: Future<Output = Result<V, Error>>,
     {
         let runtime = self
-            .inner
-            .executor
+            .executor()
             .runtime()
             .upgrade()
             .ok_or(Error::ShuttingDown)?;
-        runtime.block_on(future(self))
+        // TODO(paul): respect the shutdown signal.
+        runtime.block_on(generate_future(self))
+    }
+
+    /// Convenience function to allow calling spawning a task without waiting for the result.
+    pub fn spawn<T, U>(&self, generate_future: T, name: &'static str)
+    where
+        T: FnOnce(Self) -> U,
+        U: Future<Output = ()> + Send + 'static,
+    {
+        self.executor().spawn(generate_future(self.clone()), name);
     }
 
     pub async fn prepare_payload(
@@ -166,6 +179,32 @@ impl ExecutionLayer {
         let broadcast_results = self
             .engines()
             .broadcast(|engine| engine.api.consensus_validated(block_hash, status))
+            .await;
+
+        if broadcast_results.iter().any(Result::is_ok) {
+            Ok(())
+        } else {
+            Err(Error::EngineErrors(
+                broadcast_results
+                    .into_iter()
+                    .filter_map(Result::err)
+                    .collect(),
+            ))
+        }
+    }
+
+    pub async fn forkchoice_updated(
+        &self,
+        head_block_hash: Hash256,
+        finalized_block_hash: Hash256,
+    ) -> Result<(), Error> {
+        let broadcast_results = self
+            .engines()
+            .broadcast(|engine| {
+                engine
+                    .api
+                    .forkchoice_updated(head_block_hash, finalized_block_hash)
+            })
             .await;
 
         if broadcast_results.iter().any(Result::is_ok) {
