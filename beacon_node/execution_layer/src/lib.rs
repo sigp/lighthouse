@@ -1,10 +1,12 @@
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines};
+use lru::LruCache;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, Logger};
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tokio::sync::{Mutex, MutexGuard};
 
 pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
 pub use execute_payload_handle::ExecutePayloadHandle;
@@ -13,6 +15,8 @@ mod engine_api;
 mod engines;
 mod execute_payload_handle;
 pub mod test_utils;
+
+const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 
 #[derive(Debug)]
 pub enum Error {
@@ -33,6 +37,7 @@ struct Inner {
     engines: Engines<HttpJsonRpc>,
     terminal_total_difficulty: Uint256,
     fee_recipient: Option<Address>,
+    execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -66,6 +71,7 @@ impl ExecutionLayer {
             },
             terminal_total_difficulty,
             fee_recipient,
+            execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             log,
         };
@@ -93,6 +99,10 @@ impl ExecutionLayer {
         self.inner
             .fee_recipient
             .ok_or(Error::FeeRecipientUnspecified)
+    }
+
+    async fn execution_blocks(&self) -> MutexGuard<'_, LruCache<Hash256, ExecutionBlock>> {
+        self.inner.execution_blocks.lock().await
     }
 
     fn log(&self) -> &Logger {
@@ -266,13 +276,27 @@ impl ExecutionLayer {
                     .api
                     .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                     .await?;
+                self.execution_blocks().await.put(block.parent_hash, block);
 
                 loop {
                     if block.total_difficulty >= self.terminal_total_difficulty() {
                         ttd_exceeding_block = Some(block.block_hash);
 
-                        // TODO(paul): add a LRU cache for these lookups.
-                        block = engine.api.get_block_by_hash(block.parent_hash).await?;
+                        let cached = self
+                            .execution_blocks()
+                            .await
+                            .get(&block.parent_hash)
+                            .copied();
+                        if let Some(cached_block) = cached {
+                            // The block was in the cache, no need to request it from the execution
+                            // engine.
+                            block = cached_block;
+                        } else {
+                            // The block was *not* in the cache, request it from the execution
+                            // engine and cache it for future reference.
+                            block = engine.api.get_block_by_hash(block.parent_hash).await?;
+                            self.execution_blocks().await.put(block.parent_hash, block);
+                        }
                     } else {
                         return Ok::<_, ApiError>(ttd_exceeding_block);
                     }

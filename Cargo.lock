@@ -2075,6 +2075,7 @@ dependencies = [
  "eth2_ssz_types",
  "futures",
  "hex",
+ "lru",
  "reqwest",
  "sensitive_url",
  "serde",

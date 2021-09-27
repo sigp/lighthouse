@@ -23,3 +23,4 @@ bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }
 hex = "0.4.2"
 eth2_ssz_types = { path = "../../consensus/ssz_types"}
+lru = "0.6.0"
