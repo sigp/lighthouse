@@ -1095,7 +1095,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                         object_fork: block.message().body().fork_name(),
                     })?;
 
-            let payload_status = execution_layer
+            let (payload_status, payload_handle) = execution_layer
                 .block_on(|execution_layer| execution_layer.execute_payload(execution_payload))
                 .map_err(ExecutionPayloadError::from)?;
 

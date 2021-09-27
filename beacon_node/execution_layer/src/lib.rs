@@ -3,12 +3,15 @@ use engines::{Engine, EngineError, Engines};
 use sensitive_url::SensitiveUrl;
 use slog::{crit, Logger};
 use std::future::Future;
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 
 pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
+pub use execute_payload_handle::ExecutePayloadHandle;
 
 mod engine_api;
 mod engines;
+mod execute_payload_handle;
 pub mod test_utils;
 
 #[derive(Debug)]
@@ -25,11 +28,15 @@ impl From<ApiError> for Error {
     }
 }
 
-pub struct ExecutionLayer {
+struct Inner {
     engines: Engines<HttpJsonRpc>,
-    /// Allows callers to execute async tasks in a non-async environment, if they desire.
-    pub executor: TaskExecutor,
+    executor: TaskExecutor,
     log: Logger,
+}
+
+#[derive(Clone)]
+pub struct ExecutionLayer {
+    inner: Arc<Inner>,
 }
 
 impl ExecutionLayer {
@@ -47,18 +54,30 @@ impl ExecutionLayer {
             })
             .collect::<Result<_, ApiError>>()?;
 
-        Ok(Self {
+        let inner = Inner {
             engines: Engines {
                 engines,
                 log: log.clone(),
             },
             executor,
             log,
+        };
+
+        Ok(Self {
+            inner: Arc::new(inner),
         })
     }
 }
 
 impl ExecutionLayer {
+    fn engines(&self) -> &Engines<HttpJsonRpc> {
+        &self.inner.engines
+    }
+
+    fn log(&self) -> &Logger {
+        &self.inner.log
+    }
+
     /// Convenience function to allow calling async functions in a non-async context.
     pub fn block_on<'a, T, U, V>(&'a self, future: T) -> Result<V, Error>
     where
@@ -66,6 +85,7 @@ impl ExecutionLayer {
         U: Future<Output = Result<V, Error>>,
     {
         let runtime = self
+            .inner
             .executor
             .runtime()
             .upgrade()
@@ -80,7 +100,7 @@ impl ExecutionLayer {
         random: Hash256,
         fee_recipient: Address,
     ) -> Result<PayloadId, Error> {
-        self.engines
+        self.engines()
             .first_success(|engine| {
                 engine
                     .api
@@ -93,9 +113,9 @@ impl ExecutionLayer {
     pub async fn execute_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
-    ) -> Result<ExecutePayloadResponse, Error> {
+    ) -> Result<(ExecutePayloadResponse, ExecutePayloadHandle), Error> {
         let broadcast_results = self
-            .engines
+            .engines()
             .broadcast(|engine| engine.api.execute_payload(execution_payload.clone()))
             .await;
 
@@ -114,20 +134,27 @@ impl ExecutionLayer {
 
         if valid > 0 && invalid > 0 {
             crit!(
-                self.log,
+                self.log(),
                 "Consensus failure between execution nodes";
             );
         }
 
-        if valid > 0 {
-            Ok(ExecutePayloadResponse::Valid)
+        let execute_payload_response = if valid > 0 {
+            ExecutePayloadResponse::Valid
         } else if invalid > 0 {
-            Ok(ExecutePayloadResponse::Invalid)
+            ExecutePayloadResponse::Invalid
         } else if syncing > 0 {
-            Ok(ExecutePayloadResponse::Syncing)
+            ExecutePayloadResponse::Syncing
         } else {
-            Err(Error::EngineErrors(errors))
-        }
+            return Err(Error::EngineErrors(errors));
+        };
+
+        let execute_payload_handle = ExecutePayloadHandle {
+            block_hash: execution_payload.block_hash,
+            execution_layer: self.clone(),
+        };
+
+        Ok((execute_payload_response, execute_payload_handle))
     }
 
     pub async fn consensus_validated(
@@ -136,7 +163,7 @@ impl ExecutionLayer {
         status: ConsensusStatus,
     ) -> Result<(), Error> {
         let broadcast_results = self
-            .engines
+            .engines()
             .broadcast(|engine| engine.api.consensus_validated(block_hash, status))
             .await;
 
