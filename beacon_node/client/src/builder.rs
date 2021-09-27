@@ -147,10 +147,15 @@ where
             None
         };
 
+        let terminal_total_difficulty = config
+            .terminal_total_difficulty_override
+            .unwrap_or(spec.terminal_total_difficulty);
+
         let execution_layer = if let Some(execution_endpoints) = config.execution_endpoints {
             let context = runtime_context.service_context("exec".into());
             let execution_layer = ExecutionLayer::from_urls(
                 execution_endpoints,
+                terminal_total_difficulty,
                 context.executor.clone(),
                 context.log().clone(),
             )

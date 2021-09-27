@@ -224,7 +224,7 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    if let Some(total_terminal_difficulty) =
+    if let Some(terminal_total_difficulty) =
         clap_utils::parse_optional(cli_args, "total-terminal-difficulty-override")?
     {
         if client_config.execution_endpoints.is_none() {
@@ -234,7 +234,7 @@ pub fn get_config<E: EthSpec>(
             );
         }
 
-        client_config.total_terminal_difficulty_override = Some(total_terminal_difficulty);
+        client_config.terminal_total_difficulty_override = Some(terminal_total_difficulty);
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
