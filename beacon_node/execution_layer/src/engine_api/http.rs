@@ -419,6 +419,42 @@ mod test {
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     #[tokio::test]
+    async fn get_block_by_number_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ETH_GET_BLOCK_BY_NUMBER,
+                    "params": ["latest"]
+                }),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_block_by_hash_request() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client.get_block_by_hash(Hash256::repeat_byte(1)).await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ETH_GET_BLOCK_BY_HASH,
+                    "params": [HASH_01]
+                }),
+            )
+            .await;
+    }
+
+    #[tokio::test]
     async fn prepare_payload_request() {
         Tester::new()
             .assert_request_equals(
