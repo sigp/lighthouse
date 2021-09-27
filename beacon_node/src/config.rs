@@ -237,6 +237,8 @@ pub fn get_config<E: EthSpec>(
         client_config.terminal_total_difficulty_override = Some(terminal_total_difficulty);
     }
 
+    client_config.fee_recipient = clap_utils::parse_optional(cli_args, "fee-recipient")?;
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }

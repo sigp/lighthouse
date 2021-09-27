@@ -60,7 +60,9 @@ use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
-    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::{
+        compute_timestamp_at_slot, errors::AttestationValidationError, is_merge_complete,
+    },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
@@ -2790,12 +2792,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }))
         };
         // Closure to fetch a sync aggregate in cases where it is required.
-        let get_execution_payload = || -> Result<ExecutionPayload<_>, BlockProductionError> {
-            // TODO: actually get the payload from eth1 node..
-            Ok(ExecutionPayload::default())
+        let get_execution_payload = |latest_execution_payload_header: &ExecutionPayloadHeader<
+            T::EthSpec,
+        >|
+         -> Result<ExecutionPayload<_>, BlockProductionError> {
+            let execution_layer = self
+                .execution_layer
+                .as_ref()
+                .ok_or(BlockProductionError::ExecutionLayerMissing)?;
+
+            let parent_hash;
+            if !is_merge_complete(&state) {
+                let terminal_pow_block_hash = execution_layer
+                    .block_on(|execution_layer| {
+                        execution_layer.get_pow_block_hash_at_total_difficulty()
+                    })
+                    .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
+
+                if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
+                    parent_hash = terminal_pow_block_hash;
+                } else {
+                    return Ok(<_>::default());
+                }
+            } else {
+                parent_hash = latest_execution_payload_header.block_hash;
+            }
+
+            let timestamp =
+                compute_timestamp_at_slot(&state, &self.spec).map_err(BeaconStateError::from)?;
+            let random = *state.get_randao_mix(state.current_epoch())?;
+
+            execution_layer
+                .block_on(|execution_layer| {
+                    execution_layer.get_payload(parent_hash, timestamp, random)
+                })
+                .map_err(BlockProductionError::GetPayloadFailed)
         };
 
-        let inner_block = match state {
+        let inner_block = match &state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
                 slot,
                 proposer_index,
@@ -2832,9 +2866,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
-            BeaconState::Merge(_) => {
+            BeaconState::Merge(state) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload()?;
+                let execution_payload =
+                    get_execution_payload(&state.latest_execution_payload_header)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,

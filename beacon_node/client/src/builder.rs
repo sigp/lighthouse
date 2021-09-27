@@ -156,6 +156,7 @@ where
             let execution_layer = ExecutionLayer::from_urls(
                 execution_endpoints,
                 terminal_total_difficulty,
+                config.fee_recipient,
                 context.executor.clone(),
                 context.log().clone(),
             )

@@ -177,6 +177,9 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
+    ExecutionLayerMissing,
+    TerminalPoWBlockLookupFailed(execution_layer::Error),
+    GetPayloadFailed(execution_layer::Error),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

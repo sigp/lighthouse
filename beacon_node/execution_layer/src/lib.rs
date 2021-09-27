@@ -20,6 +20,7 @@ pub enum Error {
     EngineErrors(Vec<EngineError>),
     NotSynced,
     ShuttingDown,
+    FeeRecipientUnspecified,
 }
 
 impl From<ApiError> for Error {
@@ -31,6 +32,7 @@ impl From<ApiError> for Error {
 struct Inner {
     engines: Engines<HttpJsonRpc>,
     terminal_total_difficulty: Uint256,
+    fee_recipient: Option<Address>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -44,6 +46,7 @@ impl ExecutionLayer {
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
         terminal_total_difficulty: Uint256,
+        fee_recipient: Option<Address>,
         executor: TaskExecutor,
         log: Logger,
     ) -> Result<Self, Error> {
@@ -62,6 +65,7 @@ impl ExecutionLayer {
                 log: log.clone(),
             },
             terminal_total_difficulty,
+            fee_recipient,
             executor,
             log,
         };
@@ -83,6 +87,12 @@ impl ExecutionLayer {
 
     fn terminal_total_difficulty(&self) -> Uint256 {
         self.inner.terminal_total_difficulty
+    }
+
+    fn fee_recipient(&self) -> Result<Address, Error> {
+        self.inner
+            .fee_recipient
+            .ok_or(Error::FeeRecipientUnspecified)
     }
 
     fn log(&self) -> &Logger {
@@ -118,13 +128,35 @@ impl ExecutionLayer {
         parent_hash: Hash256,
         timestamp: u64,
         random: Hash256,
-        fee_recipient: Address,
     ) -> Result<PayloadId, Error> {
+        let fee_recipient = self.fee_recipient()?;
         self.engines()
             .first_success(|engine| {
+                // TODO(paul): put these in a cache.
                 engine
                     .api
                     .prepare_payload(parent_hash, timestamp, random, fee_recipient)
+            })
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
+    pub async fn get_payload<T: EthSpec>(
+        &self,
+        parent_hash: Hash256,
+        timestamp: u64,
+        random: Hash256,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let fee_recipient = self.fee_recipient()?;
+        self.engines()
+            .first_success(|engine| async move {
+                // TODO(paul): make a cache for these IDs.
+                let payload_id = engine
+                    .api
+                    .prepare_payload(parent_hash, timestamp, random, fee_recipient)
+                    .await?;
+
+                engine.api.get_payload(payload_id).await
             })
             .await
             .map_err(Error::EngineErrors)
@@ -226,7 +258,7 @@ impl ExecutionLayer {
         }
     }
 
-    pub async fn get_pow_block_at_total_difficulty(&self) -> Result<Option<Hash256>, Error> {
+    pub async fn get_pow_block_hash_at_total_difficulty(&self) -> Result<Option<Hash256>, Error> {
         self.engines()
             .first_success(|engine| async move {
                 let mut ttd_exceeding_block = None;
@@ -239,6 +271,7 @@ impl ExecutionLayer {
                     if block.total_difficulty >= self.terminal_total_difficulty() {
                         ttd_exceeding_block = Some(block.block_hash);
 
+                        // TODO(paul): add a LRU cache for these lookups.
                         block = engine.api.get_block_by_hash(block.parent_hash).await?;
                     } else {
                         return Ok::<_, ApiError>(ttd_exceeding_block);
