@@ -1,5 +1,6 @@
 //! Contains the types required to make JSON requests to Web3Signer servers.
 
+use super::Error;
 use serde::{Deserialize, Serialize};
 use types::*;
 
@@ -66,13 +67,14 @@ pub enum Web3SignerObject<'a, T: EthSpec> {
 }
 
 impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
-    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Self {
+    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Result<Self, Error> {
         let version = match block {
             BeaconBlock::Base(_) => ForkName::Phase0,
             BeaconBlock::Altair(_) => ForkName::Altair,
+            BeaconBlock::Merge(_) => return Err(Error::MergeForkNotSupported),
         };
 
-        Web3SignerObject::BeaconBlock { version, block }
+        Ok(Web3SignerObject::BeaconBlock { version, block })
     }
 
     pub fn message_type(&self) -> MessageType {
