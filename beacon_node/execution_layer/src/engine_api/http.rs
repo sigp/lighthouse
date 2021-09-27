@@ -503,7 +503,7 @@ mod test {
                         "gasLimit": "0x1",
                         "gasUsed": "0x2",
                         "timestamp": "0x2a",
-                        "extraData": [],
+                        "extraData": "0x",
                         "baseFeePerGas": HASH_00,
                         "blockHash": HASH_01,
                         "transactions": [],
