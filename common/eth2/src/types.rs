@@ -834,7 +834,7 @@ impl<T: EthSpec> EventKind<T> {
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
                 })?,
-            )),
+            ))),
             "contribution_and_proof" => Ok(Some(EventKind::ContributionAndProof(Box::new(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))

@@ -10,7 +10,6 @@ use bls::Hash256;
 use environment::RuntimeContext;
 use slog::{crit, error, info, trace, warn};
 use futures::future::join_all;
-use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -436,9 +435,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             SignMessageEvent::Time(_) => {}
         }
 
-        let mut attestations = Vec::with_capacity(validator_duties.len());
-
-        for duty_and_proof in validator_duties {
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
         let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
@@ -697,10 +693,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 mod tests {
     use super::*;
     use crate::{duties_service, ProductionValidatorClient};
-    use bls::Hash256;
+    use bls::{Hash256, PublicKeyBytes};
     use env_logger;
     use environment::EnvironmentBuilder;
-    use eth2::types::{GenericResponse, GenesisData, SyncingData, VersionData};
+    use eth2::types::{GenericResponse, GenesisData, SyncingData, VersionData, ValidatorData, Validator};
     use futures::future::FutureExt;
     use httpmock::prelude::*;
     use httpmock::Mock;
@@ -803,6 +799,43 @@ mod tests {
                     .header("content-type", "application/json")
                     .body("{}");
             });
+            self
+        }
+
+        fn validators_exist<E: EthSpec>(self, validator_ids: &[(usize, &PublicKeyBytes)]) -> Self {
+            // .push("beacon")
+            //     .push("states")
+            //     .push(&state_id.to_string())
+            //     .push("validators")
+            //     .push(&validator_id.to_string());
+            for (index, pubkey) in validator_ids {
+                let val = Validator {
+                    pubkey: **pubkey,
+                    withdrawal_credentials: Hash256::zero(),
+                    effective_balance: E::effe,
+                    slashed: false,
+                    activation_eligibility_epoch: Epoch::new(0),
+                    activation_epoch: Epoch::new(0),
+                    exit_epoch: Epoch::new(u64::MAX),
+                    withdrawable_epoch: Epoch::new(0),
+                };
+
+                let val_data = ValidatorData {
+                    index: index as u64,
+                    // default balance
+                    balance: u64,
+                    status: ValidatorStatus,
+                    validator: Validator,
+                };
+
+
+                let version_mock = self.server.mock(|when, then| {
+                    when.method(GET).path(format!("/eth/v1/beacon/states/head/validators/{}", pubkey));
+                    then.status(200)
+                        .header("content-type", "application/json")
+                        .body("{}");
+                });
+            }
             self
         }
 
@@ -1032,7 +1065,7 @@ mod tests {
         let log = context.log();
 
         info!(log, "Secrets dir"; "secrets_dir" => ?secrets_dir);
-        info!(log, "Datadir"; "datadir" => ?secrets_dir);
+        info!(log, "Datadir"; "datadir" => ?datadir);
         let _ = env_logger::try_init();
         let mock_beacon = MockBeacon::default::<MainnetEthSpec>(&context.eth2_config.spec);
 
@@ -1051,12 +1084,17 @@ mod tests {
             //TODO: add timeout to VC initialization
             let validator = ProductionValidatorClient::new(context, config).await.unwrap();
 
+            //TODO: check if indices are ordered and start at 0
+            let index_pubkey = validator.validator_store.initialized_validators().read().iter_voting_pubkeys().enumerate().collect::<Vec<_>>();
+            mock_beacon.validators_exist(&index_pubkey);
+
             let duration_to_next_slot = validator.duties_service.slot_clock.duration_to_next_slot().unwrap();
             sleep(duration_to_next_slot).await;
 
             // loop update BN response per slot
             duties_service::start_update_service(validator.duties_service.clone(), tx);
-            validator.attestation_service.start_update_service(&spec);
+            let (_,mut rx) = broadcast::channel(10);
+            validator.attestation_service.start_update_service(&spec, Some(rx));
 
             sleep(Duration::from_secs(spec.seconds_per_slot)).await;
 
