@@ -2,12 +2,13 @@ use super::*;
 use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
 use reqwest::header::CONTENT_TYPE;
-pub use reqwest::Client;
 use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use std::time::Duration;
 use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
+
+pub use reqwest::Client;
 
 const STATIC_ID: u32 = 1;
 const JSONRPC_VERSION: &str = "2.0";
@@ -238,8 +239,10 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub gas_used: u64,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
+    // FIXME(paul): check serialization
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Hash256,
-    // FIXME(paul): add extraData
     pub block_hash: Hash256,
     // FIXME(paul): add transaction parsing.
     #[serde(default)]
@@ -259,6 +262,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
             gas_limit: e.gas_limit,
             gas_used: e.gas_used,
             timestamp: e.timestamp,
+            extra_data: e.extra_data,
             base_fee_per_gas: e.base_fee_per_gas,
             block_hash: e.block_hash,
             transactions: e.transactions,
@@ -279,6 +283,7 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
             gas_limit: e.gas_limit,
             gas_used: e.gas_used,
             timestamp: e.timestamp,
+            extra_data: e.extra_data,
             base_fee_per_gas: e.base_fee_per_gas,
             block_hash: e.block_hash,
             transactions: e.transactions,
@@ -449,6 +454,7 @@ mod test {
                             gas_limit: 1,
                             gas_used: 2,
                             timestamp: 42,
+                            extra_data: vec![].into(),
                             base_fee_per_gas: Hash256::repeat_byte(0),
                             block_hash: Hash256::repeat_byte(1),
                             transactions: vec![].into(),
@@ -470,6 +476,7 @@ mod test {
                         "gasLimit": "0x1",
                         "gasUsed": "0x2",
                         "timestamp": "0x2a",
+                        "extraData": [],
                         "baseFeePerGas": HASH_00,
                         "blockHash": HASH_01,
                         "transactions": [],
