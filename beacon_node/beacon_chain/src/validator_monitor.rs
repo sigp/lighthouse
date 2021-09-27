@@ -1042,7 +1042,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 &[src, id],
             );
             metrics::observe_timer_vec(
-                &metrics::VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS,
+                &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS,
                 &[src, id],
                 delay,
             );
