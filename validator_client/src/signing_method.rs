@@ -28,6 +28,7 @@ pub enum Error {
     Web3SignerJsonParsingFailed(String),
     ShuttingDown,
     TokioJoin(String),
+    MergeForkNotSupported,
 }
 
 /// Enumerates all messages that can be signed by a validator.
@@ -158,7 +159,7 @@ impl SigningMethod {
                     SignableMessage::RandaoReveal(epoch) => {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
-                    SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block),
+                    SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)
