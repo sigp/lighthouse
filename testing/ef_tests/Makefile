@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 TESTS_TAG := v1.1.0-beta.5
-=======
-TESTS_TAG := v1.1.0-beta.4
->>>>>>> 5a35ac060 (Fix consensus, SSZ, tree hash & run merge EF tests (#2622))
 TESTS = general minimal mainnet
 TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 
