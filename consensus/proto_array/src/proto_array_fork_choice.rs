@@ -29,7 +29,7 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
-    pub is_merge_complete: bool,
+    pub execution_block_hash: Hash256,
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -76,7 +76,7 @@ impl ProtoArrayForkChoice {
         finalized_root: Hash256,
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
-        is_merge_complete: bool,
+        execution_block_hash: Hash256,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -98,7 +98,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id,
             justified_epoch,
             finalized_epoch,
-            is_merge_complete,
+            execution_block_hash,
         };
 
         proto_array
@@ -208,7 +208,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
             justified_epoch: block.justified_epoch,
             finalized_epoch: block.finalized_epoch,
-            is_merge_complete: block.is_merge_complete,
+            execution_block_hash: block.execution_block_hash,
         })
     }
 
@@ -372,7 +372,7 @@ mod test_compute_deltas {
         let unknown = Hash256::from_low_u64_be(4);
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let is_merge_complete = true;
+        let execution_block_hash = Hash256::zero();
 
         let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
@@ -382,7 +382,7 @@ mod test_compute_deltas {
             finalized_root,
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
-            is_merge_complete,
+            execution_block_hash,
         )
         .unwrap();
 
@@ -398,7 +398,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id.clone(),
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
-                is_merge_complete,
+                execution_block_hash,
             })
             .unwrap();
 
@@ -414,7 +414,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id,
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
-                is_merge_complete,
+                execution_block_hash,
             })
             .unwrap();
 

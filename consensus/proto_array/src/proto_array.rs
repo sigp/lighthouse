@@ -39,7 +39,7 @@ pub struct ProtoNode {
     /// execution payloads, without confusing these with pre-merge blocks.
     ///
     /// Relevant spec issue: https://github.com/ethereum/consensus-specs/issues/2618
-    pub is_merge_complete: bool,
+    pub execution_block_hash: Hash256,
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
@@ -78,7 +78,7 @@ impl Into<ProtoNode> for LegacyProtoNode {
             weight: self.weight,
             best_child: self.best_child,
             best_descendant: self.best_descendant,
-            is_merge_complete: false,
+            execution_block_hash: Hash256::zero(),
         }
     }
 }
@@ -224,7 +224,7 @@ impl ProtoArray {
             weight: 0,
             best_child: None,
             best_descendant: None,
-            is_merge_complete: block.is_merge_complete,
+            execution_block_hash: block.execution_block_hash,
         };
 
         self.indices.insert(node.root, node_index);
