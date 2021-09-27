@@ -349,8 +349,6 @@ impl ChainSpec {
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
-    ///
-    /// Spec v0.12.3
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -468,7 +466,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: None,
+            altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
              * Network specific
