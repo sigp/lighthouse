@@ -1080,7 +1080,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
-        if is_execution_enabled(&state, block.message().body()) {
+        let execute_payload_handle = if is_execution_enabled(&state, block.message().body()) {
             let execution_layer = chain
                 .execution_layer
                 .as_ref()
@@ -1095,11 +1095,11 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                         object_fork: block.message().body().fork_name(),
                     })?;
 
-            let (payload_status, payload_handle) = execution_layer
+            let (execute_payload_status, execute_payload_handle) = execution_layer
                 .block_on(|execution_layer| execution_layer.execute_payload(execution_payload))
                 .map_err(ExecutionPayloadError::from)?;
 
-            match payload_status {
+            match execute_payload_status {
                 ExecutePayloadResponse::Valid => Ok(()),
                 ExecutePayloadResponse::Invalid => {
                     Err(ExecutionPayloadError::RejectedByExecutionEngine)
@@ -1108,7 +1108,11 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                     Err(ExecutionPayloadError::ExecutionEngineIsSyncing)
                 }
             }?;
-        }
+
+            Some(execute_payload_handle)
+        } else {
+            None
+        };
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1206,6 +1210,15 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 block: block.state_root(),
                 local: state_root,
             });
+        }
+
+        // If this block required an `executePayload` call to the execution node, inform it that the
+        // block is indeed valid.
+        //
+        // If the handle is dropped without explicitly declaring validity, an invalid message will
+        // be send to the execution engine.
+        if let Some(execute_payload_handle) = execute_payload_handle {
+            execute_payload_handle.publish_consensus_valid();
         }
 
         Ok(Self {

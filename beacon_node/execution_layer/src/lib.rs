@@ -152,6 +152,7 @@ impl ExecutionLayer {
         let execute_payload_handle = ExecutePayloadHandle {
             block_hash: execution_payload.block_hash,
             execution_layer: self.clone(),
+            status: None,
         };
 
         Ok((execute_payload_response, execute_payload_handle))

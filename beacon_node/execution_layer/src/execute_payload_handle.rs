@@ -5,18 +5,21 @@ use types::Hash256;
 pub struct ExecutePayloadHandle {
     pub(crate) block_hash: Hash256,
     pub(crate) execution_layer: ExecutionLayer,
+    pub(crate) status: Option<ConsensusStatus>,
 }
 
 impl ExecutePayloadHandle {
-    pub fn publish_consensus_valid(self) {
+    pub fn publish_consensus_valid(mut self) {
         self.publish(ConsensusStatus::Valid)
     }
 
-    pub fn publish_consensus_invalid(self) {
+    pub fn publish_consensus_invalid(mut self) {
         self.publish(ConsensusStatus::Invalid)
     }
 
-    fn publish(&self, status: ConsensusStatus) {
+    fn publish(&mut self, status: ConsensusStatus) {
+        self.status = Some(status);
+
         if let Err(e) = self.execution_layer.block_on(|execution_layer| {
             execution_layer.consensus_validated(self.block_hash, status)
         }) {
@@ -34,6 +37,8 @@ impl ExecutePayloadHandle {
 
 impl Drop for ExecutePayloadHandle {
     fn drop(&mut self) {
-        self.publish(ConsensusStatus::Invalid)
+        if self.status.is_none() {
+            self.publish(ConsensusStatus::Invalid)
+        }
     }
 }
