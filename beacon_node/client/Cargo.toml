@@ -47,5 +47,4 @@ http_metrics = { path = "../http_metrics" }
 slasher = { path = "../../slasher" }
 slasher_service = { path = "../../slasher/service" }
 monitoring_api = {path = "../../common/monitoring_api"}
-sensitive_url = { path = "../../common/sensitive_url" }
 execution_layer = { path = "../execution_layer" }

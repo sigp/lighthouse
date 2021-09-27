@@ -48,8 +48,9 @@ use crate::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    eth1_chain, metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use execution_layer::ExecutePayloadResponse;
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -242,19 +243,25 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// As this is our fault, do not penalize the peer
-    NoEth1Connection,
+    NoExecutionConnection,
     /// Error occurred during engine_executePayload
     ///
     /// ## Peer scoring
     ///
     /// Some issue with our configuration, do not penalize peer
-    Eth1VerificationError(eth1_chain::Error),
+    RequestFailed(execution_layer::Error),
     /// The execution engine returned INVALID for the payload
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
     RejectedByExecutionEngine,
+    /// The execution engine returned SYNCING for the payload
+    ///
+    /// ## Peer scoring
+    ///
+    /// It is not known if the block is valid or invalid.
+    ExecutionEngineIsSyncing,
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
@@ -279,6 +286,24 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     TransactionDataExceedsSizeLimit,
+}
+
+impl From<execution_layer::Error> for ExecutionPayloadError {
+    fn from(e: execution_layer::Error) -> Self {
+        ExecutionPayloadError::RequestFailed(e)
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadError> for BlockError<T> {
+    fn from(e: ExecutionPayloadError) -> Self {
+        BlockError::ExecutionPayloadError(e)
+    }
+}
+
+impl<T: EthSpec> From<InconsistentFork> for BlockError<T> {
+    fn from(e: InconsistentFork) -> Self {
+        BlockError::InconsistentFork(e)
+    }
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
@@ -1056,31 +1081,33 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
         if is_execution_enabled(&state, block.message().body()) {
-            let eth1_chain = chain
-                .eth1_chain
+            let execution_layer = chain
+                .execution_layer
                 .as_ref()
-                .ok_or(BlockError::ExecutionPayloadError(
-                    ExecutionPayloadError::NoEth1Connection,
-                ))?;
-
-            let payload_valid = eth1_chain
-                .on_payload(block.message().body().execution_payload().ok_or_else(|| {
-                    BlockError::InconsistentFork(InconsistentFork {
+                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+            let execution_payload =
+                block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .ok_or_else(|| InconsistentFork {
                         fork_at_slot: eth2::types::ForkName::Merge,
                         object_fork: block.message().body().fork_name(),
-                    })
-                })?)
-                .map_err(|e| {
-                    BlockError::ExecutionPayloadError(ExecutionPayloadError::Eth1VerificationError(
-                        e,
-                    ))
-                })?;
+                    })?;
 
-            if !payload_valid {
-                return Err(BlockError::ExecutionPayloadError(
-                    ExecutionPayloadError::RejectedByExecutionEngine,
-                ));
-            }
+            let payload_status = execution_layer
+                .block_on(|execution_layer| execution_layer.execute_payload(execution_payload))
+                .map_err(ExecutionPayloadError::from)?;
+
+            match payload_status {
+                ExecutePayloadResponse::Valid => Ok(()),
+                ExecutePayloadResponse::Invalid => {
+                    Err(ExecutionPayloadError::RejectedByExecutionEngine)
+                }
+                ExecutePayloadResponse::Syncing => {
+                    Err(ExecutionPayloadError::ExecutionEngineIsSyncing)
+                }
+            }?;
         }
 
         // If the block is sufficiently recent, notify the validator monitor.
