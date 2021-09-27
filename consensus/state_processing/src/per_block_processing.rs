@@ -359,16 +359,6 @@ pub fn process_execution_payload<T: EthSpec>(
             }
         );
         block_verify!(
-<<<<<<< HEAD
-=======
-            payload.random == *state.get_randao_mix(state.current_epoch())?,
-            BlockProcessingError::ExecutionRandaoMismatch {
-                expected: *state.get_randao_mix(state.current_epoch())?,
-                found: payload.random,
-            }
-        );
-        block_verify!(
->>>>>>> a99e8d7a5 (Fix clippy lints on merge-f2f (#2626))
             is_valid_gas_limit(payload, state.latest_execution_payload_header()?)?,
             BlockProcessingError::ExecutionInvalidGasLimit {
                 used: payload.gas_used,
