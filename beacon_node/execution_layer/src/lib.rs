@@ -2,9 +2,10 @@ use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines};
 use sensitive_url::SensitiveUrl;
 use slog::{crit, Logger};
+use std::future::Future;
 use task_executor::TaskExecutor;
 
-pub use engine_api::http::HttpJsonRpc;
+pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
 
 mod engine_api;
 mod engines;
@@ -15,6 +16,7 @@ pub enum Error {
     ApiError(ApiError),
     EngineErrors(Vec<EngineError>),
     NotSynced,
+    ShuttingDown,
 }
 
 impl From<ApiError> for Error {
@@ -57,6 +59,20 @@ impl ExecutionLayer {
 }
 
 impl ExecutionLayer {
+    /// Convenience function to allow calling async functions in a non-async context.
+    pub fn block_on<'a, T, U, V>(&'a self, future: T) -> Result<V, Error>
+    where
+        T: Fn(&'a Self) -> U,
+        U: Future<Output = Result<V, Error>>,
+    {
+        let runtime = self
+            .executor
+            .runtime()
+            .upgrade()
+            .ok_or(Error::ShuttingDown)?;
+        runtime.block_on(future(self))
+    }
+
     pub async fn prepare_payload(
         &self,
         parent_hash: Hash256,
