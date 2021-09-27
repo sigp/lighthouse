@@ -13,6 +13,12 @@ pub use reqwest::Client;
 const STATIC_ID: u32 = 1;
 const JSONRPC_VERSION: &str = "2.0";
 
+const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
+const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
+
+const ETH_GET_BLOCK_BY_HASH: &str = "eth_getBlockByHash";
+const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(1);
+
 const ETH_SYNCING: &str = "eth_syncing";
 const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
@@ -101,6 +107,27 @@ impl EngineApi for HttpJsonRpc {
             Some(false) => Ok(()),
             _ => Err(Error::IsSyncing),
         }
+    }
+
+    async fn get_block_by_number<'a>(
+        &self,
+        query: BlockByNumberQuery<'a>,
+    ) -> Result<ExecutionBlock, Error> {
+        let params = json!([query]);
+
+        self.rpc_request(
+            ETH_GET_BLOCK_BY_NUMBER,
+            params,
+            ETH_GET_BLOCK_BY_NUMBER_TIMEOUT,
+        )
+        .await
+    }
+
+    async fn get_block_by_hash<'a>(&self, block_hash: Hash256) -> Result<ExecutionBlock, Error> {
+        let params = json!([block_hash]);
+
+        self.rpc_request(ETH_GET_BLOCK_BY_HASH, params, ETH_GET_BLOCK_BY_HASH_TIMEOUT)
+            .await
     }
 
     async fn prepare_payload(

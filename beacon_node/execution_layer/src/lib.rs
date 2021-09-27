@@ -30,6 +30,7 @@ impl From<ApiError> for Error {
 
 struct Inner {
     engines: Engines<HttpJsonRpc>,
+    total_terminal_difficulty: Uint256,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -42,6 +43,7 @@ pub struct ExecutionLayer {
 impl ExecutionLayer {
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
+        total_terminal_difficulty: Uint256,
         executor: TaskExecutor,
         log: Logger,
     ) -> Result<Self, Error> {
@@ -59,6 +61,7 @@ impl ExecutionLayer {
                 engines,
                 log: log.clone(),
             },
+            total_terminal_difficulty,
             executor,
             log,
         };
@@ -76,6 +79,10 @@ impl ExecutionLayer {
 
     fn executor(&self) -> &TaskExecutor {
         &self.inner.executor
+    }
+
+    fn total_terminal_difficulty(&self) -> Uint256 {
+        self.inner.total_terminal_difficulty
     }
 
     fn log(&self) -> &Logger {
@@ -217,5 +224,28 @@ impl ExecutionLayer {
                     .collect(),
             ))
         }
+    }
+
+    pub async fn find_ttd_block_hash(&self) -> Result<Option<Hash256>, Error> {
+        self.engines()
+            .first_success(|engine| async move {
+                let mut ttd_exceeding_block = None;
+                let mut block = engine
+                    .api
+                    .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                    .await?;
+
+                loop {
+                    if block.total_difficulty >= self.total_terminal_difficulty() {
+                        ttd_exceeding_block = Some(block.block_hash);
+
+                        block = engine.api.get_block_by_hash(block.parent_hash).await?;
+                    } else {
+                        return Ok::<_, ApiError>(ttd_exceeding_block);
+                    }
+                }
+            })
+            .await
+            .map_err(Error::EngineErrors)
     }
 }

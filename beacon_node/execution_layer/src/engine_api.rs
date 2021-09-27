@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use eth1::http::RpcError;
 use serde::{Deserialize, Serialize};
 
-pub use types::{Address, EthSpec, ExecutionPayload, Hash256};
+pub const LATEST_TAG: &str = "latest";
+
+pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
 
@@ -36,6 +38,13 @@ impl From<serde_json::Error> for Error {
 #[async_trait]
 pub trait EngineApi {
     async fn upcheck(&self) -> Result<(), Error>;
+
+    async fn get_block_by_number<'a>(
+        &self,
+        block_by_number: BlockByNumberQuery<'a>,
+    ) -> Result<ExecutionBlock, Error>;
+
+    async fn get_block_by_hash<'a>(&self, block_hash: Hash256) -> Result<ExecutionBlock, Error>;
 
     async fn prepare_payload(
         &self,
@@ -81,4 +90,19 @@ pub enum ExecutePayloadResponse {
 pub enum ConsensusStatus {
     Valid,
     Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum BlockByNumberQuery<'a> {
+    Tag(&'a str),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionBlock {
+    pub block_hash: Hash256,
+    pub block_number: u64,
+    pub parent_hash: Hash256,
+    pub total_difficulty: Uint256,
 }
