@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_block_processing::{is_merge_block, is_merge_complete};
+use state_processing::per_block_processing::is_merge_block;
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
     Epoch, EthSpec, Hash256, IndexedAttestation, PowBlock, RelativeEpoch, SignedBeaconBlock, Slot,
@@ -279,7 +279,12 @@ where
         let next_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
-        let is_merge_complete = is_merge_complete(anchor_state);
+
+        // Default any non-merge execution block hashes to 0x000..000.
+        let execution_block_hash = anchor_block.message_merge().map_or_else(
+            |()| Hash256::zero(),
+            |message| message.body.execution_payload.block_hash,
+        );
 
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
@@ -289,7 +294,7 @@ where
             fc_store.finalized_checkpoint().root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
-            is_merge_complete,
+            execution_block_hash,
         )?;
 
         Ok(Self {
@@ -579,6 +584,12 @@ where
             .on_verified_block(block, block_root, state)
             .map_err(Error::AfterBlockFailed)?;
 
+        // Default any non-merge execution block hashes to 0x000..000.
+        let execution_block_hash = block.body_merge().map_or_else(
+            |()| Hash256::zero(),
+            |body| body.execution_payload.block_hash,
+        );
+
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.proto_array.process_block(ProtoBlock {
@@ -601,7 +612,7 @@ where
             state_root: block.state_root(),
             justified_epoch: state.current_justified_checkpoint().epoch,
             finalized_epoch: state.finalized_checkpoint().epoch,
-            is_merge_complete: is_merge_complete(state),
+            execution_block_hash,
         })?;
 
         Ok(())
