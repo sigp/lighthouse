@@ -300,8 +300,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 let next_fork_context_bytes =
                     fork_context.to_context_bytes(next_fork).unwrap_or_else(|| {
                         panic!(
-                            "{} fork bytes should exist as it's initialized in ForkContext",
-                            next_fork
+                            "context bytes should exist as spec.next_fork_epoch({}) returned Some({})",
+                            current_slot, next_fork
                         )
                     });
                 result.push(next_fork_context_bytes);
