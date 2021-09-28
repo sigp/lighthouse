@@ -46,14 +46,15 @@ use eth2_libp2p::{
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
+use parking_lot::RwLock;
 use slog::{crit, debug, error, trace, warn, Logger};
-use std::cmp;
 use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
 use std::time::{Duration, Instant};
+use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use types::{
@@ -281,6 +282,36 @@ impl<T> LifoQueue<T> {
     /// Returns the current length of the queue.
     pub fn len(&self) -> usize {
         self.queue.len()
+    }
+}
+
+#[derive(Default)]
+pub struct DuplicateCache {
+    inner: Arc<RwLock<HashSet<Hash256>>>,
+}
+
+impl DuplicateCache {
+    pub fn insert(&self, block_root: Hash256) {
+        let mut inner = self.inner.write();
+        inner.insert(block_root);
+    }
+
+    pub fn remove(&self, block_root: &Hash256) {
+        let mut inner = self.inner.write();
+        inner.remove(block_root);
+    }
+
+    pub fn contains(&self, block_root: &Hash256) -> bool {
+        let inner = self.inner.read();
+        inner.contains(block_root)
+    }
+}
+
+impl Clone for DuplicateCache {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -784,6 +815,7 @@ pub struct BeaconProcessor<T: BeaconChainTypes> {
     pub executor: TaskExecutor,
     pub max_workers: usize,
     pub current_workers: usize,
+    pub importing_blocks: DuplicateCache,
     pub log: Logger,
 }
 
@@ -1299,12 +1331,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             log: self.log.clone(),
         };
 
+        let duplicate_cache = self.importing_blocks.clone();
+
         trace!(
             self.log,
             "Spawning beacon processor worker";
             "work" => work_id,
             "worker" => worker_id,
         );
+
+        let log = log.clone();
 
         executor.spawn_blocking(
             move || {
@@ -1364,13 +1400,26 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         block,
                         seen_timestamp,
-                    } => worker.process_gossip_block(
-                        message_id,
-                        peer_id,
-                        *block,
-                        work_reprocessing_tx,
-                        seen_timestamp,
-                    ),
+                    } => {
+                        let block_root = block.message().body_root();
+                        if !duplicate_cache.contains(&block_root) {
+                            duplicate_cache.insert(block_root);
+                            worker.process_gossip_block(
+                                message_id,
+                                peer_id,
+                                *block,
+                                work_reprocessing_tx,
+                                seen_timestamp,
+                            );
+                            duplicate_cache.remove(&block_root);
+                        } else {
+                            warn!(
+                                log,
+                                "RPC block is being imported";
+                                "block_root" => %block_root,
+                            );
+                        }
+                    }
                     /*
                      * Import for blocks that we received earlier than their intended slot.
                      */
@@ -1450,7 +1499,18 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      * Verification for beacon blocks received during syncing via RPC.
                      */
                     Work::RpcBlock { block, result_tx } => {
-                        worker.process_rpc_block(*block, result_tx, work_reprocessing_tx)
+                        let block_root = block.message().body_root();
+                        if !duplicate_cache.contains(&block_root) {
+                            duplicate_cache.insert(block_root);
+                            worker.process_rpc_block(*block, result_tx, work_reprocessing_tx);
+                            duplicate_cache.remove(&block_root);
+                        } else {
+                            warn!(
+                                log,
+                                "Gossip block is being imported";
+                                "block_root" => %block_root,
+                            );
+                        }
                     }
                     /*
                      * Verification for a chain segment (multiple blocks).
