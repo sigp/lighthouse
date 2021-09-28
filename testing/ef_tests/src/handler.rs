@@ -498,11 +498,6 @@ pub struct GenesisValidityHandler<E>(PhantomData<E>);
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
     type Case = cases::GenesisValidity<E>;
 
-    // FIXME(merge): enable merge test once available
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name != ForkName::Merge
-    }
-
     fn config_name() -> &'static str {
         E::name()
     }
