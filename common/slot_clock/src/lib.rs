@@ -65,6 +65,9 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Returns the first slot to be returned at the genesis time.
     fn genesis_slot(&self) -> Slot;
 
+    /// Returns the `Duration` from `UNIX_EPOCH` to the genesis time.
+    fn genesis_duration(&self) -> Duration;
+
     /// Returns the slot if the internal clock were advanced by `duration`.
     fn now_with_future_tolerance(&self, tolerance: Duration) -> Option<Slot> {
         self.slot_of(self.now_duration()?.checked_add(tolerance)?)
@@ -98,5 +101,15 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// produced.
     fn sync_committee_contribution_production_delay(&self) -> Duration {
         self.slot_duration() * 2 / 3
+    }
+
+    /// An implementation of the method described in the consensus spec here:
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
+    fn compute_timestamp_at_slot(&self, slot: Slot) -> Option<u64> {
+        let slots_since_genesis = slot.as_u64().checked_sub(self.genesis_slot().as_u64())?;
+        slots_since_genesis
+            .checked_mul(self.slot_duration().as_secs())
+            .and_then(|since_genesis| self.genesis_duration().as_secs().checked_add(since_genesis))
     }
 }
