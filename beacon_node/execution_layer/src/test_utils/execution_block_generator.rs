@@ -1,4 +1,6 @@
+use crate::engine_api::http::JsonPreparePayloadRequest;
 use crate::ExecutionBlock;
+use std::collections::HashMap;
 use types::{Hash256, Uint256};
 
 pub struct ExecutionBlockGenerator {
@@ -7,6 +9,8 @@ pub struct ExecutionBlockGenerator {
     pub terminal_total_difficulty: u64,
     pub terminal_block_number: u64,
     pub latest_merge_block: Option<u64>,
+    pub next_payload_id: u64,
+    pub payload_ids: HashMap<u64, JsonPreparePayloadRequest>,
 }
 
 impl ExecutionBlockGenerator {
@@ -17,6 +21,8 @@ impl ExecutionBlockGenerator {
             terminal_total_difficulty,
             terminal_block_number,
             latest_merge_block: None,
+            next_payload_id: 0,
+            payload_ids: <_>::default(),
         }
     }
 
@@ -50,7 +56,7 @@ impl ExecutionBlockGenerator {
         }
     }
 
-    pub fn insert_pos_block(&mut self, number: u64) -> Result<(), String> {
+    fn sanitize_pos_block_number(&self, number: u64) -> Result<(), String> {
         if number <= self.terminal_block_number {
             return Err(format!(
                 "cannot insert block {} as it is prior to terminal block {}",
@@ -70,7 +76,6 @@ impl ExecutionBlockGenerator {
             .unwrap_or(self.terminal_block_number)
             + 1;
         if number == next_block {
-            self.latest_merge_block = Some(number);
             Ok(())
         } else if number < next_block {
             Err(format!(
@@ -83,6 +88,36 @@ impl ExecutionBlockGenerator {
                 number, next_block
             ))
         }
+    }
+
+    pub fn prepare_payload_id(
+        &mut self,
+        payload: JsonPreparePayloadRequest,
+    ) -> Result<u64, String> {
+        if self.block_number_at(self.seconds_since_genesis) < self.terminal_block_number {
+            return Err("refusing to create payload id before terminal block".to_string());
+        }
+
+        if self.block_by_hash(payload.parent_hash).is_none() {
+            return Err(format!("unknown parent block {:?}", payload.parent_hash));
+        }
+
+        let id = self.next_payload_id;
+        self.next_payload_id += 1;
+
+        self.payload_ids.insert(id, payload);
+
+        Ok(id)
+    }
+
+    pub fn get_payload_id(&mut self, id: u64) -> Option<JsonPreparePayloadRequest> {
+        self.payload_ids.remove(&id)
+    }
+
+    pub fn insert_pos_block(&mut self, number: u64) -> Result<(), String> {
+        self.sanitize_pos_block_number(number)?;
+        self.latest_merge_block = Some(number);
+        Ok(())
     }
 
     fn latest_block_number(&self) -> u64 {

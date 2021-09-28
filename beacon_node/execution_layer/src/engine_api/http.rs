@@ -236,12 +236,12 @@ struct JsonResponseBody {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct JsonPreparePayloadRequest {
-    parent_hash: Hash256,
+pub struct JsonPreparePayloadRequest {
+    pub parent_hash: Hash256,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    timestamp: u64,
-    random: Hash256,
-    fee_recipient: Address,
+    pub timestamp: u64,
+    pub random: Hash256,
+    pub fee_recipient: Address,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
