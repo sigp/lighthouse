@@ -50,6 +50,34 @@ impl ExecutionBlockGenerator {
         }
     }
 
+    pub fn insert_merge_block(&mut self, number: u64, block_hash: Hash256) -> Result<(), String> {
+        if number <= self.terminal_block_number {
+            return Err(format!(
+                "cannot insert block {} as it is prior to terminal block {}",
+                number, self.terminal_block_number
+            ));
+        }
+
+        let next_block = self
+            .latest_merge_block
+            .unwrap_or(self.terminal_block_number)
+            + 1;
+        if number == next_block {
+            self.latest_merge_block = Some(number);
+            Ok(())
+        } else if number < next_block {
+            Err(format!(
+                "cannot insert block {} which already exists",
+                number
+            ))
+        } else {
+            Err(format!(
+                "cannot insert block {} before inserting {}",
+                number, next_block
+            ))
+        }
+    }
+
     fn latest_block_number(&self) -> u64 {
         let time_based = self.block_number_at(self.seconds_since_genesis);
 
