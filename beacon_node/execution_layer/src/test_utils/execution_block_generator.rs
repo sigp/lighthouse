@@ -1,5 +1,6 @@
 use crate::engine_api::http::JsonPreparePayloadRequest;
 use crate::ExecutionBlock;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use types::{Hash256, Uint256};
 
@@ -65,28 +66,25 @@ impl ExecutionBlockGenerator {
         }
 
         let time_based_block = self.block_number_at(self.seconds_since_genesis);
-        if time_based_block < self.terminal_block_number {
-            if number > time_based_block {
-                return Err(format!("it is too early to insert block {}", number));
-            }
+        if time_based_block < self.terminal_block_number && number > time_based_block {
+            return Err(format!("it is too early to insert block {}", number));
         }
 
         let next_block = self
             .latest_merge_block
             .unwrap_or(self.terminal_block_number)
             + 1;
-        if number == next_block {
-            Ok(())
-        } else if number < next_block {
-            Err(format!(
+
+        match number.cmp(&next_block) {
+            Ordering::Equal => Ok(()),
+            Ordering::Less => Err(format!(
                 "cannot insert block {} which already exists",
                 number
-            ))
-        } else {
-            Err(format!(
+            )),
+            Ordering::Greater => Err(format!(
                 "cannot insert block {} before inserting {}",
                 number, next_block
-            ))
+            )),
         }
     }
 
