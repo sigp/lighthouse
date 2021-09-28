@@ -1236,7 +1236,6 @@ fn validate_execution_payload<T: BeaconChainTypes>(
                 ExecutionPayloadError::BlockHashEqualsParentHash,
             ));
         }
-        // TODO: is this necessary.. isn't this already ensured by the type?
         // The execution payload transaction list data is within expected size limits
         if execution_payload.transactions.len() > T::EthSpec::max_transactions_per_payload() {
             return Err(BlockError::ExecutionPayloadError(
