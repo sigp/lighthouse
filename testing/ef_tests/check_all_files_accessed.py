@@ -20,16 +20,19 @@ tests_dir_filename = sys.argv[2]
 # following regular expressions, we will assume they are to be ignored (i.e., we are purposefully
 # *not* running the spec tests).
 excluded_paths = [
-    # Eth1Block
+    # Eth1Block and PowBlock
     #
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
+    "tests/.*/.*/ssz_static/PowBlock/",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientUpdate
     "tests/.*/.*/ssz_static/LightClientUpdate",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # Merkle proof tests, omitted for now
+    "tests/.*/.*/merkle/.*",
     # Fork choice
     "tests/.*/*/fork_choice",
 ]
