@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use environment::null_logger;
+use execution_block_generator::ExecutionBlockGenerator;
 use serde::{Deserialize, Serialize};
 use slog::{info, Logger};
 use std::future::Future;
@@ -10,6 +11,11 @@ use tokio::sync::{oneshot, RwLock};
 use types::EthSpec;
 use warp::Filter;
 
+const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
+const DEFAULT_TERMINAL_BLOCK: u64 = 64;
+
+mod execution_block_generator;
+
 pub struct MockServer {
     _shutdown_tx: oneshot::Sender<()>,
     listen_socket_addr: SocketAddr,
@@ -19,11 +25,14 @@ pub struct MockServer {
 impl MockServer {
     pub fn unit_testing<T: EthSpec>() -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
+        let execution_block_generator =
+            ExecutionBlockGenerator::new(DEFAULT_TERMINAL_DIFFICULTY, DEFAULT_TERMINAL_BLOCK);
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
             config: <_>::default(),
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
+            execution_block_generator: Arc::new(RwLock::new(execution_block_generator)),
             _phantom: PhantomData,
         });
 
@@ -87,6 +96,7 @@ pub struct Context<T> {
     pub config: Config,
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
+    pub execution_block_generator: Arc<RwLock<ExecutionBlockGenerator>>,
     pub _phantom: PhantomData<T>,
 }
 
