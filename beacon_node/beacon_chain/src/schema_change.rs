@@ -1,7 +1,9 @@
 //! Utilities for managing database schema changes.
-use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
+use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
+use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
+use proto_array::ProtoArrayForkChoice;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -87,6 +89,28 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     slots_per_restore_point,
                 };
                 db.hot_db.put(&CONFIG_KEY, &new_config)?;
+            }
+
+            db.store_schema_version(to)?;
+
+            Ok(())
+        }
+        // Migration for adding `is_merge_complete` field to the fork choice store.
+        (SchemaVersion(5), SchemaVersion(6)) => {
+            let fork_choice_opt = db
+                .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+                .map(|mut persisted_fork_choice| {
+                    let fork_choice = ProtoArrayForkChoice::from_bytes_legacy(
+                        &persisted_fork_choice.fork_choice.proto_array_bytes,
+                    )?;
+                    persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
+                    Ok::<_, String>(persisted_fork_choice)
+                })
+                .transpose()
+                .map_err(StoreError::SchemaMigrationError)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                // Store the converted fork choice store under the same key.
+                db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &fork_choice)?;
             }
 
             db.store_schema_version(to)?;
