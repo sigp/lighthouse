@@ -309,16 +309,25 @@ impl ExecutionLayer {
 
                 self.execution_blocks().await.put(block.block_hash, block);
 
+                // TODO(merge): This function can theoretically loop indefinitely, as per the
+                // specification. We should consider how to fix this. See discussion:
+                //
+                // https://discord.com/channels/595666850260713488/692062809701482577/892307257205878785
                 loop {
                     if block.total_difficulty >= self.terminal_total_difficulty() {
                         ttd_exceeding_block = Some(block.block_hash);
+
+                        // Try to prevent infinite loops.
+                        if block.block_hash == block.parent_hash {
+                            return Err(ApiError::ParentHashEqualsBlockHash(block.block_hash));
+                        }
 
                         block = self
                             .get_pow_block(engine, block.parent_hash)
                             .await?
                             .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
                     } else {
-                        return Ok::<_, ApiError>(ttd_exceeding_block);
+                        return Ok(ttd_exceeding_block);
                     }
                 }
             })

@@ -22,6 +22,7 @@ pub enum Error {
     IsSyncing,
     ExecutionBlockNotFound(Hash256),
     ExecutionHeadBlockNotFound,
+    ParentHashEqualsBlockHash(Hash256),
 }
 
 impl From<reqwest::Error> for Error {
