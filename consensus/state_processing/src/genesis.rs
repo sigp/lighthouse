@@ -2,9 +2,10 @@ use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::process_deposit,
 };
 use crate::common::DepositDataTree;
-use crate::upgrade::upgrade_to_altair;
+use crate::upgrade::{upgrade_to_altair, upgrade_to_merge};
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
+use types::consts::merge_testing::{GENESIS_BASE_FEE_PER_GAS, GENESIS_GAS_LIMIT};
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
 
@@ -46,13 +47,36 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // use of `BeaconBlock::empty` in `BeaconState::new` is sufficient to correctly initialise
     // the `latest_block_header` as per:
     // https://github.com/ethereum/eth2.0-specs/pull/2323
-    if spec.fork_name_at_epoch(state.current_epoch()) == ForkName::Altair {
+    if spec
+        .altair_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
         upgrade_to_altair(&mut state, spec)?;
 
         state.fork_mut().previous_version = spec.altair_fork_version;
     }
 
-    // TODO: handle upgrade_to_merge() here
+    // Similarly, perform an upgrade to the merge if configured from genesis.
+    if spec
+        .merge_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_merge(&mut state, spec)?;
+
+        // Remove intermediate Altair fork from `state.fork`.
+        state.fork_mut().previous_version = spec.genesis_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
+        *state.latest_execution_payload_header_mut()? = ExecutionPayloadHeader {
+            block_hash: eth1_block_hash,
+            timestamp: eth1_timestamp,
+            random: eth1_block_hash,
+            gas_limit: GENESIS_GAS_LIMIT,
+            base_fee_per_gas: GENESIS_BASE_FEE_PER_GAS,
+            ..ExecutionPayloadHeader::default()
+        };
+    }
 
     // Now that we have our validators, initialize the caches (including the committees)
     state.build_all_caches(spec)?;
