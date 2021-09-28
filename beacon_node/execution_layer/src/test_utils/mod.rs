@@ -1,31 +1,36 @@
+use crate::engine_api::http::JSONRPC_VERSION;
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::ExecutionBlockGenerator;
 use handle_rpc::handle_rpc;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use slog::{info, Logger};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::{oneshot, RwLock, RwLockWriteGuard};
 use types::EthSpec;
 use warp::Filter;
 
-const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
-const DEFAULT_TERMINAL_BLOCK: u64 = 64;
+pub use execution_block_generator::{block_hash_to_number, block_number_to_hash};
+
+pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
+pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 
 mod execution_block_generator;
 mod handle_rpc;
 
-pub struct MockServer {
+pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
     listen_socket_addr: SocketAddr,
     last_echo_request: Arc<RwLock<Option<Bytes>>>,
+    pub ctx: Arc<Context<T>>,
 }
 
-impl MockServer {
-    pub fn unit_testing<T: EthSpec>() -> Self {
+impl<T: EthSpec> MockServer<T> {
+    pub fn unit_testing() -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
         let execution_block_generator =
             ExecutionBlockGenerator::new(DEFAULT_TERMINAL_DIFFICULTY, DEFAULT_TERMINAL_BLOCK);
@@ -34,7 +39,7 @@ impl MockServer {
             config: <_>::default(),
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
-            execution_block_generator: Arc::new(RwLock::new(execution_block_generator)),
+            execution_block_generator: RwLock::new(execution_block_generator),
             _phantom: PhantomData,
         });
 
@@ -45,7 +50,7 @@ impl MockServer {
             let _ = shutdown_rx.await;
         };
 
-        let (listen_socket_addr, server_future) = serve(ctx, shutdown_future).unwrap();
+        let (listen_socket_addr, server_future) = serve(ctx.clone(), shutdown_future).unwrap();
 
         tokio::spawn(server_future);
 
@@ -53,7 +58,12 @@ impl MockServer {
             _shutdown_tx: shutdown_tx,
             listen_socket_addr,
             last_echo_request,
+            ctx,
         }
+    }
+
+    pub async fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator> {
+        self.ctx.execution_block_generator.write().await
     }
 
     pub fn url(&self) -> String {
@@ -91,6 +101,11 @@ impl From<String> for Error {
     }
 }
 
+#[derive(Debug)]
+struct MissingIdField;
+
+impl warp::reject::Reject for MissingIdField {}
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -98,7 +113,7 @@ pub struct Context<T> {
     pub config: Config,
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
-    pub execution_block_generator: Arc<RwLock<ExecutionBlockGenerator>>,
+    pub execution_block_generator: RwLock<ExecutionBlockGenerator>,
     pub _phantom: PhantomData<T>,
 }
 
@@ -150,7 +165,27 @@ pub fn serve<T: EthSpec>(
         .and(warp::body::json())
         .and(ctx_filter.clone())
         .and_then(|body: serde_json::Value, ctx: Arc<Context<T>>| async move {
-            let response = handle_rpc(body, ctx).await;
+            let id = body
+                .get("id")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| warp::reject::custom(MissingIdField))?;
+
+            let response = match handle_rpc(body, ctx).await {
+                Ok(result) => json!({
+                    "id": id,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "result": result
+                }),
+                Err(message) => json!({
+                    "id": id,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "error": {
+                        "code": -1234,   // Junk error code.
+                        "message": message
+                    }
+                }),
+            };
+
             Ok::<_, warp::reject::Rejection>(
                 warp::http::Response::builder()
                     .status(200)
@@ -163,7 +198,7 @@ pub fn serve<T: EthSpec>(
     // Sends the body of the request to `ctx.last_echo_request` so we can inspect requests.
     let echo = warp::path("echo")
         .and(warp::body::bytes())
-        .and(ctx_filter.clone())
+        .and(ctx_filter)
         .and_then(|bytes: Bytes, ctx: Arc<Context<T>>| async move {
             *ctx.last_echo_request.write().await = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(

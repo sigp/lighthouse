@@ -397,3 +397,147 @@ impl ExecutionLayer {
         is_total_difficulty_reached && is_parent_total_difficulty_valid
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::{block_number_to_hash, MockServer, DEFAULT_TERMINAL_DIFFICULTY};
+    use environment::null_logger;
+    use types::MainnetEthSpec;
+
+    struct SingleEngineTester {
+        server: MockServer<MainnetEthSpec>,
+        el: ExecutionLayer,
+        runtime: Option<Arc<tokio::runtime::Runtime>>,
+        _runtime_shutdown: exit_future::Signal,
+    }
+
+    impl SingleEngineTester {
+        pub fn new() -> Self {
+            let server = MockServer::unit_testing();
+            let url = SensitiveUrl::parse(&server.url()).unwrap();
+            let log = null_logger().unwrap();
+
+            let runtime = Arc::new(
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            );
+            let (runtime_shutdown, exit) = exit_future::signal();
+            let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+            let executor =
+                TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+
+            let el = ExecutionLayer::from_urls(
+                vec![url],
+                DEFAULT_TERMINAL_DIFFICULTY.into(),
+                Hash256::zero(),
+                None,
+                executor,
+                log,
+            )
+            .unwrap();
+
+            Self {
+                server,
+                el,
+                runtime: Some(runtime),
+                _runtime_shutdown: runtime_shutdown,
+            }
+        }
+
+        pub async fn move_to_terminal_block(self) -> Self {
+            {
+                let mut block_gen = self.server.execution_block_generator().await;
+                block_gen.seconds_since_genesis =
+                    block_gen.terminal_block_number * block_gen.block_interval_secs;
+            }
+            self
+        }
+
+        pub async fn with_terminal_block_number<'a, T, U>(self, func: T) -> Self
+        where
+            T: Fn(ExecutionLayer, u64) -> U,
+            U: Future<Output = ()>,
+        {
+            let terminal_block_number = self
+                .server
+                .execution_block_generator()
+                .await
+                .terminal_block_number;
+            func(self.el.clone(), terminal_block_number).await;
+            self
+        }
+
+        pub fn shutdown(&mut self) {
+            if let Some(runtime) = self.runtime.take() {
+                Arc::try_unwrap(runtime).unwrap().shutdown_background()
+            }
+        }
+    }
+
+    impl Drop for SingleEngineTester {
+        fn drop(&mut self) {
+            self.shutdown()
+        }
+    }
+
+    #[tokio::test]
+    async fn finds_valid_terminal_block_hash() {
+        SingleEngineTester::new()
+            .move_to_terminal_block()
+            .await
+            .with_terminal_block_number(|el, terminal_block_number| async move {
+                assert_eq!(
+                    el.is_valid_terminal_pow_block_hash(block_number_to_hash(
+                        terminal_block_number
+                    ))
+                    .await
+                    .unwrap(),
+                    Some(true)
+                )
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_terminal_block_hash() {
+        SingleEngineTester::new()
+            .move_to_terminal_block()
+            .await
+            .with_terminal_block_number(|el, terminal_block_number| async move {
+                let invalid_terminal_block = terminal_block_number.checked_sub(1).unwrap();
+
+                assert_eq!(
+                    el.is_valid_terminal_pow_block_hash(block_number_to_hash(
+                        invalid_terminal_block
+                    ))
+                    .await
+                    .unwrap(),
+                    Some(false)
+                )
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_terminal_block_hash() {
+        SingleEngineTester::new()
+            .move_to_terminal_block()
+            .await
+            .with_terminal_block_number(|el, terminal_block_number| async move {
+                let missing_terminal_block = terminal_block_number.checked_add(1).unwrap();
+
+                assert_eq!(
+                    el.is_valid_terminal_pow_block_hash(block_number_to_hash(
+                        missing_terminal_block
+                    ))
+                    .await
+                    .unwrap(),
+                    None
+                )
+            })
+            .await;
+    }
+}

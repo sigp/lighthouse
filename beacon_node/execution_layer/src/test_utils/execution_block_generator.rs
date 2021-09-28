@@ -62,9 +62,9 @@ impl ExecutionBlockGenerator {
     pub fn block_by_number(&self, number: u64) -> Option<ExecutionBlock> {
         let parent_hash = number
             .checked_sub(1)
-            .map(block_number_to_block_hash)
+            .map(block_number_to_hash)
             .unwrap_or_else(Hash256::zero);
-        let block_hash = block_number_to_block_hash(number);
+        let block_hash = block_number_to_hash(number);
 
         if number <= self.terminal_block_number {
             if number <= self.latest_block_number() {
@@ -94,16 +94,16 @@ impl ExecutionBlockGenerator {
     }
 
     pub fn block_by_hash(&self, hash: Hash256) -> Option<ExecutionBlock> {
-        let block_number = block_hash_to_block_number(hash);
+        let block_number = block_hash_to_number(hash);
         self.block_by_number(block_number)
     }
 }
 
-fn block_number_to_block_hash(n: u64) -> Hash256 {
+pub fn block_number_to_hash(n: u64) -> Hash256 {
     Hash256::from_low_u64_be(n + 1)
 }
 
-fn block_hash_to_block_number(hash: Hash256) -> u64 {
+pub fn block_hash_to_number(hash: Hash256) -> u64 {
     hash.to_low_u64_be()
         .checked_sub(1)
         .expect("do not query for zero hash")
@@ -129,12 +129,12 @@ mod test {
              */
 
             let block = generator.latest_block().unwrap();
-            assert_eq!(block.block_hash, block_number_to_block_hash(i));
-            assert_eq!(block_hash_to_block_number(block.block_hash), i);
+            assert_eq!(block.block_hash, block_number_to_hash(i));
+            assert_eq!(block_hash_to_number(block.block_hash), i);
 
             let expected_parent = i
                 .checked_sub(1)
-                .map(block_number_to_block_hash)
+                .map(block_number_to_hash)
                 .unwrap_or_else(Hash256::zero);
             assert_eq!(block.parent_hash, expected_parent);
 
@@ -162,7 +162,7 @@ mod test {
             dbg!(next_i);
             assert!(generator.block_by_number(next_i).is_none());
             assert!(generator
-                .block_by_hash(block_number_to_block_hash(next_i))
+                .block_by_hash(block_number_to_hash(next_i))
                 .is_none());
 
             generator.increment_seconds_since_genesis(1);

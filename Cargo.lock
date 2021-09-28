@@ -2073,6 +2073,7 @@ dependencies = [
  "eth1",
  "eth2_serde_utils 0.1.0",
  "eth2_ssz_types",
+ "exit-future",
  "futures",
  "hex",
  "lru",

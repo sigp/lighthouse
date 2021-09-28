@@ -11,33 +11,33 @@ use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
 pub use reqwest::Client;
 
 const STATIC_ID: u32 = 1;
-const JSONRPC_VERSION: &str = "2.0";
+pub const JSONRPC_VERSION: &str = "2.0";
 
-const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
+pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
 
-const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
-const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
+pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
 
-const ETH_GET_BLOCK_BY_HASH: &str = "eth_getBlockByHash";
-const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ETH_GET_BLOCK_BY_HASH: &str = "eth_getBlockByHash";
+pub const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(1);
 
-const ETH_SYNCING: &str = "eth_syncing";
-const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
+pub const ETH_SYNCING: &str = "eth_syncing";
+pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
-const ENGINE_PREPARE_PAYLOAD: &str = "engine_preparePayload";
-const ENGINE_PREPARE_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(500);
+pub const ENGINE_PREPARE_PAYLOAD: &str = "engine_preparePayload";
+pub const ENGINE_PREPARE_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(500);
 
-const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
-const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
+pub const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-const ENGINE_GET_PAYLOAD: &str = "engine_getPayload";
-const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_GET_PAYLOAD: &str = "engine_getPayload";
+pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-const ENGINE_CONSENSUS_VALIDATED: &str = "engine_consensusValidated";
-const ENGINE_CONSENSUS_VALIDATED_TIMEOUT: Duration = Duration::from_millis(500);
+pub const ENGINE_CONSENSUS_VALIDATED: &str = "engine_consensusValidated";
+pub const ENGINE_CONSENSUS_VALIDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
-const ENGINE_FORKCHOICE_UPDATED: &str = "engine_forkchoiceUpdated";
-const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
+pub const ENGINE_FORKCHOICE_UPDATED: &str = "engine_forkchoiceUpdated";
+pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct HttpJsonRpc {
     pub client: Client,
@@ -78,7 +78,7 @@ impl HttpJsonRpc {
             .await?;
 
         match (body.result, body.error) {
-            (Some(result), None) => serde_json::from_value(result).map_err(Into::into),
+            (result, None) => serde_json::from_value(result).map_err(Into::into),
             (_, Some(error)) => {
                 if error.contains(EIP155_ERROR_STR) {
                     Err(Error::Eip155Failure)
@@ -86,7 +86,6 @@ impl HttpJsonRpc {
                     Err(Error::ServerMessage(error))
                 }
             }
-            (None, None) => Err(Error::NoErrorOrResult),
         }
     }
 }
@@ -104,7 +103,6 @@ impl EngineApi for HttpJsonRpc {
          * Check the network and chain ids. We omit this to save time for the merge f2f and since it
          * also seems like it might get annoying during development.
          */
-
         match result.as_bool() {
             Some(false) => Ok(()),
             _ => Err(Error::IsSyncing),
@@ -232,7 +230,7 @@ struct JsonRequestBody<'a> {
 struct JsonResponseBody {
     jsonrpc: String,
     error: Option<String>,
-    result: Option<serde_json::Value>,
+    result: serde_json::Value,
     id: u32,
 }
 
@@ -375,13 +373,13 @@ mod test {
     use types::MainnetEthSpec;
 
     struct Tester {
-        server: MockServer,
+        server: MockServer<MainnetEthSpec>,
         echo_client: Arc<HttpJsonRpc>,
     }
 
     impl Tester {
         pub fn new() -> Self {
-            let server = MockServer::unit_testing::<MainnetEthSpec>();
+            let server = MockServer::unit_testing();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
             let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());
 

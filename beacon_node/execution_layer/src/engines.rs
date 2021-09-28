@@ -159,6 +159,33 @@ impl<T: EngineApi> Engines<T> {
 
     pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
     where
+        F: Fn(&'a Engine<T>) -> G + Copy,
+        G: Future<Output = Result<H, EngineApiError>>,
+    {
+        let first_results = self.broadcast_without_retry(func).await;
+
+        let mut any_offline = false;
+        for result in &first_results {
+            match result {
+                Ok(_) => return first_results,
+                Err(EngineError::Offline { .. }) => any_offline = true,
+                _ => (),
+            }
+        }
+
+        if any_offline {
+            self.upcheck_offline().await;
+            self.broadcast_without_retry(func).await
+        } else {
+            first_results
+        }
+    }
+
+    pub async fn broadcast_without_retry<'a, F, G, H>(
+        &'a self,
+        func: F,
+    ) -> Vec<Result<H, EngineError>>
+    where
         F: Fn(&'a Engine<T>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {

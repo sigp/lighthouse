@@ -19,7 +19,6 @@ pub enum Error {
     Json(serde_json::Error),
     ServerMessage(String),
     Eip155Failure,
-    NoErrorOrResult,
     IsSyncing,
     ExecutionBlockNotFound(Hash256),
     ExecutionHeadBlockNotFound,
@@ -103,7 +102,7 @@ pub enum BlockByNumberQuery<'a> {
     Tag(&'a str),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
     pub block_hash: Hash256,
