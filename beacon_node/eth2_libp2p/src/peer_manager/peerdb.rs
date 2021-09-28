@@ -193,7 +193,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             Some(PeerConnectionStatus::Disconnected { .. })
                 | Some(PeerConnectionStatus::Unknown { .. })
                 | None
-        ) && !self.is_banned_or_disconnected(peer_id)
+        ) && !self.score_state_banned_or_disconnected(peer_id)
     }
 
     /// Returns true if the peer is synced at least to our current head.
@@ -239,7 +239,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns true if the Peer is either banned or in the disconnected state.
-    fn is_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
+    fn score_state_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
             match peer.score_state() {
                 ScoreState::Banned | ScoreState::Disconnected => true,
@@ -328,10 +328,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives the ids of all known banned peers.
-    pub fn banned_peers(&self) -> impl Iterator<Item = &PeerId> {
+    pub fn banned_peers_by_score(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(|(_, info)| info.is_banned())
+            .filter(|(_, info)| info.score_is_banned())
             .map(|(peer_id, _)| peer_id)
     }
 
@@ -389,10 +389,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let info = self.peers.entry(*peer_id).or_default();
         info.enr = enr;
 
+        // If the peer was disconnected, reduce the disconnected peer count.
         if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
         }
 
+        // If the peer was banned, remove the banned peer and addresses.
         if info.is_banned() {
             self.banned_peers_count
                 .remove_banned_peer(info.seen_addresses());
@@ -548,7 +550,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerConnectionStatus::Disconnected { .. } => {
                 // It is possible to ban a peer that has a disconnected score, if there are many
                 // events that score it poorly and are processed after it has disconnected.
-                self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+                self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
                 info.update_state();
                 self.banned_peers_count
                     .add_banned_peer(info.seen_addresses());
@@ -609,7 +611,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.update_state();
 
         // This transitions a banned peer to a disconnected peer
-        self.disconnected_peers = self.disconnected_peers.saturating_add(1);
+        self.disconnected_peers = self.disconnected_peers().count().saturating_add(1);
         self.shrink_to_fit();
         Ok(())
     }
@@ -657,10 +659,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     PeerConnectionStatus::Disconnected { since } => Some((id, since)),
                     _ => None,
                 })
-                .min_by_key(|(_, since)| *since)
+                .min_by_key(|(_, age)| *age)
                 .map(|(id, _)| *id)
             {
-                debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop);
+                debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop, "disconnected_size" => self.disconnected_peers.saturating_sub(1));
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -765,6 +767,88 @@ mod tests {
     }
 
     #[test]
+    fn test_disconnected_removed_in_correct_order() {
+        let mut pdb = get_db();
+
+        use std::collections::BTreeMap;
+        let mut peer_list = BTreeMap::new();
+        for id in 0..MAX_DC_PEERS + 1 {
+            let new_peer = PeerId::random();
+            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_list.insert(id, new_peer);
+        }
+        assert_eq!(pdb.disconnected_peers, 0);
+
+        for (_, p) in peer_list.iter() {
+            pdb.inject_disconnect(&p);
+            // Allow the timing to update correctly
+        }
+        assert_eq!(pdb.disconnected_peers, MAX_DC_PEERS);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+
+        // Only the oldest peer should have been removed
+        for (id, peer_id) in peer_list.iter().rev().take(MAX_DC_PEERS) {
+            println!("Testing id {}", id);
+            assert!(
+                pdb.peer_info(peer_id).is_some(),
+                "Latest peer should not be pruned"
+            );
+        }
+
+        assert!(
+            pdb.peer_info(peer_list.iter().next().unwrap().1).is_none(),
+            "First peer should be removed"
+        );
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+    }
+
+    #[test]
+    fn new_connection_should_remain() {
+        let mut pdb = get_db();
+
+        use std::collections::BTreeMap;
+        let mut peer_list = BTreeMap::new();
+        for id in 0..MAX_DC_PEERS + 20 {
+            let new_peer = PeerId::random();
+            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_list.insert(id, new_peer);
+        }
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        for (_, p) in peer_list.iter() {
+            pdb.inject_disconnect(&p);
+        }
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        println!("{}", pdb.disconnected_peers);
+
+        peer_list.clear();
+        for id in 0..MAX_DC_PEERS + 20 {
+            let new_peer = PeerId::random();
+            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_list.insert(id, new_peer);
+        }
+
+        let new_peer = PeerId::random();
+        // New peer gets its min_ttl updated because it exists on a subnet
+        let min_ttl = Instant::now() + std::time::Duration::from_secs(12);
+
+        pdb.update_min_ttl(&new_peer, min_ttl);
+        // Peer then gets dialed
+        pdb.dialing_peer(&new_peer, None);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        // Dialing fails, remove the peer
+        pdb.inject_disconnect(&new_peer);
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+
+        assert!(
+            pdb.peer_info(&new_peer).is_some(),
+            "Peer should exist as disconnected"
+        );
+
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
+        println!("{}", pdb.disconnected_peers);
+    }
+
+    #[test]
     fn test_disconnected_are_bounded() {
         let mut pdb = get_db();
 
@@ -777,6 +861,7 @@ mod tests {
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
             pdb.inject_disconnect(&p);
         }
+        assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
         assert_eq!(pdb.disconnected_peers, MAX_DC_PEERS);
     }
@@ -901,7 +986,7 @@ mod tests {
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
-            pdb.banned_peers().count()
+            pdb.banned_peers_by_score().count()
         );
 
         // Should be no disconnected peers

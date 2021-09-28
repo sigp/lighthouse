@@ -183,7 +183,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Checks if the status is banned.
     pub fn is_banned(&self) -> bool {
-        matches!(self.score.state(), ScoreState::Banned)
+        matches!(self.connection_status, PeerConnectionStatus::Banned { .. })
     }
 
     /// Checks if the status is disconnected.

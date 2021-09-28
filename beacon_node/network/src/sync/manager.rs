@@ -660,7 +660,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             peer_info.is_connected()
         } else {
-            crit!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
+            error!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
             false
         }
     }
