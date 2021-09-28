@@ -20,6 +20,12 @@ impl ExecutionBlockGenerator {
         }
     }
 
+    pub fn set_clock_for_block_number(&mut self, number: u64) {
+        self.seconds_since_genesis = number
+            .checked_mul(self.block_interval_secs)
+            .expect("overflow setting clock");
+    }
+
     pub fn increment_seconds_since_genesis(&mut self, inc: u64) {
         self.seconds_since_genesis += inc;
     }
@@ -159,7 +165,6 @@ mod test {
              */
 
             let next_i = i + 1;
-            dbg!(next_i);
             assert!(generator.block_by_number(next_i).is_none());
             assert!(generator
                 .block_by_hash(block_number_to_hash(next_i))

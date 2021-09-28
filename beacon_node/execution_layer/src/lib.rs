@@ -307,7 +307,7 @@ impl ExecutionLayer {
                     .await?
                     .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
 
-                self.execution_blocks().await.put(block.parent_hash, block);
+                self.execution_blocks().await.put(block.block_hash, block);
 
                 loop {
                     if block.total_difficulty >= self.terminal_total_difficulty() {
@@ -447,11 +447,20 @@ mod test {
             }
         }
 
+        pub async fn move_to_block_prior_to_terminal_block(self) -> Self {
+            {
+                let mut block_gen = self.server.execution_block_generator().await;
+                let target_block = block_gen.terminal_block_number.checked_sub(1).unwrap();
+                block_gen.set_clock_for_block_number(target_block)
+            }
+            self
+        }
+
         pub async fn move_to_terminal_block(self) -> Self {
             {
                 let mut block_gen = self.server.execution_block_generator().await;
-                block_gen.seconds_since_genesis =
-                    block_gen.terminal_block_number * block_gen.block_interval_secs;
+                let target_block = block_gen.terminal_block_number;
+                block_gen.set_clock_for_block_number(target_block)
             }
             self
         }
@@ -485,6 +494,29 @@ mod test {
 
     #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
+        SingleEngineTester::new()
+            .move_to_block_prior_to_terminal_block()
+            .await
+            .with_terminal_block_number(|el, _| async move {
+                assert_eq!(
+                    el.get_pow_block_hash_at_total_difficulty().await.unwrap(),
+                    None
+                )
+            })
+            .await
+            .move_to_terminal_block()
+            .await
+            .with_terminal_block_number(|el, terminal_block_number| async move {
+                assert_eq!(
+                    el.get_pow_block_hash_at_total_difficulty().await.unwrap(),
+                    Some(block_number_to_hash(terminal_block_number))
+                )
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn verifies_valid_terminal_block_hash() {
         SingleEngineTester::new()
             .move_to_terminal_block()
             .await
