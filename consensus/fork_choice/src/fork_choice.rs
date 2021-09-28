@@ -18,6 +18,7 @@ pub enum Error<T> {
     InvalidBlock(InvalidBlock),
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
+    InvalidLegacyProtoArrayBytes(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -274,6 +275,12 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
+        // Default any non-merge execution block hashes to 0x000..000.
+        let execution_block_hash = anchor_block.message_merge().map_or_else(
+            |()| Hash256::zero(),
+            |message| message.body.execution_payload.block_hash,
+        );
+
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
             finalized_block_state_root,
@@ -282,6 +289,7 @@ where
             fc_store.finalized_checkpoint().root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
+            execution_block_hash,
         )?;
 
         Ok(Self {
@@ -572,6 +580,12 @@ where
             .on_verified_block(block, block_root, state)
             .map_err(Error::AfterBlockFailed)?;
 
+        // Default any non-merge execution block hashes to 0x000..000.
+        let execution_block_hash = block.body_merge().map_or_else(
+            |()| Hash256::zero(),
+            |body| body.execution_payload.block_hash,
+        );
+
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
         self.proto_array.process_block(ProtoBlock {
@@ -594,6 +608,7 @@ where
             state_root: block.state_root(),
             justified_epoch: state.current_justified_checkpoint().epoch,
             finalized_epoch: state.finalized_checkpoint().epoch,
+            execution_block_hash,
         })?;
 
         Ok(())
@@ -904,7 +919,7 @@ where
 /// This is used when persisting the state of the fork choice to disk.
 #[derive(Encode, Decode, Clone)]
 pub struct PersistedForkChoice {
-    proto_array_bytes: Vec<u8>,
+    pub proto_array_bytes: Vec<u8>,
     queued_attestations: Vec<QueuedAttestation>,
 }
 
