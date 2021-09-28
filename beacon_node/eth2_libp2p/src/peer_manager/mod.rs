@@ -401,12 +401,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
 
+        let connected_peers = self.network_globals.connected_peers() as i64;
+
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
 
     pub fn inject_connection_closed(
@@ -456,12 +456,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // reference so that peer manager can track this peer.
             self.inject_disconnect(&peer_id);
 
+            let connected_peers = self.network_globals.connected_peers() as i64;
+
             // Update the prometheus metrics
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-            metrics::set_gauge(
-                &metrics::PEERS_CONNECTED,
-                self.network_globals.connected_peers() as i64,
-            );
+            metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
+            metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
         }
     }
 
@@ -866,12 +866,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
 
+        let connected_peers = self.network_globals.connected_peers() as i64;
+
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(
-            &metrics::PEERS_CONNECTED,
-            self.network_globals.connected_peers() as i64,
-        );
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
+        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
 
         // Increment the PEERS_PER_CLIENT metric
         if let Some(kind) = self
