@@ -376,8 +376,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
                        This flag should only be used if the user has a clear understanding that \
                        the broad Ethereum community has elected to override the terminal difficulty. \
-                       Failure to do so will cause your node to experience a consensus failure. \
-                       Be extremely careful with the use of this flag.")
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-override")
+                .long("terminal-block-hash-override")
+                .value_name("TERMINAL_BLOCK_HASH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
                 .takes_value(true)
         )
         .arg(
