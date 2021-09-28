@@ -480,7 +480,9 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(74240)),
             merge_fork_version: [0x02, 0x00, 0x00, 0x00],
             merge_fork_epoch: None,
-            terminal_total_difficulty: Uint256::MAX,
+            terminal_total_difficulty: Uint256::MAX
+                .checked_sub(Uint256::from(2u64.pow(10)))
+                .expect("calculation does not overflow"),
 
             /*
              * Network specific
@@ -521,6 +523,9 @@ impl ChainSpec {
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
+            // Merge
+            merge_fork_version: [0x02, 0x00, 0x00, 0x01],
+            merge_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
