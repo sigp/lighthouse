@@ -35,6 +35,52 @@ pub struct ProtoNode {
     best_child: Option<usize>,
     #[ssz(with = "four_byte_option_usize")]
     best_descendant: Option<usize>,
+    /// It's necessary to track this so that we can refuse to propagate post-merge blocks without
+    /// execution payloads, without confusing these with pre-merge blocks.
+    ///
+    /// Relevant spec issue: https://github.com/ethereum/consensus-specs/issues/2618
+    pub execution_block_hash: Hash256,
+}
+
+/// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// from schema 4 to schema 5.
+#[derive(Encode, Decode)]
+pub struct LegacyProtoNode {
+    pub slot: Slot,
+    pub state_root: Hash256,
+    pub target_root: Hash256,
+    pub current_epoch_shuffling_id: AttestationShufflingId,
+    pub next_epoch_shuffling_id: AttestationShufflingId,
+    pub root: Hash256,
+    #[ssz(with = "four_byte_option_usize")]
+    pub parent: Option<usize>,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
+    weight: u64,
+    #[ssz(with = "four_byte_option_usize")]
+    best_child: Option<usize>,
+    #[ssz(with = "four_byte_option_usize")]
+    best_descendant: Option<usize>,
+}
+
+impl Into<ProtoNode> for LegacyProtoNode {
+    fn into(self) -> ProtoNode {
+        ProtoNode {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_epoch: self.justified_epoch,
+            finalized_epoch: self.finalized_epoch,
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            execution_block_hash: Hash256::zero(),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -178,6 +224,7 @@ impl ProtoArray {
             weight: 0,
             best_child: None,
             best_descendant: None,
+            execution_block_hash: block.execution_block_hash,
         };
 
         self.indices.insert(node.root, node_index);
