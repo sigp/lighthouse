@@ -50,12 +50,19 @@ impl ExecutionBlockGenerator {
         }
     }
 
-    pub fn insert_merge_block(&mut self, number: u64, block_hash: Hash256) -> Result<(), String> {
+    pub fn insert_pos_block(&mut self, number: u64) -> Result<(), String> {
         if number <= self.terminal_block_number {
             return Err(format!(
                 "cannot insert block {} as it is prior to terminal block {}",
                 number, self.terminal_block_number
             ));
+        }
+
+        let time_based_block = self.block_number_at(self.seconds_since_genesis);
+        if time_based_block < self.terminal_block_number {
+            if number > time_based_block {
+                return Err(format!("it is too early to insert block {}", number));
+            }
         }
 
         let next_block = self
@@ -148,7 +155,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn simple() {
+    fn pow_chain_only() {
         const TERMINAL_DIFFICULTY: u64 = 10;
         const TERMINAL_BLOCK: u64 = 10;
         const DIFFICULTY_INCREMENT: u64 = 1;
@@ -200,5 +207,38 @@ mod test {
 
             generator.increment_seconds_since_genesis(1);
         }
+    }
+
+    #[test]
+    fn pos_blocks() {
+        const TERMINAL_DIFFICULTY: u64 = 10;
+        const TERMINAL_BLOCK: u64 = 10;
+
+        let mut generator = ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
+
+        let penultimate_pow_block = generator.terminal_block_number.checked_sub(1).unwrap();
+        let last_pow_block = generator.terminal_block_number;
+        let first_pos_block = generator.terminal_block_number + 1;
+        let second_pos_block = first_pos_block + 1;
+
+        generator.set_clock_for_block_number(penultimate_pow_block);
+
+        assert!(generator.block_by_number(last_pow_block).is_none());
+
+        assert!(generator.insert_pos_block(first_pos_block).is_err());
+
+        generator.set_clock_for_block_number(last_pow_block);
+
+        generator.block_by_number(last_pow_block).unwrap();
+
+        assert!(generator.block_by_number(first_pos_block).is_none());
+
+        generator.insert_pos_block(first_pos_block).unwrap();
+
+        generator.block_by_number(first_pos_block).unwrap();
+
+        assert!(generator.insert_pos_block(first_pos_block).is_err());
+
+        generator.insert_pos_block(second_pos_block).unwrap();
     }
 }
