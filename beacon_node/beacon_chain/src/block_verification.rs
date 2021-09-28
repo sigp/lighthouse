@@ -58,7 +58,9 @@ use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::is_execution_enabled;
+use state_processing::per_block_processing::{
+    is_execution_enabled, is_merge_block, is_merge_complete,
+};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -286,6 +288,20 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     TransactionDataExceedsSizeLimit,
+    /// The execution payload references an execution block that cannot trigger the merge.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidTerminalPoWBlock,
+    /// The execution payload references execution blocks that are unavailable on our execution
+    /// nodes.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's not clear if the peer is invalid or if it's on a different execution fork to us.
+    TerminalPoWBlockNotFound,
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -1077,6 +1093,44 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 }
                 summaries.push(summary);
             }
+        }
+
+        // If this block triggers the merge, check to ensure that it references valid execution
+        // blocks.
+        //
+        // The specification defines this check inside `on_block` in the fork-choice specification,
+        // however we perform the block here for two reasons:
+        //
+        // - There's no point in importing a block that will fail fork choice, so it's best to fail
+        //   early.
+        // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
+        //   calls to remote servers.
+        if is_merge_block(&state, block.message().body()) {
+            let execution_layer = chain
+                .execution_layer
+                .as_ref()
+                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+            let execution_payload =
+                block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .ok_or_else(|| InconsistentFork {
+                        fork_at_slot: eth2::types::ForkName::Merge,
+                        object_fork: block.message().body().fork_name(),
+                    })?;
+
+            let is_valid_terminal_pow_block = execution_layer
+                .block_on(|execution_layer| {
+                    execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash)
+                })
+                .map_err(ExecutionPayloadError::from)?;
+
+            match is_valid_terminal_pow_block {
+                Some(true) => Ok(()),
+                Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock),
+                None => Err(ExecutionPayloadError::TerminalPoWBlockNotFound),
+            }?;
         }
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
