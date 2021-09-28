@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::ExecutionBlockGenerator;
+use handle_rpc::handle_rpc;
 use serde::{Deserialize, Serialize};
 use slog::{info, Logger};
 use std::future::Future;
@@ -15,6 +16,7 @@ const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 
 mod execution_block_generator;
+mod handle_rpc;
 
 pub struct MockServer {
     _shutdown_tx: oneshot::Sender<()>,
@@ -139,16 +141,38 @@ pub fn serve<T: EthSpec>(
     let log = ctx.log.clone();
 
     let inner_ctx = ctx.clone();
-    let routes = warp::post()
-        .and(warp::path("echo"))
+    let ctx_filter = warp::any().map(move || inner_ctx.clone());
+
+    // `/`
+    //
+    // Handles actual JSON-RPC requests.
+    let root = warp::path::end()
+        .and(warp::body::json())
+        .and(ctx_filter.clone())
+        .and_then(|body: serde_json::Value, ctx: Arc<Context<T>>| async move {
+            let response = handle_rpc(body, ctx).await;
+            Ok::<_, warp::reject::Rejection>(
+                warp::http::Response::builder()
+                    .status(200)
+                    .body(serde_json::to_string(&response).expect("response must be valid JSON")),
+            )
+        });
+
+    // `/echo`
+    //
+    // Sends the body of the request to `ctx.last_echo_request` so we can inspect requests.
+    let echo = warp::path("echo")
         .and(warp::body::bytes())
-        .and(warp::any().map(move || inner_ctx.clone()))
+        .and(ctx_filter.clone())
         .and_then(|bytes: Bytes, ctx: Arc<Context<T>>| async move {
             *ctx.last_echo_request.write().await = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(
                 warp::http::Response::builder().status(200).body(bytes),
             )
-        })
+        });
+
+    let routes = warp::post()
+        .and(root.or(echo))
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"));
 
