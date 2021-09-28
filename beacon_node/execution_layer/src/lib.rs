@@ -36,7 +36,7 @@ impl From<ApiError> for Error {
 struct Inner {
     engines: Engines<HttpJsonRpc>,
     terminal_total_difficulty: Uint256,
-    terminal_block_hash: Option<Hash256>,
+    terminal_block_hash: Hash256,
     fee_recipient: Option<Address>,
     execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
@@ -52,7 +52,7 @@ impl ExecutionLayer {
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
         terminal_total_difficulty: Uint256,
-        terminal_block_hash: Option<Hash256>,
+        terminal_block_hash: Hash256,
         fee_recipient: Option<Address>,
         executor: TaskExecutor,
         log: Logger,
@@ -98,7 +98,7 @@ impl ExecutionLayer {
         self.inner.terminal_total_difficulty
     }
 
-    fn terminal_block_hash(&self) -> Option<Hash256> {
+    fn terminal_block_hash(&self) -> Hash256 {
         self.inner.terminal_block_hash
     }
 
@@ -386,7 +386,7 @@ impl ExecutionLayer {
     }
 
     fn is_valid_terminal_pow_block(&self, block: ExecutionBlock, parent: ExecutionBlock) -> bool {
-        if Some(block.block_hash) == self.terminal_block_hash() {
+        if block.block_hash == self.terminal_block_hash() {
             return true;
         }
 
