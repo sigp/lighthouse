@@ -34,7 +34,7 @@ impl ForkName {
                 spec
             }
             ForkName::Merge => {
-                spec.altair_fork_epoch = None;
+                spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.merge_fork_epoch = Some(Epoch::new(0));
                 spec
             }
