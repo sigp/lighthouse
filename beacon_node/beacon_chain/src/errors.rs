@@ -40,6 +40,7 @@ macro_rules! easy_from_to {
 pub enum BeaconChainError {
     InsufficientValidators,
     UnableToReadSlot,
+    UnableToComputeTimeAtSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,
         new_epoch: Epoch,
