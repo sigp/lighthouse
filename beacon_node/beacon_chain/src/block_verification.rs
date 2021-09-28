@@ -53,6 +53,7 @@ use crate::{
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
+use safe_arith::{ArithError, SafeArith};
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -259,7 +260,7 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
-    InvalidPayloadTimestamp,
+    InvalidPayloadTimestamp { expected: u64, found: u64 },
     /// The gas used in the block exceeds the gas limit
     ///
     /// ## Peer scoring
@@ -329,6 +330,12 @@ impl<T: EthSpec> From<SlotProcessingError> for BlockError<T> {
 impl<T: EthSpec> From<DBError> for BlockError<T> {
     fn from(e: DBError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::DBError(e))
+    }
+}
+
+impl<T: EthSpec> From<ArithError> for BlockError<T> {
+    fn from(e: ArithError) -> Self {
+        BlockError::BeaconChainError(BeaconChainError::ArithError(e))
     }
 }
 
@@ -1193,7 +1200,6 @@ fn validate_execution_payload<T: BeaconChainTypes>(
 ) -> Result<(), BlockError<T::EthSpec>> {
     // Only apply this validation if this is a merge beacon block.
     if let Some(execution_payload) = block.body().execution_payload() {
-
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
         let is_merge_complete = parent_block.execution_block_hash != Hash256::zero();
