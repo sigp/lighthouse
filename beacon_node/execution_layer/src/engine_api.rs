@@ -21,6 +21,8 @@ pub enum Error {
     Eip155Failure,
     NoErrorOrResult,
     IsSyncing,
+    ExecutionBlockNotFound(Hash256),
+    ExecutionHeadBlockNotFound,
 }
 
 impl From<reqwest::Error> for Error {
@@ -42,9 +44,12 @@ pub trait EngineApi {
     async fn get_block_by_number<'a>(
         &self,
         block_by_number: BlockByNumberQuery<'a>,
-    ) -> Result<ExecutionBlock, Error>;
+    ) -> Result<Option<ExecutionBlock>, Error>;
 
-    async fn get_block_by_hash<'a>(&self, block_hash: Hash256) -> Result<ExecutionBlock, Error>;
+    async fn get_block_by_hash<'a>(
+        &self,
+        block_hash: Hash256,
+    ) -> Result<Option<ExecutionBlock>, Error>;
 
     async fn prepare_payload(
         &self,

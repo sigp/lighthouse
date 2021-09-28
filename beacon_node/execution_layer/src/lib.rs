@@ -36,6 +36,7 @@ impl From<ApiError> for Error {
 struct Inner {
     engines: Engines<HttpJsonRpc>,
     terminal_total_difficulty: Uint256,
+    terminal_block_hash: Option<Hash256>,
     fee_recipient: Option<Address>,
     execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
@@ -51,6 +52,7 @@ impl ExecutionLayer {
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
         terminal_total_difficulty: Uint256,
+        terminal_block_hash: Option<Hash256>,
         fee_recipient: Option<Address>,
         executor: TaskExecutor,
         log: Logger,
@@ -70,6 +72,7 @@ impl ExecutionLayer {
                 log: log.clone(),
             },
             terminal_total_difficulty,
+            terminal_block_hash,
             fee_recipient,
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
@@ -93,6 +96,10 @@ impl ExecutionLayer {
 
     fn terminal_total_difficulty(&self) -> Uint256 {
         self.inner.terminal_total_difficulty
+    }
+
+    fn terminal_block_hash(&self) -> Option<Hash256> {
+        self.inner.terminal_block_hash
     }
 
     fn fee_recipient(&self) -> Result<Address, Error> {
@@ -198,6 +205,7 @@ impl ExecutionLayer {
             crit!(
                 self.log(),
                 "Consensus failure between execution nodes";
+                "method" => "execute_payload"
             );
         }
 
@@ -268,6 +276,27 @@ impl ExecutionLayer {
         }
     }
 
+    async fn get_pow_block(
+        &self,
+        engine: &Engine<HttpJsonRpc>,
+        hash: Hash256,
+    ) -> Result<Option<ExecutionBlock>, ApiError> {
+        if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
+            // The block was in the cache, no need to request it from the execution
+            // engine.
+            return Ok(Some(cached));
+        }
+
+        // The block was *not* in the cache, request it from the execution
+        // engine and cache it for future reference.
+        if let Some(block) = engine.api.get_block_by_hash(hash).await? {
+            self.execution_blocks().await.put(hash, block);
+            Ok(Some(block))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn get_pow_block_hash_at_total_difficulty(&self) -> Result<Option<Hash256>, Error> {
         self.engines()
             .first_success(|engine| async move {
@@ -275,28 +304,19 @@ impl ExecutionLayer {
                 let mut block = engine
                     .api
                     .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
-                    .await?;
+                    .await?
+                    .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
+
                 self.execution_blocks().await.put(block.parent_hash, block);
 
                 loop {
                     if block.total_difficulty >= self.terminal_total_difficulty() {
                         ttd_exceeding_block = Some(block.block_hash);
 
-                        let cached = self
-                            .execution_blocks()
-                            .await
-                            .get(&block.parent_hash)
-                            .copied();
-                        if let Some(cached_block) = cached {
-                            // The block was in the cache, no need to request it from the execution
-                            // engine.
-                            block = cached_block;
-                        } else {
-                            // The block was *not* in the cache, request it from the execution
-                            // engine and cache it for future reference.
-                            block = engine.api.get_block_by_hash(block.parent_hash).await?;
-                            self.execution_blocks().await.put(block.parent_hash, block);
-                        }
+                        block = self
+                            .get_pow_block(engine, block.parent_hash)
+                            .await?
+                            .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
                     } else {
                         return Ok::<_, ApiError>(ttd_exceeding_block);
                     }
@@ -304,5 +324,76 @@ impl ExecutionLayer {
             })
             .await
             .map_err(Error::EngineErrors)
+    }
+
+    /// Returns:
+    ///
+    /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
+    /// - `Some(false)` if the given `block_hash` is *not* the terminal proof-of-work block.
+    /// - `None` if the `block_hash` or its parent were not present on the execution engines.
+    /// - `Err(_)` if there was an error connecting to the execution engines.
+    pub async fn is_valid_terminal_pow_block_hash(
+        &self,
+        block_hash: Hash256,
+    ) -> Result<Option<bool>, Error> {
+        let broadcast_results = self
+            .engines()
+            .broadcast(|engine| async move {
+                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
+                    if let Some(pow_parent) =
+                        self.get_pow_block(engine, pow_block.parent_hash).await?
+                    {
+                        return Ok(Some(
+                            self.is_valid_terminal_pow_block(pow_block, pow_parent),
+                        ));
+                    }
+                }
+
+                Ok(None)
+            })
+            .await;
+
+        let mut errors = vec![];
+        let mut terminal = 0;
+        let mut not_terminal = 0;
+        let mut block_missing = 0;
+        for result in broadcast_results {
+            match result {
+                Ok(Some(true)) => terminal += 1,
+                Ok(Some(false)) => not_terminal += 1,
+                Ok(None) => block_missing += 1,
+                Err(e) => errors.push(e),
+            }
+        }
+
+        if terminal > 0 && not_terminal > 0 {
+            crit!(
+                self.log(),
+                "Consensus failure between execution nodes";
+                "method" => "is_valid_terminal_pow_block_hash"
+            );
+        }
+
+        if terminal > 0 {
+            Ok(Some(true))
+        } else if not_terminal > 0 {
+            Ok(Some(false))
+        } else if block_missing > 0 {
+            Ok(None)
+        } else {
+            Err(Error::EngineErrors(errors))
+        }
+    }
+
+    fn is_valid_terminal_pow_block(&self, block: ExecutionBlock, parent: ExecutionBlock) -> bool {
+        if Some(block.block_hash) == self.terminal_block_hash() {
+            return true;
+        }
+
+        let is_total_difficulty_reached =
+            block.total_difficulty >= self.terminal_total_difficulty();
+        let is_parent_total_difficulty_valid =
+            parent.total_difficulty < self.terminal_total_difficulty();
+        is_total_difficulty_reached && is_parent_total_difficulty_valid
     }
 }

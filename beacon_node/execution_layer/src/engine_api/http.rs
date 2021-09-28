@@ -13,6 +13,8 @@ pub use reqwest::Client;
 const STATIC_ID: u32 = 1;
 const JSONRPC_VERSION: &str = "2.0";
 
+const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
+
 const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
 const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -112,8 +114,8 @@ impl EngineApi for HttpJsonRpc {
     async fn get_block_by_number<'a>(
         &self,
         query: BlockByNumberQuery<'a>,
-    ) -> Result<ExecutionBlock, Error> {
-        let params = json!([query]);
+    ) -> Result<Option<ExecutionBlock>, Error> {
+        let params = json!([query, RETURN_FULL_TRANSACTION_OBJECTS]);
 
         self.rpc_request(
             ETH_GET_BLOCK_BY_NUMBER,
@@ -123,8 +125,11 @@ impl EngineApi for HttpJsonRpc {
         .await
     }
 
-    async fn get_block_by_hash<'a>(&self, block_hash: Hash256) -> Result<ExecutionBlock, Error> {
-        let params = json!([block_hash]);
+    async fn get_block_by_hash<'a>(
+        &self,
+        block_hash: Hash256,
+    ) -> Result<Option<ExecutionBlock>, Error> {
+        let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
 
         self.rpc_request(ETH_GET_BLOCK_BY_HASH, params, ETH_GET_BLOCK_BY_HASH_TIMEOUT)
             .await
@@ -431,7 +436,7 @@ mod test {
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
                     "method": ETH_GET_BLOCK_BY_NUMBER,
-                    "params": ["latest"]
+                    "params": ["latest", false]
                 }),
             )
             .await;
@@ -448,7 +453,7 @@ mod test {
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
                     "method": ETH_GET_BLOCK_BY_HASH,
-                    "params": [HASH_01]
+                    "params": [HASH_01, false]
                 }),
             )
             .await;
