@@ -5,7 +5,7 @@ use types::{Epoch, Hash256, Slot};
 
 #[derive(Clone, Debug, Serialize)]
 /// The current sync status of the peer.
-pub enum PeerSyncStatus {
+pub enum SyncStatus {
     /// At the current state as our node or ahead of us.
     Synced { info: SyncInfo },
     /// The peer has greater knowledge about the canonical chain than we do.
@@ -27,46 +27,40 @@ pub struct SyncInfo {
     pub finalized_root: Hash256,
 }
 
-impl std::cmp::PartialEq for PeerSyncStatus {
+impl std::cmp::PartialEq for SyncStatus {
     fn eq(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (PeerSyncStatus::Synced { .. }, PeerSyncStatus::Synced { .. })
-                | (
-                    PeerSyncStatus::Advanced { .. },
-                    PeerSyncStatus::Advanced { .. }
-                )
-                | (PeerSyncStatus::Behind { .. }, PeerSyncStatus::Behind { .. })
-                | (
-                    PeerSyncStatus::IrrelevantPeer,
-                    PeerSyncStatus::IrrelevantPeer
-                )
-                | (PeerSyncStatus::Unknown, PeerSyncStatus::Unknown)
+            (SyncStatus::Synced { .. }, SyncStatus::Synced { .. })
+                | (SyncStatus::Advanced { .. }, SyncStatus::Advanced { .. })
+                | (SyncStatus::Behind { .. }, SyncStatus::Behind { .. })
+                | (SyncStatus::IrrelevantPeer, SyncStatus::IrrelevantPeer)
+                | (SyncStatus::Unknown, SyncStatus::Unknown)
         )
     }
 }
 
-impl PeerSyncStatus {
+impl SyncStatus {
     /// Returns true if the peer has advanced knowledge of the chain.
     pub fn is_advanced(&self) -> bool {
-        matches!(self, PeerSyncStatus::Advanced { .. })
+        matches!(self, SyncStatus::Advanced { .. })
     }
 
     /// Returns true if the peer is up to date with the current chain.
     pub fn is_synced(&self) -> bool {
-        matches!(self, PeerSyncStatus::Synced { .. })
+        matches!(self, SyncStatus::Synced { .. })
     }
 
     /// Returns true if the peer is behind the current chain.
     pub fn is_behind(&self) -> bool {
-        matches!(self, PeerSyncStatus::Behind { .. })
+        matches!(self, SyncStatus::Behind { .. })
     }
 
     /// Updates the peer's sync status, returning whether the status transitioned.
     ///
     /// E.g. returns `true` if the state changed from `Synced` to `Advanced`, but not if
     /// the status remained `Synced` with different `SyncInfo` within.
-    pub fn update(&mut self, new_state: PeerSyncStatus) -> bool {
+    pub fn update(&mut self, new_state: SyncStatus) -> bool {
         let changed_status = *self != new_state;
         *self = new_state;
         changed_status
@@ -74,16 +68,16 @@ impl PeerSyncStatus {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            PeerSyncStatus::Advanced { .. } => "Advanced",
-            PeerSyncStatus::Behind { .. } => "Behind",
-            PeerSyncStatus::Synced { .. } => "Synced",
-            PeerSyncStatus::Unknown => "Unknown",
-            PeerSyncStatus::IrrelevantPeer => "Irrelevant",
+            SyncStatus::Advanced { .. } => "Advanced",
+            SyncStatus::Behind { .. } => "Behind",
+            SyncStatus::Synced { .. } => "Synced",
+            SyncStatus::Unknown => "Unknown",
+            SyncStatus::IrrelevantPeer => "Irrelevant",
         }
     }
 }
 
-impl std::fmt::Display for PeerSyncStatus {
+impl std::fmt::Display for SyncStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }

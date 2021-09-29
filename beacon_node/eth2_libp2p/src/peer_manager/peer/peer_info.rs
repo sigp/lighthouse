@@ -1,6 +1,6 @@
 use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
-use super::PeerSyncStatus;
+use super::sync_status::SyncStatus;
 use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
@@ -24,34 +24,34 @@ pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
     score: Score,
     /// Client managing this peer
-    pub client: Client,
+    client: Client,
     /// Connection status of this peer
     connection_status: PeerConnectionStatus,
     /// The known listening addresses of this peer. This is given by identify and can be arbitrary
     /// (including local IPs).
-    pub listening_addresses: Vec<Multiaddr>,
+    listening_addresses: Vec<Multiaddr>,
     /// This is addresses we have physically seen and this is what we use for banning/un-banning
     /// peers.
-    pub seen_addresses: HashSet<SocketAddr>,
+    seen_addresses: HashSet<SocketAddr>,
     /// The current syncing state of the peer. The state may be determined after it's initial
     /// connection.
-    pub sync_status: PeerSyncStatus,
+    sync_status: SyncStatus,
     /// The ENR subnet bitfield of the peer. This may be determined after it's initial
     /// connection.
-    pub meta_data: Option<MetaData<T>>,
+    meta_data: Option<MetaData<T>>,
     /// Subnets the peer is connected to.
-    pub subnets: HashSet<Subnet>,
+    subnets: HashSet<Subnet>,
     /// The time we would like to retain this peer. After this time, the peer is no longer
     /// necessary.
     #[serde(skip)]
-    pub min_ttl: Option<Instant>,
+    min_ttl: Option<Instant>,
     /// Is the peer a trusted peer.
-    pub is_trusted: bool,
+    is_trusted: bool,
     /// Direction of the first connection of the last (or current) connected session with this peer.
     /// None if this peer was never connected.
-    pub connection_direction: Option<ConnectionDirection>,
+    connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
-    pub enr: Option<Enr>,
+    enr: Option<Enr>,
 }
 
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
@@ -64,7 +64,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
             listening_addresses: Vec::new(),
             seen_addresses: HashSet::new(),
             subnets: HashSet::new(),
-            sync_status: PeerSyncStatus::Unknown,
+            sync_status: SyncStatus::Unknown,
             meta_data: None,
             min_ttl: None,
             is_trusted: false,
@@ -101,13 +101,54 @@ impl<T: EthSpec> PeerInfo<T> {
         false
     }
 
+    /// Obtains the client of the peer.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// Returns the listening addresses of the Peer.
+    pub fn listening_addresses(&self) -> &Vec<Multiaddr> {
+        &self.listening_addresses
+    }
+
+    /// Returns the connection direction for the peer.
+    pub fn connection_direction(&self) -> Option<&ConnectionDirection> {
+        self.connection_direction.as_ref()
+    }
+
+    /// Returns the sync status of the peer.
+    pub fn sync_status(&self) -> &SyncStatus {
+        &self.sync_status
+    }
+
+    /// Returns the metadata for the peer if currently known.
+    pub fn meta_data(&self) -> Option<&MetaData<T>> {
+        self.meta_data.as_ref()
+    }
+
+    /// The time a peer is expected to be useful until for an attached validator. If this is set to
+    /// None, the peer is not required for any upcoming duty.
+    pub fn min_ttl(&self) -> Option<&Instant> {
+        self.min_ttl.as_ref()
+    }
+
+    /// The ENR of the peer if it is known.
+    pub fn enr(&self) -> Option<&Enr> {
+        self.enr.as_ref()
+    }
+
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
         self.subnets.contains(subnet)
     }
 
     /// Returns the seen IP addresses of the peer.
-    pub fn seen_addresses(&self) -> impl Iterator<Item = IpAddr> + '_ {
+    pub fn seen_addresses(&self) -> impl Iterator<Item = &SocketAddr> + '_ {
+        self.seen_addresses.iter()
+    }
+
+    /// Returns a list of seen IP addresses for the peer.
+    pub fn seen_ip_addresses(&self) -> impl Iterator<Item = IpAddr> + '_ {
         self.seen_addresses
             .iter()
             .map(|socket_addr| socket_addr.ip())
@@ -133,32 +174,9 @@ impl<T: EthSpec> PeerInfo<T> {
         self.score.state()
     }
 
-    /// Applies decay rates to a non-trusted peer's score.
-    pub fn score_update(&mut self) {
-        if !self.is_trusted {
-            self.score.update()
-        }
-    }
-
-    /// Apply peer action to a non-trusted peer's score.
-    pub fn apply_peer_action_to_score(&mut self, peer_action: PeerAction) {
-        if !self.is_trusted {
-            self.score.apply_peer_action(peer_action)
-        }
-    }
-
-    pub(crate) fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
-        self.score.update_gossipsub_score(new_score, ignore);
-    }
-
+    /// Returns true if the gossipsub score is sufficient.
     pub fn is_good_gossipsub_peer(&self) -> bool {
         self.score.is_good_gossipsub_peer()
-    }
-
-    #[cfg(test)]
-    /// Resets the peers score.
-    pub fn reset_score(&mut self) {
-        self.score.test_reset();
     }
 
     /* Peer connection status API */
@@ -181,9 +199,15 @@ impl<T: EthSpec> PeerInfo<T> {
         self.is_connected() || self.is_dialing()
     }
 
-    /// Checks if the status is banned.
+    /// Checks if the connection status is banned. This can lag behind the score state
+    /// temporarily.
     pub fn is_banned(&self) -> bool {
         matches!(self.connection_status, PeerConnectionStatus::Banned { .. })
+    }
+
+    /// Checks if the peer's score is banned.
+    pub fn score_is_banned(&self) -> bool {
+        matches!(self.score.state(), ScoreState::Banned)
     }
 
     /// Checks if the status is disconnected.
@@ -204,11 +228,76 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    // Setters
+    /* Mutable Functions */
+
+    /// Updates the sync status. Returns true if the status was changed.
+    pub fn update_sync_status(&mut self, sync_status: SyncStatus) -> bool {
+        self.sync_status.update(sync_status)
+    }
+
+    /// Sets the client of the peer.
+    pub fn set_client(&mut self, client: Client) {
+        self.client = client
+    }
+
+    /// Replaces the current listening addresses with those specified, returning the current
+    /// listening addresses.
+    pub fn set_listening_addresses(
+        &mut self,
+        listening_addresses: Vec<Multiaddr>,
+    ) -> Vec<Multiaddr> {
+        std::mem::replace(&mut self.listening_addresses, listening_addresses)
+    }
+
+    /// Sets an explicit value for the meta data.
+    pub fn set_meta_data(&mut self, meta_data: MetaData<T>) {
+        self.meta_data = Some(meta_data)
+    }
+
+    /// Sets the ENR of the peer if one is known.
+    pub fn set_enr(&mut self, enr: Enr) {
+        self.enr = Some(enr)
+    }
+
+    /// Sets the time that the peer is expected to be needed until for an attached validator duty.
+    pub fn set_min_ttl(&mut self, min_ttl: Instant) {
+        self.min_ttl = Some(min_ttl)
+    }
+
+    /// Applies decay rates to a non-trusted peer's score.
+    pub fn score_update(&mut self) {
+        if !self.is_trusted {
+            self.score.update()
+        }
+    }
+
+    /// Returns a mutable reference to the underlying subnets hashset.
+    pub fn subnets_mut(&mut self) -> &mut HashSet<Subnet> {
+        &mut self.subnets
+    }
+
+    /// Apply peer action to a non-trusted peer's score.
+    pub fn apply_peer_action_to_score(&mut self, peer_action: PeerAction) {
+        if !self.is_trusted {
+            self.score.apply_peer_action(peer_action)
+        }
+    }
+
+    /// Updates the gossipsub score with a new score. Optionally ignore the gossipsub score.
+    pub fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
+        self.score.update_gossipsub_score(new_score, ignore);
+    }
+
+    #[cfg(test)]
+    /// Resets the peers score.
+    pub fn reset_score(&mut self) {
+        self.score.test_reset();
+    }
 
     /// Modifies the status to Disconnected and sets the last seen instant to now. Returns None if
     /// no changes were made. Returns Some(bool) where the bool represents if peer is to now be
     /// banned.
+    // Only the peer DB can change connection status
     pub fn notify_disconnect(&mut self) -> Option<bool> {
         match self.connection_status {
             Banned { .. } | Disconnected { .. } => None,
@@ -234,7 +323,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Modifies the status to banned or unbanned based on the underlying score.
-    pub fn update_state(&mut self) {
+    pub fn update_connection_state(&mut self) {
         match (&self.connection_status, self.score.state()) {
             (Disconnected { .. } | Unknown, ScoreState::Banned) => {
                 self.connection_status = Banned {
@@ -335,7 +424,9 @@ impl Default for PeerStatus {
 #[derive(Debug, Clone, Serialize, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ConnectionDirection {
+    /// The connection was established by a peer dialing us.
     Incoming,
+    /// The connection was established by us dialing a peer.
     Outgoing,
 }
 

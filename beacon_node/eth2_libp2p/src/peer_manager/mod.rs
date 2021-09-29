@@ -25,16 +25,13 @@ use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
-pub mod client;
-mod peer_info;
-mod peer_sync_status;
+pub mod peer;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 mod peerdb;
-pub(crate) mod score;
 
-pub use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
-pub use peer_sync_status::{PeerSyncStatus, SyncInfo};
-use score::{PeerAction, ReportSource, ScoreState};
+pub use peer::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
+pub use peer::sync_status::{SyncStatus, SyncInfo};
+use peer::score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
@@ -158,7 +155,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
-                info.sync_status.update(PeerSyncStatus::IrrelevantPeer);
+                info.update_sync_status(SyncStatus::IrrelevantPeer);
             }
 
             // Goodbye's are fatal
@@ -166,7 +163,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             metrics::inc_counter_vec(
                 &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
                 &[
-                    info.client.kind.as_ref(),
+                    info.client().kind.as_ref(),
                     PeerAction::Fatal.as_ref(),
                     source.into(),
                 ],
@@ -192,7 +189,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 info.apply_peer_action_to_score(action);
                 metrics::inc_counter_vec(
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                    &[info.client.kind.as_ref(), action.as_ref(), source.into()],
+                    &[info.client().kind.as_ref(), action.as_ref(), source.into()],
                 );
 
                 Self::handle_score_transitions(
@@ -277,21 +274,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Adds a gossipsub subscription to a peer in the peerdb.
     pub fn add_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.insert(subnet);
+            info.subnets_mut().insert(subnet);
         }
     }
 
     /// Removes a gossipsub subscription to a peer in the peerdb.
     pub fn remove_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets.remove(&subnet);
+            info.subnets_mut().remove(&subnet);
         }
     }
 
     /// Removes all gossipsub subscriptions to a peer in the peerdb.
     pub fn remove_all_subscriptions(&self, peer_id: &PeerId) {
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets = Default::default();
+            *info.subnets_mut() = Default::default();
         }
     }
 
@@ -441,7 +438,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .peers
                     .read()
                     .peer_info(&peer_id)
-                    .map(|info| info.client.kind.clone())
+                    .map(|info| info.client().kind.clone())
                 {
                     if let Some(v) =
                         metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
@@ -496,15 +493,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let previous_kind = peer_info.client.kind.clone();
-            let previous_listening_addresses = std::mem::replace(
-                &mut peer_info.listening_addresses,
-                info.listen_addrs.clone(),
-            );
-            peer_info.client = client::Client::from_identify_info(info);
+            let previous_kind = peer_info.client().kind.clone();
+            let previous_listening_addresses = peer_info.set_listening_addresses(info.listen_addrs.clone());
+            peer_info.set_client(peer::client::Client::from_identify_info(info));
 
-            if previous_kind != peer_info.client.kind
-                || peer_info.listening_addresses != previous_listening_addresses
+            if previous_kind != peer_info.client().kind
+                || *peer_info.listening_addresses() != previous_listening_addresses
             {
                 debug!(self.log, "Identified Peer"; "peer" => %peer_id,
                     "protocol_version" => &info.protocol_version,
@@ -517,7 +511,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // update the peer client kind metric
                 if let Some(v) = metrics::get_int_gauge(
                     &metrics::PEERS_PER_CLIENT,
-                    &[&peer_info.client.kind.to_string()],
+                    &[&peer_info.client().kind.to_string()],
                 ) {
                     v.inc()
                 };
@@ -646,7 +640,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // received a ping
             // reset the to-ping timer for this peer
             debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
-            match peer_info.connection_direction {
+            match peer_info.connection_direction() {
                 Some(ConnectionDirection::Incoming) => {
                     self.inbound_ping_peers.insert(*peer_id);
                 }
@@ -659,7 +653,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
 
             // if the sequence number is unknown send an update the meta data of the peer.
-            if let Some(meta_data) = &peer_info.meta_data {
+            if let Some(meta_data) = &peer_info.meta_data() {
                 if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
                         "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "ping_seq_no" => seq);
@@ -683,7 +677,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // received a pong
 
             // if the sequence number is unknown send update the meta data of the peer.
-            if let Some(meta_data) = &peer_info.meta_data {
+            if let Some(meta_data) = &peer_info.meta_data() {
                 if *meta_data.seq_number() < seq {
                     debug!(self.log, "Requesting new metadata from peer";
                         "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "pong_seq_no" => seq);
@@ -703,7 +697,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Received a metadata response from a peer.
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            if let Some(known_meta_data) = &peer_info.meta_data {
+            if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
@@ -718,7 +712,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 debug!(self.log, "Obtained peer's metadata";
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
-            peer_info.meta_data = Some(meta_data);
+            peer_info.set_meta_data(meta_data);
         } else {
             crit!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
@@ -879,7 +873,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .peers
             .read()
             .peer_info(peer_id)
-            .map(|peer_info| peer_info.client.kind.clone())
+            .map(|peer_info| peer_info.client().kind.clone())
         {
             if let Some(v) =
                 metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
@@ -1007,7 +1001,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 let banned_ip_addresses = peer_db
                     .peer_info(peer_id)
                     .map(|info| {
-                        info.seen_addresses()
+                        info.seen_ip_addresses()
                             .filter(|ip| peer_db.is_ip_banned(ip))
                             .collect::<Vec<_>>()
                     })
@@ -1030,7 +1024,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         let seen_ip_addresses = peer_db
             .peer_info(peer_id)
-            .map(|info| info.seen_addresses().collect::<Vec<_>>())
+            .map(|info| info.seen_ip_addresses().collect::<Vec<_>>())
             .unwrap_or_default();
 
         // Inform the Swarm to unban the peer

@@ -117,7 +117,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         self.peers
             .read()
             .peer_info(peer_id)
-            .map(|info| info.client.clone())
+            .map(|info| info.client().clone())
             .unwrap_or_default()
     }
 

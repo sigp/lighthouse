@@ -790,7 +790,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         for (peer_id, _) in gossipsub.all_peers() {
             let client = peers
                 .peer_info(peer_id)
-                .map(|peer_info| peer_info.client.kind.as_static())
+                .map(|peer_info| peer_info.client().kind.as_static())
                 .unwrap_or_else(|| "Unknown");
 
             peer_to_client.insert(peer_id, client);
@@ -919,7 +919,7 @@ pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>)
         .peers
         .read()
         .connected_peers()
-        .map(|(_peer_id, info)| info.sync_status.as_str())
+        .map(|(_peer_id, info)| info.sync_status().as_str())
     {
         *peers_per_sync_type.entry(sync_type).or_default() += 1;
     }

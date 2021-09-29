@@ -1,6 +1,8 @@
-use super::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use super::peer_sync_status::PeerSyncStatus;
-use super::score::{Score, ScoreState};
+use super::peer::{
+    peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo},
+    score::{Score, ScoreState},
+    sync_status::SyncStatus,
+};
 use crate::rpc::methods::MetaData;
 use crate::Enr;
 use crate::PeerId;
@@ -198,8 +200,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Returns true if the peer is synced at least to our current head.
     pub fn is_synced(&self, peer_id: &PeerId) -> bool {
-        match self.peers.get(peer_id).map(|info| &info.sync_status) {
-            Some(PeerSyncStatus::Synced { .. }) => true,
+        match self.peers.get(peer_id).map(|info| info.sync_status()) {
+            Some(SyncStatus::Synced { .. }) => true,
             Some(_) => false,
             None => false,
         }
@@ -229,7 +231,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Checks if the peer's known addresses are currently banned.
     fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> Option<IpAddr> {
-        peer.seen_addresses()
+        peer.seen_ip_addresses()
             .find(|ip| self.banned_peers_count.ip_is_banned(ip))
     }
 
@@ -284,7 +286,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(|(_, info)| {
-                if info.sync_status.is_synced() || info.sync_status.is_advanced() {
+                if info.sync_status().is_synced() || info.sync_status().is_advanced() {
                     return info.is_connected();
                 }
                 false
@@ -297,7 +299,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers
             .iter()
             .filter(|(_, info)| {
-                if info.sync_status.is_advanced() {
+                if info.sync_status().is_advanced() {
                     return info.is_connected();
                 }
                 false
@@ -387,21 +389,23 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// A peer is being dialed.
     pub fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
         let info = self.peers.entry(*peer_id).or_default();
-        info.enr = enr;
+        if let Some(enr) = enr {
+            info.set_enr(enr);
+        }
 
-        // If the peer was disconnected, reduce the disconnected peer count.
-        if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
+        if let Err(e) = info.dialing_peer() {
+            error!(self.log, "{}", e; "peer_id" => %peer_id);
         }
 
         // If the peer was banned, remove the banned peer and addresses.
         if info.is_banned() {
             self.banned_peers_count
-                .remove_banned_peer(info.seen_addresses());
+                .remove_banned_peer(info.seen_ip_addresses());
         }
 
-        if let Err(e) = info.dialing_peer() {
-            error!(self.log, "{}", e; "peer_id" => %peer_id);
+        // If the peer was disconnected, reduce the disconnected peer count.
+        if info.is_disconnected() {
+            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
         }
     }
 
@@ -410,8 +414,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         let info = self.peers.entry(*peer_id).or_default();
 
         // only update if the ttl is longer
-        if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
-            info.min_ttl = Some(min_ttl);
+        if info.min_ttl().is_none() || Some(&min_ttl) > info.min_ttl() {
+            info.set_min_ttl(min_ttl);
 
             let min_ttl_secs = min_ttl
                 .checked_duration_since(Instant::now())
@@ -430,8 +434,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 info.is_connected() && info.on_subnet_metadata(subnet) && info.on_subnet_gossipsub(subnet)
             })
             .for_each(|(peer_id,info)| {
-                if info.min_ttl.is_none() || Some(min_ttl) > info.min_ttl {
-                    info.min_ttl = Some(min_ttl);
+                if info.min_ttl().is_none() || Some(&min_ttl) > info.min_ttl() {
+                    info.set_min_ttl(min_ttl);
                 }
                 let min_ttl_secs = min_ttl
                     .checked_duration_since(Instant::now())
@@ -449,7 +453,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         direction: ConnectionDirection,
     ) {
         let info = self.peers.entry(*peer_id).or_default();
-        info.enr = enr;
+        if let Some(enr) = enr {
+            info.set_enr(enr);
+        }
 
         if info.is_disconnected() {
             self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
@@ -458,7 +464,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         if info.is_banned() {
             error!(self.log, "Accepted a connection from a banned peer"; "peer_id" => %peer_id);
             self.banned_peers_count
-                .remove_banned_peer(info.seen_addresses());
+                .remove_banned_peer(info.seen_ip_addresses());
         }
 
         // Add the seen ip address and port to the peer's info
@@ -541,7 +547,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             _ => {
                 // If score isn't low enough to ban, this function has been called incorrectly.
                 error!(self.log, "Banning a peer with a good score"; "peer_id" => %peer_id);
-                info.apply_peer_action_to_score(super::score::PeerAction::Fatal);
+                info.apply_peer_action_to_score(super::peer::score::PeerAction::Fatal);
             }
         }
 
@@ -550,10 +556,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             PeerConnectionStatus::Disconnected { .. } => {
                 // It is possible to ban a peer that has a disconnected score, if there are many
                 // events that score it poorly and are processed after it has disconnected.
-                self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
-                info.update_state();
+                info.update_connection_state();
                 self.banned_peers_count
-                    .add_banned_peer(info.seen_addresses());
+                    .add_banned_peer(info.seen_ip_addresses());
+                self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
                 self.shrink_to_fit();
                 BanOperation::ReadyToBan
             }
@@ -577,8 +583,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 // shift the peer straight to banned
                 warn!(log_ref, "Banning a peer of unknown connection state"; "peer_id" => %peer_id);
                 self.banned_peers_count
-                    .add_banned_peer(info.seen_addresses());
-                info.update_state();
+                    .add_banned_peer(info.seen_ip_addresses());
+                info.update_connection_state();
                 self.shrink_to_fit();
                 BanOperation::ReadyToBan
             }
@@ -605,10 +611,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
 
         self.banned_peers_count
-            .remove_banned_peer(info.seen_addresses());
+            .remove_banned_peer(info.seen_ip_addresses());
 
         // Update the connection state
-        info.update_state();
+        info.update_connection_state();
 
         // This transitions a banned peer to a disconnected peer
         self.disconnected_peers = self.disconnected_peers().count().saturating_add(1);
@@ -632,7 +638,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .min_by_key(|(_, _, since)| *since)
             {
                 self.banned_peers_count
-                    .remove_banned_peer(info.seen_addresses());
+                    .remove_banned_peer(info.seen_ip_addresses());
                 Some(*id)
             } else {
                 // If there is no minimum, this is a coding error.
@@ -674,7 +680,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Add the meta data of a peer.
     pub fn add_metadata(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
         if let Some(peer_info) = self.peers.get_mut(peer_id) {
-            peer_info.meta_data = Some(meta_data);
+            peer_info.set_meta_data(meta_data);
         } else {
             warn!(self.log, "Tried to add meta data for a non-existent peer"; "peer_id" => %peer_id);
         }

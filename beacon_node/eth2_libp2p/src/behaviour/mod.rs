@@ -4,7 +4,7 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
+    peer::score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
@@ -443,7 +443,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .peers
                 .read()
                 .peer_info(propagation_source)
-                .map(|info| info.client.kind.as_ref())
+                .map(|info| info.client().kind.as_ref())
             {
                 metrics::inc_counter_vec(
                     &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
