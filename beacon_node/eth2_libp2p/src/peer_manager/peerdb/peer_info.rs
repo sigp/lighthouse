@@ -170,7 +170,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns the state of the peer based on the score.
-    pub(crate) fn score_state(&self) -> ScoreState {
+    pub fn score_state(&self) -> ScoreState {
         self.score.state()
     }
 
@@ -231,18 +231,21 @@ impl<T: EthSpec> PeerInfo<T> {
     /* Mutable Functions */
 
     /// Updates the sync status. Returns true if the status was changed.
+    // VISIBILITY: Both the peer manager the network sync is able to update the sync state of a peer
     pub fn update_sync_status(&mut self, sync_status: SyncStatus) -> bool {
         self.sync_status.update(sync_status)
     }
 
     /// Sets the client of the peer.
-    pub fn set_client(&mut self, client: Client) {
+    // VISIBILITY: The peer manager is able to set the client
+    pub(in crate::peer_manager) fn set_client(&mut self, client: Client) {
         self.client = client
     }
 
     /// Replaces the current listening addresses with those specified, returning the current
     /// listening addresses.
-    pub fn set_listening_addresses(
+    // VISIBILITY: The peer manager is able to set the listening addresses
+    pub(in crate::peer_manager) fn set_listening_addresses(
         &mut self,
         listening_addresses: Vec<Multiaddr>,
     ) -> Vec<Multiaddr> {
@@ -250,41 +253,58 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Sets an explicit value for the meta data.
-    pub fn set_meta_data(&mut self, meta_data: MetaData<T>) {
+    // VISIBILITY: The peer manager is able to adjust the meta_data
+    pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<T>) {
         self.meta_data = Some(meta_data)
     }
 
     /// Sets the ENR of the peer if one is known.
-    pub fn set_enr(&mut self, enr: Enr) {
+    pub(super) fn set_enr(&mut self, enr: Enr) {
         self.enr = Some(enr)
     }
 
     /// Sets the time that the peer is expected to be needed until for an attached validator duty.
-    pub fn set_min_ttl(&mut self, min_ttl: Instant) {
+    pub(super) fn set_min_ttl(&mut self, min_ttl: Instant) {
         self.min_ttl = Some(min_ttl)
     }
 
+    /// Adds a known subnet for the peer.
+    pub(super) fn insert_subnet(&mut self, subnet: Subnet) {
+        self.subnets.insert(subnet);
+    }
+
+    /// Removes a subnet from the peer.
+    pub(super) fn remove_subnet(&mut self, subnet: &Subnet) {
+        self.subnets.remove(subnet);
+    }
+
+    /// Removes all subnets from the peer.
+    pub(super) fn clear_subnets(&mut self) {
+        self.subnets.clear()
+    }
+
     /// Applies decay rates to a non-trusted peer's score.
-    pub fn score_update(&mut self) {
+    pub(super) fn score_update(&mut self) {
         if !self.is_trusted {
             self.score.update()
         }
     }
 
     /// Returns a mutable reference to the underlying subnets hashset.
-    pub fn subnets_mut(&mut self) -> &mut HashSet<Subnet> {
+    pub(super) fn subnets_mut(&mut self) -> &mut HashSet<Subnet> {
         &mut self.subnets
     }
 
     /// Apply peer action to a non-trusted peer's score.
-    pub fn apply_peer_action_to_score(&mut self, peer_action: PeerAction) {
+    // VISIBILITY: The peer manager is able to modify the score of a peer.
+    pub(in crate::peer_manager) fn apply_peer_action_to_score(&mut self, peer_action: PeerAction) {
         if !self.is_trusted {
             self.score.apply_peer_action(peer_action)
         }
     }
 
     /// Updates the gossipsub score with a new score. Optionally ignore the gossipsub score.
-    pub fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
+    pub(super) fn update_gossipsub_score(&mut self, new_score: f64, ignore: bool) {
         self.score.update_gossipsub_score(new_score, ignore);
     }
 
@@ -294,52 +314,15 @@ impl<T: EthSpec> PeerInfo<T> {
         self.score.test_reset();
     }
 
-    /// Modifies the status to Disconnected and sets the last seen instant to now. Returns None if
-    /// no changes were made. Returns Some(bool) where the bool represents if peer is to now be
-    /// banned.
-    // Only the peer DB can change connection status
-    pub fn notify_disconnect(&mut self) -> Option<bool> {
-        match self.connection_status {
-            Banned { .. } | Disconnected { .. } => None,
-            Disconnecting { to_ban } => {
-                self.connection_status = Disconnected {
-                    since: Instant::now(),
-                };
-                Some(to_ban)
-            }
-            Connected { .. } | Dialing { .. } | Unknown => {
-                self.connection_status = Disconnected {
-                    since: Instant::now(),
-                };
-                Some(false)
-            }
-        }
-    }
-
     /// Notify the we are currently disconnecting this peer. Optionally ban the peer after the
     /// disconnect.
-    pub fn disconnecting(&mut self, to_ban: bool) {
+    pub(super) fn disconnecting(&mut self, to_ban: bool) {
         self.connection_status = Disconnecting { to_ban }
-    }
-
-    /// Modifies the status to banned or unbanned based on the underlying score.
-    pub fn update_connection_state(&mut self) {
-        match (&self.connection_status, self.score.state()) {
-            (Disconnected { .. } | Unknown, ScoreState::Banned) => {
-                self.connection_status = Banned {
-                    since: Instant::now(),
-                }
-            }
-            (Banned { since }, ScoreState::Healthy | ScoreState::Disconnected) => {
-                self.connection_status = Disconnected { since: *since }
-            }
-            (_, _) => {}
-        }
     }
 
     /// Modifies the status to Dialing
     /// Returns an error if the current state is unexpected.
-    pub(crate) fn dialing_peer(&mut self) -> Result<(), &'static str> {
+    pub(super) fn dialing_peer(&mut self) -> Result<(), &'static str> {
         match &mut self.connection_status {
             Connected { .. } => return Err("Dialing connected peer"),
             Dialing { .. } => return Err("Dialing an already dialing peer"),
@@ -354,7 +337,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Connected and increases the number of ingoing
     /// connections by one
-    pub(crate) fn connect_ingoing(&mut self, seen_address: Option<SocketAddr>) {
+    pub(super) fn connect_ingoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
             Disconnected { .. }
@@ -374,7 +357,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Connected and increases the number of outgoing
     /// connections by one
-    pub(crate) fn connect_outgoing(&mut self, seen_address: Option<SocketAddr>) {
+    pub(super) fn connect_outgoing(&mut self, seen_address: Option<SocketAddr>) {
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. }

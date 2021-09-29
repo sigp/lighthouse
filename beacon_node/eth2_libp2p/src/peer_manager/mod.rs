@@ -1,6 +1,6 @@
 //! Implementation of Lighthouse's peer management system.
 
-use peerdb::{BanResult, BanOperation};
+use peerdb::{BanResult, BanOperation, ScoreUpdateResult};
 use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
@@ -30,8 +30,7 @@ pub mod peerdb;
 
 pub use peerdb::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
 pub use peerdb::sync_status::{SyncStatus, SyncInfo};
-use peerdb::score::{PeerAction, ReportSource, ScoreState};
-use std::cmp::Ordering;
+use peerdb::score::{PeerAction, ReportSource};
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
 
@@ -61,9 +60,6 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
 /// dialing priority peers we need for validator duties.
 pub const PRIORITY_PEER_EXCESS: f32 = 0.05;
 
-/// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
-/// them in lighthouse.
-const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -150,63 +146,74 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        // get the peer info
+        // Update the sync status if required
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
                 info.update_sync_status(SyncStatus::IrrelevantPeer);
             }
-
-            // Goodbye's are fatal
-            info.apply_peer_action_to_score(PeerAction::Fatal);
-            metrics::inc_counter_vec(
-                &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                &[
-                    info.client().kind.as_ref(),
-                    PeerAction::Fatal.as_ref(),
-                    source.into(),
-                ],
-            );
         }
 
-        // Update the peerdb and start the disconnection.
-        self.ban_peer(peer_id, reason);
+        self.report_peer(peer_id, PeerAction::Fatal, source, Some(reason));
     }
 
     /// Reports a peer for some action.
     ///
     /// If the peer doesn't exist, log a warning and insert defaults.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
-        // Helper function to avoid any potential deadlocks.
-        let mut to_ban_peers = Vec::with_capacity(1);
-        let mut to_unban_peers = Vec::with_capacity(1);
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource, reason: Option<GoodbyeReason>) {
+        self.handle_score_action(peer_id, self.network_globals.peers.write().report_peer(peer_id, action, source), reason);
+    }
 
-        {
-            let mut peer_db = self.network_globals.peers.write();
-            if let Some(info) = peer_db.peer_info_mut(peer_id) {
-                let previous_state = info.score_state();
-                info.apply_peer_action_to_score(action);
-                metrics::inc_counter_vec(
-                    &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                    &[info.client().kind.as_ref(), action.as_ref(), source.into()],
-                );
-
-                Self::handle_score_transitions(
-                    previous_state,
-                    peer_id,
-                    info,
-                    &mut to_ban_peers,
-                    &mut to_unban_peers,
-                    &mut self.events,
-                    &self.log,
-                );
-                if previous_state == info.score_state() {
-                    debug!(self.log, "Peer score adjusted"; "peer_id" => %peer_id, "score" => %info.score());
-                }
+    /// Upon adjusting a Peer's score, there are times the peer manager must pass messages up to
+    /// libp2p. This function handles the conditional logic associated with each score update
+    /// result.
+    fn handle_score_action(&mut self, peer_id: &PeerId, action: ScoreUpdateResult, reason: Option<GoodbyeReason>) {
+        match action {
+            ScoreUpdateResult::Ban(ban_operation) => {
+                // The peer has been banned and we need to handle the banning operation
+                // NOTE: When we ban a peer, its IP address can be banned. We do not recursively search
+                // through all our connected peers banning all other peers that are using this IP address.
+                // If these peers are behaving fine, we permit their current connections. However, if any new
+                // nodes or current nodes try to reconnect on a banned IP, they will be instantly banned
+                // and disconnected.
+                self.handle_ban_operation(peer_id, ban_operation, reason);
             }
-        } // end write lock
+            ScoreUpdateResult::Disconnect => {
+                // The peer has transitioned to a disconnect state and has been marked as such in
+                // the peer db. We must inform libp2p to disconnect this peer.
+                self.events.push(PeerManagerEvent::DisconnectPeer(
+                    *peer_id,
+                    GoodbyeReason::BadScore,
+                ));
+            }
+            ScoreUpdateResult::NoAction => { 
+                // The report had no effect on the peer and there is nothing to do.
+            }
+        }
+    }
 
-        self.ban_and_unban_peers(to_ban_peers, to_unban_peers);
+    /// If a peer is being banned, this handles the banning operation.
+    fn handle_ban_operation(&mut self, peer_id: &PeerId, ban_operation: BanOperation, reason: Option<GoodbyeReason>) {
+                match ban_operation {
+                    BanOperation::DisconnectThePeer => {
+                        // The peer was currently connected, so we start a disconnection.
+                        // Once the peer has disconnected, its connection state will transition to a
+                        // banned state.
+                        self.events
+                            .push(PeerManagerEvent::DisconnectPeer(*peer_id, reason.unwrap_or_else( || GoodbyeReason::BadScore)));
+                    }
+                    BanOperation::PeerDisconnecting => {
+                        // The peer is currently being disconnected and will be banned once the
+                        // disconnection completes.
+                    }
+                    BanOperation::ReadyToBan (banned_ips) => {
+                        // The peer is not currently connected, we can safely ban it at the swarm
+                        // level.
+                        // Inform the Swarm to ban the peer
+                        self.events
+                            .push(PeerManagerEvent::Banned(*peer_id, banned_ips));
+                    }
+                }
     }
 
     /// Peers that have been returned by discovery requests that are suitable for dialing are
@@ -270,26 +277,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.status_peers.insert(*peer_id);
     }
 
-    /// Adds a gossipsub subscription to a peer in the peerdb.
-    pub fn add_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
-        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets_mut().insert(subnet);
-        }
-    }
-
-    /// Removes a gossipsub subscription to a peer in the peerdb.
-    pub fn remove_subscription(&self, peer_id: &PeerId, subnet: Subnet) {
-        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            info.subnets_mut().remove(&subnet);
-        }
-    }
-
-    /// Removes all gossipsub subscriptions to a peer in the peerdb.
-    pub fn remove_all_subscriptions(&self, peer_id: &PeerId) {
-        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            *info.subnets_mut() = Default::default();
-        }
-    }
 
     /// Insert the sync subnet into list of long lived sync committee subnets that we need to
     /// maintain adequate number of peers for.
@@ -413,10 +400,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) {
         if num_established == 0 {
             // There are no more connections
-
-            // Remove all subnet subscriptions from the peer_db
-            self.remove_all_subscriptions(&peer_id);
-
             if self
                 .network_globals
                 .peers
@@ -629,7 +612,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             RPCError::Disconnected => return, // No penalty for a graceful disconnection
         };
 
-        self.report_peer(peer_id, peer_action, ReportSource::RPC);
+        self.report_peer(peer_id, peer_action, ReportSource::RPC, None);
     }
 
     /// A ping request has been received.
@@ -718,57 +701,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+    /// Updates the gossipsub scores for all known peers in gossipsub.
     pub(crate) fn update_gossipsub_scores(&mut self, gossipsub: &Gossipsub) {
-        let mut to_ban_peers = Vec::new();
-        let mut to_unban_peers = Vec::new();
-
-        {
-            // collect peers with scores
-            let mut guard = self.network_globals.peers.write();
-            let mut peers: Vec<_> = guard
-                .peers_mut()
-                .filter_map(|(peer_id, info)| {
-                    gossipsub
-                        .peer_score(peer_id)
-                        .map(|score| (peer_id, info, score))
-                })
-                .collect();
-
-            // sort descending by score
-            peers.sort_unstable_by(|(.., s1), (.., s2)| {
-                s2.partial_cmp(s1).unwrap_or(Ordering::Equal)
-            });
-
-            let mut to_ignore_negative_peers =
-                (self.target_peers as f32 * ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR).ceil() as usize;
-
-            for (peer_id, info, score) in peers {
-                let previous_state = info.score_state();
-                info.update_gossipsub_score(
-                    score,
-                    if score < 0.0 && to_ignore_negative_peers > 0 {
-                        to_ignore_negative_peers -= 1;
-                        // We ignore the negative score for the best negative peers so that their
-                        // gossipsub score can recover without getting disconnected.
-                        true
-                    } else {
-                        false
-                    },
-                );
-
-                Self::handle_score_transitions(
-                    previous_state,
-                    peer_id,
-                    info,
-                    &mut to_ban_peers,
-                    &mut to_unban_peers,
-                    &mut self.events,
-                    &self.log,
-                );
-            }
-        } // end write lock
-
-        self.ban_and_unban_peers(to_ban_peers, to_unban_peers);
+        for (peer_id, score_action) in self.network_globals.peers.write().update_gossipsub_scores(self.target_peers, gossipsub) {
+            self.handle_score_action(&peer_id, score_action, None);
+        }
     }
 
     /* Internal functions */
@@ -803,14 +740,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        if self
+        if let Some(ban_operation) =  self
             .network_globals
             .peers
             .write()
             .inject_disconnect(peer_id)
         {
             // The peer was awaiting a ban, continue to ban the peer.
-            self.ban_peer(peer_id, GoodbyeReason::BadScore);
+            self.handle_ban_operation(peer_id, ban_operation, None);
         }
 
         // Remove the ping and status timer for the peer
@@ -884,153 +821,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         true
     }
 
-    /// This handles score transitions between states. It transitions peers states from
-    /// disconnected/banned/connected.
-    fn handle_score_transitions(
-        previous_state: ScoreState,
-        peer_id: &PeerId,
-        info: &mut PeerInfo<TSpec>,
-        to_ban_peers: &mut Vec<PeerId>,
-        to_unban_peers: &mut Vec<PeerId>,
-        events: &mut SmallVec<[PeerManagerEvent; 16]>,
-        log: &slog::Logger,
-    ) {
-        match (info.score_state(), previous_state) {
-            (ScoreState::Banned, ScoreState::Healthy | ScoreState::Disconnected) => {
-                debug!(log, "Peer has been banned"; "peer_id" => %peer_id, "score" => %info.score());
-                to_ban_peers.push(*peer_id);
-            }
-            (ScoreState::Disconnected, ScoreState::Banned | ScoreState::Healthy) => {
-                debug!(log, "Peer transitioned to disconnect state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
-                // disconnect the peer if it's currently connected or dialing
-                if info.is_connected_or_dialing() {
-                    // Change the state to inform that we are disconnecting the peer.
-                    info.disconnecting(false);
-                    events.push(PeerManagerEvent::DisconnectPeer(
-                        *peer_id,
-                        GoodbyeReason::BadScore,
-                    ));
-                } else if previous_state == ScoreState::Banned {
-                    to_unban_peers.push(*peer_id);
-                }
-            }
-            (ScoreState::Healthy, ScoreState::Disconnected) => {
-                debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
-            }
-            (ScoreState::Healthy, ScoreState::Banned) => {
-                debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
-                // unban the peer if it was previously banned.
-                to_unban_peers.push(*peer_id);
-            }
-            // Explicitly ignore states that haven't transitioned.
-            (ScoreState::Healthy, ScoreState::Healthy) => {}
-            (ScoreState::Disconnected, ScoreState::Disconnected) => {}
-            (ScoreState::Banned, ScoreState::Banned) => {}
-        }
-    }
-
-    /// Updates the state of banned peers.
-    fn ban_and_unban_peers(&mut self, to_ban_peers: Vec<PeerId>, to_unban_peers: Vec<PeerId>) {
-        // process banning peers
-        for peer_id in to_ban_peers {
-            self.ban_peer(&peer_id, GoodbyeReason::BadScore);
-        }
-        // process unbanning peers
-        for peer_id in to_unban_peers {
-            if let Err(e) = self.unban_peer(&peer_id) {
-                error!(self.log, "{}", e; "peer_id" => %peer_id);
-            }
-        }
-    }
-
-    /// Updates the scores of known peers according to their connection
-    /// status and the time that has passed.
-    /// NOTE: This is experimental and will likely be adjusted
-    fn update_peer_scores(&mut self) {
-        /* Check how long have peers been in this state and update their reputations if needed */
-        let mut to_ban_peers = Vec::new();
-        let mut to_unban_peers = Vec::new();
-
-        for (peer_id, info) in self.network_globals.peers.write().peers_mut() {
-            let previous_state = info.score_state();
-            // Update scores
-            info.score_update();
-
-            Self::handle_score_transitions(
-                previous_state,
-                peer_id,
-                info,
-                &mut to_ban_peers,
-                &mut to_unban_peers,
-                &mut self.events,
-                &self.log,
-            );
-        }
-        self.ban_and_unban_peers(to_ban_peers, to_unban_peers);
-    }
-
-    /// Bans a peer.
-    ///
-    /// Records updates the peers connection status and updates the peer db as well as blocks the
-    /// peer from participating in discovery and removes them from the routing table.
-    fn ban_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason) {
-        // NOTE: When we ban a peer, its IP address can be banned. We do not recursively search
-        // through all our connected peers banning all other peers that are using this IP address.
-        // If these peers are behaving fine, we permit their current connections. However, if any new
-        // nodes or current nodes try to reconnect on a banned IP, they will be instantly banned
-        // and disconnected.
-
-        let mut peer_db = self.network_globals.peers.write();
-
-        match peer_db.disconnect_and_ban(peer_id) {
-            BanOperation::DisconnectThePeer => {
-                // The peer was currently connected, so we start a disconnection.
-                // Once the peer has disconnected, this function will be called to again to ban
-                // at the swarm level.
-                self.events
-                    .push(PeerManagerEvent::DisconnectPeer(*peer_id, reason));
-            }
-            BanOperation::PeerDisconnecting => {
-                // The peer is currently being disconnected and will be banned once the
-                // disconnection completes.
-            }
-            BanOperation::ReadyToBan => {
-                // The peer is not currently connected, we can safely ban it at the swarm
-                // level.
-                let banned_ip_addresses = peer_db
-                    .peer_info(peer_id)
-                    .map(|info| {
-                        info.seen_ip_addresses()
-                            .filter(|ip| peer_db.is_ip_banned(ip))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-
-                // Inform the Swarm to ban the peer
-                self.events
-                    .push(PeerManagerEvent::Banned(*peer_id, banned_ip_addresses));
-            }
-        }
-    }
-
-    /// Unbans a peer.
-    ///
-    /// Updates the peer's connection status and updates the peer db as well as removes
-    /// previous bans from discovery.
-    fn unban_peer(&mut self, peer_id: &PeerId) -> Result<(), &'static str> {
-        let mut peer_db = self.network_globals.peers.write();
-        peer_db.unban(peer_id)?;
-
-        let seen_ip_addresses = peer_db
-            .peer_info(peer_id)
-            .map(|info| info.seen_ip_addresses().collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        // Inform the Swarm to unban the peer
-        self.events
-            .push(PeerManagerEvent::UnBanned(*peer_id, seen_ip_addresses));
-        Ok(())
-    }
 
     // Gracefully disconnects a peer without banning them.
     fn disconnect_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
@@ -1103,8 +893,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.events.push(PeerManagerEvent::DiscoverPeers);
         }
 
-        // Updates peer's scores.
-        self.update_peer_scores();
+        // Updates peer's scores and unban any peers if required.
+        for unbanned_peer in self.network_globals.peers.write().update_scores() {
+            let pdb = self.network_globals.peers.read();
+
+            let seen_ip_addresses = pdb
+                .peer_info(&unbanned_peer)
+                .map(|info| info.seen_ip_addresses().filter(|ip| !pdb.is_ip_banned(ip)).collect::<Vec<_>>())
+                .unwrap_or_default();
+
+            // Inform the Swarm to unban the peer
+            self.events
+                .push(PeerManagerEvent::UnBanned(unbanned_peer, seen_ip_addresses));
+        }
 
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
