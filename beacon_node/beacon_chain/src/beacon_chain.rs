@@ -49,6 +49,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
+use execution_layer::ExecutionLayer;
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -62,7 +63,9 @@ use slot_clock::SlotClock;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
-    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::{
+        compute_timestamp_at_slot, errors::AttestationValidationError, is_merge_complete,
+    },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
@@ -275,6 +278,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    /// Interfaces with the execution client.
+    pub execution_layer: Option<ExecutionLayer>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: TimeoutRwLock<BeaconSnapshot<T::EthSpec>>,
     /// The root of the genesis block.
@@ -2407,7 +2412,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             fork_choice
-                .on_block(current_slot, &block, block_root, &state, &self.spec)
+                .on_block(current_slot, &block, block_root, &state)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
@@ -2839,12 +2844,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }))
         };
         // Closure to fetch a sync aggregate in cases where it is required.
-        let get_execution_payload = || -> Result<ExecutionPayload<_>, BlockProductionError> {
-            // TODO: actually get the payload from eth1 node..
-            Ok(ExecutionPayload::default())
+        let get_execution_payload = |latest_execution_payload_header: &ExecutionPayloadHeader<
+            T::EthSpec,
+        >|
+         -> Result<ExecutionPayload<_>, BlockProductionError> {
+            let execution_layer = self
+                .execution_layer
+                .as_ref()
+                .ok_or(BlockProductionError::ExecutionLayerMissing)?;
+
+            let parent_hash;
+            if !is_merge_complete(&state) {
+                let terminal_pow_block_hash = execution_layer
+                    .block_on(|execution_layer| execution_layer.get_terminal_pow_block_hash())
+                    .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
+
+                if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
+                    parent_hash = terminal_pow_block_hash;
+                } else {
+                    return Ok(<_>::default());
+                }
+            } else {
+                parent_hash = latest_execution_payload_header.block_hash;
+            }
+
+            let timestamp =
+                compute_timestamp_at_slot(&state, &self.spec).map_err(BeaconStateError::from)?;
+            let random = *state.get_randao_mix(state.current_epoch())?;
+
+            execution_layer
+                .block_on(|execution_layer| {
+                    execution_layer.get_payload(parent_hash, timestamp, random)
+                })
+                .map_err(BlockProductionError::GetPayloadFailed)
         };
 
-        let inner_block = match state {
+        let inner_block = match &state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
                 slot,
                 proposer_index,
@@ -2881,9 +2916,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
-            BeaconState::Merge(_) => {
+            BeaconState::Merge(state) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload()?;
+                let execution_payload =
+                    get_execution_payload(&state.latest_execution_payload_header)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
@@ -3094,6 +3130,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
+        // Used later for the execution engine.
+        let new_head_execution_block_hash = new_head
+            .beacon_block
+            .message()
+            .body()
+            .execution_payload()
+            .map(|ep| ep.block_hash);
+
         drop(lag_timer);
 
         // Update the snapshot that stores the head of the chain at the time it received the
@@ -3297,7 +3341,65 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // If this is a post-merge block, update the execution layer.
+        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash {
+            let execution_layer = self
+                .execution_layer
+                .clone()
+                .ok_or(Error::ExecutionLayerMissing)?;
+            let store = self.store.clone();
+            let log = self.log.clone();
+
+            // Spawn the update task, without waiting for it to complete.
+            execution_layer.spawn(
+                move |execution_layer| async move {
+                    if let Err(e) = Self::update_execution_engine_forkchoice(
+                        execution_layer,
+                        store,
+                        new_finalized_checkpoint.root,
+                        new_head_execution_block_hash,
+                    )
+                    .await
+                    {
+                        error!(
+                            log,
+                            "Failed to update execution head";
+                            "error" => ?e
+                        );
+                    }
+                },
+                "update_execution_engine_forkchoice",
+            )
+        }
+
         Ok(())
+    }
+
+    pub async fn update_execution_engine_forkchoice(
+        execution_layer: ExecutionLayer,
+        store: BeaconStore<T>,
+        finalized_beacon_block_root: Hash256,
+        head_execution_block_hash: Hash256,
+    ) -> Result<(), Error> {
+        // Loading the finalized block from the store is not ideal. Perhaps it would be better to
+        // store it on fork-choice so we can do a lookup without hitting the database.
+        //
+        // See: https://github.com/sigp/lighthouse/pull/2627#issuecomment-927537245
+        let finalized_block = store
+            .get_block(&finalized_beacon_block_root)?
+            .ok_or(Error::MissingBeaconBlock(finalized_beacon_block_root))?;
+
+        let finalized_execution_block_hash = finalized_block
+            .message()
+            .body()
+            .execution_payload()
+            .map(|ep| ep.block_hash)
+            .unwrap_or_else(Hash256::zero);
+
+        execution_layer
+            .forkchoice_updated(head_execution_block_hash, finalized_execution_block_hash)
+            .await
+            .map_err(Error::ExecutionForkChoiceUpdateFailed)
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.
