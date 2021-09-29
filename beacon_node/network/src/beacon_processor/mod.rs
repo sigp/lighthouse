@@ -1403,31 +1403,29 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         block,
                         seen_timestamp,
                     } => {
-                        let block_root = block.canonical_root();
-                        if duplicate_cache.check_and_insert(block_root) {
-                            worker.process_gossip_block(
-                                message_id,
-                                peer_id,
-                                *block,
-                                work_reprocessing_tx,
-                                seen_timestamp,
-                            );
-                            duplicate_cache.remove(&block_root);
-                        } else {
-                            warn!(
-                                log,
-                                "RPC block is being imported";
-                                "block_root" => %block_root,
-                            );
-                            // If RPC block is being imported, check gossip conditions
-                            // and forward the block if the checks pass.
-                            let _ = worker.process_gossip_unverified_block(
-                                message_id,
-                                peer_id,
-                                *block,
-                                work_reprocessing_tx,
-                                seen_timestamp,
-                            );
+                        if let Some(gossip_verified_block) = worker.process_gossip_unverified_block(
+                            message_id,
+                            peer_id,
+                            *block,
+                            work_reprocessing_tx.clone(),
+                            seen_timestamp,
+                        ) {
+                            let block_root = gossip_verified_block.block.canonical_root();
+                            if duplicate_cache.check_and_insert(block_root) {
+                                worker.process_gossip_verified_block(
+                                    peer_id,
+                                    gossip_verified_block,
+                                    work_reprocessing_tx,
+                                    seen_timestamp,
+                                );
+                                duplicate_cache.remove(&block_root);
+                            } else {
+                                warn!(
+                                    log,
+                                    "RPC block is being imported";
+                                    "block_root" => %block_root,
+                                );
+                            }
                         }
                     }
                     /*

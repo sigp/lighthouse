@@ -611,37 +611,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    /// Process the beacon block received from the gossip network and:
-    ///
-    /// - If it passes gossip propagation criteria, tell the network thread to forward it.
-    /// - Attempt to add it to the beacon chain, informing the sync thread if more blocks need to
-    ///   be downloaded.
-    ///
-    /// Raises a log if there are errors.
-    pub fn process_gossip_block(
-        self,
-        message_id: MessageId,
-        peer_id: PeerId,
-        block: SignedBeaconBlock<T::EthSpec>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
-        seen_duration: Duration,
-    ) {
-        if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
-            message_id,
-            peer_id,
-            block,
-            reprocess_tx.clone(),
-            seen_duration,
-        ) {
-            self.process_gossip_verified_block(
-                peer_id,
-                gossip_verified_block,
-                reprocess_tx,
-                seen_duration,
-            )
-        }
-    }
-
     /// Process the beacon block received from the gossip network and
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
