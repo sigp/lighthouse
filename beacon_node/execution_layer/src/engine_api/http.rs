@@ -80,10 +80,13 @@ impl HttpJsonRpc {
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
             (_, Some(error)) => {
-                if error.contains(EIP155_ERROR_STR) {
+                if error.message.contains(EIP155_ERROR_STR) {
                     Err(Error::Eip155Failure)
                 } else {
-                    Err(Error::ServerMessage(error))
+                    Err(Error::ServerMessage {
+                        code: error.code,
+                        message: error.message,
+                    })
                 }
             }
         }
@@ -229,10 +232,18 @@ struct JsonRequestBody<'a> {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct JsonError {
+    code: i64,
+    message: String,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct JsonResponseBody {
     jsonrpc: String,
-    error: Option<String>,
+    #[serde(default)]
+    error: Option<JsonError>,
+    #[serde(default)]
     result: serde_json::Value,
     id: u32,
 }
@@ -332,16 +343,16 @@ fn uint256_to_hash256(u: Uint256) -> Hash256 {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct JsonConsensusValidatedRequest {
-    block_hash: Hash256,
-    status: ConsensusStatus,
+pub struct JsonConsensusValidatedRequest {
+    pub block_hash: Hash256,
+    pub status: ConsensusStatus,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct JsonForkChoiceUpdatedRequest {
-    head_block_hash: Hash256,
-    finalized_block_hash: Hash256,
+pub struct JsonForkChoiceUpdatedRequest {
+    pub head_block_hash: Hash256,
+    pub finalized_block_hash: Hash256,
 }
 
 // Serializes the `logs_bloom` field.

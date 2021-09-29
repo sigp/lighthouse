@@ -89,8 +89,24 @@ pub async fn handle_rpc<T: EthSpec>(
             Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
         }
 
-        ENGINE_CONSENSUS_VALIDATED => Ok(JsonValue::Null),
-        ENGINE_FORKCHOICE_UPDATED => Ok(JsonValue::Null),
+        ENGINE_CONSENSUS_VALIDATED => {
+            let request: JsonConsensusValidatedRequest = get_param_0(params)?;
+            ctx.execution_block_generator
+                .write()
+                .await
+                .consensus_validated(request.block_hash, request.status)?;
+
+            Ok(JsonValue::Null)
+        }
+        ENGINE_FORKCHOICE_UPDATED => {
+            let request: JsonForkChoiceUpdatedRequest = get_param_0(params)?;
+            ctx.execution_block_generator
+                .write()
+                .await
+                .forkchoice_updated(request.head_block_hash, request.finalized_block_hash)?;
+
+            Ok(JsonValue::Null)
+        }
         other => Err(format!(
             "The method {} does not exist/is not available",
             other

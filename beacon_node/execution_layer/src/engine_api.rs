@@ -17,7 +17,7 @@ pub enum Error {
     RequestFailed(String),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage(String),
+    ServerMessage { code: i64, message: String },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(Hash256),

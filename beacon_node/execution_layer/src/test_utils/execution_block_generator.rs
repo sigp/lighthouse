@@ -194,6 +194,11 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn insert_block(&mut self, block: Block<T>) -> Result<(), String> {
         if self.blocks.contains_key(&block.block_hash()) {
             return Err(format!("{:?} is already known", block.block_hash()));
+        } else if self.block_hashes.contains_key(&block.block_number()) {
+            return Err(format!(
+                "block {} is already known, forking is not supported",
+                block.block_number()
+            ));
         } else if block.parent_hash() != Hash256::zero()
             && !self.blocks.contains_key(&block.parent_hash())
         {
@@ -282,6 +287,27 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ConsensusStatus::Valid => self.insert_block(Block::PoS(payload)),
             ConsensusStatus::Invalid => Ok(()),
         }
+    }
+
+    pub fn forkchoice_updated(
+        &mut self,
+        block_hash: Hash256,
+        finalized_block_hash: Hash256,
+    ) -> Result<(), String> {
+        if !self.blocks.contains_key(&block_hash) {
+            return Err(format!("block hash {:?} unknown", block_hash));
+        }
+
+        if finalized_block_hash != Hash256::zero()
+            && !self.blocks.contains_key(&finalized_block_hash)
+        {
+            return Err(format!(
+                "finalized block hash {:?} is unknown",
+                finalized_block_hash
+            ));
+        }
+
+        Ok(())
     }
 }
 

@@ -221,8 +221,8 @@ impl ExecutionLayer {
 
         let execute_payload_handle = ExecutePayloadHandle {
             block_hash: execution_payload.block_hash,
-            execution_layer: self.clone(),
-            status: None,
+            execution_layer: Some(self.clone()),
+            log: self.log().clone(),
         };
 
         Ok((execute_payload_response, execute_payload_handle))
@@ -485,10 +485,25 @@ mod test {
             assert_eq!(payload.timestamp, timestamp);
             assert_eq!(payload.random, random);
 
+            let (payload_response, mut payload_handle) =
+                self.el.execute_payload(&payload).await.unwrap();
+            assert_eq!(payload_response, ExecutePayloadResponse::Valid);
+
+            payload_handle.publish_async(ConsensusStatus::Valid).await;
+
             self.el
-                .consensus_validated(block_hash, ConsensusStatus::Valid)
+                .forkchoice_updated(block_hash, Hash256::zero())
                 .await
                 .unwrap();
+
+            let head_execution_block = {
+                let block_gen = self.server.execution_block_generator().await;
+                block_gen.latest_block().unwrap()
+            };
+
+            assert_eq!(head_execution_block.block_number(), block_number);
+            assert_eq!(head_execution_block.block_hash(), block_hash);
+            assert_eq!(head_execution_block.parent_hash(), parent_hash);
 
             self
         }
@@ -556,9 +571,13 @@ mod test {
     }
 
     #[tokio::test]
-    async fn produces_simple_chain() {
+    async fn produce_three_valid_pos_execution_blocks() {
         SingleEngineTester::new()
             .move_to_terminal_block()
+            .await
+            .produce_valid_execution_payload_on_head()
+            .await
+            .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
             .await;
