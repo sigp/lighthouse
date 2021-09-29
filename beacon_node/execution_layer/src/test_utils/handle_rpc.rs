@@ -1,5 +1,6 @@
 use super::Context;
 use crate::engine_api::http::*;
+use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use types::EthSpec;
@@ -54,6 +55,40 @@ pub async fn handle_rpc<T: EthSpec>(
             )
             .unwrap())
         }
+        ENGINE_PREPARE_PAYLOAD => {
+            let request = get_param_0(params)?;
+            let payload_id = ctx
+                .execution_block_generator
+                .write()
+                .await
+                .prepare_payload(request)?;
+
+            Ok(serde_json::to_value(JsonPayloadId { payload_id }).unwrap())
+        }
+        ENGINE_EXECUTE_PAYLOAD => {
+            let request: JsonExecutionPayload<T> = get_param_0(params)?;
+            let response = ctx
+                .execution_block_generator
+                .write()
+                .await
+                .execute_payload(request.into());
+
+            Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_GET_PAYLOAD => {
+            let request: JsonPayloadId = get_param_0(params)?;
+            let id = request.payload_id;
+
+            let response = ctx
+                .execution_block_generator
+                .write()
+                .await
+                .get_payload(id)
+                .ok_or_else(|| format!("no payload for id {}", id))?;
+
+            Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
+        }
+
         ENGINE_CONSENSUS_VALIDATED => Ok(JsonValue::Null),
         ENGINE_FORKCHOICE_UPDATED => Ok(JsonValue::Null),
         other => Err(format!(
@@ -61,4 +96,14 @@ pub async fn handle_rpc<T: EthSpec>(
             other
         )),
     }
+}
+
+fn get_param_0<T: DeserializeOwned>(params: &JsonValue) -> Result<T, String> {
+    params
+        .get(0)
+        .ok_or_else(|| "missing/invalid params[0] value".to_string())
+        .and_then(|param| {
+            serde_json::from_value(param.clone())
+                .map_err(|e| format!("failed to deserialize param[0]: {:?}", e))
+        })
 }

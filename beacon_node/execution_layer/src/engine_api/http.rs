@@ -246,9 +246,9 @@ pub struct JsonPreparePayloadRequest {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent, rename_all = "camelCase")]
-struct JsonPayloadId {
+pub struct JsonPayloadId {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    payload_id: u64,
+    pub payload_id: u64,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

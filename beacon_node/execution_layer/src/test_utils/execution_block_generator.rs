@@ -1,4 +1,6 @@
-use crate::engine_api::{http::JsonPreparePayloadRequest, ExecutePayloadResponse, ExecutionBlock};
+use crate::engine_api::{
+    http::JsonPreparePayloadRequest, ConsensusStatus, ExecutePayloadResponse, ExecutionBlock,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
@@ -186,17 +188,26 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
         block.block_hash = block.tree_hash_root();
 
+        self.insert_block(Block::PoW(block))
+    }
+
+    pub fn insert_block(&mut self, block: Block<T>) -> Result<(), String> {
+        if self.blocks.contains_key(&block.block_hash()) {
+            return Err(format!("{:?} is already known", block.block_hash()));
+        } else if block.parent_hash() != Hash256::zero()
+            && !self.blocks.contains_key(&block.parent_hash())
+        {
+            return Err(format!("parent block {:?} is unknown", block.parent_hash()));
+        }
+
         self.block_hashes
-            .insert(block.block_number, block.block_hash);
-        self.blocks.insert(block.block_hash, Block::PoW(block));
+            .insert(block.block_number(), block.block_hash());
+        self.blocks.insert(block.block_hash(), block);
 
         Ok(())
     }
 
-    pub fn prepare_payload_id(
-        &mut self,
-        payload: JsonPreparePayloadRequest,
-    ) -> Result<u64, String> {
+    pub fn prepare_payload(&mut self, payload: JsonPreparePayloadRequest) -> Result<u64, String> {
         if !self
             .blocks
             .iter()
@@ -256,6 +267,22 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
         ExecutePayloadResponse::Valid
     }
+
+    pub fn consensus_validated(
+        &mut self,
+        block_hash: Hash256,
+        status: ConsensusStatus,
+    ) -> Result<(), String> {
+        let payload = self
+            .pending_payloads
+            .remove(&block_hash)
+            .ok_or_else(|| format!("no pending payload for {:?}", block_hash))?;
+
+        match status {
+            ConsensusStatus::Valid => self.insert_block(Block::PoS(payload)),
+            ConsensusStatus::Invalid => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -273,7 +300,9 @@ mod test {
             ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
 
         for i in 0..=TERMINAL_BLOCK {
-            generator.insert_pow_block(i).unwrap();
+            if i > 0 {
+                generator.insert_pow_block(i).unwrap();
+            }
 
             /*
              * Generate a block, inspect it.
