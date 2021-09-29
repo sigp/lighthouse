@@ -1,9 +1,12 @@
+//! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
+
 use crate::engine_api::{EngineApi, Error as EngineApiError};
 use futures::future::join_all;
 use slog::{crit, error, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::RwLock;
 
+/// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
 enum EngineState {
     Online,
@@ -28,6 +31,7 @@ impl EngineState {
     }
 }
 
+/// An execution engine.
 pub struct Engine<T> {
     pub id: String,
     pub api: T,
@@ -35,6 +39,7 @@ pub struct Engine<T> {
 }
 
 impl<T> Engine<T> {
+    /// Creates a new, offline engine.
     pub fn new(id: String, api: T) -> Self {
         Self {
             id,
@@ -44,6 +49,8 @@ impl<T> Engine<T> {
     }
 }
 
+/// Holds multiple execution engines and provides functionality for managing them in a fallback
+/// manner.
 pub struct Engines<T> {
     pub engines: Vec<Engine<T>>,
     pub log: Logger,
@@ -56,6 +63,9 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
+    /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
+    ///
+    /// This can be used to try and recover any offline nodes.
     async fn upcheck_offline(&self) {
         let upcheck_futures = self.engines.iter().map(|engine| async move {
             let mut state = engine.state.write().await;
@@ -96,6 +106,11 @@ impl<T: EngineApi> Engines<T> {
         }
     }
 
+    /// Run `func` on all engines, in the order in which they are defined, returning the first
+    /// successful result that is found.
+    ///
+    /// This function might try to run `func` twice. If all nodes return an error on the first time
+    /// it runs, it will try to upcheck all offline nodes and then run the function again.
     pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, Vec<EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G + Copy,
@@ -118,6 +133,8 @@ impl<T: EngineApi> Engines<T> {
         }
     }
 
+    /// Run `func` on all engines, in the order in which they are defined, returning the first
+    /// successful result that is found.
     async fn first_success_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
@@ -157,6 +174,10 @@ impl<T: EngineApi> Engines<T> {
         Err(errors)
     }
 
+    /// Runs `func` on all nodes concurrently, returning all results.
+    ///
+    /// This function might try to run `func` twice. If all nodes return an error on the first time
+    /// it runs, it will try to upcheck all offline nodes and then run the function again.
     pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G + Copy,
@@ -181,6 +202,7 @@ impl<T: EngineApi> Engines<T> {
         }
     }
 
+    /// Runs `func` on all nodes concurrently, returning all results.
     pub async fn broadcast_without_retry<'a, F, G, H>(
         &'a self,
         func: F,

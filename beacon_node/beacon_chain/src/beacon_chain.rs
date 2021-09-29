@@ -2804,9 +2804,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let parent_hash;
             if !is_merge_complete(&state) {
                 let terminal_pow_block_hash = execution_layer
-                    .block_on(|execution_layer| {
-                        execution_layer.get_pow_block_hash_at_total_difficulty()
-                    })
+                    .block_on(|execution_layer| execution_layer.get_terminal_pow_block_hash())
                     .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
 
                 if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {

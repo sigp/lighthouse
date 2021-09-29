@@ -1,3 +1,5 @@
+//! Provides a mock execution engine HTTP JSON-RPC API for use in testing.
+
 use crate::engine_api::http::JSONRPC_VERSION;
 use bytes::Bytes;
 use environment::null_logger;

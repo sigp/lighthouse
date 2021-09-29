@@ -37,6 +37,7 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+/// A generic interface for an execution engine API.
 #[async_trait]
 pub trait EngineApi {
     async fn upcheck(&self) -> Result<(), Error>;

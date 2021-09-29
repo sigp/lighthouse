@@ -1,3 +1,5 @@
+//! Contains an implementation of `EngineAPI` using the JSON-RPC API via HTTP.
+
 use super::*;
 use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
