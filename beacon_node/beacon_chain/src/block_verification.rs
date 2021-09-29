@@ -58,9 +58,7 @@ use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::{
-    is_execution_enabled, is_merge_block, is_merge_complete,
-};
+use state_processing::per_block_processing::{is_execution_enabled, is_merge_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
