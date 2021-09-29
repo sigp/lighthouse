@@ -750,8 +750,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             // TODO: check that this is what we're supposed to do when we don't want to
             //       penalize a peer for our configuration issue
             // in the verification process BUT is this the proper way to handle it?
-            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::Eth1VerificationError(_)))
-            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoEth1Connection)) => {
+            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);

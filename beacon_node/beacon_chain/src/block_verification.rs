@@ -48,8 +48,9 @@ use crate::{
         BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    eth1_chain, metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use execution_layer::ExecutePayloadResponse;
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -57,7 +58,7 @@ use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::is_execution_enabled;
+use state_processing::per_block_processing::{is_execution_enabled, is_merge_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -242,19 +243,25 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// As this is our fault, do not penalize the peer
-    NoEth1Connection,
+    NoExecutionConnection,
     /// Error occurred during engine_executePayload
     ///
     /// ## Peer scoring
     ///
     /// Some issue with our configuration, do not penalize peer
-    Eth1VerificationError(eth1_chain::Error),
+    RequestFailed(execution_layer::Error),
     /// The execution engine returned INVALID for the payload
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
     RejectedByExecutionEngine,
+    /// The execution engine returned SYNCING for the payload
+    ///
+    /// ## Peer scoring
+    ///
+    /// It is not known if the block is valid or invalid.
+    ExecutionEngineIsSyncing,
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
@@ -279,6 +286,38 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     TransactionDataExceedsSizeLimit,
+    /// The execution payload references an execution block that cannot trigger the merge.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidTerminalPoWBlock,
+    /// The execution payload references execution blocks that are unavailable on our execution
+    /// nodes.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's not clear if the peer is invalid or if it's on a different execution fork to us.
+    TerminalPoWBlockNotFound,
+}
+
+impl From<execution_layer::Error> for ExecutionPayloadError {
+    fn from(e: execution_layer::Error) -> Self {
+        ExecutionPayloadError::RequestFailed(e)
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadError> for BlockError<T> {
+    fn from(e: ExecutionPayloadError) -> Self {
+        BlockError::ExecutionPayloadError(e)
+    }
+}
+
+impl<T: EthSpec> From<InconsistentFork> for BlockError<T> {
+    fn from(e: InconsistentFork) -> Self {
+        BlockError::InconsistentFork(e)
+    }
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
@@ -1054,34 +1093,78 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             }
         }
 
-        // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
-        if is_execution_enabled(&state, block.message().body()) {
-            let eth1_chain = chain
-                .eth1_chain
+        // If this block triggers the merge, check to ensure that it references valid execution
+        // blocks.
+        //
+        // The specification defines this check inside `on_block` in the fork-choice specification,
+        // however we perform the check here for two reasons:
+        //
+        // - There's no point in importing a block that will fail fork choice, so it's best to fail
+        //   early.
+        // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
+        //   calls to remote servers.
+        if is_merge_block(&state, block.message().body()) {
+            let execution_layer = chain
+                .execution_layer
                 .as_ref()
-                .ok_or(BlockError::ExecutionPayloadError(
-                    ExecutionPayloadError::NoEth1Connection,
-                ))?;
-
-            let payload_valid = eth1_chain
-                .on_payload(block.message().body().execution_payload().ok_or_else(|| {
-                    BlockError::InconsistentFork(InconsistentFork {
+                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+            let execution_payload =
+                block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .ok_or_else(|| InconsistentFork {
                         fork_at_slot: eth2::types::ForkName::Merge,
                         object_fork: block.message().body().fork_name(),
-                    })
-                })?)
-                .map_err(|e| {
-                    BlockError::ExecutionPayloadError(ExecutionPayloadError::Eth1VerificationError(
-                        e,
-                    ))
-                })?;
+                    })?;
 
-            if !payload_valid {
-                return Err(BlockError::ExecutionPayloadError(
-                    ExecutionPayloadError::RejectedByExecutionEngine,
-                ));
-            }
+            let is_valid_terminal_pow_block = execution_layer
+                .block_on(|execution_layer| {
+                    execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash)
+                })
+                .map_err(ExecutionPayloadError::from)?;
+
+            match is_valid_terminal_pow_block {
+                Some(true) => Ok(()),
+                Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock),
+                None => Err(ExecutionPayloadError::TerminalPoWBlockNotFound),
+            }?;
         }
+
+        // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
+        let execute_payload_handle = if is_execution_enabled(&state, block.message().body()) {
+            let execution_layer = chain
+                .execution_layer
+                .as_ref()
+                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+            let execution_payload =
+                block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .ok_or_else(|| InconsistentFork {
+                        fork_at_slot: eth2::types::ForkName::Merge,
+                        object_fork: block.message().body().fork_name(),
+                    })?;
+
+            let (execute_payload_status, execute_payload_handle) = execution_layer
+                .block_on(|execution_layer| execution_layer.execute_payload(execution_payload))
+                .map_err(ExecutionPayloadError::from)?;
+
+            match execute_payload_status {
+                ExecutePayloadResponse::Valid => Ok(()),
+                ExecutePayloadResponse::Invalid => {
+                    Err(ExecutionPayloadError::RejectedByExecutionEngine)
+                }
+                ExecutePayloadResponse::Syncing => {
+                    Err(ExecutionPayloadError::ExecutionEngineIsSyncing)
+                }
+            }?;
+
+            Some(execute_payload_handle)
+        } else {
+            None
+        };
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1179,6 +1262,15 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 block: block.state_root(),
                 local: state_root,
             });
+        }
+
+        // If this block required an `executePayload` call to the execution node, inform it that the
+        // block is indeed valid.
+        //
+        // If the handle is dropped without explicitly declaring validity, an invalid message will
+        // be sent to the execution engine.
+        if let Some(execute_payload_handle) = execute_payload_handle {
+            execute_payload_handle.publish_consensus_valid();
         }
 
         Ok(Self {
