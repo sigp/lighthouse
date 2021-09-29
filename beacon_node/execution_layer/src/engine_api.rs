@@ -107,6 +107,7 @@ pub enum BlockByNumberQuery<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
     pub block_hash: Hash256,
+    pub block_number: u64,
     pub parent_hash: Hash256,
     pub total_difficulty: Uint256,
 }

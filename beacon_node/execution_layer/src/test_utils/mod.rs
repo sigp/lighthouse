@@ -14,8 +14,6 @@ use tokio::sync::{oneshot, RwLock, RwLockWriteGuard};
 use types::EthSpec;
 use warp::Filter;
 
-pub use execution_block_generator::{block_hash_to_number, block_number_to_hash};
-
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 

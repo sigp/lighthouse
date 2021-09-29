@@ -410,7 +410,7 @@ impl ExecutionLayer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{block_number_to_hash, MockServer, DEFAULT_TERMINAL_DIFFICULTY};
+    use crate::test_utils::{MockServer, DEFAULT_TERMINAL_DIFFICULTY};
     use environment::null_logger;
     use types::MainnetEthSpec;
 
@@ -424,6 +424,7 @@ mod test {
     impl SingleEngineTester {
         pub fn new() -> Self {
             let server = MockServer::unit_testing();
+
             let url = SensitiveUrl::parse(&server.url()).unwrap();
             let log = null_logger().unwrap();
 
@@ -457,26 +458,37 @@ mod test {
         }
 
         pub async fn move_to_block_prior_to_terminal_block(self) -> Self {
-            {
-                let mut block_gen = self.server.execution_block_generator().await;
-                let target_block = block_gen.terminal_block_number.checked_sub(1).unwrap();
-                block_gen.set_clock_for_block_number(target_block)
-            }
-            self
+            let target_block = {
+                let block_gen = self.server.execution_block_generator().await;
+                block_gen.terminal_block_number.checked_sub(1).unwrap()
+            };
+            self.move_to_pow_block(target_block).await
         }
 
         pub async fn move_to_terminal_block(self) -> Self {
+            let target_block = {
+                let block_gen = self.server.execution_block_generator().await;
+                block_gen.terminal_block_number
+            };
+            self.move_to_pow_block(target_block).await
+        }
+
+        pub async fn move_to_pow_block(self, target_block: u64) -> Self {
             {
                 let mut block_gen = self.server.execution_block_generator().await;
-                let target_block = block_gen.terminal_block_number;
-                block_gen.set_clock_for_block_number(target_block)
+                let next_block = block_gen.latest_block().unwrap().block_number() + 1;
+                assert!(target_block >= next_block);
+
+                block_gen
+                    .insert_pow_blocks(next_block..=target_block)
+                    .unwrap();
             }
             self
         }
 
-        pub async fn with_terminal_block_number<'a, T, U>(self, func: T) -> Self
+        pub async fn with_terminal_block<'a, T, U>(self, func: T) -> Self
         where
-            T: Fn(ExecutionLayer, u64) -> U,
+            T: Fn(ExecutionLayer, Option<ExecutionBlock>) -> U,
             U: Future<Output = ()>,
         {
             let terminal_block_number = self
@@ -484,7 +496,13 @@ mod test {
                 .execution_block_generator()
                 .await
                 .terminal_block_number;
-            func(self.el.clone(), terminal_block_number).await;
+            let terminal_block = self
+                .server
+                .execution_block_generator()
+                .await
+                .execution_block_by_number(terminal_block_number);
+
+            func(self.el.clone(), terminal_block).await;
             self
         }
 
@@ -506,7 +524,7 @@ mod test {
         SingleEngineTester::new()
             .move_to_block_prior_to_terminal_block()
             .await
-            .with_terminal_block_number(|el, _| async move {
+            .with_terminal_block(|el, _| async move {
                 assert_eq!(
                     el.get_pow_block_hash_at_total_difficulty().await.unwrap(),
                     None
@@ -515,10 +533,10 @@ mod test {
             .await
             .move_to_terminal_block()
             .await
-            .with_terminal_block_number(|el, terminal_block_number| async move {
+            .with_terminal_block(|el, terminal_block| async move {
                 assert_eq!(
                     el.get_pow_block_hash_at_total_difficulty().await.unwrap(),
-                    Some(block_number_to_hash(terminal_block_number))
+                    Some(terminal_block.unwrap().block_hash)
                 )
             })
             .await;
@@ -529,13 +547,11 @@ mod test {
         SingleEngineTester::new()
             .move_to_terminal_block()
             .await
-            .with_terminal_block_number(|el, terminal_block_number| async move {
+            .with_terminal_block(|el, terminal_block| async move {
                 assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(block_number_to_hash(
-                        terminal_block_number
-                    ))
-                    .await
-                    .unwrap(),
+                    el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash)
+                        .await
+                        .unwrap(),
                     Some(true)
                 )
             })
@@ -547,15 +563,13 @@ mod test {
         SingleEngineTester::new()
             .move_to_terminal_block()
             .await
-            .with_terminal_block_number(|el, terminal_block_number| async move {
-                let invalid_terminal_block = terminal_block_number.checked_sub(1).unwrap();
+            .with_terminal_block(|el, terminal_block| async move {
+                let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(block_number_to_hash(
-                        invalid_terminal_block
-                    ))
-                    .await
-                    .unwrap(),
+                    el.is_valid_terminal_pow_block_hash(invalid_terminal_block)
+                        .await
+                        .unwrap(),
                     Some(false)
                 )
             })
@@ -567,15 +581,13 @@ mod test {
         SingleEngineTester::new()
             .move_to_terminal_block()
             .await
-            .with_terminal_block_number(|el, terminal_block_number| async move {
-                let missing_terminal_block = terminal_block_number.checked_add(1).unwrap();
+            .with_terminal_block(|el, _| async move {
+                let missing_terminal_block = Hash256::repeat_byte(42);
 
                 assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(block_number_to_hash(
-                        missing_terminal_block
-                    ))
-                    .await
-                    .unwrap(),
+                    el.is_valid_terminal_pow_block_hash(missing_terminal_block)
+                        .await
+                        .unwrap(),
                     None
                 )
             })

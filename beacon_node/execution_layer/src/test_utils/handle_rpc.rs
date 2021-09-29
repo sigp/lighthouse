@@ -27,7 +27,10 @@ pub async fn handle_rpc<T: EthSpec>(
 
             match tag {
                 "latest" => Ok(serde_json::to_value(
-                    ctx.execution_block_generator.read().await.latest_block(),
+                    ctx.execution_block_generator
+                        .read()
+                        .await
+                        .latest_execution_block(),
                 )
                 .unwrap()),
                 other => Err(format!("The tag {} is not supported", other)),
@@ -47,7 +50,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 ctx.execution_block_generator
                     .read()
                     .await
-                    .block_by_hash(hash),
+                    .execution_block_by_hash(hash),
             )
             .unwrap())
         }
