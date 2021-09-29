@@ -299,7 +299,11 @@ impl DuplicateCache {
     /// the block root already existed in the cache.
     pub fn check_and_insert(&self, block_root: Hash256) -> bool {
         let mut inner = self.inner.write();
-        inner.insert(block_root)
+        if !inner.contains(&block_root) {
+            inner.insert(block_root)
+        } else {
+            false
+        }
     }
 
     /// Remove the given block_root from the cache.
