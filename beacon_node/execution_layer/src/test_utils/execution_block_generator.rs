@@ -370,40 +370,4 @@ mod test {
             assert!(generator.block_by_number(next_i).is_none());
         }
     }
-
-    /*
-    #[test]
-    fn pos_blocks() {
-        const TERMINAL_DIFFICULTY: u64 = 10;
-        const TERMINAL_BLOCK: u64 = 10;
-
-        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
-            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
-
-        let penultimate_pow_block = generator.terminal_block_number.checked_sub(1).unwrap();
-        let last_pow_block = generator.terminal_block_number;
-        let first_pos_block = generator.terminal_block_number + 1;
-        let second_pos_block = first_pos_block + 1;
-
-        generator.insert_pow_blocks(0..=penultimate_pow_block);
-
-        assert!(generator.block_by_number(last_pow_block).is_none());
-
-        assert!(generator.insert_pos_block(first_pos_block).is_err());
-
-        generator.set_clock_for_block_number(last_pow_block);
-
-        generator.block_by_number(last_pow_block).unwrap();
-
-        assert!(generator.block_by_number(first_pos_block).is_none());
-
-        generator.insert_pos_block(first_pos_block).unwrap();
-
-        generator.block_by_number(first_pos_block).unwrap();
-
-        assert!(generator.insert_pos_block(first_pos_block).is_err());
-
-        generator.insert_pos_block(second_pos_block).unwrap();
-    }
-    */
 }
