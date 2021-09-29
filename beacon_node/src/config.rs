@@ -232,6 +232,35 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
+    if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+        client_config.sync_eth1_chain = true;
+        client_config.execution_endpoints = endpoints
+            .split(',')
+            .map(|s| SensitiveUrl::parse(s))
+            .collect::<Result<_, _>>()
+            .map(Some)
+            .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+    } else if cli_args.is_present("merge") {
+        client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
+    }
+
+    if let Some(terminal_total_difficulty) =
+        clap_utils::parse_optional(cli_args, "total-terminal-difficulty-override")?
+    {
+        if client_config.execution_endpoints.is_none() {
+            return Err(
+                "The --merge flag must be provided when using --total-terminal-difficulty-override"
+                    .into(),
+            );
+        }
+
+        client_config.terminal_total_difficulty_override = Some(terminal_total_difficulty);
+    }
+
+    client_config.fee_recipient = clap_utils::parse_optional(cli_args, "fee-recipient")?;
+    client_config.terminal_block_hash =
+        clap_utils::parse_optional(cli_args, "terminal-block-hash")?;
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
