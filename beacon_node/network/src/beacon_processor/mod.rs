@@ -42,7 +42,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
-    MessageAcceptance, MessageId, NetworkGlobals, PeerId, PeerRequestId,
+    MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -1419,18 +1419,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 "RPC block is being imported";
                                 "block_root" => %block_root,
                             );
-
-                            // Note: This is an highly unlikely scenario as we get the gossip
-                            // block before the rpc block most of the times. We have 2 options here:
-                            //
-                            // 1. Assume block is valid and propagate - if block is invalid, gossipsub scoring will
-                            // punish us for propagating invalid blocks.
-                            // 2. Assume block is invalid and ignore - if block is valid, gossipsub scoring will
-                            // punish us for trying to censor
-                            worker.propagate_validation_result(
+                            // If RPC block is being imported, check gossip conditions
+                            // and forward the block if the checks pass.
+                            let _ = worker.process_gossip_unverified_block(
                                 message_id,
                                 peer_id,
-                                MessageAcceptance::Ignore,
+                                *block,
+                                work_reprocessing_tx,
+                                seen_timestamp,
                             );
                         }
                     }
