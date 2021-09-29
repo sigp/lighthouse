@@ -131,6 +131,7 @@ pub struct ChainSpec {
     /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
     pub merge_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: Hash256,
 
     /*
      * Networking
@@ -483,6 +484,7 @@ impl ChainSpec {
             terminal_total_difficulty: Uint256::MAX
                 .checked_sub(Uint256::from(2u64.pow(10)))
                 .expect("calculation does not overflow"),
+            terminal_block_hash: Hash256::zero(),
 
             /*
              * Network specific

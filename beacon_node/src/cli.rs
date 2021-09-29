@@ -371,6 +371,60 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
+        /*
+         * Execution Layer Integration
+         */
+        .arg(
+            Arg::with_name("merge")
+                .long("merge")
+                .help("Enable the features necessary to run merge testnets. This feature \
+                       is unstable and is for developers only.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("execution-endpoints")
+                .long("execution-endpoints")
+                .value_name("EXECUTION-ENDPOINTS")
+                .help("One or more comma-delimited server endpoints for HTTP JSON-RPC connection. \
+                       If multiple endpoints are given the endpoints are used as fallback in the \
+                       given order. Also enables the --merge flag. \
+                       If this flag is omitted and the --eth1-endpoints is supplied, those values \
+                       will be used. Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-total-difficulty-override")
+                .long("terminal-total-difficulty-override")
+                .value_name("TERMINAL_TOTAL_DIFFICULTY")
+                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal difficulty. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-override")
+                .long("terminal-block-hash-override")
+                .value_name("TERMINAL_BLOCK_HASH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("fee-recipient")
+                .long("fee-recipient")
+                .help("Once the merge has happened, this address will receive transaction fees \
+                       collected from any blocks produced by this node. Defaults to a junk \
+                       address whilst the merge is in development stages. THE DEFAULT VALUE \
+                       WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
+                // TODO: remove this default value. It's just there to make life easy during merge
+                // testnets.
+                .default_value("0x0000000000000000000000000000000000000001"),
+        )
 
         /*
          * Database purging and compaction.

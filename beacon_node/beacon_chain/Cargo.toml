@@ -55,3 +55,4 @@ slasher = { path = "../../slasher" }
 eth2 = { path = "../../common/eth2" }
 strum = { version = "0.21.0", features = ["derive"] }
 logging = { path = "../../common/logging" }
+execution_layer = { path = "../execution_layer" }

@@ -9,10 +9,7 @@ where
     S: Serializer,
     N: Unsigned,
 {
-    let mut hex_string: String = "0x".to_string();
-    hex_string.push_str(&hex::encode(&**bytes));
-
-    serializer.serialize_str(&hex_string)
+    serializer.serialize_str(&hex::encode(&**bytes))
 }
 
 pub fn deserialize<'de, D, N>(deserializer: D) -> Result<VariableList<u8, N>, D::Error>
