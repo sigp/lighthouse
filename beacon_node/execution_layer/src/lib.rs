@@ -155,7 +155,7 @@ impl ExecutionLayer {
         runtime.block_on(generate_future(self))
     }
 
-    /// Convenience function to allow calling spawning a task without waiting for the result.
+    /// Convenience function to allow spawning a task without waiting for the result.
     pub fn spawn<T, U>(&self, generate_future: T, name: &'static str)
     where
         T: FnOnce(Self) -> U,
@@ -220,7 +220,7 @@ impl ExecutionLayer {
             .map_err(Error::EngineErrors)
     }
 
-    /// Maps to the `engine_getPayload` JSON-RPC call.
+    /// Maps to the `engine_executePayload` JSON-RPC call.
     ///
     /// ## Fallback Behaviour
     ///

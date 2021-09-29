@@ -1097,7 +1097,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // blocks.
         //
         // The specification defines this check inside `on_block` in the fork-choice specification,
-        // however we perform the block here for two reasons:
+        // however we perform the check here for two reasons:
         //
         // - There's no point in importing a block that will fail fork choice, so it's best to fail
         //   early.
@@ -1268,7 +1268,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // block is indeed valid.
         //
         // If the handle is dropped without explicitly declaring validity, an invalid message will
-        // be send to the execution engine.
+        // be sent to the execution engine.
         if let Some(execute_payload_handle) = execute_payload_handle {
             execute_payload_handle.publish_consensus_valid();
         }
