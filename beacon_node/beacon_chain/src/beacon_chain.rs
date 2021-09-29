@@ -2953,6 +2953,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
+            metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT_INTEROP);
             warn!(
                 self.log,
                 "Beacon chain re-org";
