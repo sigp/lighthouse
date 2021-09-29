@@ -267,7 +267,7 @@ pub struct JsonPayloadId {
     pub payload_id: u64,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,
@@ -515,6 +515,142 @@ mod test {
     const ADDRESS_01: &str = "0x0101010101010101010101010101010101010101";
 
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
+
+    fn encode_transactions<E: EthSpec>(
+        transactions: VariableList<Transaction<E>, E::MaxTransactionsPerPayload>,
+    ) -> Result<serde_json::Value, serde_json::Error> {
+        let ep: JsonExecutionPayload<E> = JsonExecutionPayload {
+            transactions,
+            ..<_>::default()
+        };
+        let json = serde_json::to_value(&ep)?;
+        Ok(json.get("transactions").unwrap().clone())
+    }
+
+    fn decode_transactions<E: EthSpec>(
+        transactions: serde_json::Value,
+    ) -> Result<VariableList<Transaction<E>, E::MaxTransactionsPerPayload>, serde_json::Error> {
+        let json = json!({
+            "parentHash": HASH_00,
+            "coinbase": ADDRESS_01,
+            "stateRoot": HASH_01,
+            "receiptRoot": HASH_00,
+            "logsBloom": LOGS_BLOOM_01,
+            "random": HASH_01,
+            "blockNumber": "0x0",
+            "gasLimit": "0x1",
+            "gasUsed": "0x2",
+            "timestamp": "0x2a",
+            "extraData": "0x",
+            "baseFeePerGas": "0x1",
+            "blockHash": HASH_01,
+            "transactions": transactions,
+        });
+        let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
+        Ok(ep.transactions)
+    }
+
+    fn assert_transactions_serde<E: EthSpec>(
+        name: &str,
+        as_obj: VariableList<Transaction<E>, E::MaxTransactionsPerPayload>,
+        as_json: serde_json::Value,
+    ) {
+        assert_eq!(
+            encode_transactions(as_obj.clone()).unwrap(),
+            as_json,
+            "encoding for {}",
+            name
+        );
+        assert_eq!(
+            decode_transactions(as_json).unwrap(),
+            as_obj,
+            "decoding for {}",
+            name
+        );
+    }
+
+    /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
+    fn generate_opaque_transactions<E: EthSpec>(
+        spec: &[usize],
+    ) -> VariableList<Transaction<E>, E::MaxTransactionsPerPayload> {
+        let mut txs = VariableList::default();
+
+        for &num_bytes in spec {
+            let mut tx = VariableList::default();
+            for _ in 0..num_bytes {
+                tx.push(0).unwrap();
+            }
+            txs.push(Transaction::OpaqueTransaction(tx)).unwrap();
+        }
+
+        txs
+    }
+
+    #[test]
+    fn transaction_serde() {
+        assert_transactions_serde::<MainnetEthSpec>(
+            "empty",
+            generate_opaque_transactions(&[]),
+            json!([]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "one empty tx",
+            generate_opaque_transactions(&[0]),
+            json!(["0x"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "two empty txs",
+            generate_opaque_transactions(&[0, 0]),
+            json!(["0x", "0x"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "one one-byte tx",
+            generate_opaque_transactions(&[1]),
+            json!(["0x00"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "two one-byte txs",
+            generate_opaque_transactions(&[1, 1]),
+            json!(["0x00", "0x00"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "mixed bag",
+            generate_opaque_transactions(&[0, 1, 3, 0]),
+            json!(["0x", "0x00", "0x000000", "0x"]),
+        );
+
+        /*
+         * Check for too many transactions
+         */
+
+        let num_max_txs = <MainnetEthSpec as EthSpec>::MaxTransactionsPerPayload::to_usize();
+        let max_txs = (0..num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
+        let too_many_txs = (0..=num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
+
+        decode_transactions::<MainnetEthSpec>(serde_json::to_value(max_txs).unwrap()).unwrap();
+        assert!(
+            decode_transactions::<MainnetEthSpec>(serde_json::to_value(too_many_txs).unwrap())
+                .is_err()
+        );
+
+        /*
+         * Check for transaction too large
+         */
+
+        use eth2_serde_utils::hex;
+
+        let num_max_bytes = <MainnetEthSpec as EthSpec>::MaxBytesPerOpaqueTransaction::to_usize();
+        let max_bytes = (0..num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
+        let too_many_bytes = (0..=num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
+        decode_transactions::<MainnetEthSpec>(
+            serde_json::to_value(&[hex::encode(&max_bytes)]).unwrap(),
+        )
+        .unwrap();
+        assert!(decode_transactions::<MainnetEthSpec>(
+            serde_json::to_value(&[hex::encode(&too_many_bytes)]).unwrap()
+        )
+        .is_err());
+    }
 
     #[tokio::test]
     async fn get_block_by_number_request() {
