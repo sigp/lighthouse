@@ -17,6 +17,20 @@ impl ExecutePayloadHandle {
         self.publish(ConsensusStatus::Invalid)
     }
 
+    pub async fn publish_async(&self) {
+        if let Err(e) =
+            self.execution_layer.consensus_validated(self.block_hash, status).await {
+            // TODO(paul): consider how to recover when we are temporarily unable to tell a node
+            // that the block was valid.
+            crit!(
+                self.execution_layer.log(),
+                "Failed to update execution consensus status";
+                "error" => ?e,
+                "status" => ?status,
+            );
+        }
+    }
+
     fn publish(&mut self, status: ConsensusStatus) {
         self.status = Some(status);
 
