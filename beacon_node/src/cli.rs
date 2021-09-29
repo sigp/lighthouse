@@ -400,7 +400,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
                 // TODO: remove this default value. It's just there to make life easy during merge
                 // testnets.
-                .default_value("0x000000000000000000000000000000000000000000000001"),
+                .default_value("0x00000000000000000000000000000000000000000000001"),
         )
 
         /*
