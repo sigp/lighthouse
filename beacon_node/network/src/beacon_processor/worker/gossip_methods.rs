@@ -190,7 +190,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Creates a log if there is an internal error.
     /// Propagates the result of the validation for the given message to the network. If the result
     /// is valid the message gets forwarded to other peers.
-    fn propagate_validation_result(
+    pub(crate) fn propagate_validation_result(
         &self,
         message_id: MessageId,
         propagation_source: PeerId,

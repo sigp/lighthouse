@@ -42,7 +42,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId,
+    MessageAcceptance, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -285,25 +285,27 @@ impl<T> LifoQueue<T> {
     }
 }
 
+/// A simple  cache for detecting duplicate block roots across multiple threads.
 #[derive(Default)]
 pub struct DuplicateCache {
     inner: Arc<RwLock<HashSet<Hash256>>>,
 }
 
 impl DuplicateCache {
-    pub fn insert(&self, block_root: Hash256) {
+    /// Checks if the given block_root exists and inserts it into the cache if
+    /// it doesn't exist.
+    ///
+    /// Returns `true` if the block_root was successfully inserted and `false` if
+    /// the block root already existed in the cache.
+    pub fn check_and_insert(&self, block_root: Hash256) -> bool {
         let mut inner = self.inner.write();
-        inner.insert(block_root);
+        inner.insert(block_root)
     }
 
+    /// Remove the given block_root from the cache.
     pub fn remove(&self, block_root: &Hash256) {
         let mut inner = self.inner.write();
         inner.remove(block_root);
-    }
-
-    pub fn contains(&self, block_root: &Hash256) -> bool {
-        let inner = self.inner.read();
-        inner.contains(block_root)
     }
 }
 
@@ -1402,8 +1404,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         seen_timestamp,
                     } => {
                         let block_root = block.message().body_root();
-                        if !duplicate_cache.contains(&block_root) {
-                            duplicate_cache.insert(block_root);
+                        if duplicate_cache.check_and_insert(block_root) {
                             worker.process_gossip_block(
                                 message_id,
                                 peer_id,
@@ -1417,6 +1418,19 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 log,
                                 "RPC block is being imported";
                                 "block_root" => %block_root,
+                            );
+
+                            // Note: This is an highly unlikely scenario as we get the gossip
+                            // block before the rpc block most of the times. We have 2 options here:
+                            //
+                            // 1. Assume block is valid and propagate - if block is invalid, gossipsub scoring will
+                            // punish us for propagating invalid blocks.
+                            // 2. Assume block is invalid and ignore - if block is valid, gossipsub scoring will
+                            // punish us for trying to censor
+                            worker.propagate_validation_result(
+                                message_id,
+                                peer_id,
+                                MessageAcceptance::Ignore,
                             );
                         }
                     }
@@ -1499,9 +1513,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      * Verification for beacon blocks received during syncing via RPC.
                      */
                     Work::RpcBlock { block, result_tx } => {
-                        let block_root = block.message().body_root();
-                        if !duplicate_cache.contains(&block_root) {
-                            duplicate_cache.insert(block_root);
+                        let block_root = block.canonical_root();
+                        if duplicate_cache.check_and_insert(block_root) {
                             worker.process_rpc_block(*block, result_tx, work_reprocessing_tx);
                             duplicate_cache.remove(&block_root);
                         } else {
@@ -1510,6 +1523,19 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 "Gossip block is being imported";
                                 "block_root" => %block_root,
                             );
+                            // The gossip block that is being imported should eventually
+                            // trigger reprocessing of queued attestations once it is imported.
+                            // If the gossip block fails import, then it will be downscored
+                            // appropriately in `process_gossip_block`.
+
+                            // Here, we assume that the block will eventually be imported and
+                            // send a `BlockIsAlreadyKnown` message to sync.
+                            if result_tx
+                                .send(Err(BlockError::BlockIsAlreadyKnown))
+                                .is_err()
+                            {
+                                crit!(log, "Failed return sync block result");
+                            }
                         }
                     }
                     /*
