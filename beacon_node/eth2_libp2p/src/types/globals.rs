@@ -1,5 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
-use crate::peer_manager::PeerDB;
+use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::MetaData;
 use crate::types::{BackFillState, SyncState};
 use crate::Client;

@@ -1,6 +1,6 @@
 //! Implementation of Lighthouse's peer management system.
 
-pub use self::peerdb::*;
+use peerdb::{BanResult, BanOperation};
 use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
@@ -25,13 +25,12 @@ use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
-pub mod peer;
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
-mod peerdb;
+pub mod peerdb;
 
-pub use peer::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
-pub use peer::sync_status::{SyncStatus, SyncInfo};
-use peer::score::{PeerAction, ReportSource, ScoreState};
+pub use peerdb::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo};
+pub use peerdb::sync_status::{SyncStatus, SyncInfo};
+use peerdb::score::{PeerAction, ReportSource, ScoreState};
 use std::cmp::Ordering;
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
@@ -495,7 +494,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let previous_kind = peer_info.client().kind.clone();
             let previous_listening_addresses = peer_info.set_listening_addresses(info.listen_addrs.clone());
-            peer_info.set_client(peer::client::Client::from_identify_info(info));
+            peer_info.set_client(peerdb::client::Client::from_identify_info(info));
 
             if previous_kind != peer_info.client().kind
                 || *peer_info.listening_addresses() != previous_listening_addresses

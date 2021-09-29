@@ -74,8 +74,9 @@ pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use metrics::scrape_discovery_metrics;
 pub use peer_manager::{
-    peer::client::Client,
-    peer::score::{PeerAction, ReportSource},
-    ConnectionDirection, PeerConnectionStatus, PeerDB, PeerInfo, SyncInfo, SyncStatus,
+    peerdb::client::Client,
+    peerdb::score::{PeerAction, ReportSource},
+    peerdb::PeerDB,
+    ConnectionDirection, PeerConnectionStatus, PeerInfo, SyncInfo, SyncStatus,
 };
 pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};

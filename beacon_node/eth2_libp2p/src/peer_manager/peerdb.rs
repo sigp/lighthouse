@@ -1,8 +1,3 @@
-use super::peer::{
-    peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo},
-    score::{Score, ScoreState},
-    sync_status::SyncStatus,
-};
 use crate::rpc::methods::MetaData;
 use crate::Enr;
 use crate::PeerId;
@@ -10,12 +5,20 @@ use crate::{
     multiaddr::{Multiaddr, Protocol},
     types::Subnet,
 };
+use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
+use score::{Score, ScoreState};
 use slog::{crit, debug, error, trace, warn};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
+use sync_status::SyncStatus;
 use types::EthSpec;
+
+pub mod client;
+pub mod peer_info;
+pub mod score;
+pub mod sync_status;
 
 /// Max number of disconnected nodes to remember.
 const MAX_DC_PEERS: usize = 500;
@@ -547,7 +550,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             _ => {
                 // If score isn't low enough to ban, this function has been called incorrectly.
                 error!(self.log, "Banning a peer with a good score"; "peer_id" => %peer_id);
-                info.apply_peer_action_to_score(super::peer::score::PeerAction::Fatal);
+                info.apply_peer_action_to_score(score::PeerAction::Fatal);
             }
         }
 
