@@ -1403,7 +1403,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         block,
                         seen_timestamp,
                     } => {
-                        let block_root = block.message().body_root();
+                        let block_root = block.canonical_root();
                         if duplicate_cache.check_and_insert(block_root) {
                             worker.process_gossip_block(
                                 message_id,
