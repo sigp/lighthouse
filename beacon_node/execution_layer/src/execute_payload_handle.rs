@@ -96,7 +96,7 @@ async fn publish(
 /// See the struct-level documentation for the reasoning for this `Drop` implementation.
 impl Drop for ExecutePayloadHandle {
     fn drop(&mut self) {
-        if self.execution_layer.is_none() {
+        if self.execution_layer.is_some() {
             self.publish_blocking(ConsensusStatus::Invalid)
         }
     }
