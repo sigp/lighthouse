@@ -268,29 +268,6 @@ pub struct JsonPayloadId {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "N: Unsigned", transparent, rename_all = "camelCase")]
-struct JsonTransactions<N> {
-    #[serde(with = "serde_transactions")]
-    var_list: VariableList<Vec<u8>, N>,
-}
-
-/*
-impl<N: Unsigned> JsonTransactions<N> {
-    pub fn into_spec_type<T: EthSpec>(
-        self,
-    ) -> VariableList<Transaction<T>, T::MaxTransactionsPerPayload> {
-        todo!();
-    }
-
-    pub fn from_spec_type<T: EthSpec>(
-        self,
-    ) -> VariableList<Transaction<T>, T::MaxTransactionsPerPayload> {
-        todo!();
-    }
-}
-*/
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,
@@ -312,7 +289,8 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    pub transactions: JsonTransactions<T::MaxTransactionsPerPayload>,
+    #[serde(with = "serde_transactions")]
+    pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
@@ -355,12 +333,6 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
             transactions: e.transactions,
         }
     }
-}
-
-fn parse_json_transactions(u: Uint256) -> Hash256 {
-    let mut bytes = [0; 32];
-    u.to_little_endian(&mut bytes);
-    Hash256::from_slice(&bytes)
 }
 
 fn uint256_to_hash256(u: Uint256) -> Hash256 {
@@ -420,15 +392,16 @@ pub mod serde_transactions {
     use serde::{de, Deserializer, Serializer};
     use std::marker::PhantomData;
 
-    type Value<N> = VariableList<Vec<u8>, N>;
+    type Value<T, N> = VariableList<Transaction<T>, N>;
 
     #[derive(Default)]
-    pub struct ListOfBytesListVisitor<N> {
-        _phantom: PhantomData<N>,
+    pub struct ListOfBytesListVisitor<T, N> {
+        _phantom_t: PhantomData<T>,
+        _phantom_n: PhantomData<N>,
     }
 
-    impl<'a, N: Unsigned> serde::de::Visitor<'a> for ListOfBytesListVisitor<N> {
-        type Value = Value<N>;
+    impl<'a, T: EthSpec, N: Unsigned> serde::de::Visitor<'a> for ListOfBytesListVisitor<T, N> {
+        type Value = Value<T, N>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
             write!(formatter, "a list of 0x-prefixed byte lists")
@@ -442,7 +415,11 @@ pub mod serde_transactions {
 
             while let Some(val) = seq.next_element::<String>()? {
                 let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
-                outer.push(inner).map_err(|e| {
+                let opaque_transaction = VariableList::new(inner_vec).map_err(|e| {
+                    serde::de::Error::custom(format!("transaction too large: {:?}", e))
+                })?;
+                let transaction = Transaction::OpaqueTransaction(opaque_transaction);
+                outer.push(transaction).map_err(|e| {
                     serde::de::Error::custom(format!("too many transactions: {:?}", e))
                 })?;
             }
@@ -451,22 +428,33 @@ pub mod serde_transactions {
         }
     }
 
-    pub fn serialize<S, N: Unsigned>(value: &Value<N>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, T: EthSpec, N: Unsigned>(
+        value: &Value<T, N>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let mut seq = serializer.serialize_seq(Some(value.len()))?;
-        for val in value {
-            seq.serialize_element(&hex::encode(&val[..]))?;
+        for transaction in value {
+            // It's important to match on the inner values of the transaction. Serializing the
+            // entire `Transaction` will result in appending the SSZ union prefix byte. The
+            // execution node does not want that.
+            let hex = match transaction {
+                Transaction::OpaqueTransaction(val) => hex::encode(&val[..]),
+            };
+            seq.serialize_element(&hex)?;
         }
         seq.end()
     }
 
-    pub fn deserialize<'de, D, N: Unsigned>(deserializer: D) -> Result<Value<N>, D::Error>
+    pub fn deserialize<'de, D, T: EthSpec, N: Unsigned>(
+        deserializer: D,
+    ) -> Result<Value<T, N>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let visitor: ListOfBytesListVisitor<N> = <_>::default();
+        let visitor: ListOfBytesListVisitor<T, N> = <_>::default();
         deserializer.deserialize_any(visitor)
     }
 }
