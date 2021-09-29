@@ -201,6 +201,7 @@ impl TestRig {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
+            importing_blocks: Default::default(),
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_rx, Some(work_journal_tx));
