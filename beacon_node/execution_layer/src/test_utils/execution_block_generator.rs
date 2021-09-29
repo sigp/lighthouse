@@ -1,7 +1,8 @@
-use crate::engine_api::http::JsonPreparePayloadRequest;
+use crate::engine_api::{http::JsonPreparePayloadRequest, ExecutePayloadResponse};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use tree_hash::TreeHash;
 use types::{EthSpec, ExecutionPayload, Hash256, Uint256};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * PoS block parameters
      */
+    pub pending_payloads: HashMap<Hash256, ExecutionPayload<T>>,
     pub merge_blocks: HashMap<Hash256, ExecutionPayload<T>>,
     pub merge_block_numbers: HashMap<u64, Hash256>,
     pub latest_merge_block: Option<u64>,
@@ -40,6 +42,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             terminal_total_difficulty,
             terminal_block_number,
             // PoS params
+            pending_payloads: <_>::default(),
             merge_blocks: <_>::default(),
             merge_block_numbers: <_>::default(),
             latest_merge_block: None,
@@ -124,7 +127,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         let id = self.next_payload_id;
         self.next_payload_id += 1;
 
-        let execution_payload = ExecutionPayload {
+        let mut execution_payload = ExecutionPayload {
             parent_hash: payload.parent_hash,
             coinbase: payload.fee_recipient,
             receipt_root: Hash256::repeat_byte(42),
@@ -141,13 +144,31 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             transactions: vec![].into(),
         };
 
+        execution_payload.block_hash = execution_payload.tree_hash_root();
+
         self.payload_ids.insert(id, execution_payload);
 
         Ok(id)
     }
 
-    pub fn get_payload_id(&mut self, id: u64) -> Option<ExecutionPayload<T>> {
+    pub fn get_payload(&mut self, id: u64) -> Option<ExecutionPayload<T>> {
         self.payload_ids.remove(&id)
+    }
+
+    pub fn execute_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
+        let parent = if let Some(parent) = self.block_by_hash(payload.parent_hash) {
+            parent
+        } else {
+            return ExecutePayloadResponse::Invalid;
+        };
+
+        if payload.block_number != parent.block_number + 1 {
+            return ExecutePayloadResponse::Invalid;
+        }
+
+        self.pending_payloads.insert(payload.block_hash, payload);
+
+        ExecutePayloadResponse::Valid
     }
 
     pub fn insert_pos_block(&mut self, number: u64) -> Result<(), String> {

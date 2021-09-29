@@ -2084,6 +2084,7 @@ dependencies = [
  "slog",
  "task_executor",
  "tokio",
+ "tree_hash",
  "types",
  "warp",
 ]
