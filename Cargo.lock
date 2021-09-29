@@ -457,6 +457,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "execution_layer",
  "exit-future",
  "fork_choice",
  "futures",
@@ -899,6 +900,7 @@ dependencies = [
  "eth2_config",
  "eth2_libp2p",
  "eth2_ssz",
+ "execution_layer",
  "futures",
  "genesis",
  "http_api",
@@ -2060,6 +2062,33 @@ name = "event-listener"
 version = "2.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7531096570974c3a9dcf9e4b8e1cede1ec26cf5046219fb3b9d897503b9be59"
+
+[[package]]
+name = "execution_layer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes 1.1.0",
+ "environment",
+ "eth1",
+ "eth2_serde_utils 0.1.0",
+ "eth2_ssz_types",
+ "exit-future",
+ "futures",
+ "hex",
+ "lru",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "slog",
+ "task_executor",
+ "tokio",
+ "tree_hash",
+ "tree_hash_derive",
+ "types",
+ "warp",
+]
 
 [[package]]
 name = "exit-future"

@@ -479,7 +479,7 @@ pub async fn send_rpc_request(
 }
 
 /// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value`.
-fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
+pub fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
     let json = serde_json::from_str::<Value>(response)
         .map_err(|e| RpcError::InvalidJson(e.to_string()))?;
 
@@ -501,7 +501,7 @@ fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
 /// Therefore, this function is only useful for numbers encoded by the JSON RPC.
 ///
 /// E.g., `0x01 == 1`
-fn hex_to_u64_be(hex: &str) -> Result<u64, String> {
+pub fn hex_to_u64_be(hex: &str) -> Result<u64, String> {
     u64::from_str_radix(strip_prefix(hex)?, 16)
         .map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
 }

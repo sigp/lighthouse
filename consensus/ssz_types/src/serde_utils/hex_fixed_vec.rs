@@ -8,10 +8,7 @@ where
     S: Serializer,
     U: Unsigned,
 {
-    let mut hex_string: String = "0x".to_string();
-    hex_string.push_str(&hex::encode(&bytes[..]));
-
-    serializer.serialize_str(&hex_string)
+    serializer.serialize_str(&hex::encode(&bytes[..]))
 }
 
 pub fn deserialize<'de, D, U>(deserializer: D) -> Result<FixedVector<u8, U>, D::Error>
