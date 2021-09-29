@@ -268,6 +268,29 @@ pub struct JsonPayloadId {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "N: Unsigned", transparent, rename_all = "camelCase")]
+struct JsonTransactions<N> {
+    #[serde(with = "serde_transactions")]
+    var_list: VariableList<Vec<u8>, N>,
+}
+
+/*
+impl<N: Unsigned> JsonTransactions<N> {
+    pub fn into_spec_type<T: EthSpec>(
+        self,
+    ) -> VariableList<Transaction<T>, T::MaxTransactionsPerPayload> {
+        todo!();
+    }
+
+    pub fn from_spec_type<T: EthSpec>(
+        self,
+    ) -> VariableList<Transaction<T>, T::MaxTransactionsPerPayload> {
+        todo!();
+    }
+}
+*/
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,
@@ -285,14 +308,11 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub gas_used: u64,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
-    // FIXME(paul): check serialization
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    // FIXME(paul): add transaction parsing.
-    #[serde(default, skip_deserializing)]
-    pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
+    pub transactions: JsonTransactions<T::MaxTransactionsPerPayload>,
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
@@ -337,6 +357,12 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
     }
 }
 
+fn parse_json_transactions(u: Uint256) -> Hash256 {
+    let mut bytes = [0; 32];
+    u.to_little_endian(&mut bytes);
+    Hash256::from_slice(&bytes)
+}
+
 fn uint256_to_hash256(u: Uint256) -> Hash256 {
     let mut bytes = [0; 32];
     u.to_little_endian(&mut bytes);
@@ -357,7 +383,7 @@ pub struct JsonForkChoiceUpdatedRequest {
     pub finalized_block_hash: Hash256,
 }
 
-// Serializes the `logs_bloom` field.
+/// Serializes the `logs_bloom` field of an `ExecutionPayload`.
 pub mod serde_logs_bloom {
     use super::*;
     use eth2_serde_utils::hex::PrefixedHexVisitor;
@@ -383,6 +409,65 @@ pub mod serde_logs_bloom {
 
         FixedVector::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
+    }
+}
+
+/// Serializes the `transactions` field of an `ExecutionPayload`.
+pub mod serde_transactions {
+    use super::*;
+    use eth2_serde_utils::hex;
+    use serde::ser::SerializeSeq;
+    use serde::{de, Deserializer, Serializer};
+    use std::marker::PhantomData;
+
+    type Value<N> = VariableList<Vec<u8>, N>;
+
+    #[derive(Default)]
+    pub struct ListOfBytesListVisitor<N> {
+        _phantom: PhantomData<N>,
+    }
+
+    impl<'a, N: Unsigned> serde::de::Visitor<'a> for ListOfBytesListVisitor<N> {
+        type Value = Value<N>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(formatter, "a list of 0x-prefixed byte lists")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'a>,
+        {
+            let mut outer = VariableList::default();
+
+            while let Some(val) = seq.next_element::<String>()? {
+                let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
+                outer.push(inner).map_err(|e| {
+                    serde::de::Error::custom(format!("too many transactions: {:?}", e))
+                })?;
+            }
+
+            Ok(outer)
+        }
+    }
+
+    pub fn serialize<S, N: Unsigned>(value: &Value<N>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(value.len()))?;
+        for val in value {
+            seq.serialize_element(&hex::encode(&val[..]))?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D, N: Unsigned>(deserializer: D) -> Result<Value<N>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let visitor: ListOfBytesListVisitor<N> = <_>::default();
+        deserializer.deserialize_any(visitor)
     }
 }
 
