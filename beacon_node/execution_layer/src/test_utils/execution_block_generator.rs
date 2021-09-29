@@ -1,26 +1,47 @@
 use crate::engine_api::http::JsonPreparePayloadRequest;
-use crate::ExecutionBlock;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use types::{Hash256, Uint256};
+use types::{EthSpec, ExecutionPayload, Hash256, Uint256};
 
-pub struct ExecutionBlockGenerator {
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Block {
+    pub block_number: u64,
+    pub block_hash: Hash256,
+    pub parent_hash: Hash256,
+    pub total_difficulty: Uint256,
+}
+
+pub struct ExecutionBlockGenerator<T: EthSpec> {
+    /*
+     * PoW block parameters
+     */
     pub seconds_since_genesis: u64,
     pub block_interval_secs: u64,
     pub terminal_total_difficulty: u64,
     pub terminal_block_number: u64,
+    /*
+     * PoS block parameters
+     */
+    pub merge_blocks: HashMap<Hash256, ExecutionPayload<T>>,
+    pub merge_block_numbers: HashMap<u64, Hash256>,
     pub latest_merge_block: Option<u64>,
     pub next_payload_id: u64,
-    pub payload_ids: HashMap<u64, JsonPreparePayloadRequest>,
+    pub payload_ids: HashMap<u64, ExecutionPayload<T>>,
 }
 
-impl ExecutionBlockGenerator {
+impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn new(terminal_total_difficulty: u64, terminal_block_number: u64) -> Self {
         Self {
+            // PoW params
             seconds_since_genesis: 0,
             block_interval_secs: 1,
             terminal_total_difficulty,
             terminal_block_number,
+            // PoS params
+            merge_blocks: <_>::default(),
+            merge_block_numbers: <_>::default(),
             latest_merge_block: None,
             next_payload_id: 0,
             payload_ids: <_>::default(),
@@ -96,19 +117,36 @@ impl ExecutionBlockGenerator {
             return Err("refusing to create payload id before terminal block".to_string());
         }
 
-        if self.block_by_hash(payload.parent_hash).is_none() {
-            return Err(format!("unknown parent block {:?}", payload.parent_hash));
-        }
+        let parent = self
+            .block_by_hash(payload.parent_hash)
+            .ok_or_else(|| format!("unknown parent block {:?}", payload.parent_hash))?;
 
         let id = self.next_payload_id;
         self.next_payload_id += 1;
 
-        self.payload_ids.insert(id, payload);
+        let execution_payload = ExecutionPayload {
+            parent_hash: payload.parent_hash,
+            coinbase: payload.fee_recipient,
+            receipt_root: Hash256::repeat_byte(42),
+            state_root: Hash256::repeat_byte(43),
+            logs_bloom: vec![0; 256].into(),
+            random: payload.random,
+            block_number: parent.block_number + 1,
+            gas_limit: 10,
+            gas_used: 9,
+            timestamp: payload.timestamp,
+            extra_data: vec![].into(),
+            base_fee_per_gas: Hash256::from_low_u64_be(1),
+            block_hash: Hash256::zero(),
+            transactions: vec![].into(),
+        };
+
+        self.payload_ids.insert(id, execution_payload);
 
         Ok(id)
     }
 
-    pub fn get_payload_id(&mut self, id: u64) -> Option<JsonPreparePayloadRequest> {
+    pub fn get_payload_id(&mut self, id: u64) -> Option<ExecutionPayload<T>> {
         self.payload_ids.remove(&id)
     }
 
@@ -129,11 +167,11 @@ impl ExecutionBlockGenerator {
         }
     }
 
-    pub fn latest_block(&self) -> Option<ExecutionBlock> {
+    pub fn latest_block(&self) -> Option<Block> {
         self.block_by_number(self.latest_block_number())
     }
 
-    pub fn block_by_number(&self, number: u64) -> Option<ExecutionBlock> {
+    pub fn block_by_number(&self, number: u64) -> Option<Block> {
         let parent_hash = number
             .checked_sub(1)
             .map(block_number_to_hash)
@@ -142,7 +180,8 @@ impl ExecutionBlockGenerator {
 
         if number <= self.terminal_block_number {
             if number <= self.latest_block_number() {
-                Some(ExecutionBlock {
+                Some(Block {
+                    block_number: number,
                     block_hash,
                     parent_hash,
                     total_difficulty: Uint256::from(self.total_difficulty_for_block(number)),
@@ -156,7 +195,8 @@ impl ExecutionBlockGenerator {
                 .unwrap_or(self.terminal_block_number);
 
             if number <= latest_block {
-                Some(ExecutionBlock {
+                Some(Block {
+                    block_number: number,
                     block_hash,
                     parent_hash,
                     total_difficulty: Uint256::from(self.terminal_total_difficulty),
@@ -167,7 +207,7 @@ impl ExecutionBlockGenerator {
         }
     }
 
-    pub fn block_by_hash(&self, hash: Hash256) -> Option<ExecutionBlock> {
+    pub fn block_by_hash(&self, hash: Hash256) -> Option<Block> {
         let block_number = block_hash_to_number(hash);
         self.block_by_number(block_number)
     }
@@ -186,6 +226,7 @@ pub fn block_hash_to_number(hash: Hash256) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use types::MainnetEthSpec;
 
     #[test]
     fn pow_chain_only() {
@@ -193,7 +234,8 @@ mod test {
         const TERMINAL_BLOCK: u64 = 10;
         const DIFFICULTY_INCREMENT: u64 = 1;
 
-        let mut generator = ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
+        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
+            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
 
         for mut i in 0..(TERMINAL_BLOCK + 5) {
             i = std::cmp::min(i, TERMINAL_BLOCK);
@@ -247,7 +289,8 @@ mod test {
         const TERMINAL_DIFFICULTY: u64 = 10;
         const TERMINAL_BLOCK: u64 = 10;
 
-        let mut generator = ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
+        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
+            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
 
         let penultimate_pow_block = generator.terminal_block_number.checked_sub(1).unwrap();
         let last_pow_block = generator.terminal_block_number;

@@ -62,7 +62,9 @@ impl<T: EthSpec> MockServer<T> {
         }
     }
 
-    pub async fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator> {
+    pub async fn execution_block_generator(
+        &self,
+    ) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
         self.ctx.execution_block_generator.write().await
     }
 
@@ -109,11 +111,11 @@ impl warp::reject::Reject for MissingIdField {}
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T> {
+pub struct Context<T: EthSpec> {
     pub config: Config,
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
-    pub execution_block_generator: RwLock<ExecutionBlockGenerator>,
+    pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub _phantom: PhantomData<T>,
 }
 
