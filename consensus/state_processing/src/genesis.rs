@@ -71,7 +71,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
             timestamp: eth1_timestamp,
             random: eth1_block_hash,
             gas_limit: GENESIS_GAS_LIMIT,
-            base_fee_per_gas: GENESIS_BASE_FEE_PER_GAS,
+            base_fee_per_gas: Uint256::from_little_endian(&GENESIS_BASE_FEE_PER_GAS),
             ..ExecutionPayloadHeader::default()
         };
     }
