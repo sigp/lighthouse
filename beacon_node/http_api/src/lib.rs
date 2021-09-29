@@ -2575,6 +2575,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()
                                 }
+                                api_types::EventTopic::BlockReward => {
+                                    event_handler.subscribe_block_reward()
+                                }
                             };
 
                             receivers.push(BroadcastStream::new(receiver).map(|msg| {

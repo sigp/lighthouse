@@ -9,6 +9,7 @@
 
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
+#[cfg(feature = "lighthouse")]
 pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
@@ -245,6 +246,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request, returning a JSON response.
+    #[cfg(feature = "lighthouse")]
     async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
         &self,
         url: U,
