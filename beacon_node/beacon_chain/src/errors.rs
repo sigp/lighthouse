@@ -134,6 +134,8 @@ pub enum BeaconChainError {
         new_slot: Slot,
     },
     AltairForkDisabled,
+    ExecutionLayerMissing,
+    ExecutionForkChoiceUpdateFailed(execution_layer::Error),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -175,6 +177,9 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
+    ExecutionLayerMissing,
+    TerminalPoWBlockLookupFailed(execution_layer::Error),
+    GetPayloadFailed(execution_layer::Error),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
