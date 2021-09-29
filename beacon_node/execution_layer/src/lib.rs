@@ -443,7 +443,7 @@ mod test {
                 vec![url],
                 DEFAULT_TERMINAL_DIFFICULTY.into(),
                 Hash256::zero(),
-                None,
+                Some(Address::repeat_byte(42)),
                 executor,
                 log,
             )
@@ -455,6 +455,42 @@ mod test {
                 runtime: Some(runtime),
                 _runtime_shutdown: runtime_shutdown,
             }
+        }
+
+        pub async fn produce_valid_execution_payload_on_head(self) -> Self {
+            let latest_execution_block = {
+                let block_gen = self.server.execution_block_generator().await;
+                block_gen.latest_block().unwrap()
+            };
+
+            let parent_hash = latest_execution_block.block_hash();
+            let block_number = latest_execution_block.block_number() + 1;
+            let timestamp = block_number;
+            let random = Hash256::from_low_u64_be(block_number);
+
+            let _payload_id = self
+                .el
+                .prepare_payload(parent_hash, timestamp, random)
+                .await
+                .unwrap();
+
+            let payload = self
+                .el
+                .get_payload::<MainnetEthSpec>(parent_hash, timestamp, random)
+                .await
+                .unwrap();
+            let block_hash = payload.block_hash;
+            assert_eq!(payload.parent_hash, parent_hash);
+            assert_eq!(payload.block_number, block_number);
+            assert_eq!(payload.timestamp, timestamp);
+            assert_eq!(payload.random, random);
+
+            self.el
+                .consensus_validated(block_hash, ConsensusStatus::Valid)
+                .await
+                .unwrap();
+
+            self
         }
 
         pub async fn move_to_block_prior_to_terminal_block(self) -> Self {
@@ -517,6 +553,15 @@ mod test {
         fn drop(&mut self) {
             self.shutdown()
         }
+    }
+
+    #[tokio::test]
+    async fn produces_simple_chain() {
+        SingleEngineTester::new()
+            .move_to_terminal_block()
+            .await
+            .produce_valid_execution_payload_on_head()
+            .await;
     }
 
     #[tokio::test]

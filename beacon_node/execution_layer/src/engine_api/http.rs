@@ -178,8 +178,11 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadId { payload_id }]);
 
-        self.rpc_request(ENGINE_GET_PAYLOAD, params, ENGINE_GET_PAYLOAD_TIMEOUT)
-            .await
+        let response: JsonExecutionPayload<T> = self
+            .rpc_request(ENGINE_GET_PAYLOAD, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await?;
+
+        Ok(ExecutionPayload::from(response))
     }
 
     async fn consensus_validated(
@@ -272,10 +275,10 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     // FIXME(paul): check serialization
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
-    pub base_fee_per_gas: Hash256,
+    pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
     // FIXME(paul): add transaction parsing.
-    #[serde(default)]
+    #[serde(default, skip_deserializing)]
     pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
 }
 
@@ -521,7 +524,7 @@ mod test {
                             gas_used: 2,
                             timestamp: 42,
                             extra_data: vec![].into(),
-                            base_fee_per_gas: Hash256::repeat_byte(0),
+                            base_fee_per_gas: Uint256::from(1),
                             block_hash: Hash256::repeat_byte(1),
                             transactions: vec![].into(),
                         })
@@ -543,7 +546,7 @@ mod test {
                         "gasUsed": "0x2",
                         "timestamp": "0x2a",
                         "extraData": "0x",
-                        "baseFeePerGas": HASH_00,
+                        "baseFeePerGas": "0x1",
                         "blockHash": HASH_01,
                         "transactions": [],
                     }]
