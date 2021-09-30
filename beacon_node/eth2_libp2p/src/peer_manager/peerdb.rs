@@ -1329,9 +1329,8 @@ mod tests {
         assert_eq!(pdb.banned_peers_count.banned_peers(), 0);
 
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
-            pdb.disconnect_and_ban(&p);
+            pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager);
             pdb.inject_disconnect(&p);
-            pdb.disconnect_and_ban(&p);
         }
 
         assert_eq!(pdb.banned_peers_count.banned_peers(), MAX_BANNED_PEERS);
