@@ -1620,9 +1620,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
-                        let address = if let Some(socket_addr) =
-                            peer_info.seen_addresses().next()
-                        {
+                        let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
                             let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
                             addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
                             addr.to_string()

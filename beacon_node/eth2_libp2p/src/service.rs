@@ -137,15 +137,15 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .with_max_pending_outgoing(Some(16))
                 .with_max_established_incoming(Some(
                     (config.target_peers as f32
-                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR)).ceil()
-                        as u32,
+                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
+                        .ceil() as u32,
                 ))
                 .with_max_established_outgoing(Some(
                     (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
                 ))
                 .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
-                        as u32,
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
+                        .ceil() as u32,
                 ))
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
@@ -283,7 +283,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.swarm
             .behaviour_mut()
             .peer_manager_mut()
-            .report_peer(peer_id, action, source);
+            .report_peer(peer_id, action, source, None);
     }
 
     /// Disconnect and ban a peer, providing a reason.

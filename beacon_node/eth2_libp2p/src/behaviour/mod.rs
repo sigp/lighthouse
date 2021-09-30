@@ -832,12 +832,18 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self.network_globals.peers.write().add_subscription(&peer_id, subnet_id);
+                    self.network_globals
+                        .peers
+                        .write()
+                        .add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self.network_globals.peers.write().remove_subscription(&peer_id, &subnet_id);
+                    self.network_globals
+                        .peers
+                        .write()
+                        .remove_subscription(&peer_id, &subnet_id);
                 }
             }
         }

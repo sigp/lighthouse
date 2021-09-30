@@ -170,7 +170,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// Returns the state of the peer based on the score.
-    pub fn score_state(&self) -> ScoreState {
+    pub(crate) fn score_state(&self) -> ScoreState {
         self.score.state()
     }
 
@@ -258,6 +258,11 @@ impl<T: EthSpec> PeerInfo<T> {
         self.meta_data = Some(meta_data)
     }
 
+    /// Sets the connection status of the peer.
+    pub(super) fn set_connection_status(&mut self, connection_status: PeerConnectionStatus) {
+        self.connection_status = connection_status
+    }
+
     /// Sets the ENR of the peer if one is known.
     pub(super) fn set_enr(&mut self, enr: Enr) {
         self.enr = Some(enr)
@@ -290,11 +295,6 @@ impl<T: EthSpec> PeerInfo<T> {
         }
     }
 
-    /// Returns a mutable reference to the underlying subnets hashset.
-    pub(super) fn subnets_mut(&mut self) -> &mut HashSet<Subnet> {
-        &mut self.subnets
-    }
-
     /// Apply peer action to a non-trusted peer's score.
     // VISIBILITY: The peer manager is able to modify the score of a peer.
     pub(in crate::peer_manager) fn apply_peer_action_to_score(&mut self, peer_action: PeerAction) {
@@ -312,12 +312,6 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Resets the peers score.
     pub fn reset_score(&mut self) {
         self.score.test_reset();
-    }
-
-    /// Notify the we are currently disconnecting this peer. Optionally ban the peer after the
-    /// disconnect.
-    pub(super) fn disconnecting(&mut self, to_ban: bool) {
-        self.connection_status = Disconnecting { to_ban }
     }
 
     /// Modifies the status to Dialing
