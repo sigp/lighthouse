@@ -839,14 +839,12 @@ fn verify_block_for_gossip_slashing_detection() {
         .unwrap(),
     );
 
-    let harness = BeaconChainHarness::ephemeral_with_mutator(
-        MainnetEthSpec,
-        None,
-        KEYPAIRS.to_vec(),
-        StoreConfig::default(),
-        ChainConfig::default(),
-        |builder| builder.slasher(slasher.clone()),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .initial_mutator(Box::new(|builder| builder.slasher(slasher.clone())))
+        .build();
     harness.advance_slot();
 
     let state = harness.get_current_state();
