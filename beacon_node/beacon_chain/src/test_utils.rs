@@ -176,6 +176,11 @@ pub struct Builder<T: BeaconChainTypes> {
 impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
     pub fn fresh_ephemeral_store(mut self) -> Self {
         let spec = self.spec.as_ref().expect("cannot build without spec");
+        let validator_keypairs = self
+            .validator_keypairs
+            .clone()
+            .expect("cannot build without validator keypairs");
+
         let store = Arc::new(
             HotColdDB::open_ephemeral(
                 self.store_config.clone().unwrap_or_default(),
@@ -184,8 +189,19 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             )
             .unwrap(),
         );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            let genesis_state = interop_genesis_state::<E>(
+                &validator_keypairs,
+                HARNESS_GENESIS_TIME,
+                builder.get_spec(),
+            )
+            .expect("should generate interop state");
+            builder
+                .genesis_state(genesis_state)
+                .expect("should build state using recent genesis")
+        };
         self.store = Some(store);
-        self
+        self.mutator(Box::new(mutator))
     }
 }
 
