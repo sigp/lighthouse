@@ -267,7 +267,7 @@ pub struct JsonPayloadId {
     pub payload_id: u64,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,
@@ -285,13 +285,11 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub gas_used: u64,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
-    // FIXME(paul): check serialization
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    // FIXME(paul): add transaction parsing.
-    #[serde(default, skip_deserializing)]
+    #[serde(with = "serde_transactions")]
     pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
 }
 
@@ -357,7 +355,7 @@ pub struct JsonForkChoiceUpdatedRequest {
     pub finalized_block_hash: Hash256,
 }
 
-// Serializes the `logs_bloom` field.
+/// Serializes the `logs_bloom` field of an `ExecutionPayload`.
 pub mod serde_logs_bloom {
     use super::*;
     use eth2_serde_utils::hex::PrefixedHexVisitor;
@@ -383,6 +381,81 @@ pub mod serde_logs_bloom {
 
         FixedVector::new(vec)
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
+    }
+}
+
+/// Serializes the `transactions` field of an `ExecutionPayload`.
+pub mod serde_transactions {
+    use super::*;
+    use eth2_serde_utils::hex;
+    use serde::ser::SerializeSeq;
+    use serde::{de, Deserializer, Serializer};
+    use std::marker::PhantomData;
+
+    type Value<T, N> = VariableList<Transaction<T>, N>;
+
+    #[derive(Default)]
+    pub struct ListOfBytesListVisitor<T, N> {
+        _phantom_t: PhantomData<T>,
+        _phantom_n: PhantomData<N>,
+    }
+
+    impl<'a, T: EthSpec, N: Unsigned> serde::de::Visitor<'a> for ListOfBytesListVisitor<T, N> {
+        type Value = Value<T, N>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(formatter, "a list of 0x-prefixed byte lists")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'a>,
+        {
+            let mut outer = VariableList::default();
+
+            while let Some(val) = seq.next_element::<String>()? {
+                let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
+                let opaque_transaction = VariableList::new(inner_vec).map_err(|e| {
+                    serde::de::Error::custom(format!("transaction too large: {:?}", e))
+                })?;
+                let transaction = Transaction::OpaqueTransaction(opaque_transaction);
+                outer.push(transaction).map_err(|e| {
+                    serde::de::Error::custom(format!("too many transactions: {:?}", e))
+                })?;
+            }
+
+            Ok(outer)
+        }
+    }
+
+    pub fn serialize<S, T: EthSpec, N: Unsigned>(
+        value: &Value<T, N>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(value.len()))?;
+        for transaction in value {
+            // It's important to match on the inner values of the transaction. Serializing the
+            // entire `Transaction` will result in appending the SSZ union prefix byte. The
+            // execution node does not want that.
+            let hex = match transaction {
+                Transaction::OpaqueTransaction(val) => hex::encode(&val[..]),
+            };
+            seq.serialize_element(&hex)?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D, T: EthSpec, N: Unsigned>(
+        deserializer: D,
+    ) -> Result<Value<T, N>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let visitor: ListOfBytesListVisitor<T, N> = <_>::default();
+        deserializer.deserialize_any(visitor)
     }
 }
 
@@ -442,6 +515,142 @@ mod test {
     const ADDRESS_01: &str = "0x0101010101010101010101010101010101010101";
 
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
+
+    fn encode_transactions<E: EthSpec>(
+        transactions: VariableList<Transaction<E>, E::MaxTransactionsPerPayload>,
+    ) -> Result<serde_json::Value, serde_json::Error> {
+        let ep: JsonExecutionPayload<E> = JsonExecutionPayload {
+            transactions,
+            ..<_>::default()
+        };
+        let json = serde_json::to_value(&ep)?;
+        Ok(json.get("transactions").unwrap().clone())
+    }
+
+    fn decode_transactions<E: EthSpec>(
+        transactions: serde_json::Value,
+    ) -> Result<VariableList<Transaction<E>, E::MaxTransactionsPerPayload>, serde_json::Error> {
+        let json = json!({
+            "parentHash": HASH_00,
+            "coinbase": ADDRESS_01,
+            "stateRoot": HASH_01,
+            "receiptRoot": HASH_00,
+            "logsBloom": LOGS_BLOOM_01,
+            "random": HASH_01,
+            "blockNumber": "0x0",
+            "gasLimit": "0x1",
+            "gasUsed": "0x2",
+            "timestamp": "0x2a",
+            "extraData": "0x",
+            "baseFeePerGas": "0x1",
+            "blockHash": HASH_01,
+            "transactions": transactions,
+        });
+        let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
+        Ok(ep.transactions)
+    }
+
+    fn assert_transactions_serde<E: EthSpec>(
+        name: &str,
+        as_obj: VariableList<Transaction<E>, E::MaxTransactionsPerPayload>,
+        as_json: serde_json::Value,
+    ) {
+        assert_eq!(
+            encode_transactions(as_obj.clone()).unwrap(),
+            as_json,
+            "encoding for {}",
+            name
+        );
+        assert_eq!(
+            decode_transactions(as_json).unwrap(),
+            as_obj,
+            "decoding for {}",
+            name
+        );
+    }
+
+    /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
+    fn generate_opaque_transactions<E: EthSpec>(
+        spec: &[usize],
+    ) -> VariableList<Transaction<E>, E::MaxTransactionsPerPayload> {
+        let mut txs = VariableList::default();
+
+        for &num_bytes in spec {
+            let mut tx = VariableList::default();
+            for _ in 0..num_bytes {
+                tx.push(0).unwrap();
+            }
+            txs.push(Transaction::OpaqueTransaction(tx)).unwrap();
+        }
+
+        txs
+    }
+
+    #[test]
+    fn transaction_serde() {
+        assert_transactions_serde::<MainnetEthSpec>(
+            "empty",
+            generate_opaque_transactions(&[]),
+            json!([]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "one empty tx",
+            generate_opaque_transactions(&[0]),
+            json!(["0x"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "two empty txs",
+            generate_opaque_transactions(&[0, 0]),
+            json!(["0x", "0x"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "one one-byte tx",
+            generate_opaque_transactions(&[1]),
+            json!(["0x00"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "two one-byte txs",
+            generate_opaque_transactions(&[1, 1]),
+            json!(["0x00", "0x00"]),
+        );
+        assert_transactions_serde::<MainnetEthSpec>(
+            "mixed bag",
+            generate_opaque_transactions(&[0, 1, 3, 0]),
+            json!(["0x", "0x00", "0x000000", "0x"]),
+        );
+
+        /*
+         * Check for too many transactions
+         */
+
+        let num_max_txs = <MainnetEthSpec as EthSpec>::MaxTransactionsPerPayload::to_usize();
+        let max_txs = (0..num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
+        let too_many_txs = (0..=num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
+
+        decode_transactions::<MainnetEthSpec>(serde_json::to_value(max_txs).unwrap()).unwrap();
+        assert!(
+            decode_transactions::<MainnetEthSpec>(serde_json::to_value(too_many_txs).unwrap())
+                .is_err()
+        );
+
+        /*
+         * Check for transaction too large
+         */
+
+        use eth2_serde_utils::hex;
+
+        let num_max_bytes = <MainnetEthSpec as EthSpec>::MaxBytesPerOpaqueTransaction::to_usize();
+        let max_bytes = (0..num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
+        let too_many_bytes = (0..=num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
+        decode_transactions::<MainnetEthSpec>(
+            serde_json::to_value(&[hex::encode(&max_bytes)]).unwrap(),
+        )
+        .unwrap();
+        assert!(decode_transactions::<MainnetEthSpec>(
+            serde_json::to_value(&[hex::encode(&too_many_bytes)]).unwrap()
+        )
+        .is_err());
+    }
 
     #[tokio::test]
     async fn get_block_by_number_request() {
