@@ -9,10 +9,8 @@ beacon_node = { path = "../beacon_node" }
 clap = "2.33.3"
 eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
 types = { path = "../consensus/types" }
-eth2_network_config = { path = "../common/eth2_network_config" }
 eth2_ssz = "0.4.0"
 slog = "2.5.2"
-sloggers = "2.0.2"
 tokio = "1.10.0"
 log = "0.4.11"
 slog-term = "2.6.0"
@@ -20,5 +18,4 @@ logging = { path = "../common/logging" }
 slog-async = "2.5.0"
 slog-scope = "4.3.0"
 slog-stdlog = "4.0.0"
-futures = "0.3.7"
 hex = "0.4.2"

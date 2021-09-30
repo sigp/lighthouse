@@ -5,7 +5,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "2.0.2"
 toml = "0.5.6"
 
 [dependencies]
@@ -15,29 +14,21 @@ network = { path = "../network" }
 timer = { path = "../timer" }
 eth2_libp2p = { path = "../eth2_libp2p" }
 parking_lot = "0.11.0"
-prometheus = "0.11.0"
 types = { path = "../../consensus/types" }
-tree_hash = "0.4.0"
 eth2_config = { path = "../../common/eth2_config" }
 slot_clock = { path = "../../common/slot_clock" }
 serde = "1.0.116"
 serde_derive = "1.0.116"
 error-chain = "0.12.4"
-serde_yaml = "0.8.13"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-slog-async = "2.5.0"
 tokio = "1.10.0"
 dirs = "3.0.1"
-futures = "0.3.7"
-reqwest = { version = "0.11.0", features = ["native-tls-vendored"] }
-url = "2.1.1"
 eth1 = { path = "../eth1" }
 eth2 = { path = "../../common/eth2" }
 sensitive_url = { path = "../../common/sensitive_url" }
 genesis = { path = "../genesis" }
 task_executor = { path = "../../common/task_executor" }
 environment = { path = "../../lighthouse/environment" }
-eth2_ssz = "0.4.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 time = "0.2.22"

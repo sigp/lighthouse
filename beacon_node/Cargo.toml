@@ -21,14 +21,8 @@ types = { path = "../consensus/types" }
 store = { path = "./store" }
 client = { path = "client" }
 clap = "2.33.3"
-rand = "0.7.3"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
-slog-term = "2.6.0"
-slog-async = "2.5.0"
-tokio = { version = "1.10.0", features = ["time"] }
-exit-future = "0.2.0"
 dirs = "3.0.1"
-logging = { path = "../common/logging" }
 directory = {path = "../common/directory"}
 futures = "0.3.7"
 environment = { path = "../lighthouse/environment" }
@@ -36,7 +30,6 @@ task_executor = { path = "../common/task_executor" }
 genesis = { path = "genesis" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 eth2_libp2p = { path = "./eth2_libp2p" }
-eth2_ssz = "0.4.0"
 serde = "1.0.116"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.14.4"

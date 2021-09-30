@@ -19,7 +19,6 @@ spec-minimal = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
-tokio = "1.10.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = "2.0.2"
 types = { "path" = "../consensus/types" }
@@ -27,9 +26,6 @@ bls = { path = "../crypto/bls" }
 eth2_hashing = "0.2.0"
 clap = "2.33.3"
 env_logger = "0.9.0"
-logging = { path = "../common/logging" }
-slog-term = "2.6.0"
-slog-async = "2.5.0"
 environment = { path = "./environment" }
 boot_node = { path = "../boot_node" }
 futures = "0.3.7"
@@ -37,7 +33,6 @@ validator_client = { "path" = "../validator_client" }
 account_manager = { "path" = "../account_manager" }
 clap_utils = { path = "../common/clap_utils" }
 eth2_network_config = { path = "../common/eth2_network_config" }
-directory = { path = "../common/directory" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
@@ -45,7 +40,6 @@ lazy_static = "1.4.0"
 serde_json = "1.0.59"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
-target_check = { path = "../common/target_check" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
