@@ -15,9 +15,7 @@ mod tests {
 
     #[test]
     fn test_fn_with_logging() {
-        let config = Config {
-            log: test_logger(),
-        };
+        let config = Config { log: test_logger() };
 
         fn_with_logging(&config);
     }

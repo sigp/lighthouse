@@ -6096,6 +6096,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-test_logger"
+version = "0.1.0"
+dependencies = [
+ "logging",
+ "slog",
+]
+
+[[package]]
 name = "test_random_derive"
 version = "0.2.0"
 dependencies = [

@@ -19,7 +19,7 @@ The additional requirements for developers are:
 
 
 ## Using `make`
-We also wrap some of these commands and expose them via the `Makefile` in the
+Commands to run the test suite are avaiable via the `Makefile` in the
 project root for the benefit of CI/CD. We list some of these commands below so
 you can run them locally and avoid CI failures:
 
@@ -76,7 +76,7 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 ```
 
 Alternatively, since `lighthouse` is a cargo workspace you can use `-p eth2_ssz` where
-`eth2_ssz` is the package name as defined  `<rr>/consensus/ssz/Cargo.toml`
+`eth2_ssz` is the package name as defined  `/consensus/ssz/Cargo.toml`
 ```bash
 $ head -2 consensus/ssz/Cargo.toml
 [package]
@@ -122,8 +122,8 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 _I suspect this is not the right place for this documtation, but I think it
 would be good if it was discoverable and "all" developers will see it here_
 
-The test_logger, located in <rr>/common/logging/ can be used to create a `Logger` that by
-default returns a NullLogger. But if `--features 'logging/test_logger' is passed while
+The test_logger, located in `/common/logging/` can be used to create a `Logger` that by
+default returns a NullLogger. But if `--features 'logging/test_logger'` is passed while
 testing the logs are displayed. This can be very helpful while debugging tests.
 
 Example:
