@@ -15,38 +15,19 @@ use std::time::Duration;
 
 type BlockRoot = Hash256;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Timestamps {
     pub observed: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
 }
 
-impl Default for Timestamps {
-    fn default() -> Self {
-        Timestamps {
-            observed: None,
-            imported: None,
-            set_as_head: None,
-        }
-    }
-}
-
 // Helps arrange delay data so it is more relevant to metrics.
+#[derive(Default)]
 pub struct BlockDelays {
     pub observed: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
-}
-
-impl Default for BlockDelays {
-    fn default() -> Self {
-        BlockDelays {
-            observed: None,
-            imported: None,
-            set_as_head: None,
-        }
-    }
 }
 
 impl BlockDelays {
@@ -68,10 +49,18 @@ impl BlockDelays {
     }
 }
 
+// If the block was received via gossip, we can record the client type of the peer which sent us
+// the block.
+#[derive(Clone, Default)]
+pub struct BlockPeerInfo {
+    pub id: Option<String>,
+    pub client: Option<String>,
+}
+
 pub struct BlockTimesCacheValue {
     pub slot: Slot,
     pub timestamps: Timestamps,
-    pub peer_id: Option<String>,
+    pub peer_info: BlockPeerInfo,
 }
 
 #[derive(Default)]
@@ -87,21 +76,29 @@ impl BlockTimesCache {
         slot: Slot,
         timestamp: Duration,
         peer_id: Option<String>,
+        peer_client: Option<String>,
     ) {
         if let Some(mut block_times) = self.cache.get_mut(&block_root) {
             block_times.timestamps.observed = Some(timestamp);
-            block_times.peer_id = peer_id;
+            block_times.peer_info = BlockPeerInfo {
+                id: peer_id,
+                client: peer_client,
+            };
         } else {
             let timestamps = Timestamps {
                 observed: Some(timestamp),
                 ..Default::default()
+            };
+            let peer_info = BlockPeerInfo {
+                id: peer_id,
+                client: peer_client,
             };
             self.cache.insert(
                 block_root,
                 BlockTimesCacheValue {
                     slot,
                     timestamps,
-                    peer_id,
+                    peer_info,
                 },
             );
         }
@@ -120,7 +117,7 @@ impl BlockTimesCache {
                 BlockTimesCacheValue {
                     slot,
                     timestamps,
-                    peer_id: None,
+                    peer_info: BlockPeerInfo::default(),
                 },
             );
         }
@@ -139,7 +136,7 @@ impl BlockTimesCache {
                 BlockTimesCacheValue {
                     slot,
                     timestamps,
-                    peer_id: None,
+                    peer_info: BlockPeerInfo::default(),
                 },
             );
         }
@@ -154,6 +151,14 @@ impl BlockTimesCache {
             BlockDelays::new(block_times.timestamps.clone(), slot_start_time)
         } else {
             BlockDelays::default()
+        }
+    }
+
+    pub fn get_peer_info(&self, block_root: BlockRoot) -> BlockPeerInfo {
+        if let Some(block_info) = self.cache.get(&block_root) {
+            block_info.peer_info.clone()
+        } else {
+            BlockPeerInfo::default()
         }
     }
 

@@ -477,6 +477,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block.slot(),
                     seen_timestamp,
                     None,
+                    None,
                 );
                 info!(self.log, "Processed block"; "block" => %block_root);
 
