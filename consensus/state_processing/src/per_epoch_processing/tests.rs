@@ -1,6 +1,5 @@
 #![cfg(test)]
 use crate::per_epoch_processing::process_epoch;
-use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
 use bls::Hash256;
@@ -11,12 +10,11 @@ use types::Slot;
 fn runs_without_error() {
     Builder::from_env(Env::default().default_filter_or("error")).init();
 
-    let harness = BeaconChainHarness::new_with_store_config(
-        MinimalEthSpec,
-        None,
-        types::test_utils::generate_deterministic_keypairs(8),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .deterministic_keypairs(8)
+        .fresh_ephemeral_store()
+        .build();
     harness.advance_slot();
 
     let spec = MinimalEthSpec::default_spec();
@@ -55,11 +53,11 @@ mod release_tests {
         spec.altair_fork_epoch = Some(Epoch::new(1));
 
         let altair_state = {
-            let harness = BeaconChainHarness::new(
-                MainnetEthSpec,
-                Some(spec.clone()),
-                types::test_utils::generate_deterministic_keypairs(8),
-            );
+            let harness = BeaconChainHarness::builder(MainnetEthSpec)
+                .spec(spec.clone())
+                .deterministic_keypairs(8)
+                .fresh_ephemeral_store()
+                .build();
 
             harness.advance_slot();
 
@@ -113,11 +111,11 @@ mod release_tests {
         spec.altair_fork_epoch = None;
 
         let base_state = {
-            let harness = BeaconChainHarness::new(
-                MainnetEthSpec,
-                Some(spec.clone()),
-                types::test_utils::generate_deterministic_keypairs(8),
-            );
+            let harness = BeaconChainHarness::builder(MainnetEthSpec)
+                .spec(spec.clone())
+                .deterministic_keypairs(8)
+                .fresh_ephemeral_store()
+                .build();
 
             harness.advance_slot();
 

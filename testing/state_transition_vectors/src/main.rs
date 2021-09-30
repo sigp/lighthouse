@@ -56,12 +56,11 @@ fn get_harness<E: EthSpec>(
     slot: Slot,
     validator_count: usize,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::new_with_store_config(
-        E::default(),
-        None,
-        KEYPAIRS[0..validator_count].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
     let skip_to_slot = slot - SLOT_OFFSET;
     if skip_to_slot > Slot::new(0) {
         let state = harness.get_current_state();
