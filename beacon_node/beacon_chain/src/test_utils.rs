@@ -338,35 +338,10 @@ where
         self
     }
 
-    /*
-    pub fn mutator_which_inititalizes_genesis_state(
-        mut self,
-        mutator: Box<
-            dyn FnOnce(
-                BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-            ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-        >,
-    ) -> Self {
-        let validator_keypairs = self
-            .validator_keypairs
-            .clone()
-            .expect("cannot build without validator keypairs");
-
-        let wrapped_mutator = move |mut builder| {
-            builder = mutator(builder);
-            let genesis_state = interop_genesis_state::<E>(
-                &validator_keypairs,
-                HARNESS_GENESIS_TIME,
-                builder.get_spec(),
-            )
-            .expect("should generate interop state");
-            builder
-                .genesis_state(genesis_state)
-                .expect("should build state using recent genesis")
-        };
-        self.mutator = Some(Box::new(wrapped_mutator));
+    pub fn chain_config(mut self, chain_config: ChainConfig) -> Self {
+        self.chain_config = Some(chain_config);
+        self
     }
-    */
 
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
