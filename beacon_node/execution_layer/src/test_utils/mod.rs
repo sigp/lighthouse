@@ -16,11 +16,14 @@ use tokio::sync::{oneshot, Mutex, RwLock, RwLockWriteGuard};
 use types::EthSpec;
 use warp::Filter;
 
+pub use mock_execution_layer::MockExecutionLayer;
+
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 
 mod execution_block_generator;
 mod handle_rpc;
+mod mock_execution_layer;
 
 pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
@@ -31,10 +34,14 @@ pub struct MockServer<T: EthSpec> {
 
 impl<T: EthSpec> MockServer<T> {
     pub fn unit_testing() -> Self {
+        Self::new(DEFAULT_TERMINAL_DIFFICULTY, DEFAULT_TERMINAL_BLOCK)
+    }
+
+    pub fn new(terminal_difficulty: u64, terminal_block: u64) -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator =
-            ExecutionBlockGenerator::new(DEFAULT_TERMINAL_DIFFICULTY, DEFAULT_TERMINAL_BLOCK);
+            ExecutionBlockGenerator::new(terminal_difficulty, terminal_block);
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
             config: <_>::default(),
