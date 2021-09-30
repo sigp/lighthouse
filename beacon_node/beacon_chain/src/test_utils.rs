@@ -269,6 +269,12 @@ where
         }
     }
 
+    pub fn deterministic_keypairs(self, num_keypairs: usize) -> Self {
+        self.keypairs(types::test_utils::generate_deterministic_keypairs(
+            num_keypairs,
+        ))
+    }
+
     pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
         self.validator_keypairs = Some(validator_keypairs);
         self
