@@ -52,12 +52,11 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::new_with_store_config(
-        MainnetEthSpec,
-        None,
-        KEYPAIRS[0..validator_count].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     harness.advance_slot();
 
@@ -922,13 +921,11 @@ fn add_base_block_to_altair_chain() {
     // The Altair fork happens at epoch 1.
     spec.altair_fork_epoch = Some(Epoch::new(1));
 
-    let harness = BeaconChainHarness::new_with_chain_config(
-        MainnetEthSpec,
-        Some(spec),
-        KEYPAIRS[..].to_vec(),
-        StoreConfig::default(),
-        ChainConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     // Move out of the genesis slot.
     harness.advance_slot();
@@ -1041,13 +1038,11 @@ fn add_altair_block_to_base_chain() {
     // Altair never happens.
     spec.altair_fork_epoch = None;
 
-    let harness = BeaconChainHarness::new_with_chain_config(
-        MainnetEthSpec,
-        Some(spec),
-        KEYPAIRS[..].to_vec(),
-        StoreConfig::default(),
-        ChainConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     // Move out of the genesis slot.
     harness.advance_slot();
