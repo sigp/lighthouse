@@ -190,7 +190,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
 
 impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, start from genesis.
-    pub fn new_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+    pub fn fresh_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
         let validator_keypairs = self
             .validator_keypairs
             .clone()
@@ -207,9 +207,8 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
         };
-        self.mutator = Some(Box::new(mutator));
         self.store = Some(store);
-        self
+        self.mutator(Box::new(mutator))
     }
 
     /// Disk store, resume.
@@ -219,9 +218,8 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
                 .resume_from_db()
                 .expect("should resume from database")
         };
-        self.mutator = Some(Box::new(mutator));
         self.store = Some(store);
-        self
+        self.mutator(Box::new(mutator))
     }
 }
 
@@ -272,10 +270,12 @@ where
             ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
         >,
     ) -> Self {
+        assert!(self.mutator.is_none(), "mutator already set");
         self.mutator = Some(mutator);
         self
     }
 
+    /*
     pub fn mutator_which_inititalizes_genesis_state(
         mut self,
         mutator: Box<
@@ -302,8 +302,8 @@ where
                 .expect("should build state using recent genesis")
         };
         self.mutator = Some(Box::new(wrapped_mutator));
-        self
     }
+    */
 
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
