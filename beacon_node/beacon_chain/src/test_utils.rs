@@ -159,6 +159,7 @@ pub struct Builder<T: BeaconChainTypes> {
     spec: Option<ChainSpec>,
     validator_keypairs: Option<Vec<Keypair>>,
     chain_config: Option<ChainConfig>,
+    store_config: Option<StoreConfig>,
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     mutator: Option<
         Box<
@@ -173,11 +174,11 @@ pub struct Builder<T: BeaconChainTypes> {
 }
 
 impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
-    pub fn ephemeral_store(mut self, store_config: Option<StoreConfig>) -> Self {
+    pub fn fresh_ephemeral_store(mut self) -> Self {
         let spec = self.spec.as_ref().expect("cannot build without spec");
         let store = Arc::new(
             HotColdDB::open_ephemeral(
-                store_config.unwrap_or_default(),
+                self.store_config.clone().unwrap_or_default(),
                 spec.clone(),
                 self.log.clone(),
             )
@@ -235,6 +236,7 @@ where
             spec: None,
             validator_keypairs: None,
             chain_config: None,
+            store_config: None,
             store: None,
             mutator: None,
             log: test_logger(),

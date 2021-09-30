@@ -363,12 +363,11 @@ fn delete_blocks_and_states() {
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        None,
-        store.clone(),
-        validators_keypairs,
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store.clone())
+        .build();
 
     let unforked_blocks: u64 = 4 * E::slots_per_epoch();
 
@@ -490,8 +489,11 @@ fn multi_epoch_fork_valid_blocks_test(
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness =
-        BeaconChainHarness::new_with_disk_store(MinimalEthSpec, None, store, validators_keypairs);
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .build();
 
     let num_fork1_blocks: u64 = num_fork1_blocks_.try_into().unwrap();
     let num_fork2_blocks: u64 = num_fork2_blocks_.try_into().unwrap();
@@ -781,7 +783,11 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
 
