@@ -13,7 +13,7 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::ConnectedPoint;
 use libp2p::identify::IdentifyInfo;
-use slog::{crit, debug, error, warn};
+use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     pin::Pin,
@@ -529,7 +529,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 };
             }
         } else {
-            crit!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
+            error!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
         }
     }
 
@@ -672,7 +672,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {
-            crit!(self.log, "Received a PING from an unknown peer";
+            error!(self.log, "Received a PING from an unknown peer";
                 "peer_id" => %peer_id);
         }
     }
@@ -696,7 +696,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {
-            crit!(self.log, "Received a PONG from an unknown peer"; "peer_id" => %peer_id);
+            error!(self.log, "Received a PONG from an unknown peer"; "peer_id" => %peer_id);
         }
     }
 
@@ -720,7 +720,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
             peer_info.meta_data = Some(meta_data);
         } else {
-            crit!(self.log, "Received METADATA from an unknown peer";
+            error!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
         }
     }
@@ -842,7 +842,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut peerdb = self.network_globals.peers.write();
             if !matches!(peerdb.ban_status(peer_id), BanResult::NotBanned) {
                 // don't connect if the peer is banned
-                slog::crit!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
+                error!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
             }
 
             match connection {
