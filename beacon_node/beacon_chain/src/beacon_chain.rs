@@ -46,7 +46,9 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SyncDuty};
+use eth2::types::{
+    EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
+};
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -3065,6 +3067,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        // Determine whether the block has been set as head too late for proper attestation
+        // production.
+        let late_head = block_delay_total >= self.slot_clock.unagg_attestation_production_delay();
+
         // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
         // sync.
         if block_delay_total < self.slot_clock.slot_duration() * 4 {
@@ -3098,10 +3104,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
 
-            // If the block was enshrined as head too late for attestations to be created for it, log a
-            // Observe the delay between the start of the slot and when we set the block as head.
-            // debug warning and increment a metric.
-            if block_delay_total >= self.slot_clock.unagg_attestation_production_delay() {
+            // If the block was enshrined as head too late for attestations to be created for it,
+            // log a debug warning and increment a metric.
+            if late_head {
                 metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
                 debug!(
                     self.log,
@@ -3212,6 +3217,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: beacon_block_root,
                     new_head_state: state_root,
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                }));
+            }
+
+            if late_head && event_handler.has_late_head_subscribers() {
+                let block_delays = self.block_times_cache.read().get_block_delays(
+                    beacon_block_root,
+                    self.slot_clock
+                        .start_of(head_slot)
+                        .unwrap_or_else(|| Duration::from_secs(0)),
+                );
+                event_handler.register(EventKind::LateHead(SseLateHead {
+                    slot: head_slot,
+                    block: beacon_block_root,
+                    proposer_index: head_proposer_index,
+                    block_delay: block_delay_total,
+                    observed_delay: block_delays.observed,
+                    imported_delay: block_delays.imported,
+                    set_as_head_delay: block_delays.set_as_head,
                 }));
             }
         }
