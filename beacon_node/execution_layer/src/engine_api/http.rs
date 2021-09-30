@@ -464,6 +464,7 @@ mod test {
     use super::*;
     use crate::test_utils::MockServer;
     use std::future::Future;
+    use std::str::FromStr;
     use std::sync::Arc;
     use types::MainnetEthSpec;
 
@@ -840,6 +841,89 @@ mod test {
                         "finalizedBlockHash": HASH_01,
                     }]
                 }),
+            )
+            .await;
+    }
+
+    /// Test vectors provided by Geth:
+    ///
+    /// https://notes.ethereum.org/@9AeMAlpyQYaAAyuj47BzRw/rkwW3ceVY
+    ///
+    /// The `id` field has been modified on these vectors to match the one we use.
+    #[tokio::test]
+    async fn geth_test_vectors() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .prepare_payload(
+                            Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            5,
+                            Hash256::zero(),
+                            Address::zero(),
+                        )
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_preparePayload","params":[{"parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131", "timestamp":"0x5", "random":"0x0000000000000000000000000000000000000000000000000000000000000000", "feeRecipient":"0x0000000000000000000000000000000000000000"}],"id": 1}"#).unwrap()
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .get_payload::<MainnetEthSpec>(0)
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_getPayload","params":["0x0"],"id":1}"#).unwrap()
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .execute_payload::<MainnetEthSpec>(ExecutionPayload {
+                            parent_hash: Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
+                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            logs_bloom: vec![0; 256].into(),
+                            random: Hash256::zero(),
+                            block_number: 1,
+                            gas_limit: 10000000,
+                            gas_used: 0,
+                            timestamp: 5,
+                            extra_data: vec![].into(),
+                            base_fee_per_gas: uint256_to_hash256(Uint256::from(0)),
+                            block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            transactions: vec![].into(),
+                        })
+                        .await;
+                },
+                // Note: I have renamed the `recieptsRoot` field to `recieptRoot` and `number` to `blockNumber` since I think
+                // Geth has an issue: https://discord.com/channels/595666850260713488/892088344438255616/892924267044405259
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_executePayload","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}],"id":1}"#).unwrap()
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .consensus_validated(
+                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            ConsensusStatus::Valid
+                        )
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_consensusValidated","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174", "status":"VALID"}],"id":1}"#).unwrap()
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .forkchoice_updated(
+                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                        )
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_forkChoiceUpdated","params":[{"headBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174", "finalizedBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174"}],"id":1}"#).unwrap()
             )
             .await;
     }
