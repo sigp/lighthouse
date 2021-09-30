@@ -496,7 +496,7 @@ mod test {
         pub fn new() -> Self {
             let server = MockServer::unit_testing();
 
-            let rpc_url = SensitiveUrl::parse(&format!("{}", server.url())).unwrap();
+            let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let rpc_client = Arc::new(HttpJsonRpc::new(rpc_url).unwrap());
 
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
@@ -1020,16 +1020,13 @@ mod test {
             .with_preloaded_responses(
                 vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
                 |client| async move {
-                    let response = client
+                    let _: () = client
                         .consensus_validated(
                             Hash256::zero(),
                             ConsensusStatus::Valid
                         )
                         .await
                         .unwrap();
-
-                    // Not immediately useful, but nice if this starts returning a value.
-                    assert_eq!(response, ());
                 },
             )
             .await
@@ -1052,16 +1049,13 @@ mod test {
             .with_preloaded_responses(
                 vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
                 |client| async move {
-                    let response = client
+                    let _: () = client
                         .forkchoice_updated(
                             Hash256::zero(),
                             Hash256::zero(),
                         )
                         .await
                         .unwrap();
-
-                    // Not immediately useful, but nice if this starts returning a value.
-                    assert_eq!(response, ());
                 },
             )
             .await;
