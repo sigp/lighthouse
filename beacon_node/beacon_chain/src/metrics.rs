@@ -664,8 +664,8 @@ lazy_static! {
         "Number of sync contributions seen",
         &["src", "validator"]
     );
-    pub static ref VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
-        "validator_monitor_sync_contribtions_delay_seconds",
+    pub static ref VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_sync_contributions_delay_seconds",
         "The delay between when the aggregator should send the sync contribution and when it was received.",
         &["src", "validator"]
     );
