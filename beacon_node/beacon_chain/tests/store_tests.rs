@@ -1990,12 +1990,11 @@ fn finalizes_after_resuming_from_db() {
 
     let original_chain = harness.chain;
 
-    let resumed_harness = BeaconChainHarness::resume_from_disk_store(
-        MinimalEthSpec,
-        None,
-        store,
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let resumed_harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .resumed_disk_store(store)
+        .build();
 
     assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);
 

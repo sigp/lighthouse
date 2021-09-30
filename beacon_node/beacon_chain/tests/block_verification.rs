@@ -6,7 +6,7 @@ extern crate lazy_static;
 use beacon_chain::test_utils::{
     test_logger, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
+use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult};
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
@@ -14,7 +14,6 @@ use state_processing::{
     per_slot_processing, BlockProcessingError,
 };
 use std::sync::Arc;
-use store::config::StoreConfig;
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
 
@@ -839,11 +838,12 @@ fn verify_block_for_gossip_slashing_detection() {
         .unwrap(),
     );
 
+    let inner_slasher = slasher.clone();
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
-        .initial_mutator(Box::new(|builder| builder.slasher(slasher.clone())))
+        .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
         .build();
     harness.advance_slot();
 
