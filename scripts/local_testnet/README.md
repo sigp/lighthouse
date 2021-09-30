@@ -21,7 +21,7 @@ Start a local eth1 ganache server plus boot node along with `BN_COUNT`
 number of beacon nodes and `VC_COUNT` validator clients.
 
 The `start_local_testnet.sh` script takes three options `-v VC_COUNT`, `-d DEBUG_LEVEL` and `-h` for help.
-The options maybe in any order or absent in which case they take the default value specified.
+The options may be in any order or absent in which case they take the default value specified.
 - VC_COUNT: the number of validator clients to create, default: `BN_COUNT`
 - DEBUG_LEVEL: one of { error, warn, info, debug, trace }, default: `info`
 
@@ -30,7 +30,7 @@ The options maybe in any order or absent in which case they take the default val
 ./start_local_testnet.sh
 ```
 
-## Stoping the testnet
+## Stopping the testnet
 
 This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_testnet.sh` automatically.
 ```bash
@@ -39,7 +39,7 @@ This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_
 
 ## Manual creation of local testnet
 
-These scripts used by ./start_local_testnet.sh and maybe used to manually
+These scripts are used by ./start_local_testnet.sh and may be used to manually
 
 Start a local eth1 ganache server
 ```bash

@@ -4,8 +4,6 @@
 # Starts a beacon node based upon a genesis state created by `./setup.sh`.
 #
 
-# set -x
-
 source ./vars.env
 
 SUBSCRIBE_ALL_SUBNETS=
