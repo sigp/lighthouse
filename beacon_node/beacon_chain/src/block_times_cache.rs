@@ -105,7 +105,6 @@ impl BlockTimesCache {
             .entry(block_root)
             .or_insert_with(|| BlockTimesCacheValue::new(slot));
         block_times.timestamps.imported = Some(timestamp);
-        block_times.peer_info = BlockPeerInfo::default();
     }
 
     pub fn set_time_set_as_head(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
@@ -114,7 +113,6 @@ impl BlockTimesCache {
             .entry(block_root)
             .or_insert_with(|| BlockTimesCacheValue::new(slot));
         block_times.timestamps.set_as_head = Some(timestamp);
-        block_times.peer_info = BlockPeerInfo::default();
     }
 
     pub fn get_block_delays(
