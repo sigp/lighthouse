@@ -161,7 +161,16 @@ pub struct Builder<T: BeaconChainTypes> {
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
-    mutator: Option<
+    additional_mutator: Option<
+        Box<
+            dyn FnOnce(
+                BeaconChainBuilder<BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>>,
+            ) -> BeaconChainBuilder<
+                BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>,
+            >,
+        >,
+    >,
+    store_mutator: Option<
         Box<
             dyn FnOnce(
                 BeaconChainBuilder<BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>>,
@@ -201,7 +210,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
                 .expect("should build state using recent genesis")
         };
         self.store = Some(store);
-        self.mutator(Box::new(mutator))
+        self.store_mutator(Box::new(mutator))
     }
 }
 
@@ -225,7 +234,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
                 .expect("should build state using recent genesis")
         };
         self.store = Some(store);
-        self.mutator(Box::new(mutator))
+        self.store_mutator(Box::new(mutator))
     }
 
     /// Disk store, resume.
@@ -236,7 +245,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
                 .expect("should resume from database")
         };
         self.store = Some(store);
-        self.mutator(Box::new(mutator))
+        self.store_mutator(Box::new(mutator))
     }
 }
 
@@ -254,7 +263,8 @@ where
             chain_config: None,
             store_config: None,
             store: None,
-            mutator: None,
+            additional_mutator: None,
+            store_mutator: None,
             log: test_logger(),
         }
     }
@@ -273,14 +283,7 @@ where
         self
     }
 
-    /*
-    pub fn store(mut self, store: Arc<HotColdDB<E, Hot, Cold>>) -> Self {
-        self.store = Some(store);
-        self
-    }
-    */
-
-    pub fn mutator(
+    pub fn additional_mutator(
         mut self,
         mutator: Box<
             dyn FnOnce(
@@ -288,8 +291,24 @@ where
             ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
         >,
     ) -> Self {
-        assert!(self.mutator.is_none(), "mutator already set");
-        self.mutator = Some(mutator);
+        assert!(
+            self.additional_mutator.is_none(),
+            "additional mutator already set"
+        );
+        self.additional_mutator = Some(mutator);
+        self
+    }
+
+    pub fn store_mutator(
+        mut self,
+        mutator: Box<
+            dyn FnOnce(
+                BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+            ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+        >,
+    ) -> Self {
+        assert!(self.store_mutator.is_none(), "store mutator already set");
+        self.store_mutator = Some(mutator);
         self
     }
 
@@ -347,8 +366,13 @@ where
             )))
             .monitor_validators(true, vec![], log);
 
-        builder = if let Some(mutator) = self.mutator {
-            // Caller must initialize genesis state.
+        builder = if let Some(mutator) = self.additional_mutator {
+            mutator(builder)
+        } else {
+            builder
+        };
+
+        builder = if let Some(mutator) = self.store_mutator {
             mutator(builder)
         } else {
             builder

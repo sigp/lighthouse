@@ -2151,13 +2151,12 @@ fn revert_minority_fork_on_resume() {
     // the beacon chain builder loads the head block.
     drop(harness1);
     let resume_store = get_store_with_spec(&db_path1, spec2.clone());
-    let resumed_harness = BeaconChainHarness::new_with_mutator(
-        MinimalEthSpec,
-        spec2,
-        resume_store,
-        KEYPAIRS[0..validator_count].to_vec(),
-        ChainConfig::default(),
-        |mut builder| {
+
+    let resumed_harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec2)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .resumed_disk_store(resume_store)
+        .additional_mutator(Box::new(move |mut builder| {
             builder = builder
                 .resume_from_db()
                 .unwrap()
@@ -2168,8 +2167,8 @@ fn revert_minority_fork_on_resume() {
                 .unwrap()
                 .set_slot(end_slot.as_u64());
             builder
-        },
-    );
+        }))
+        .build();
 
     // Head should now be just before the fork.
     resumed_harness.chain.fork_choice().unwrap();
