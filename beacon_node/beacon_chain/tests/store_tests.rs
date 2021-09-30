@@ -2156,7 +2156,7 @@ fn revert_minority_fork_on_resume() {
         .spec(spec2)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(resume_store)
-        .additional_mutator(Box::new(move |mut builder| {
+        .override_store_mutator(Box::new(move |mut builder| {
             builder = builder
                 .resume_from_db()
                 .unwrap()

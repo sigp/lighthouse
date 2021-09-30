@@ -161,7 +161,7 @@ pub struct Builder<T: BeaconChainTypes> {
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
-    additional_mutator: Option<
+    initial_mutator: Option<
         Box<
             dyn FnOnce(
                 BeaconChainBuilder<BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>>,
@@ -263,7 +263,7 @@ where
             chain_config: None,
             store_config: None,
             store: None,
-            additional_mutator: None,
+            initial_mutator: None,
             store_mutator: None,
             log: test_logger(),
         }
@@ -283,7 +283,8 @@ where
         self
     }
 
-    pub fn additional_mutator(
+    /// This mutator will be run before the `store_mutator`.
+    pub fn initial_mutator(
         mut self,
         mutator: Box<
             dyn FnOnce(
@@ -292,13 +293,14 @@ where
         >,
     ) -> Self {
         assert!(
-            self.additional_mutator.is_none(),
-            "additional mutator already set"
+            self.initial_mutator.is_none(),
+            "initial mutator already set"
         );
-        self.additional_mutator = Some(mutator);
+        self.initial_mutator = Some(mutator);
         self
     }
 
+    /// This mutator will be run after the `initial_mutator`.
     pub fn store_mutator(
         mut self,
         mutator: Box<
@@ -308,6 +310,20 @@ where
         >,
     ) -> Self {
         assert!(self.store_mutator.is_none(), "store mutator already set");
+        self.store_mutator = Some(mutator);
+        self
+    }
+
+    /// Purposefully replace the `store_mutator`.
+    pub fn override_store_mutator(
+        mut self,
+        mutator: Box<
+            dyn FnOnce(
+                BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+            ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+        >,
+    ) -> Self {
+        assert!(self.store_mutator.is_some(), "store mutator not set");
         self.store_mutator = Some(mutator);
         self
     }
@@ -366,7 +382,7 @@ where
             )))
             .monitor_validators(true, vec![], log);
 
-        builder = if let Some(mutator) = self.additional_mutator {
+        builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
         } else {
             builder
