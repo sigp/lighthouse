@@ -48,7 +48,7 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
 impl<E: EthSpec> InteractiveTester<E> {
     pub fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
         let harness = BeaconChainHarness::builder(E::default())
-            .spec_option(spec)
+            .spec_or_default(spec)
             .deterministic_keypairs(validator_count)
             .fresh_ephemeral_store()
             .build();

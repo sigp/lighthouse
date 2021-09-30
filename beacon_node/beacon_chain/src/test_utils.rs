@@ -281,15 +281,15 @@ where
     }
 
     pub fn default_spec(self) -> Self {
-        self.spec(test_spec::<E>())
+        self.spec_or_default(None)
     }
 
     pub fn spec(self, spec: ChainSpec) -> Self {
-        self.spec_option(Some(spec))
+        self.spec_or_default(Some(spec))
     }
 
-    pub fn spec_option(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = spec;
+    pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
+        self.spec = Some(spec.unwrap_or_else(|| E::default_spec()));
         self
     }
 
