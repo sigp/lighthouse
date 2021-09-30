@@ -1,7 +1,6 @@
 #![cfg(test)]
 use crate::test_utils::*;
 use crate::test_utils::{SeedableRng, XorShiftRng};
-use beacon_chain::store::config::StoreConfig;
 use beacon_chain::test_utils::{
     interop_genesis_state, test_spec, BeaconChainHarness, EphemeralHarnessType,
 };

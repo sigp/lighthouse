@@ -1,6 +1,5 @@
 #![cfg(test)]
 use crate::test_utils::*;
-use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::*;
 use swap_or_not_shuffle::shuffle_list;

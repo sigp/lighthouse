@@ -61,6 +61,12 @@ pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
 
+type BoxedMutator<E, Hot, Cold> = Box<
+    dyn FnOnce(
+        BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+    ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+>;
+
 pub type AddBlocksResult<E> = (
     HashMap<Slot, SignedBeaconBlockHash>,
     HashMap<Slot, BeaconStateHash>,
@@ -153,32 +159,16 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
     spec
 }
 
-#[allow(clippy::type_complexity)] // YOLO for testing
 pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
     spec: Option<ChainSpec>,
     validator_keypairs: Option<Vec<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
+    #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
-    initial_mutator: Option<
-        Box<
-            dyn FnOnce(
-                BeaconChainBuilder<BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>>,
-            ) -> BeaconChainBuilder<
-                BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>,
-            >,
-        >,
-    >,
-    store_mutator: Option<
-        Box<
-            dyn FnOnce(
-                BeaconChainBuilder<BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>>,
-            ) -> BeaconChainBuilder<
-                BaseHarnessType<T::EthSpec, T::HotStore, T::ColdStore>,
-            >,
-        >,
-    >,
+    initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
+    store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 }
 
@@ -289,19 +279,12 @@ where
     }
 
     pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = Some(spec.unwrap_or_else(|| E::default_spec()));
+        self.spec = Some(spec.unwrap_or_else(E::default_spec));
         self
     }
 
     /// This mutator will be run before the `store_mutator`.
-    pub fn initial_mutator(
-        mut self,
-        mutator: Box<
-            dyn FnOnce(
-                BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-            ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-        >,
-    ) -> Self {
+    pub fn initial_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(
             self.initial_mutator.is_none(),
             "initial mutator already set"
@@ -311,28 +294,14 @@ where
     }
 
     /// This mutator will be run after the `initial_mutator`.
-    pub fn store_mutator(
-        mut self,
-        mutator: Box<
-            dyn FnOnce(
-                BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-            ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-        >,
-    ) -> Self {
+    pub fn store_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(self.store_mutator.is_none(), "store mutator already set");
         self.store_mutator = Some(mutator);
         self
     }
 
     /// Purposefully replace the `store_mutator`.
-    pub fn override_store_mutator(
-        mut self,
-        mutator: Box<
-            dyn FnOnce(
-                BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-            ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-        >,
-    ) -> Self {
+    pub fn override_store_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(self.store_mutator.is_some(), "store mutator not set");
         self.store_mutator = Some(mutator);
         self

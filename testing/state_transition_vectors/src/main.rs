@@ -2,10 +2,7 @@
 mod macros;
 mod exit;
 
-use beacon_chain::{
-    store::StoreConfig,
-    test_utils::{BeaconChainHarness, EphemeralHarnessType},
-};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
 use ssz::Encode;
 use std::env;
