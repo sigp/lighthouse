@@ -63,6 +63,16 @@ pub struct BlockTimesCacheValue {
     pub peer_info: BlockPeerInfo,
 }
 
+impl BlockTimesCacheValue {
+    fn new(slot: Slot) -> Self {
+        BlockTimesCacheValue {
+            slot,
+            timestamps: Default::default(),
+            peer_info: Default::default(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct BlockTimesCache {
     pub cache: HashMap<BlockRoot, BlockTimesCacheValue>,
@@ -78,68 +88,33 @@ impl BlockTimesCache {
         peer_id: Option<String>,
         peer_client: Option<String>,
     ) {
-        if let Some(mut block_times) = self.cache.get_mut(&block_root) {
-            block_times.timestamps.observed = Some(timestamp);
-            block_times.peer_info = BlockPeerInfo {
-                id: peer_id,
-                client: peer_client,
-            };
-        } else {
-            let timestamps = Timestamps {
-                observed: Some(timestamp),
-                ..Default::default()
-            };
-            let peer_info = BlockPeerInfo {
-                id: peer_id,
-                client: peer_client,
-            };
-            self.cache.insert(
-                block_root,
-                BlockTimesCacheValue {
-                    slot,
-                    timestamps,
-                    peer_info,
-                },
-            );
-        }
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        block_times.timestamps.observed = Some(timestamp);
+        block_times.peer_info = BlockPeerInfo {
+            id: peer_id,
+            client: peer_client,
+        };
     }
 
     pub fn set_time_imported(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
-        if let Some(mut block_times) = self.cache.get_mut(&block_root) {
-            block_times.timestamps.imported = Some(timestamp);
-        } else {
-            let timestamps = Timestamps {
-                imported: Some(timestamp),
-                ..Default::default()
-            };
-            self.cache.insert(
-                block_root,
-                BlockTimesCacheValue {
-                    slot,
-                    timestamps,
-                    peer_info: BlockPeerInfo::default(),
-                },
-            );
-        }
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        block_times.timestamps.imported = Some(timestamp);
+        block_times.peer_info = BlockPeerInfo::default();
     }
 
     pub fn set_time_set_as_head(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
-        if let Some(mut block_times) = self.cache.get_mut(&block_root) {
-            block_times.timestamps.set_as_head = Some(timestamp);
-        } else {
-            let timestamps = Timestamps {
-                set_as_head: Some(timestamp),
-                ..Default::default()
-            };
-            self.cache.insert(
-                block_root,
-                BlockTimesCacheValue {
-                    slot,
-                    timestamps,
-                    peer_info: BlockPeerInfo::default(),
-                },
-            );
-        }
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        block_times.timestamps.set_as_head = Some(timestamp);
+        block_times.peer_info = BlockPeerInfo::default();
     }
 
     pub fn get_block_delays(
