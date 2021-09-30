@@ -866,7 +866,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         spec: &ChainSpec,
     ) {
         let data = &indexed_attestation.data;
-        // best effort inclusion distance which ignores skip slots
+        // Best effort inclusion distance which ignores skip slots between the parent
+        // and the current block. Skipped slots between the attestation slot and the parent
+        // slot are still counted for simplicity's sake.
         let inclusion_distance = parent_slot.saturating_sub(data.slot) + 1;
 
         let delay = inclusion_distance - spec.min_attestation_inclusion_delay;
