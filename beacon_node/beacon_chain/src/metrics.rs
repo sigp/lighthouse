@@ -738,17 +738,25 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
-        "beacon_block_imported_slot_start_delay_time",
-        "Duration between the start of the blocks slot and the current time when it was imported.",
+    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_observed_slot_start_delay_time",
+        "Duration between the start of the block's slot and the time the block was observed.",
+    );
+    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_imported_observed_delay_time",
+        "Duration between the time the block was observed and the time when it was imported.",
+    );
+    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_head_imported_delay_time",
+        "Duration between the time the block was imported and the time when it was set as head.",
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
         "beacon_block_head_slot_start_delay_time",
-        "Duration between the start of the blocks slot and the current time when it was as head.",
+        "Duration between the start of the block's slot and the time when it was set as head.",
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_slot_start_delay_exceeded_total",
-        "Triggered when the duration between the start of the blocks slot and the current time \
+        "Triggered when the duration between the start of the block's slot and the current time \
         will result in failed attestations.",
     );
 

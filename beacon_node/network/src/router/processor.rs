@@ -5,7 +5,7 @@ use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2_libp2p::rpc::*;
-use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
+use eth2_libp2p::{Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
@@ -211,6 +211,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 peer_id,
                 request_id: id,
                 beacon_block,
+                seen_timestamp: timestamp_now(),
             });
         } else {
             debug!(
@@ -229,11 +230,13 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
+        peer_client: Client,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
             message_id,
             peer_id,
+            peer_client,
             block,
             timestamp_now(),
         ))

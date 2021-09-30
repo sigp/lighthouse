@@ -7,7 +7,7 @@ use beacon_chain::{
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
-use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use eth2_libp2p::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -622,6 +622,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         message_id: MessageId,
         peer_id: PeerId,
+        peer_client: Client,
         block: SignedBeaconBlock<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
@@ -632,6 +633,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
             block_delay,
+        );
+
+        // Write the time the block was observed into delay cache.
+        self.chain.block_times_cache.write().set_time_observed(
+            block.canonical_root(),
+            block.slot(),
+            seen_duration,
+            Some(peer_id.to_string()),
+            Some(peer_client.to_string()),
         );
 
         let verified_block = match self.chain.verify_block_for_gossip(block) {

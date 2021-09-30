@@ -42,7 +42,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId,
+    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -341,6 +341,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn gossip_beacon_block(
         message_id: MessageId,
         peer_id: PeerId,
+        peer_client: Client,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Self {
@@ -349,6 +350,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
             work: Work::GossipBlock {
                 message_id,
                 peer_id,
+                peer_client,
                 block,
                 seen_timestamp,
             },
@@ -602,6 +604,7 @@ pub enum Work<T: BeaconChainTypes> {
     GossipBlock {
         message_id: MessageId,
         peer_id: PeerId,
+        peer_client: Client,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     },
@@ -1362,11 +1365,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     Work::GossipBlock {
                         message_id,
                         peer_id,
+                        peer_client,
                         block,
                         seen_timestamp,
                     } => worker.process_gossip_block(
                         message_id,
                         peer_id,
+                        peer_client,
                         *block,
                         work_reprocessing_tx,
                         seen_timestamp,

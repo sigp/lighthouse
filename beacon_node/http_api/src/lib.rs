@@ -2475,6 +2475,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ContributionAndProof => {
                                     event_handler.subscribe_contributions()
                                 }
+                                api_types::EventTopic::LateHead => {
+                                    event_handler.subscribe_late_head()
+                                }
                             };
 
                             receivers.push(BroadcastStream::new(receiver).map(|msg| {

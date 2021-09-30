@@ -54,6 +54,7 @@ use ssz_types::VariableList;
 use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -90,6 +91,7 @@ pub enum SyncMessage<T: EthSpec> {
         peer_id: PeerId,
         request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T>>>,
+        seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
@@ -313,6 +315,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         request_id: RequestId,
         block: Option<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
     ) {
         match block {
             Some(block) => {
@@ -326,7 +329,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     single_block_hash = Some(block_request.hash);
                 }
                 if let Some(block_hash) = single_block_hash {
-                    self.single_block_lookup_response(peer_id, block, block_hash)
+                    self.single_block_lookup_response(peer_id, block, block_hash, seen_timestamp)
                         .await;
                     return;
                 }
@@ -449,6 +452,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block: SignedBeaconBlock<T::EthSpec>,
         expected_block_hash: Hash256,
+        seen_timestamp: Duration,
     ) {
         // verify the hash is correct and try and process the block
         if expected_block_hash != block.canonical_root() {
@@ -467,6 +471,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // we have the correct block, try and process it
         match block_result {
             Ok(block_root) => {
+                // Block has been processed, so write the block time to the cache.
+                self.chain.block_times_cache.write().set_time_observed(
+                    block_root,
+                    block.slot(),
+                    seen_timestamp,
+                    None,
+                    None,
+                );
                 info!(self.log, "Processed block"; "block" => %block_root);
 
                 match self.chain.fork_choice() {
@@ -1007,9 +1019,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         request_id,
                         beacon_block,
+                        seen_timestamp,
                     } => {
-                        self.blocks_by_root_response(peer_id, request_id, beacon_block.map(|b| *b))
-                            .await;
+                        self.blocks_by_root_response(
+                            peer_id,
+                            request_id,
+                            beacon_block.map(|b| *b),
+                            seen_timestamp,
+                        )
+                        .await;
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
                         self.add_unknown_block(peer_id, *block);
