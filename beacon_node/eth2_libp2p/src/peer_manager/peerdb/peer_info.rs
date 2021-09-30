@@ -126,6 +126,11 @@ impl<T: EthSpec> PeerInfo<T> {
         self.meta_data.as_ref()
     }
 
+    /// Returns whether the peer is a trusted peer or not.
+    pub fn is_trusted(&self) -> bool {
+        self.is_trusted
+    }
+
     /// The time a peer is expected to be useful until for an attached validator. If this is set to
     /// None, the peer is not required for any upcoming duty.
     pub fn min_ttl(&self) -> Option<&Instant> {
