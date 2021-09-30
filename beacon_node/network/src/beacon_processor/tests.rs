@@ -23,8 +23,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use types::{
-    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, EthSpec,
-    MainnetEthSpec, ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, EthSpec, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
+    SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -75,11 +75,11 @@ impl TestRig {
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
 
-        let harness = BeaconChainHarness::new(
-            MainnetEthSpec,
-            Some(spec),
-            generate_deterministic_keypairs(VALIDATOR_COUNT),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec)
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 
