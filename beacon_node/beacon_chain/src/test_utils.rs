@@ -11,6 +11,10 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use execution_layer::{
+    test_utils::{MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
+    ExecutionLayer,
+};
 use futures::channel::mpsc::Receiver;
 pub use genesis::interop_genesis_state;
 use int_to_bytes::int_to_bytes32;
@@ -169,6 +173,8 @@ pub struct Builder<T: BeaconChainTypes> {
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
+    execution_layer: Option<ExecutionLayer>,
+    mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     log: Logger,
 }
 
@@ -255,6 +261,8 @@ where
             store: None,
             initial_mutator: None,
             store_mutator: None,
+            execution_layer: None,
+            mock_execution_layer: None,
             log: test_logger(),
         }
     }
@@ -312,6 +320,14 @@ where
         self
     }
 
+    pub fn mock_execution_layer(mut self) -> Self {
+        let spec = self.spec.clone().expect("cannot build without spec");
+        let mock = MockExecutionLayer::new(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK);
+        self.execution_layer = Some(mock.el.clone());
+        self.mock_execution_layer = Some(mock);
+        self
+    }
+
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
@@ -326,6 +342,7 @@ where
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(MigratorConfig::default().blocking())
+            .execution_layer(self.execution_layer)
             .dummy_eth1_backend()
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)

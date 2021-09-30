@@ -11,5 +11,6 @@ fn basic_merge() {
         .default_spec()
         .fresh_ephemeral_store()
         .deterministic_keypairs(VALIDATOR_COUNT)
+        .mock_execution_layer()
         .build();
 }
