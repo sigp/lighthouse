@@ -284,8 +284,12 @@ where
         self.spec(test_spec::<E>())
     }
 
-    pub fn spec(mut self, spec: ChainSpec) -> Self {
-        self.spec = Some(spec);
+    pub fn spec(self, spec: ChainSpec) -> Self {
+        self.spec_option(Some(spec))
+    }
+
+    pub fn spec_option(mut self, spec: Option<ChainSpec>) -> Self {
+        self.spec = spec;
         self
     }
 
