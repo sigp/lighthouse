@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))] // Tests run too slow in debug.
+
 use beacon_chain::test_utils::BeaconChainHarness;
 use execution_layer::test_utils::{generate_pow_block, DEFAULT_TERMINAL_BLOCK};
 use types::*;
