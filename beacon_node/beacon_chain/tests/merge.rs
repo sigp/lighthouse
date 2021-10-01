@@ -25,8 +25,8 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
 }
 
 #[test]
-// This isn't working cause the non-zero values in `initialize_beacon_state_from_eth1` are causing
-// failed lookups to the execution node. I need to come back to this.
+// TODO(merge): This isn't working cause the non-zero values in `initialize_beacon_state_from_eth1`
+// are causing failed lookups to the execution node. I need to come back to this.
 #[should_panic]
 fn merge_with_terminal_block_hash_override() {
     let altair_fork_epoch = Epoch::new(0);
