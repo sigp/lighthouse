@@ -325,7 +325,7 @@ mod test {
     use super::*;
     use crate::test_utils::{test_logger, BeaconChainHarness, EphemeralHarnessType};
     use std::sync::Arc;
-    use store::{HotColdDB, StoreConfig};
+    use store::HotColdDB;
     use tempfile::tempdir;
     use types::{
         test_utils::generate_deterministic_keypair, BeaconState, EthSpec, Keypair, MainnetEthSpec,
@@ -335,12 +335,11 @@ mod test {
     type T = EphemeralHarnessType<E>;
 
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
-        let harness = BeaconChainHarness::new_with_store_config(
-            MainnetEthSpec,
-            None,
-            types::test_utils::generate_deterministic_keypairs(validator_count),
-            StoreConfig::default(),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .default_spec()
+            .deterministic_keypairs(validator_count)
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 

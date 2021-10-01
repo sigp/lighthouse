@@ -1,7 +1,6 @@
 #![cfg(test)]
 use crate::test_utils::*;
 use crate::test_utils::{SeedableRng, XorShiftRng};
-use beacon_chain::store::config::StoreConfig;
 use beacon_chain::test_utils::{
     interop_genesis_state, test_spec, BeaconChainHarness, EphemeralHarnessType,
 };
@@ -29,12 +28,11 @@ fn get_harness<E: EthSpec>(
     validator_count: usize,
     slot: Slot,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::new_with_store_config(
-        E::default(),
-        None,
-        KEYPAIRS[0..validator_count].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     let skip_to_slot = slot - SLOT_OFFSET;
     if skip_to_slot > Slot::new(0) {

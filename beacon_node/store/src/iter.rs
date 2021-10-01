@@ -371,18 +371,16 @@ mod test {
     use super::*;
     use crate::HotColdDB;
     use crate::StoreConfig as Config;
-    use beacon_chain::store::StoreConfig;
     use beacon_chain::test_utils::BeaconChainHarness;
-    use beacon_chain::types::{ChainSpec, Keypair, MainnetEthSpec};
+    use beacon_chain::types::{ChainSpec, MainnetEthSpec};
     use sloggers::{null::NullLoggerBuilder, Build};
 
     fn get_state<T: EthSpec>() -> BeaconState<T> {
-        let harness = BeaconChainHarness::new_with_store_config(
-            T::default(),
-            None,
-            vec![Keypair::random()],
-            StoreConfig::default(),
-        );
+        let harness = BeaconChainHarness::builder(T::default())
+            .default_spec()
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .build();
         harness.advance_slot();
         harness.get_current_state()
     }
