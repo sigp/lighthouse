@@ -17,7 +17,7 @@ use types::{EthSpec, Uint256};
 use warp::Filter;
 
 pub use execution_block_generator::ExecutionBlockGenerator;
-pub use mock_execution_layer::MockExecutionLayer;
+pub use mock_execution_layer::{ExecutionLayerRuntime, MockExecutionLayer};
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;

@@ -58,7 +58,7 @@ impl<T: EthSpec> Block<T> {
                 block_hash: payload.block_hash,
                 block_number: payload.block_number,
                 parent_hash: payload.parent_hash,
-                total_difficulty: total_difficulty,
+                total_difficulty,
             },
         }
     }

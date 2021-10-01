@@ -8,19 +8,15 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{Address, EthSpec, Hash256, Uint256};
 
-pub struct MockExecutionLayer<T: EthSpec> {
-    pub server: MockServer<T>,
-    pub el: ExecutionLayer,
-    runtime: Option<Arc<tokio::runtime::Runtime>>,
-    _runtime_shutdown: exit_future::Signal,
+pub struct ExecutionLayerRuntime {
+    pub runtime: Option<Arc<tokio::runtime::Runtime>>,
+    pub _runtime_shutdown: exit_future::Signal,
+    pub task_executor: TaskExecutor,
+    pub log: Logger,
 }
 
-impl<T: EthSpec> MockExecutionLayer<T> {
-    pub fn default_params() -> Self {
-        Self::new(DEFAULT_TERMINAL_DIFFICULTY.into(), DEFAULT_TERMINAL_BLOCK)
-    }
-
-    pub fn new(terminal_total_difficulty: Uint256, terminal_block: u64) -> Self {
+impl ExecutionLayerRuntime {
+    pub fn new() -> Self {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -30,9 +26,42 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let log = null_logger().unwrap();
-        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let task_executor =
+            TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
 
-        let server = MockServer::new(runtime.handle(), terminal_total_difficulty, terminal_block);
+        Self {
+            runtime: Some(runtime),
+            _runtime_shutdown: runtime_shutdown,
+            task_executor,
+            log,
+        }
+    }
+}
+
+impl Drop for ExecutionLayerRuntime {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            Arc::try_unwrap(runtime).unwrap().shutdown_background()
+        }
+    }
+}
+
+pub struct MockExecutionLayer<T: EthSpec> {
+    pub server: MockServer<T>,
+    pub el: ExecutionLayer,
+    pub el_runtime: ExecutionLayerRuntime,
+}
+
+impl<T: EthSpec> MockExecutionLayer<T> {
+    pub fn default_params() -> Self {
+        Self::new(DEFAULT_TERMINAL_DIFFICULTY.into(), DEFAULT_TERMINAL_BLOCK)
+    }
+
+    pub fn new(terminal_total_difficulty: Uint256, terminal_block: u64) -> Self {
+        let el_runtime = ExecutionLayerRuntime::new();
+        let handle = el_runtime.runtime.as_ref().unwrap().handle();
+
+        let server = MockServer::new(handle, terminal_total_difficulty, terminal_block);
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
 
@@ -41,16 +70,15 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             terminal_total_difficulty,
             Hash256::zero(),
             Some(Address::repeat_byte(42)),
-            executor,
-            log,
+            el_runtime.task_executor.clone(),
+            el_runtime.log.clone(),
         )
         .unwrap();
 
         Self {
             server,
             el,
-            runtime: Some(runtime),
-            _runtime_shutdown: runtime_shutdown,
+            el_runtime,
         }
     }
 
@@ -137,17 +165,5 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         func(self.el.clone(), terminal_block).await;
         self
-    }
-
-    pub fn shutdown(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            Arc::try_unwrap(runtime).unwrap().shutdown_background()
-        }
-    }
-}
-
-impl<T: EthSpec> Drop for MockExecutionLayer<T> {
-    fn drop(&mut self) {
-        self.shutdown()
     }
 }

@@ -12,7 +12,9 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use execution_layer::{
-    test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
+    test_utils::{
+        ExecutionBlockGenerator, ExecutionLayerRuntime, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
+    },
     ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
@@ -25,6 +27,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
+use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -38,13 +41,13 @@ use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
-    typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
-    BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
-    Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
-    PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
-    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeMessage, VariableList,
-    VoluntaryExit,
+    typenum::U4294967296, Address, AggregateSignature, Attestation, AttestationData,
+    AttesterSlashing, BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit,
+    DepositData, Domain, Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair,
+    ProposerSlashing, PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommittee, SyncCommitteeContribution,
+    SyncCommitteeMessage, VariableList, VoluntaryExit,
 };
 
 // 4th September 2019
@@ -175,6 +178,7 @@ pub struct Builder<T: BeaconChainTypes> {
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer>,
+    execution_layer_runtime: Option<ExecutionLayerRuntime>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     log: Logger,
 }
@@ -264,6 +268,7 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
+            execution_layer_runtime: None,
             log: test_logger(),
         }
     }
@@ -318,6 +323,35 @@ where
 
     pub fn chain_config(mut self, chain_config: ChainConfig) -> Self {
         self.chain_config = Some(chain_config);
+        self
+    }
+
+    pub fn execution_layer(mut self, urls: &[&str]) -> Self {
+        let spec = self.spec.clone().expect("cannot build without spec");
+        assert!(
+            self.execution_layer.is_none(),
+            "execution layer already defined"
+        );
+
+        let el_runtime = ExecutionLayerRuntime::new();
+
+        let urls = urls
+            .into_iter()
+            .map(|s| SensitiveUrl::parse(*s))
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let execution_layer = ExecutionLayer::from_urls(
+            urls,
+            spec.terminal_total_difficulty,
+            spec.terminal_block_hash,
+            Some(Address::repeat_byte(42)),
+            el_runtime.task_executor.clone(),
+            el_runtime.log.clone(),
+        )
+        .unwrap();
+
+        self.execution_layer = Some(execution_layer);
+        self.execution_layer_runtime = Some(el_runtime);
         self
     }
 
@@ -383,6 +417,7 @@ where
             validator_keypairs,
             shutdown_receiver,
             mock_execution_layer: self.mock_execution_layer,
+            execution_layer_runtime: self.execution_layer_runtime,
             rng: make_rng(),
         }
     }
@@ -400,6 +435,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub shutdown_receiver: Receiver<ShutdownReason>,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    pub execution_layer_runtime: Option<ExecutionLayerRuntime>,
 
     pub rng: Mutex<StdRng>,
 }

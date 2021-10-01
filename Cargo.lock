@@ -461,6 +461,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "safe_arith",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "slasher",
