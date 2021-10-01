@@ -1,8 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
@@ -11,6 +8,7 @@ use beacon_chain::{
     },
     StateSkipConfig, WhenSlotSkipped,
 };
+use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
