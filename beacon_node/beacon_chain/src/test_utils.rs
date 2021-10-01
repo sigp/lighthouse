@@ -333,10 +333,10 @@ where
             "execution layer already defined"
         );
 
-        let el_runtime = ExecutionLayerRuntime::new();
+        let el_runtime = ExecutionLayerRuntime::default();
 
         let urls = urls
-            .into_iter()
+            .iter()
             .map(|s| SensitiveUrl::parse(*s))
             .collect::<Result<_, _>>()
             .unwrap();

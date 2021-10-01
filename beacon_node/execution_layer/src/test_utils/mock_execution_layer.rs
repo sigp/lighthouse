@@ -15,8 +15,8 @@ pub struct ExecutionLayerRuntime {
     pub log: Logger,
 }
 
-impl ExecutionLayerRuntime {
-    pub fn new() -> Self {
+impl Default for ExecutionLayerRuntime {
+    fn default() -> Self {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -58,7 +58,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     }
 
     pub fn new(terminal_total_difficulty: Uint256, terminal_block: u64) -> Self {
-        let el_runtime = ExecutionLayerRuntime::new();
+        let el_runtime = ExecutionLayerRuntime::default();
         let handle = el_runtime.runtime.as_ref().unwrap().handle();
 
         let server = MockServer::new(handle, terminal_total_difficulty, terminal_block);
