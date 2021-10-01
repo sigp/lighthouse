@@ -4,7 +4,7 @@ use crate::engine_api::http::JSONRPC_VERSION;
 use bytes::Bytes;
 use environment::null_logger;
 use handle_rpc::handle_rpc;
-use parking_lot::{RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slog::{info, Logger};
@@ -101,8 +101,8 @@ impl<T: EthSpec> MockServer<T> {
             .expect("last echo request is none")
     }
 
-    pub async fn push_preloaded_response(&self, response: serde_json::Value) {
-        self.ctx.preloaded_responses.lock().await.push(response)
+    pub fn push_preloaded_response(&self, response: serde_json::Value) {
+        self.ctx.preloaded_responses.lock().push(response)
     }
 }
 
@@ -195,7 +195,7 @@ pub fn serve<T: EthSpec>(
                 .ok_or_else(|| warp::reject::custom(MissingIdField))?;
 
             let preloaded_response = {
-                let mut preloaded_responses = ctx.preloaded_responses.lock().await;
+                let mut preloaded_responses = ctx.preloaded_responses.lock();
                 if !preloaded_responses.is_empty() {
                     Some(preloaded_responses.remove(0))
                 } else {

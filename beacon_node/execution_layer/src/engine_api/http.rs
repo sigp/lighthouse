@@ -542,7 +542,7 @@ mod test {
             F: Future<Output = ()>,
         {
             for response in preloaded_responses {
-                self.server.push_preloaded_response(response).await;
+                self.server.push_preloaded_response(response);
             }
             request_func(self.rpc_client.clone()).await;
             self
