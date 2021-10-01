@@ -3,6 +3,7 @@ name = "beacon_chain"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = "2018"
+autotests = false # using a single test binary compiles faster
 
 [features]
 default = ["participation_metrics"]
@@ -56,3 +57,7 @@ eth2 = { path = "../../common/eth2" }
 strum = { version = "0.21.0", features = ["derive"] }
 logging = { path = "../../common/logging" }
 execution_layer = { path = "../execution_layer" }
+
+[[test]]
+name = "beacon_chain_tests"
+path = "tests/main.rs"

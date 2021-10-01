@@ -1,8 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
@@ -11,6 +8,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, WhenSlotSkipped,
 };
 use int_to_bytes::int_to_bytes32;
+use lazy_static::lazy_static;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
