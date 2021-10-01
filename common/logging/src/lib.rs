@@ -162,9 +162,55 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
 /// Return a logger suitable for test usage.
 ///
 /// By default no logs will be printed, but they can be enabled via the `test_logger` feature.
+/// For example in <rr>/beacon_node/beacon_chain/src/validator_pubkey_cache.rs the
+/// `fn get_store()` returns a `BeaconStore<T>` and it requires a Logger:
+/// ```ignore
+/// mod test {
+///     use super::*;
+///     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+///     use logging::test_logger;
 ///
-/// We've tried the `slog_term::TestStdoutWriter` in the past, but found it too buggy because
-/// of the threading limitation.
+///     <snip>
+///
+///     fn get_store() -> BeaconStore<T> {
+///         Arc::new(
+///             HotColdDB::open_ephemeral(<_>::default(), E::default_spec(), test_logger()).unwrap(),
+///         )
+///     }
+///
+///     <snip>
+/// }
+/// ```
+/// By importing `use logging::test_logger;` and then using it to create the logger
+/// the developer can pass `--features 'logging/test_logger'` when testing the tests
+/// and the logs are visible:
+/// ```bash
+/// wink@3900x:~/prgs/ethereum/myrepos/lighthouse (Add-test_logger-as-feature-to-logging)
+/// $ cargo test -p beacon_chain validator_pubkey_cache::test::basic_operation --features 'logging/test_logger'
+///     Finished test [unoptimized + debuginfo] target(s) in 0.19s
+///      Running unittests (target/debug/deps/beacon_chain-975363824f1143bc)
+///
+/// running 1 test
+/// Sep 19 18:39:15.637 INFO Beacon chain initialized, head_slot: 0, head_block: 0x2353…dcf4, head_state: 0xef4b…4615, module: beacon_chain::builder:649
+/// Sep 19 18:39:15.638 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
+/// Sep 19 18:39:17.277 INFO Beacon chain initialized, head_slot: 0, head_block: 0x2353…dcf4, head_state: 0xef4b…4615, module: beacon_chain::builder:649
+/// Sep 19 18:39:17.277 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
+/// Sep 19 18:39:18.884 INFO Beacon chain initialized, head_slot: 0, head_block: 0xdcdd…501f, head_state: 0x3055…032c, module: beacon_chain::builder:649
+/// Sep 19 18:39:18.885 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
+/// Sep 19 18:39:20.537 INFO Beacon chain initialized, head_slot: 0, head_block: 0xa739…1b22, head_state: 0xac1c…eab6, module: beacon_chain::builder:649
+/// Sep 19 18:39:20.538 INFO Saved beacon chain to disk, module: beacon_chain::beacon_chain:3608
+/// test validator_pubkey_cache::test::basic_operation ... ok
+/// ```
+/// If the `logging/test_logger` feature is not passed `test_logger()` will return a NullLogger
+/// and no log information will be displayed:
+/// ```bash
+/// $ cargo test -p beacon_chain validator_pubkey_cache::test::basic_operation
+///     Finished test [unoptimized + debuginfo] target(s) in 11.17s
+///      Running unittests (target/debug/deps/beacon_chain-972b3a065a98b4a6)
+///
+/// running 1 test
+/// test validator_pubkey_cache::test::basic_operation ... ok
+/// ```
 pub fn test_logger() -> Logger {
     use sloggers::Build;
 
