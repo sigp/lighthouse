@@ -119,9 +119,6 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 #### test_logger
 
-_I suspect this is not the right place for this documtation, but I think it
-would be good if it was discoverable and "all" developers will see it here_
-
 The test_logger, located in `/common/logging/` can be used to create a `Logger` that by
 default returns a NullLogger. But if `--features 'logging/test_logger'` is passed while
 testing the logs are displayed. This can be very helpful while debugging tests.

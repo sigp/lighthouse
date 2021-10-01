@@ -451,6 +451,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
+ "logging",
  "lru",
  "maplit",
  "merkle_proof",
@@ -3715,6 +3716,7 @@ dependencies = [
  "lighthouse_metrics",
  "slog",
  "slog-term",
+ "sloggers",
 ]
 
 [[package]]
@@ -5564,6 +5566,7 @@ dependencies = [
  "lighthouse_metrics",
  "lmdb",
  "lmdb-sys",
+ "logging",
  "maplit",
  "parking_lot",
  "rand 0.7.3",
