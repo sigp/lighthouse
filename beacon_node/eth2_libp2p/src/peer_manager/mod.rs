@@ -941,6 +941,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut disconnecting_peers = Vec::new();
 
         let connected_peer_count = self.network_globals.connected_peers();
+        println!("Connected {}, target {}, min_outbound {}", connected_peer_count, self.target_peers, min_outbound_only_target);
         if connected_peer_count > self.target_peers {
             // Remove excess peers with the worst scores, but keep subnet peers.
             // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
@@ -969,6 +970,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         for peer_id in disconnecting_peers {
+            println!("Dropping peer: {}", peer_id);
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
         }
     }
@@ -1215,66 +1217,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_peer_manager_removes_unhealthy_peers_during_heartbeat() {
-        let mut peer_manager = build_peer_manager(3).await;
-
-        // Create 3 peers to connect to.
-        let peer0 = PeerId::random();
-        let inbound_only_peer1 = PeerId::random();
-        let outbound_only_peer1 = PeerId::random();
-
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_outgoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-
-        // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.inject_connect_ingoing(
-            &inbound_only_peer1,
-            "/ip4/0.0.0.0".parse().unwrap(),
-            None,
-        );
-        peer_manager.inject_connect_outgoing(
-            &outbound_only_peer1,
-            "/ip4/0.0.0.0".parse().unwrap(),
-            None,
-        );
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .peer_info_mut(&(inbound_only_peer1))
-            .unwrap()
-            .add_to_score(-19.9);
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .peer_info_mut(&(outbound_only_peer1))
-            .unwrap()
-            .add_to_score(-19.9);
-        // Update the gossipsub scores to induce connection downgrade
-        // during the heartbeat, update_peer_scores will downgrade the score from -19.9 to at least -20, this will then trigger a disconnection.
-        // If we changed the peer scores to -20 before the heartbeat, update_peer_scores will mark the previous score status as disconnected,
-        // then handle_state_transitions will not change the connection status to disconnected because the score state has not changed.
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .peer_info_mut(&(inbound_only_peer1))
-            .unwrap()
-            .set_gossipsub_score(-85.0);
-        peer_manager
-            .network_globals
-            .peers
-            .write()
-            .peer_info_mut(&(outbound_only_peer1))
-            .unwrap()
-            .set_gossipsub_score(-85.0);
-
-        peer_manager.heartbeat();
-
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 1);
-    }
 
     #[tokio::test]
     async fn test_peer_manager_remove_unhealthy_peers_brings_peers_below_target() {
@@ -1287,18 +1229,18 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0/tcp/8000".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0/tcp/8000".parse().unwrap(), None);
 
         // Connect to two peers that are on the threshold of being disconnected.
         peer_manager.inject_connect_ingoing(
             &inbound_only_peer1,
-            "/ip4/0.0.0.0".parse().unwrap(),
+            "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
             None,
         );
         peer_manager.inject_connect_outgoing(
             &outbound_only_peer1,
-            "/ip4/0.0.0.0".parse().unwrap(),
+            "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
             None,
         );
         peer_manager
@@ -1307,14 +1249,14 @@ mod tests {
             .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
-            .add_to_score(-19.9);
+            .add_to_score(-19.8);
         peer_manager
             .network_globals
             .peers
             .write()
             .peer_info_mut(&(outbound_only_peer1))
             .unwrap()
-            .add_to_score(-19.9);
+            .add_to_score(-19.8);
         peer_manager
             .network_globals
             .peers
@@ -1330,9 +1272,9 @@ mod tests {
             .unwrap()
             .set_gossipsub_score(-85.0);
         peer_manager.heartbeat();
-        // Tests that when we are over the target peer limit, after disconnecting two unhealthy peers,
+        // Tests that when we are over the target peer limit, after disconnecting one unhealthy peer,
         // the loop to check for disconnecting peers will stop because we have removed enough peers (only needed to remove 1 to reach target).
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 2);
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 
     #[tokio::test]

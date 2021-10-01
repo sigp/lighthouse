@@ -670,8 +670,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     ) -> Option<BanOperation> {
         let log_ref = &self.log;
         let info = self.peers.entry(*peer_id).or_insert_with(|| {
-            warn!(log_ref, "Updating state of unknown peer";
-                "peer_id" => %peer_id, "new_state" => ?new_state);
+            // If we are not creating a new connection, log a warning indicating we are updating a
+            // connection state for an unknown peer.
+            if !matches!(new_state, NewConnectionState::Connected { .. }) {
+                warn!(log_ref, "Updating state of unknown peer";
+                    "peer_id" => %peer_id, "new_state" => ?new_state);
+            }
             PeerInfo::default()
         });
 
@@ -1717,7 +1721,7 @@ mod tests {
 
         //peers[0] gets unbanned
         reset_score(&mut pdb, &peers[0]);
-        let _ = pdb.update_scores();
+        pdb.update_connection_state(&peers[0], NewConnectionState::Unbanned);
 
         //nothing changed
         assert!(pdb.ban_status(&p1).is_banned());
@@ -1728,7 +1732,7 @@ mod tests {
 
         //peers[1] gets unbanned
         reset_score(&mut pdb, &peers[1]);
-        let _ = pdb.update_scores();
+        pdb.update_connection_state(&peers[1], NewConnectionState::Unbanned);
 
         //all ips are unbanned
         assert!(!pdb.ban_status(&p1).is_banned());
@@ -1765,11 +1769,17 @@ mod tests {
 
         // unban a peer
         reset_score(&mut pdb, &peers[0]);
-        let _ = pdb.update_scores();
+        pdb.update_connection_state(&peers[0], NewConnectionState::Unbanned);
 
         // check not banned anymore
         assert!(!pdb.ban_status(&p1).is_banned());
         assert!(!pdb.ban_status(&p2).is_banned());
+
+        // unban all peers
+        for p in &peers {
+            reset_score(&mut pdb, p);
+            pdb.update_connection_state(&p, NewConnectionState::Unbanned);
+        }
 
         // add ip2 to all peers and ban them.
         let mut socker_addr = Multiaddr::from(ip2);
@@ -1787,7 +1797,7 @@ mod tests {
         // unban all peers
         for p in &peers {
             reset_score(&mut pdb, p);
-            let _ = pdb.update_scores();
+            pdb.update_connection_state(&p, NewConnectionState::Unbanned);
         }
 
         // reban every peer except one
@@ -1800,7 +1810,7 @@ mod tests {
         assert!(!pdb.ban_status(&p1).is_banned());
         assert!(!pdb.ban_status(&p2).is_banned());
 
-        //reban last peer
+        // reban last peer
         let _ = pdb.report_peer(&peers[0], PeerAction::Fatal, ReportSource::PeerManager);
         pdb.inject_disconnect(&peers[0]);
 
