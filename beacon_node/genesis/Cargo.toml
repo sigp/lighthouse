@@ -20,9 +20,5 @@ eth2_ssz = "0.4.0"
 eth2_hashing = "0.2.0"
 tree_hash = "0.4.0"
 tokio = { version = "1.10.0", features = ["full"] }
-parking_lot = "0.11.0"
 slog = "2.5.2"
-exit-future = "0.2.0"
-serde = "1.0.116"
-serde_derive = "1.0.116"
 int_to_bytes = { path = "../../consensus/int_to_bytes" }

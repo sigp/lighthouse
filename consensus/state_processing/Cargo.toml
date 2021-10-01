@@ -6,10 +6,6 @@ edition = "2018"
 
 [dev-dependencies]
 env_logger = "0.9.0"
-serde = "1.0.116"
-serde_derive = "1.0.116"
-lazy_static = "1.4.0"
-serde_yaml = "0.8.13"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 
 [dependencies]
@@ -19,10 +15,8 @@ itertools = "0.10.0"
 eth2_ssz = "0.4.0"
 eth2_ssz_types = "0.2.1"
 merkle_proof = { path = "../merkle_proof" }
-log = "0.4.11"
 safe_arith = { path = "../safe_arith" }
 tree_hash = "0.4.0"
-tree_hash_derive = "0.4.0"
 types = { path = "../types", default-features = false }
 rayon = "1.4.1"
 eth2_hashing = "0.2.0"

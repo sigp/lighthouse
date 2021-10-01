@@ -18,7 +18,6 @@ eth2_hashing = "0.2.0"
 hex = "0.4.2"
 int_to_bytes = { path = "../int_to_bytes" }
 log = "0.4.11"
-merkle_proof = { path = "../merkle_proof" }
 rayon = "1.4.1"
 rand = "0.7.3"
 safe_arith = { path = "../safe_arith" }
@@ -47,7 +46,6 @@ itertools = "0.10.0"
 superstruct = "0.2.0"
 
 [dev-dependencies]
-serde_json = "1.0.58"
 criterion = "0.3.3"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
@@ -64,7 +62,6 @@ arbitrary-fuzz = [
   "bls/arbitrary",
   "eth2_ssz/arbitrary",
   "eth2_ssz_types/arbitrary",
-  "merkle_proof/arbitrary",
   "swap_or_not_shuffle/arbitrary",
   "tree_hash/arbitrary",
 ]

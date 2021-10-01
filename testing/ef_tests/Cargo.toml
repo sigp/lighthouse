@@ -31,5 +31,4 @@ state_processing = { path = "../../consensus/state_processing" }
 swap_or_not_shuffle = { path = "../../consensus/swap_or_not_shuffle" }
 types = { path = "../../consensus/types" }
 snap = "1.0.1"
-parking_lot = "0.11.0"
 fs2 = "0.4.3"

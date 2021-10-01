@@ -10,8 +10,6 @@ warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
 serde = { version = "1.0.116", features = ["derive"] }
 tokio = { version = "1.10.0", features = ["macros","sync"] }
 tokio-stream = { version = "0.1.3", features = ["sync"] }
-tokio-util = "0.6.3"
-parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 hex = "0.4.2"
 beacon_chain = { path = "../beacon_chain" }
@@ -20,7 +18,6 @@ slog = "2.5.2"
 network = { path = "../network" }
 eth2_libp2p = { path = "../eth2_libp2p" }
 eth1 = { path = "../eth1" }
-fork_choice = { path = "../../consensus/fork_choice" }
 state_processing = { path = "../../consensus/state_processing" }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
