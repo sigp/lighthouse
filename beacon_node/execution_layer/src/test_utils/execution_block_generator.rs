@@ -192,14 +192,18 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ));
         };
 
-        let increment = self
-            .terminal_total_difficulty
-            .checked_div(Uint256::from(self.terminal_block_number))
-            .expect("terminal block number must be non-zero");
-        let total_difficulty = increment
-            .checked_mul(Uint256::from(block_number))
-            .expect("overflow computing total difficulty")
-            .into();
+        let total_difficulty = if block_number == self.terminal_block_number {
+            self.terminal_total_difficulty
+        } else {
+            let increment = self
+                .terminal_total_difficulty
+                .checked_div(Uint256::from(self.terminal_block_number))
+                .expect("terminal block number must be non-zero");
+            increment
+                .checked_mul(Uint256::from(block_number))
+                .expect("overflow computing total difficulty")
+                .into()
+        };
 
         let mut block = PoWBlock {
             block_number,
