@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::{runtime, sync::oneshot};
-use types::{EthSpec, Uint256};
+use types::{EthSpec, Hash256, Uint256};
 use warp::Filter;
 
 pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
@@ -39,6 +39,7 @@ impl<T: EthSpec> MockServer<T> {
             &runtime::Handle::current(),
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
+            Hash256::zero(),
         )
     }
 
@@ -46,11 +47,12 @@ impl<T: EthSpec> MockServer<T> {
         handle: &runtime::Handle,
         terminal_difficulty: Uint256,
         terminal_block: u64,
+        terminal_block_hash: Hash256,
     ) -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator =
-            ExecutionBlockGenerator::new(terminal_difficulty, terminal_block);
+            ExecutionBlockGenerator::new(terminal_difficulty, terminal_block, terminal_block_hash);
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
             config: <_>::default(),

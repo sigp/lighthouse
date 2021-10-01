@@ -84,6 +84,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      */
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_number: u64,
+    pub terminal_block_hash: Hash256,
     /*
      * PoS block parameters
      */
@@ -93,12 +94,17 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
-    pub fn new(terminal_total_difficulty: Uint256, terminal_block_number: u64) -> Self {
+    pub fn new(
+        terminal_total_difficulty: Uint256,
+        terminal_block_number: u64,
+        terminal_block_hash: Hash256,
+    ) -> Self {
         let mut gen = Self {
             blocks: <_>::default(),
             block_hashes: <_>::default(),
             terminal_total_difficulty,
             terminal_block_number,
+            terminal_block_hash,
             pending_payloads: <_>::default(),
             next_payload_id: 0,
             payload_ids: <_>::default(),
@@ -217,11 +223,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn prepare_payload(&mut self, payload: JsonPreparePayloadRequest) -> Result<u64, String> {
-        if !self
-            .blocks
-            .iter()
-            .any(|(_, block)| block.block_number() == self.terminal_block_number)
-        {
+        if !self.blocks.iter().any(|(_, block)| {
+            block.block_hash() == self.terminal_block_hash
+                || block.block_number() == self.terminal_block_number
+        }) {
             return Err("refusing to create payload id before terminal block".to_string());
         }
 
@@ -362,8 +367,11 @@ mod test {
         const TERMINAL_BLOCK: u64 = 10;
         const DIFFICULTY_INCREMENT: u64 = 1;
 
-        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
-            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY.into(), TERMINAL_BLOCK);
+        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
+            TERMINAL_DIFFICULTY.into(),
+            TERMINAL_BLOCK,
+            Hash256::zero(),
+        );
 
         for i in 0..=TERMINAL_BLOCK {
             if i > 0 {

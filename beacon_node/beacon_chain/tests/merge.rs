@@ -23,7 +23,7 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
 }
 
 #[test]
-fn base_altair_merge_with_terminal_block_after_fork() {
+fn merge_with_terminal_block_hash_override() {
     let altair_fork_epoch = Epoch::new(0);
     let merge_fork_epoch = Epoch::new(0);
 
@@ -71,18 +71,23 @@ fn base_altair_merge_with_terminal_block_after_fork() {
     );
 
     let mut execution_payloads = vec![];
-    for _ in 0..E::slots_per_epoch() * 3 {
+    for i in 0..E::slots_per_epoch() * 3 {
         harness.extend_slots(1);
 
         let block = harness.chain.head().unwrap().beacon_block;
-        execution_payloads.push(block.message().body().execution_payload().unwrap().clone());
+
+        let execution_payload = block.message().body().execution_payload().unwrap().clone();
+        if i == 0 {
+            assert_eq!(execution_payload.block_hash, genesis_pow_block_hash);
+        }
+        execution_payloads.push(execution_payload);
     }
 
     verify_execution_payload_chain(&execution_payloads);
 }
 
 #[test]
-fn merge_with_terminal_block_hash_override() {
+fn base_altair_merge_with_terminal_block_after_fork() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
     let merge_fork_epoch = Epoch::new(8);

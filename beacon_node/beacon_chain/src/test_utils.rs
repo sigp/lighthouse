@@ -357,7 +357,11 @@ where
 
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
-        let mock = MockExecutionLayer::new(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK);
+        let mock = MockExecutionLayer::new(
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+            spec.terminal_block_hash,
+        );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
         self

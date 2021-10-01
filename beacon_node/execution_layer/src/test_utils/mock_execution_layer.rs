@@ -54,14 +54,27 @@ pub struct MockExecutionLayer<T: EthSpec> {
 
 impl<T: EthSpec> MockExecutionLayer<T> {
     pub fn default_params() -> Self {
-        Self::new(DEFAULT_TERMINAL_DIFFICULTY.into(), DEFAULT_TERMINAL_BLOCK)
+        Self::new(
+            DEFAULT_TERMINAL_DIFFICULTY.into(),
+            DEFAULT_TERMINAL_BLOCK,
+            Hash256::zero(),
+        )
     }
 
-    pub fn new(terminal_total_difficulty: Uint256, terminal_block: u64) -> Self {
+    pub fn new(
+        terminal_total_difficulty: Uint256,
+        terminal_block: u64,
+        terminal_block_hash: Hash256,
+    ) -> Self {
         let el_runtime = ExecutionLayerRuntime::default();
         let handle = el_runtime.runtime.as_ref().unwrap().handle();
 
-        let server = MockServer::new(handle, terminal_total_difficulty, terminal_block);
+        let server = MockServer::new(
+            handle,
+            terminal_total_difficulty,
+            terminal_block,
+            terminal_block_hash,
+        );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
 
