@@ -644,12 +644,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let new_state = sync_type.as_sync_status(remote_sync_info);
         let rpr = new_state.as_str();
-        if let Some(was_updated) = self
+        // Drop the write lock
+        let update_sync_status = self
             .network_globals
             .peers
             .write()
-            .update_sync_status(peer_id, new_state.clone())
-        {
+            .update_sync_status(peer_id, new_state.clone());
+        if let Some(was_updated) = update_sync_status {
             let is_connected = self.network_globals.peers.read().is_connected(peer_id);
             if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
