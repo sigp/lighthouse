@@ -70,9 +70,15 @@ impl<T: EthSpec> MockServer<T> {
             let _ = shutdown_rx.await;
         };
 
-        let (listen_socket_addr, server_future) = handle
-            .block_on(async { serve(ctx.clone(), shutdown_future) })
-            .unwrap();
+        // The `serve` function will panic unless it's run inside a tokio runtime, so use `block_on`
+        // if we're not in a runtime. However, we can't *always* use `block_on` since tokio will
+        // panic if we try to block inside an async context.
+        let serve = || serve(ctx.clone(), shutdown_future).unwrap();
+        let (listen_socket_addr, server_future) = if let Err(_) = runtime::Handle::try_current() {
+            handle.block_on(async { serve() })
+        } else {
+            serve()
+        };
 
         handle.spawn(server_future);
 
