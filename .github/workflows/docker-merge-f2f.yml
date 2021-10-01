@@ -1,0 +1,45 @@
+name: docker merge f2f
+
+on:
+    push:
+        branches:
+            - merge-f2f
+
+env:
+    DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+    IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
+    LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
+    BRANCH_NAME: merge-f2f
+
+jobs:
+    build-docker-amd64:
+        runs-on: ubuntu-18.04
+        steps:
+            - uses: actions/checkout@v2
+            - name: Update Rust
+              run: rustup update stable
+            - name: Dockerhub login
+              run: |
+                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+            - name: Build AMD64 dockerfile (with push)
+              run: |
+                  docker build \
+                      --build-arg PORTABLE=true \
+                      --tag ${IMAGE_NAME}:${BRANCH_NAME} \
+                      --file ./Dockerfile .
+                  docker push ${IMAGE_NAME}:${BRANCH_NAME}
+    build-docker-lcli:
+        runs-on: ubuntu-18.04
+        steps:
+            - uses: actions/checkout@v2
+            - name: Dockerhub login
+              run: |
+                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
+            - name: Build lcli dockerfile (with push)
+              run: |
+                  docker build \
+                      --build-arg PORTABLE=true \
+                      --tag ${LCLI_IMAGE_NAME}:${BRANCH_NAME} \
+                      --file ./lcli/Dockerfile .
+                  docker push ${LCLI_IMAGE_NAME}:${BRANCH_NAME}
