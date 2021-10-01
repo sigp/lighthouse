@@ -18,7 +18,7 @@ The following CLI flags control the HTTP server:
 		header. The default is to not supply a header.
 
 The schema of the API aligns with the standard Eth2 Beacon Node API as defined
-at [github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs).
+at [github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
 An interactive specification is available [here][OpenAPI].
 
 ## Security

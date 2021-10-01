@@ -1,6 +1,6 @@
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
-//! https://github.com/ethereum/eth2.0-APIs
+//! https://github.com/ethereum/beacon-APIs
 //!
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.

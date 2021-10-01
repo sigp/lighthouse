@@ -14,7 +14,7 @@ The following CLI flags control the HTTP server:
 - `--http-address`: specify the listen address of the server.
 
 The schema of the API aligns with the standard Eth2 Beacon Node API as defined
-at [github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs).
+at [github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
 It is an easy-to-use RESTful HTTP/JSON API.  An interactive specification is
 available [here](https://ethereum.github.io/beacon-APIs/).
 
