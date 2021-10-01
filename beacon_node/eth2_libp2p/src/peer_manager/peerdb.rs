@@ -368,7 +368,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     error!(self.log, "Peer has been disconnected in an update"; "peer_id" => %peer_id)
                 }
                 ScoreTransitionResult::Unbanned => {
-                    peers_to_unban.push(peer_id.clone());
+                    peers_to_unban.push(*peer_id);
                 }
                 ScoreTransitionResult::NoAction => {}
             }
@@ -437,8 +437,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             );
 
             actions.push((
-                peer_id.clone(),
-                Self::handle_score_transition(previous_state, &peer_id, info, &self.log),
+                *peer_id,
+                Self::handle_score_transition(previous_state, peer_id, info, &self.log),
             ));
         }
 
@@ -1244,7 +1244,7 @@ mod tests {
         assert_eq!(pdb.disconnected_peers, 0);
 
         for (_, p) in peer_list.iter() {
-            pdb.inject_disconnect(&p);
+            pdb.inject_disconnect(p);
             // Allow the timing to update correctly
         }
         assert_eq!(pdb.disconnected_peers, MAX_DC_PEERS);
@@ -1279,7 +1279,7 @@ mod tests {
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         for (_, p) in peer_list.iter() {
-            pdb.inject_disconnect(&p);
+            pdb.inject_disconnect(p);
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         println!("{}", pdb.disconnected_peers);
@@ -1693,7 +1693,7 @@ mod tests {
         let p5 = connect_peer_with_ips(&mut pdb, vec![ip5]);
 
         for p in &peers[..BANNED_PEERS_PER_IP_THRESHOLD + 1] {
-            let _ = pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
             pdb.inject_disconnect(p);
         }
 
@@ -1759,7 +1759,7 @@ mod tests {
 
         // ban all peers
         for p in &peers {
-            let _ = pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
             pdb.inject_disconnect(p);
         }
 
@@ -1778,7 +1778,7 @@ mod tests {
         // unban all peers
         for p in &peers {
             reset_score(&mut pdb, p);
-            pdb.update_connection_state(&p, NewConnectionState::Unbanned);
+            pdb.update_connection_state(p, NewConnectionState::Unbanned);
         }
 
         // add ip2 to all peers and ban them.
@@ -1786,7 +1786,7 @@ mod tests {
         socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
             pdb.connect_ingoing(p, socker_addr.clone(), None);
-            let _ = pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
             pdb.inject_disconnect(p);
         }
 
@@ -1797,12 +1797,12 @@ mod tests {
         // unban all peers
         for p in &peers {
             reset_score(&mut pdb, p);
-            pdb.update_connection_state(&p, NewConnectionState::Unbanned);
+            pdb.update_connection_state(p, NewConnectionState::Unbanned);
         }
 
         // reban every peer except one
         for p in &peers[1..] {
-            let _ = pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
             pdb.inject_disconnect(p);
         }
 

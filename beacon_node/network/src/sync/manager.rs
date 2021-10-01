@@ -650,7 +650,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .write()
             .update_sync_status(peer_id, new_state.clone())
         {
-            let is_connected = self.network_globals.peers.read().is_connected(&peer_id);
+            let is_connected = self.network_globals.peers.read().is_connected(peer_id);
             if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
                     "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,

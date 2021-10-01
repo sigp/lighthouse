@@ -228,7 +228,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // banned state.
                 self.events.push(PeerManagerEvent::DisconnectPeer(
                     *peer_id,
-                    reason.unwrap_or_else(|| GoodbyeReason::BadScore),
+                    reason.unwrap_or(GoodbyeReason::BadScore),
                 ));
             }
             BanOperation::PeerDisconnecting => {
@@ -941,7 +941,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut disconnecting_peers = Vec::new();
 
         let connected_peer_count = self.network_globals.connected_peers();
-        println!("Connected {}, target {}, min_outbound {}", connected_peer_count, self.target_peers, min_outbound_only_target);
+        println!(
+            "Connected {}, target {}, min_outbound {}",
+            connected_peer_count, self.target_peers, min_outbound_only_target
+        );
         if connected_peer_count > self.target_peers {
             // Remove excess peers with the worst scores, but keep subnet peers.
             // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
@@ -1216,7 +1219,6 @@ mod tests {
             20
         );
     }
-
 
     #[tokio::test]
     async fn test_peer_manager_remove_unhealthy_peers_brings_peers_below_target() {
