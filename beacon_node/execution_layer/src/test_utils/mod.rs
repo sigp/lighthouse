@@ -12,7 +12,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::sync::{oneshot, RwLock, RwLockWriteGuard};
+use tokio::sync::{oneshot, Mutex, RwLock, RwLockWriteGuard};
 use types::EthSpec;
 use warp::Filter;
 
@@ -32,6 +32,7 @@ pub struct MockServer<T: EthSpec> {
 impl<T: EthSpec> MockServer<T> {
     pub fn unit_testing() -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
+        let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator =
             ExecutionBlockGenerator::new(DEFAULT_TERMINAL_DIFFICULTY, DEFAULT_TERMINAL_BLOCK);
 
@@ -40,6 +41,7 @@ impl<T: EthSpec> MockServer<T> {
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
+            preloaded_responses,
             _phantom: PhantomData,
         });
 
@@ -83,6 +85,10 @@ impl<T: EthSpec> MockServer<T> {
             .take()
             .expect("last echo request is none")
     }
+
+    pub async fn push_preloaded_response(&self, response: serde_json::Value) {
+        self.ctx.preloaded_responses.lock().await.push(response)
+    }
 }
 
 #[derive(Debug)]
@@ -116,6 +122,7 @@ pub struct Context<T: EthSpec> {
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
+    pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub _phantom: PhantomData<T>,
 }
 
@@ -172,20 +179,33 @@ pub fn serve<T: EthSpec>(
                 .and_then(serde_json::Value::as_u64)
                 .ok_or_else(|| warp::reject::custom(MissingIdField))?;
 
-            let response = match handle_rpc(body, ctx).await {
-                Ok(result) => json!({
-                    "id": id,
-                    "jsonrpc": JSONRPC_VERSION,
-                    "result": result
-                }),
-                Err(message) => json!({
-                    "id": id,
-                    "jsonrpc": JSONRPC_VERSION,
-                    "error": {
-                        "code": -1234,   // Junk error code.
-                        "message": message
-                    }
-                }),
+            let preloaded_response = {
+                let mut preloaded_responses = ctx.preloaded_responses.lock().await;
+                if !preloaded_responses.is_empty() {
+                    Some(preloaded_responses.remove(0))
+                } else {
+                    None
+                }
+            };
+
+            let response = if let Some(preloaded_response) = preloaded_response {
+                preloaded_response
+            } else {
+                match handle_rpc(body, ctx).await {
+                    Ok(result) => json!({
+                        "id": id,
+                        "jsonrpc": JSONRPC_VERSION,
+                        "result": result
+                    }),
+                    Err(message) => json!({
+                        "id": id,
+                        "jsonrpc": JSONRPC_VERSION,
+                        "error": {
+                            "code": -1234,   // Junk error code.
+                            "message": message
+                        }
+                    }),
+                }
             };
 
             Ok::<_, warp::reject::Rejection>(
