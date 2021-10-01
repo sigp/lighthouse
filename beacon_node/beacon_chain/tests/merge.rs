@@ -5,8 +5,24 @@ const VALIDATOR_COUNT: usize = 32;
 
 type E = MainnetEthSpec;
 
+fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
+    let mut prev_ep: Option<ExecutionPayload<T>> = None;
+
+    for ep in chain {
+        assert!(*ep != ExecutionPayload::default());
+        assert!(ep.block_hash != Hash256::zero());
+
+        // Check against previous `ExecutionPayload`.
+        if let Some(prev_ep) = prev_ep {
+            assert_eq!(prev_ep.block_hash, ep.parent_hash);
+            assert_eq!(prev_ep.block_number + 1, ep.block_number);
+        }
+        prev_ep = Some(ep.clone());
+    }
+}
+
 #[test]
-fn basic_merge() {
+fn merge_with_terminal_block_after_fork() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
     let merge_fork_epoch = Epoch::new(8);
@@ -15,6 +31,8 @@ fn basic_merge() {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(altair_fork_epoch);
     spec.merge_fork_epoch = Some(merge_fork_epoch);
+
+    let mut execution_payloads = vec![];
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.clone())
@@ -83,15 +101,12 @@ fn basic_merge() {
      * Next merge block should include an exec payload.
      */
 
-    harness.extend_slots(1);
+    for _ in 0..4 {
+        harness.extend_slots(1);
 
-    let first_post_ttd_block = harness.chain.head().unwrap().beacon_block;
-    assert!(
-        *first_post_ttd_block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            != ExecutionPayload::default()
-    );
+        let block = harness.chain.head().unwrap().beacon_block;
+        execution_payloads.push(block.message().body().execution_payload().unwrap().clone());
+    }
+
+    verify_execution_payload_chain(&execution_payloads);
 }
