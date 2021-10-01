@@ -670,9 +670,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     ) -> Option<BanOperation> {
         let log_ref = &self.log;
         let info = self.peers.entry(*peer_id).or_insert_with(|| {
-            // If we are not creating a new connection, log a warning indicating we are updating a
+            // If we are not creating a new connection (or dropping a current inbound connection) log a warning indicating we are updating a
             // connection state for an unknown peer.
-            if !matches!(new_state, NewConnectionState::Connected { .. }) {
+            if !matches!(
+                new_state,
+                NewConnectionState::Connected { .. } | NewConnectionState::Disconnecting { .. }
+            ) {
                 warn!(log_ref, "Updating state of unknown peer";
                     "peer_id" => %peer_id, "new_state" => ?new_state);
             }
