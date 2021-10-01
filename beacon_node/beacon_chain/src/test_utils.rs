@@ -1467,11 +1467,16 @@ where
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
     pub fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
-        let current_slot = self.chain.slot().unwrap();
+        if self.chain.slot().unwrap() == self.chain.head_info().unwrap().slot {
+            self.advance_slot();
+        }
+
         let num_slots = target_slot
             .as_usize()
-            .checked_sub(current_slot.into())
-            .expect("target_slot must be >= current_slot");
+            .checked_sub(self.chain.slot().unwrap().as_usize())
+            .expect("target_slot must be >= current_slot")
+            .checked_add(1)
+            .unwrap();
 
         self.extend_slots(num_slots)
     }
@@ -1482,11 +1487,9 @@ where
     ///
     ///  - BlockStrategy::OnCanonicalHead,
     ///  - AttestationStrategy::AllValidators,
-    pub fn extend_slots(&self, mut num_slots: usize) -> Hash256 {
-        let current_slot = self.chain.slot().unwrap();
-        if current_slot == self.chain.head_info().unwrap().slot {
+    pub fn extend_slots(&self, num_slots: usize) -> Hash256 {
+        if self.chain.slot().unwrap() == self.chain.head_info().unwrap().slot {
             self.advance_slot();
-            num_slots += 1;
         }
 
         self.extend_chain(

@@ -23,49 +23,75 @@ fn basic_merge() {
         .mock_execution_layer()
         .build();
 
+    /*
+     * Start with the base fork.
+     */
+
     assert!(harness.chain.head().unwrap().beacon_block.as_base().is_ok());
+
+    /*
+     * Do the Altair fork.
+     */
 
     harness.extend_to_slot(altair_fork_slot);
 
-    assert!(harness
-        .chain
-        .head()
-        .unwrap()
-        .beacon_block
-        .as_altair()
-        .is_ok());
+    let altair_head = harness.chain.head().unwrap().beacon_block;
+    assert!(altair_head.as_altair().is_ok());
+    assert_eq!(altair_head.slot(), altair_fork_slot);
+
+    /*
+     * Do the merge fork, without a terminal PoW block.
+     */
 
     harness.extend_to_slot(merge_fork_slot);
 
-    let head_block = harness.chain.head().unwrap().beacon_block;
-    assert!(head_block.as_merge().is_ok());
+    let merge_head = harness.chain.head().unwrap().beacon_block;
+    assert!(merge_head.as_merge().is_ok());
+    assert_eq!(merge_head.slot(), merge_fork_slot);
     assert_eq!(
-        *head_block.message().body().execution_payload().unwrap(),
+        *merge_head.message().body().execution_payload().unwrap(),
         ExecutionPayload::default()
     );
+
+    /*
+     * Next merge block shouldn't include an exec payload.
+     */
 
     harness.extend_slots(1);
 
+    let one_after_merge_head = harness.chain.head().unwrap().beacon_block;
     assert_eq!(
-        *head_block.message().body().execution_payload().unwrap(),
+        *one_after_merge_head
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap(),
         ExecutionPayload::default()
     );
+    assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 1);
+
+    /*
+     * Trigger the terminal PoW block.
+     */
 
     harness
         .execution_block_generator()
         .move_to_terminal_block()
         .unwrap();
 
-    dbg!(
-        harness
-            .execution_block_generator()
-            .terminal_total_difficulty
-    );
-    dbg!(spec.terminal_total_difficulty);
+    /*
+     * Next merge block should include an exec payload.
+     */
 
     harness.extend_slots(1);
 
+    let first_post_ttd_block = harness.chain.head().unwrap().beacon_block;
     assert!(
-        *head_block.message().body().execution_payload().unwrap() != ExecutionPayload::default()
+        *first_post_ttd_block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            != ExecutionPayload::default()
     );
 }
