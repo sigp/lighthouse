@@ -174,13 +174,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
-        if block_number > self.terminal_block_number {
-            return Err(format!(
-                "{} is beyond terminal pow block {}",
-                block_number, self.terminal_block_number
-            ));
-        }
-
         let parent_hash = if block_number == 0 {
             Hash256::zero()
         } else if let Some(hash) = self.block_hashes.get(&(block_number - 1)) {
@@ -192,27 +185,12 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ));
         };
 
-        let total_difficulty = if block_number == self.terminal_block_number {
-            self.terminal_total_difficulty
-        } else {
-            let increment = self
-                .terminal_total_difficulty
-                .checked_div(Uint256::from(self.terminal_block_number))
-                .expect("terminal block number must be non-zero");
-            increment
-                .checked_mul(Uint256::from(block_number))
-                .expect("overflow computing total difficulty")
-                .into()
-        };
-
-        let mut block = PoWBlock {
+        let block = generate_pow_block(
+            self.terminal_total_difficulty,
+            self.terminal_block_number,
             block_number,
-            block_hash: Hash256::zero(),
             parent_hash,
-            total_difficulty,
-        };
-
-        block.block_hash = block.tree_hash_root();
+        )?;
 
         self.insert_block(Block::PoW(block))
     }
@@ -335,6 +313,42 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
         Ok(())
     }
+}
+
+pub fn generate_pow_block(
+    terminal_total_difficulty: Uint256,
+    terminal_block_number: u64,
+    block_number: u64,
+    parent_hash: Hash256,
+) -> Result<PoWBlock, String> {
+    if block_number > terminal_block_number {
+        return Err(format!(
+            "{} is beyond terminal pow block {}",
+            block_number, terminal_block_number
+        ));
+    }
+
+    let total_difficulty = if block_number == terminal_block_number {
+        terminal_total_difficulty
+    } else {
+        let increment = terminal_total_difficulty
+            .checked_div(Uint256::from(terminal_block_number))
+            .expect("terminal block number must be non-zero");
+        increment
+            .checked_mul(Uint256::from(block_number))
+            .expect("overflow computing total difficulty")
+    };
+
+    let mut block = PoWBlock {
+        block_number,
+        block_hash: Hash256::zero(),
+        parent_hash,
+        total_difficulty,
+    };
+
+    block.block_hash = block.tree_hash_root();
+
+    Ok(block)
 }
 
 #[cfg(test)]
