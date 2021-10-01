@@ -279,7 +279,7 @@ where
     }
 
     pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = Some(spec.unwrap_or_else(E::default_spec));
+        self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
         self
     }
 
