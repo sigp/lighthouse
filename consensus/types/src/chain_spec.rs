@@ -569,6 +569,12 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    merge_fork_version: [u8; 4],
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub merge_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -659,6 +665,10 @@ impl Config {
             altair_fork_epoch: spec
                 .altair_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+            merge_fork_version: spec.merge_fork_version,
+            merge_fork_epoch: spec
+                .merge_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
@@ -695,6 +705,8 @@ impl Config {
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch,
+            merge_fork_epoch,
+            merge_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -721,6 +733,8 @@ impl Config {
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
+            merge_fork_epoch: merge_fork_epoch.map(|q| q.value),
+            merge_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
