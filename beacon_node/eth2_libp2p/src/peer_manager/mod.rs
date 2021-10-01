@@ -941,10 +941,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut disconnecting_peers = Vec::new();
 
         let connected_peer_count = self.network_globals.connected_peers();
-        println!(
-            "Connected {}, target {}, min_outbound {}",
-            connected_peer_count, self.target_peers, min_outbound_only_target
-        );
         if connected_peer_count > self.target_peers {
             // Remove excess peers with the worst scores, but keep subnet peers.
             // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
@@ -973,7 +969,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         for peer_id in disconnecting_peers {
-            println!("Dropping peer: {}", peer_id);
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
         }
     }
