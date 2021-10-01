@@ -519,7 +519,7 @@ mod test {
             F: Future<Output = ()>,
         {
             request_func(self.echo_client.clone()).await;
-            let request_bytes = self.server.last_echo_request().await;
+            let request_bytes = self.server.last_echo_request();
             let request_json: serde_json::Value =
                 serde_json::from_slice(&request_bytes).expect("request was not valid json");
             if request_json != expected_json {

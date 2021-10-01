@@ -3,8 +3,8 @@
 use crate::engine_api::http::JSONRPC_VERSION;
 use bytes::Bytes;
 use environment::null_logger;
-use execution_block_generator::ExecutionBlockGenerator;
 use handle_rpc::handle_rpc;
+use parking_lot::{RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slog::{info, Logger};
@@ -12,10 +12,11 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex, RwLock, RwLockWriteGuard};
-use types::EthSpec;
+use tokio::{runtime, sync::oneshot};
+use types::{EthSpec, Uint256};
 use warp::Filter;
 
+pub use execution_block_generator::ExecutionBlockGenerator;
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
@@ -34,10 +35,18 @@ pub struct MockServer<T: EthSpec> {
 
 impl<T: EthSpec> MockServer<T> {
     pub fn unit_testing() -> Self {
-        Self::new(DEFAULT_TERMINAL_DIFFICULTY, DEFAULT_TERMINAL_BLOCK)
+        Self::new(
+            &runtime::Handle::current(),
+            DEFAULT_TERMINAL_DIFFICULTY.into(),
+            DEFAULT_TERMINAL_BLOCK,
+        )
     }
 
-    pub fn new(terminal_difficulty: u64, terminal_block: u64) -> Self {
+    pub fn new(
+        handle: &runtime::Handle,
+        terminal_difficulty: Uint256,
+        terminal_block: u64,
+    ) -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator =
@@ -59,9 +68,11 @@ impl<T: EthSpec> MockServer<T> {
             let _ = shutdown_rx.await;
         };
 
-        let (listen_socket_addr, server_future) = serve(ctx.clone(), shutdown_future).unwrap();
+        let (listen_socket_addr, server_future) = handle
+            .block_on(async { serve(ctx.clone(), shutdown_future) })
+            .unwrap();
 
-        tokio::spawn(server_future);
+        handle.spawn(server_future);
 
         Self {
             _shutdown_tx: shutdown_tx,
@@ -71,10 +82,8 @@ impl<T: EthSpec> MockServer<T> {
         }
     }
 
-    pub async fn execution_block_generator(
-        &self,
-    ) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
-        self.ctx.execution_block_generator.write().await
+    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
+        self.ctx.execution_block_generator.write()
     }
 
     pub fn url(&self) -> String {
@@ -85,10 +94,9 @@ impl<T: EthSpec> MockServer<T> {
         )
     }
 
-    pub async fn last_echo_request(&self) -> Bytes {
+    pub fn last_echo_request(&self) -> Bytes {
         self.last_echo_request
             .write()
-            .await
             .take()
             .expect("last echo request is none")
     }
@@ -229,7 +237,7 @@ pub fn serve<T: EthSpec>(
         .and(warp::body::bytes())
         .and(ctx_filter)
         .and_then(|bytes: Bytes, ctx: Arc<Context<T>>| async move {
-            *ctx.last_echo_request.write().await = Some(bytes.clone());
+            *ctx.last_echo_request.write() = Some(bytes.clone());
             Ok::<_, warp::reject::Rejection>(
                 warp::http::Response::builder().status(200).body(bytes),
             )

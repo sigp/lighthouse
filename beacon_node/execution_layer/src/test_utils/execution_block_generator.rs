@@ -43,7 +43,7 @@ impl<T: EthSpec> Block<T> {
         }
     }
 
-    pub fn as_execution_block(&self, total_difficulty: u64) -> ExecutionBlock {
+    pub fn as_execution_block(&self, total_difficulty: Uint256) -> ExecutionBlock {
         match self {
             Block::PoW(block) => ExecutionBlock {
                 block_hash: block.block_hash,
@@ -55,7 +55,7 @@ impl<T: EthSpec> Block<T> {
                 block_hash: payload.block_hash,
                 block_number: payload.block_number,
                 parent_hash: payload.parent_hash,
-                total_difficulty: total_difficulty.into(),
+                total_difficulty: total_difficulty,
             },
         }
     }
@@ -79,7 +79,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * PoW block parameters
      */
-    pub terminal_total_difficulty: u64,
+    pub terminal_total_difficulty: Uint256,
     pub terminal_block_number: u64,
     /*
      * PoS block parameters
@@ -90,7 +90,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
-    pub fn new(terminal_total_difficulty: u64, terminal_block_number: u64) -> Self {
+    pub fn new(terminal_total_difficulty: Uint256, terminal_block_number: u64) -> Self {
         let mut gen = Self {
             blocks: <_>::default(),
             block_hashes: <_>::default(),
@@ -140,6 +140,25 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
+    pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
+        let target_block = self
+            .terminal_block_number
+            .checked_sub(1)
+            .ok_or("terminal pow block is 0")?;
+        self.move_to_pow_block(target_block)
+    }
+
+    pub fn move_to_terminal_block(&mut self) -> Result<(), String> {
+        self.move_to_pow_block(self.terminal_block_number)
+    }
+
+    pub fn move_to_pow_block(&mut self, target_block: u64) -> Result<(), String> {
+        let next_block = self.latest_block().unwrap().block_number() + 1;
+        assert!(target_block >= next_block);
+
+        self.insert_pow_blocks(next_block..=target_block)
+    }
+
     pub fn insert_pow_blocks(
         &mut self,
         block_numbers: impl Iterator<Item = u64>,
@@ -172,10 +191,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
         let increment = self
             .terminal_total_difficulty
-            .checked_div(self.terminal_block_number)
+            .checked_div(Uint256::from(self.terminal_block_number))
             .expect("terminal block number must be non-zero");
         let total_difficulty = increment
-            .checked_mul(block_number)
+            .checked_mul(Uint256::from(block_number))
             .expect("overflow computing total difficulty")
             .into();
 
@@ -323,7 +342,7 @@ mod test {
         const DIFFICULTY_INCREMENT: u64 = 1;
 
         let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
-            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
+            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY.into(), TERMINAL_BLOCK);
 
         for i in 0..=TERMINAL_BLOCK {
             if i > 0 {

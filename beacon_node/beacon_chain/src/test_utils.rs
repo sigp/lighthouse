@@ -12,7 +12,7 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use execution_layer::{
-    test_utils::{MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
+    test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
     ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
@@ -20,6 +20,7 @@ pub use genesis::interop_genesis_state;
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
+use parking_lot::RwLockWriteGuard;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -381,6 +382,7 @@ where
             chain: Arc::new(chain),
             validator_keypairs,
             shutdown_receiver,
+            mock_execution_layer: self.mock_execution_layer,
             rng: make_rng(),
         }
     }
@@ -396,6 +398,8 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
     pub shutdown_receiver: Receiver<ShutdownReason>,
+
+    pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -422,6 +426,14 @@ where
 
     pub fn logger(&self) -> &slog::Logger {
         &self.chain.log
+    }
+
+    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
+        self.mock_execution_layer
+            .as_ref()
+            .expect("harness was not built with mock execution layer")
+            .server
+            .execution_block_generator()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1451,6 +1463,37 @@ where
         _block_strategy: BlockStrategy,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         self.make_block(state, slot)
+    }
+
+    /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
+    pub fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
+        let current_slot = self.chain.slot().unwrap();
+        let num_slots = target_slot
+            .as_usize()
+            .checked_sub(current_slot.into())
+            .expect("target_slot must be >= current_slot");
+
+        self.extend_slots(num_slots)
+    }
+
+    /// Uses `Self::extend_chain` to `num_slots` blocks.
+    ///
+    /// Utilizes:
+    ///
+    ///  - BlockStrategy::OnCanonicalHead,
+    ///  - AttestationStrategy::AllValidators,
+    pub fn extend_slots(&self, mut num_slots: usize) -> Hash256 {
+        let current_slot = self.chain.slot().unwrap();
+        if current_slot == self.chain.head_info().unwrap().slot {
+            self.advance_slot();
+            num_slots += 1;
+        }
+
+        self.extend_chain(
+            num_slots,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
     }
 
     /// Deprecated: Use add_attested_blocks_at_slots() instead

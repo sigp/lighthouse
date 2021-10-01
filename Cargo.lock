@@ -2021,6 +2021,7 @@ dependencies = [
  "futures",
  "hex",
  "lru",
+ "parking_lot",
  "reqwest",
  "sensitive_url",
  "serde",

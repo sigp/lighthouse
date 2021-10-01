@@ -21,11 +21,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     }
 
     pub fn new(terminal_total_difficulty: Uint256, terminal_block: u64) -> Self {
-        let server = MockServer::new(terminal_total_difficulty.as_u64(), terminal_block);
-
-        let url = SensitiveUrl::parse(&server.url()).unwrap();
-        let log = null_logger().unwrap();
-
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -34,7 +29,12 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         );
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let log = null_logger().unwrap();
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+
+        let server = MockServer::new(runtime.handle(), terminal_total_difficulty, terminal_block);
+
+        let url = SensitiveUrl::parse(&server.url()).unwrap();
 
         let el = ExecutionLayer::from_urls(
             vec![url],
@@ -56,7 +56,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
     pub async fn produce_valid_execution_payload_on_head(self) -> Self {
         let latest_execution_block = {
-            let block_gen = self.server.execution_block_generator().await;
+            let block_gen = self.server.execution_block_generator();
             block_gen.latest_block().unwrap()
         };
 
@@ -94,7 +94,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .unwrap();
 
         let head_execution_block = {
-            let block_gen = self.server.execution_block_generator().await;
+            let block_gen = self.server.execution_block_generator();
             block_gen.latest_block().unwrap()
         };
 
@@ -105,32 +105,19 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         self
     }
 
-    pub async fn move_to_block_prior_to_terminal_block(self) -> Self {
-        let target_block = {
-            let block_gen = self.server.execution_block_generator().await;
-            block_gen.terminal_block_number.checked_sub(1).unwrap()
-        };
-        self.move_to_pow_block(target_block).await
+    pub fn move_to_block_prior_to_terminal_block(self) -> Self {
+        self.server
+            .execution_block_generator()
+            .move_to_block_prior_to_terminal_block()
+            .unwrap();
+        self
     }
 
-    pub async fn move_to_terminal_block(self) -> Self {
-        let target_block = {
-            let block_gen = self.server.execution_block_generator().await;
-            block_gen.terminal_block_number
-        };
-        self.move_to_pow_block(target_block).await
-    }
-
-    pub async fn move_to_pow_block(self, target_block: u64) -> Self {
-        {
-            let mut block_gen = self.server.execution_block_generator().await;
-            let next_block = block_gen.latest_block().unwrap().block_number() + 1;
-            assert!(target_block >= next_block);
-
-            block_gen
-                .insert_pow_blocks(next_block..=target_block)
-                .unwrap();
-        }
+    pub fn move_to_terminal_block(self) -> Self {
+        self.server
+            .execution_block_generator()
+            .move_to_terminal_block()
+            .unwrap();
         self
     }
 
@@ -142,12 +129,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let terminal_block_number = self
             .server
             .execution_block_generator()
-            .await
             .terminal_block_number;
         let terminal_block = self
             .server
             .execution_block_generator()
-            .await
             .execution_block_by_number(terminal_block_number);
 
         func(self.el.clone(), terminal_block).await;

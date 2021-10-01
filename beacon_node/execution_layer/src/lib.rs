@@ -561,7 +561,6 @@ mod test {
     async fn produce_three_valid_pos_execution_blocks() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
@@ -574,13 +573,11 @@ mod test {
     async fn finds_valid_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_block_prior_to_terminal_block()
-            .await
             .with_terminal_block(|el, _| async move {
                 assert_eq!(el.get_terminal_pow_block_hash().await.unwrap(), None)
             })
             .await
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, terminal_block| async move {
                 assert_eq!(
                     el.get_terminal_pow_block_hash().await.unwrap(),
@@ -594,7 +591,6 @@ mod test {
     async fn verifies_valid_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, terminal_block| async move {
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash)
@@ -610,7 +606,6 @@ mod test {
     async fn rejects_invalid_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, terminal_block| async move {
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
@@ -628,7 +623,6 @@ mod test {
     async fn rejects_unknown_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, _| async move {
                 let missing_terminal_block = Hash256::repeat_byte(42);
 
