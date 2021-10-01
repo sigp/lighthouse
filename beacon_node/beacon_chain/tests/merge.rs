@@ -1,4 +1,5 @@
 use beacon_chain::test_utils::BeaconChainHarness;
+use execution_layer::test_utils::{generate_pow_block, DEFAULT_TERMINAL_BLOCK};
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -22,7 +23,66 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
 }
 
 #[test]
-fn merge_with_terminal_block_after_fork() {
+fn base_altair_merge_with_terminal_block_after_fork() {
+    let altair_fork_epoch = Epoch::new(0);
+    let merge_fork_epoch = Epoch::new(0);
+
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(altair_fork_epoch);
+    spec.merge_fork_epoch = Some(merge_fork_epoch);
+
+    let genesis_pow_block_hash = generate_pow_block(
+        spec.terminal_total_difficulty,
+        DEFAULT_TERMINAL_BLOCK,
+        0,
+        Hash256::zero(),
+    )
+    .unwrap()
+    .block_hash;
+
+    spec.terminal_block_hash = genesis_pow_block_hash;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    assert_eq!(
+        harness
+            .execution_block_generator()
+            .latest_block()
+            .unwrap()
+            .block_hash(),
+        genesis_pow_block_hash,
+        "pre-condition"
+    );
+
+    assert!(
+        harness
+            .chain
+            .head()
+            .unwrap()
+            .beacon_block
+            .as_merge()
+            .is_ok(),
+        "genesis block should be a merge block"
+    );
+
+    let mut execution_payloads = vec![];
+    for _ in 0..E::slots_per_epoch() * 3 {
+        harness.extend_slots(1);
+
+        let block = harness.chain.head().unwrap().beacon_block;
+        execution_payloads.push(block.message().body().execution_payload().unwrap().clone());
+    }
+
+    verify_execution_payload_chain(&execution_payloads);
+}
+
+#[test]
+fn merge_with_terminal_block_hash_override() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
     let merge_fork_epoch = Epoch::new(8);
@@ -35,7 +95,7 @@ fn merge_with_terminal_block_after_fork() {
     let mut execution_payloads = vec![];
 
     let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec.clone())
+        .spec(spec)
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
