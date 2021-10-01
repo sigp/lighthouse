@@ -15,5 +15,4 @@ slot_clock = { path = "../../common/slot_clock" }
 state_processing = { path = "../../consensus/state_processing" }
 task_executor = { path = "../../common/task_executor" }
 tokio = { version = "1.10.0", features = ["full"] }
-tokio-stream = "0.1.3"
 types = { path = "../../consensus/types" }

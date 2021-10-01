@@ -14,7 +14,6 @@ eth2_config = { path = "../eth2_config"}
 tempfile = "3.1.0"
 
 [dependencies]
-serde = "1.0.116"
 serde_yaml = "0.8.13"
 types = { path = "../../consensus/types"}
 eth2_ssz = "0.4.0"

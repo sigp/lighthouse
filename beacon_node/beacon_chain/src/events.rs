@@ -14,6 +14,7 @@ pub struct ServerSentEventHandler<T: EthSpec> {
     exit_tx: Sender<EventKind<T>>,
     chain_reorg_tx: Sender<EventKind<T>>,
     contribution_tx: Sender<EventKind<T>>,
+    late_head: Sender<EventKind<T>>,
     log: Logger,
 }
 
@@ -30,6 +31,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (exit_tx, _) = broadcast::channel(capacity);
         let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
+        let (late_head, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -39,6 +41,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             exit_tx,
             chain_reorg_tx,
             contribution_tx,
+            late_head,
             log,
         }
     }
@@ -62,6 +65,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .map(|count| trace!(self.log, "Registering server-sent chain reorg event"; "receiver_count" => count)),
             EventKind::ContributionAndProof(contribution_and_proof) => self.contribution_tx.send(EventKind::ContributionAndProof(contribution_and_proof))
                 .map(|count| trace!(self.log, "Registering server-sent contribution and proof event"; "receiver_count" => count)),
+            EventKind::LateHead(late_head) => self.late_head.send(EventKind::LateHead(late_head))
+                .map(|count| trace!(self.log, "Registering server-sent late head event"; "receiver_count" => count)),
         };
         if let Err(SendError(event)) = result {
             trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);
@@ -96,6 +101,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         self.contribution_tx.subscribe()
     }
 
+    pub fn subscribe_late_head(&self) -> Receiver<EventKind<T>> {
+        self.late_head.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -122,5 +131,9 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn has_contribution_subscribers(&self) -> bool {
         self.contribution_tx.receiver_count() > 0
+    }
+
+    pub fn has_late_head_subscribers(&self) -> bool {
+        self.late_head.receiver_count() > 0
     }
 }

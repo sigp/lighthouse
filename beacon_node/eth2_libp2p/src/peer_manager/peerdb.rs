@@ -515,10 +515,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Notifies the peer manager that the peer is undergoing a normal disconnect. Optionally tag
     /// the peer to be banned after the disconnect.
     pub fn notify_disconnecting(&mut self, peer_id: PeerId, to_ban_afterwards: bool) {
-        self.peers
-            .entry(peer_id)
-            .or_default()
-            .disconnecting(to_ban_afterwards);
+        let peer_info = self.peers.entry(peer_id).or_default();
+
+        if matches!(
+            peer_info.connection_status(),
+            PeerConnectionStatus::Disconnected { .. }
+        ) {
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
+        peer_info.disconnecting(to_ban_afterwards);
     }
 
     /// Marks a peer to be disconnected and then banned.
@@ -609,7 +614,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         info.update_state();
 
         // This transitions a banned peer to a disconnected peer
-        self.disconnected_peers = self.disconnected_peers.saturating_add(1);
+        self.disconnected_peers = self.disconnected_peers().count().saturating_add(1);
         self.shrink_to_fit();
         Ok(())
     }

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
+use std::time::Duration;
 pub use types::*;
 
 /// An API error serializable to JSON.
@@ -761,6 +762,20 @@ pub struct SseChainReorg {
     pub epoch: Epoch,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseLateHead {
+    pub slot: Slot,
+    pub block: Hash256,
+    pub proposer_index: u64,
+    pub peer_id: Option<String>,
+    pub peer_client: Option<String>,
+    pub proposer_graffiti: String,
+    pub block_delay: Duration,
+    pub observed_delay: Option<Duration>,
+    pub imported_delay: Option<Duration>,
+    pub set_as_head_delay: Option<Duration>,
+}
+
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
@@ -771,6 +786,7 @@ pub enum EventKind<T: EthSpec> {
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<T>>),
+    LateHead(SseLateHead),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -783,6 +799,7 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
             EventKind::ChainReorg(_) => "chain_reorg",
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
+            EventKind::LateHead(_) => "late_head",
         }
     }
 
@@ -822,6 +839,9 @@ impl<T: EthSpec> EventKind<T> {
             "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
             )?)),
+            "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
+            )?)),
             "voluntary_exit" => Ok(EventKind::VoluntaryExit(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
@@ -854,6 +874,7 @@ pub enum EventTopic {
     FinalizedCheckpoint,
     ChainReorg,
     ContributionAndProof,
+    LateHead,
 }
 
 impl FromStr for EventTopic {
@@ -868,6 +889,7 @@ impl FromStr for EventTopic {
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
             "chain_reorg" => Ok(EventTopic::ChainReorg),
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
+            "late_head" => Ok(EventTopic::LateHead),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -883,6 +905,7 @@ impl fmt::Display for EventTopic {
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
+            EventTopic::LateHead => write!(f, "late_head"),
         }
     }
 }

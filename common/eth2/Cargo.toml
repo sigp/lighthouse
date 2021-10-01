@@ -10,12 +10,10 @@ edition = "2018"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.58"
 types = { path = "../../consensus/types" }
-hex = "0.4.2"
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 eth2_libp2p = { path = "../../beacon_node/eth2_libp2p" }
 proto_array = { path = "../../consensus/proto_array", optional = true }
 eth2_serde_utils = "0.1.0"
-zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 libsecp256k1 = "0.6.0"
 ring = "0.16.19"

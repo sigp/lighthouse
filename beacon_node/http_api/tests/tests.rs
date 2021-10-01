@@ -1252,7 +1252,7 @@ impl ApiTester {
 
         let expected = DepositContractData {
             address: self.chain.spec.deposit_contract_address,
-            chain_id: eth1::DEFAULT_NETWORK_ID.into(),
+            chain_id: self.chain.spec.deposit_chain_id,
         };
 
         assert_eq!(result, expected);

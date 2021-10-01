@@ -19,7 +19,6 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "1.10.0", features = ["time", "macros"] }
 futures = "0.3.7"
-futures-io = "0.3.7"
 error-chain = "0.12.4"
 dirs = "3.0.1"
 fnv = "1.0.7"
@@ -30,9 +29,7 @@ tokio-io-timeout = "1.1.1"
 lru = "0.6.0"
 parking_lot = "0.11.0"
 sha2 = "0.9.1"
-base64 = "0.13.0"
 snap = "1.0.1"
-void = "1.0.2"
 hex = "0.4.2"
 tokio-util = { version = "0.6.2", features = ["codec", "compat", "time"] }
 tiny-keccak = "2.0.2"
@@ -55,7 +52,6 @@ rev = "ce23cbe76a0382b6fcb0e49f1b2612df86f6465d"
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
-tokio = { version = "1.10.0", features = ["full"] }
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempfile = "3.1.0"
