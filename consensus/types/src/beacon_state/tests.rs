@@ -3,6 +3,7 @@ use crate::test_utils::*;
 use crate::test_utils::{SeedableRng, XorShiftRng};
 use beacon_chain::test_utils::{
     interop_genesis_state, test_spec, BeaconChainHarness, EphemeralHarnessType,
+    DEFAULT_ETH1_BLOCK_HASH,
 };
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
@@ -557,7 +558,13 @@ fn tree_hash_cache_linear_history_long_skip() {
     let spec = &test_spec::<MinimalEthSpec>();
 
     // This state has a cache that advances normally each slot.
-    let mut state: BeaconState<MinimalEthSpec> = interop_genesis_state(&keypairs, 0, spec).unwrap();
+    let mut state: BeaconState<MinimalEthSpec> = interop_genesis_state(
+        &keypairs,
+        0,
+        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        spec,
+    )
+    .unwrap();
 
     state.update_tree_hash_cache().unwrap();
 
