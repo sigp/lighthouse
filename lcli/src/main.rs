@@ -402,6 +402,15 @@ fn main() {
                             "The epoch at which to enable the Altair hard fork",
                         ),
                 )
+                .arg(
+                    Arg::with_name("merge-fork-epoch")
+                        .long("merge-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Merge hard fork",
+                        ),
+                )
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")
