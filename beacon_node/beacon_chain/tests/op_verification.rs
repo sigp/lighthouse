@@ -2,13 +2,11 @@
 
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use lazy_static::lazy_static;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
