@@ -7,6 +7,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{EthSpec, ExecutionPayload, Hash256, Uint256};
 
+const GAS_LIMIT: u64 = 16384;
+const GAS_USED: u64 = GAS_LIMIT - 1;
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)] // This struct is only for testing.
 pub enum Block<T: EthSpec> {
@@ -256,8 +259,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             logs_bloom: vec![0; 256].into(),
             random: payload.random,
             block_number: parent.block_number() + 1,
-            gas_limit: 10,
-            gas_used: 9,
+            gas_limit: GAS_LIMIT,
+            gas_used: GAS_USED,
             timestamp: payload.timestamp,
             extra_data: "block gen was here".as_bytes().to_vec().into(),
             base_fee_per_gas: Hash256::from_low_u64_le(1),
