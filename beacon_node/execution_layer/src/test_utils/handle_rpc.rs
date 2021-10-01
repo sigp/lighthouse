@@ -63,20 +63,20 @@ pub async fn handle_rpc<T: EthSpec>(
                 .await
                 .prepare_payload(request)?;
 
-            Ok(serde_json::to_value(JsonPayloadId { payload_id }).unwrap())
+            Ok(serde_json::to_value(JsonPayloadIdResponse { payload_id }).unwrap())
         }
         ENGINE_EXECUTE_PAYLOAD => {
             let request: JsonExecutionPayload<T> = get_param_0(params)?;
-            let response = ctx
+            let status = ctx
                 .execution_block_generator
                 .write()
                 .await
                 .execute_payload(request.into());
 
-            Ok(serde_json::to_value(response).unwrap())
+            Ok(serde_json::to_value(ExecutePayloadResponseWrapper { status }).unwrap())
         }
         ENGINE_GET_PAYLOAD => {
-            let request: JsonPayloadId = get_param_0(params)?;
+            let request: JsonPayloadIdRequest = get_param_0(params)?;
             let id = request.payload_id;
 
             let response = ctx

@@ -152,7 +152,7 @@ impl EngineApi for HttpJsonRpc {
             fee_recipient
         }]);
 
-        let response: JsonPayloadId = self
+        let response: JsonPayloadIdResponse = self
             .rpc_request(
                 ENGINE_PREPARE_PAYLOAD,
                 params,
@@ -169,19 +169,22 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<ExecutePayloadResponse, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
-        self.rpc_request(
-            ENGINE_EXECUTE_PAYLOAD,
-            params,
-            ENGINE_EXECUTE_PAYLOAD_TIMEOUT,
-        )
-        .await
+        let result: ExecutePayloadResponseWrapper = self
+            .rpc_request(
+                ENGINE_EXECUTE_PAYLOAD,
+                params,
+                ENGINE_EXECUTE_PAYLOAD_TIMEOUT,
+            )
+            .await?;
+
+        Ok(result.status)
     }
 
     async fn get_payload<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let params = json!([JsonPayloadId { payload_id }]);
+        let params = json!([JsonPayloadIdRequest { payload_id }]);
 
         let response: JsonExecutionPayload<T> = self
             .rpc_request(ENGINE_GET_PAYLOAD, params, ENGINE_GET_PAYLOAD_TIMEOUT)
@@ -260,11 +263,26 @@ pub struct JsonPreparePayloadRequest {
     pub fee_recipient: Address,
 }
 
+/// On the request, just provide the `payload_id`, without the object wrapper (transparent).
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent, rename_all = "camelCase")]
-pub struct JsonPayloadId {
+pub struct JsonPayloadIdRequest {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub payload_id: u64,
+}
+
+/// On the response, expect without the object wrapper (non-transparent).
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonPayloadIdResponse {
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub payload_id: u64,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutePayloadResponseWrapper {
+    pub status: ExecutePayloadResponse,
 }
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -464,22 +482,29 @@ mod test {
     use super::*;
     use crate::test_utils::MockServer;
     use std::future::Future;
+    use std::str::FromStr;
     use std::sync::Arc;
     use types::MainnetEthSpec;
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
+        rpc_client: Arc<HttpJsonRpc>,
         echo_client: Arc<HttpJsonRpc>,
     }
 
     impl Tester {
         pub fn new() -> Self {
             let server = MockServer::unit_testing();
+
+            let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
+            let rpc_client = Arc::new(HttpJsonRpc::new(rpc_url).unwrap());
+
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
             let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());
 
             Self {
                 server,
+                rpc_client,
                 echo_client,
             }
         }
@@ -504,6 +529,22 @@ mod test {
                     expected_json.to_string()
                 )
             }
+            self
+        }
+
+        pub async fn with_preloaded_responses<R, F>(
+            self,
+            preloaded_responses: Vec<serde_json::Value>,
+            request_func: R,
+        ) -> Self
+        where
+            R: Fn(Arc<HttpJsonRpc>) -> F,
+            F: Future<Output = ()>,
+        {
+            for response in preloaded_responses {
+                self.server.push_preloaded_response(response).await;
+            }
+            request_func(self.rpc_client.clone()).await;
             self
         }
     }
@@ -840,6 +881,182 @@ mod test {
                         "finalizedBlockHash": HASH_01,
                     }]
                 }),
+            )
+            .await;
+    }
+
+    /// Test vectors provided by Geth:
+    ///
+    /// https://notes.ethereum.org/@9AeMAlpyQYaAAyuj47BzRw/rkwW3ceVY
+    ///
+    /// The `id` field has been modified on these vectors to match the one we use.
+    #[tokio::test]
+    async fn geth_test_vectors() {
+        Tester::new()
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .prepare_payload(
+                            Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            5,
+                            Hash256::zero(),
+                            Address::zero(),
+                        )
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_preparePayload","params":[{"parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131", "timestamp":"0x5", "random":"0x0000000000000000000000000000000000000000000000000000000000000000", "feeRecipient":"0x0000000000000000000000000000000000000000"}],"id": 1}"#).unwrap()
+            )
+            .await
+            .with_preloaded_responses(
+                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":1,"result":{"payloadId":"0x0"}}"#).unwrap()],
+                |client| async move {
+                    let payload_id = client
+                        .prepare_payload(
+                            Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            5,
+                            Hash256::zero(),
+                            Address::zero(),
+                        )
+                        .await
+                        .unwrap();
+
+                    assert_eq!(payload_id, 0);
+                },
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .get_payload::<MainnetEthSpec>(0)
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_getPayload","params":["0x0"],"id":1}"#).unwrap()
+            )
+            .await
+            .with_preloaded_responses(
+                // Note: this response has been modified due to errors in the test vectors:
+                //
+                // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
+                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}}"#).unwrap()],
+                |client| async move {
+                    let payload = client
+                        .get_payload::<MainnetEthSpec>(0)
+                        .await
+                        .unwrap();
+
+                    let expected =  ExecutionPayload {
+                            parent_hash: Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
+                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            logs_bloom: vec![0; 256].into(),
+                            random: Hash256::zero(),
+                            block_number: 1,
+                            gas_limit: 10000000,
+                            gas_used: 0,
+                            timestamp: 5,
+                            extra_data: vec![].into(),
+                            base_fee_per_gas: uint256_to_hash256(Uint256::from(0)),
+                            block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            transactions: vec![].into(),
+                        };
+
+                    assert_eq!(payload, expected);
+                },
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .execute_payload::<MainnetEthSpec>(ExecutionPayload {
+                            parent_hash: Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
+                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            logs_bloom: vec![0; 256].into(),
+                            random: Hash256::zero(),
+                            block_number: 1,
+                            gas_limit: 10000000,
+                            gas_used: 0,
+                            timestamp: 5,
+                            extra_data: vec![].into(),
+                            base_fee_per_gas: uint256_to_hash256(Uint256::from(0)),
+                            block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            transactions: vec![].into(),
+                        })
+                        .await;
+                },
+                // Note: I have renamed the `recieptsRoot` field to `recieptRoot` and `number` to `blockNumber` since I think
+                // Geth has an issue. See:
+                //
+                // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_executePayload","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}],"id":1}"#).unwrap()
+            )
+            .await
+            .with_preloaded_responses(
+                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"status":"VALID"}}"#).unwrap()],
+                |client| async move {
+                    let response = client
+                        .execute_payload::<MainnetEthSpec>(ExecutionPayload::default())
+                        .await
+                        .unwrap();
+
+                    assert_eq!(response, ExecutePayloadResponse::Valid);
+                },
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .consensus_validated(
+                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            ConsensusStatus::Valid
+                        )
+                        .await;
+                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_consensusValidated","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174", "status":"VALID"}],"id":1}"#).unwrap()
+            )
+            .await
+            .with_preloaded_responses(
+                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
+                |client| async move {
+                    let _: () = client
+                        .consensus_validated(
+                            Hash256::zero(),
+                            ConsensusStatus::Valid
+                        )
+                        .await
+                        .unwrap();
+                },
+            )
+            .await
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .forkchoice_updated(
+                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                        )
+                        .await;
+                },
+                // Note: Geth incorrectly uses `engine_forkChoiceUpdated` (capital `C`). I've
+                // modified this vector to correct this. See:
+                //
+                // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_forkchoiceUpdated","params":[{"headBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174", "finalizedBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174"}],"id":1}"#).unwrap()
+            )
+            .await
+            .with_preloaded_responses(
+                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
+                |client| async move {
+                    let _: () = client
+                        .forkchoice_updated(
+                            Hash256::zero(),
+                            Hash256::zero(),
+                        )
+                        .await
+                        .unwrap();
+                },
             )
             .await;
     }
