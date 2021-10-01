@@ -348,6 +348,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Subscribes to a gossipsub topic.
+    ///
+    /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals

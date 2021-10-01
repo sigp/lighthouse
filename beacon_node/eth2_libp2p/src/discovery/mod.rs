@@ -444,6 +444,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     ));
                 }
 
+                // The bitfield is already set to required value
+                if current_bitfield
+                    .get(id)
+                    .map_err(|_| String::from("Subnet ID out of bounds"))?
+                    == value
+                {
+                    return Ok(());
+                }
+
                 // set the subnet bitfield in the ENR
                 current_bitfield.set(id, value).map_err(|_| {
                     String::from("Subnet ID out of bounds, could not set subnet ID")
@@ -467,6 +476,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         id,
                         current_bitfield.len()
                     ));
+                }
+
+                // The bitfield is already set to required value
+                if current_bitfield
+                    .get(id)
+                    .map_err(|_| String::from("Subnet ID out of bounds"))?
+                    == value
+                {
+                    return Ok(());
                 }
 
                 // set the subnet bitfield in the ENR
