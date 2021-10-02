@@ -81,6 +81,7 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub serve_legacy_spec: bool,
+    pub allow_sync_stalled: bool,
 }
 
 impl Default for Config {
@@ -91,6 +92,7 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             serve_legacy_spec: true,
+            allow_sync_stalled: false,
         }
     }
 }
@@ -220,6 +222,7 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = ctx.config.clone();
+    let allow_sync_stalled = config.allow_sync_stalled;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -321,44 +324,49 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // Create a `warp` filter that rejects request whilst the node is syncing.
-    let not_while_syncing_filter = warp::any()
-        .and(network_globals.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
-                match *network_globals.sync_state.read() {
-                    SyncState::SyncingFinalized { .. } => {
-                        let head_slot = chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)?;
+    let not_while_syncing_filter =
+        warp::any()
+            .and(network_globals.clone())
+            .and(chain_filter.clone())
+            .and_then(
+                move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+                      chain: Arc<BeaconChain<T>>| async move {
+                    match *network_globals.sync_state.read() {
+                        SyncState::SyncingFinalized { .. } => {
+                            let head_slot = chain
+                                .best_slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                        let current_slot = chain
-                            .slot_clock
-                            .now_or_genesis()
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_server_error(
-                                    "unable to read slot clock".to_string(),
-                                )
-                            })?;
+                            let current_slot =
+                                chain.slot_clock.now_or_genesis().ok_or_else(|| {
+                                    warp_utils::reject::custom_server_error(
+                                        "unable to read slot clock".to_string(),
+                                    )
+                                })?;
 
-                        let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+                            let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
 
-                        if head_slot + tolerance >= current_slot {
-                            Ok(())
-                        } else {
-                            Err(warp_utils::reject::not_synced(format!(
-                                "head slot is {}, current slot is {}",
-                                head_slot, current_slot
-                            )))
+                            if head_slot + tolerance >= current_slot {
+                                Ok(())
+                            } else {
+                                Err(warp_utils::reject::not_synced(format!(
+                                    "head slot is {}, current slot is {}",
+                                    head_slot, current_slot
+                                )))
+                            }
                         }
+                        SyncState::SyncingHead { .. }
+                        | SyncState::SyncTransition
+                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        SyncState::Synced => Ok(()),
+                        SyncState::Stalled if allow_sync_stalled => Ok(()),
+                        SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                            "sync is stalled".to_string(),
+                        )),
                     }
-                    SyncState::SyncingHead { .. } | SyncState::SyncTransition | SyncState::BackFillSyncing { .. }  => Ok(()),
-                    SyncState::Synced => Ok(()),
-                    SyncState::Stalled => Err(warp_utils::reject::not_synced(
-                        "sync is stalled".to_string(),
-                    )),
-                }
-            },
-        )
-        .untuple_one();
+                },
+            )
+            .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
