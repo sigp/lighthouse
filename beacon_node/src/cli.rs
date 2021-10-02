@@ -240,6 +240,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     over TLS. Must not be password-protected.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("http-allow-sync-stalled")
+                .long("http-allow-sync-stalled")
+                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
+                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
+                    MAINNET.")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
