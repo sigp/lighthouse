@@ -27,3 +27,4 @@ lru = "0.6.0"
 exit-future = "0.2.0"
 tree_hash = { path = "../../consensus/tree_hash"}
 tree_hash_derive = { path = "../../consensus/tree_hash_derive"}
+parking_lot = "0.11.0"

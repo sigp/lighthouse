@@ -30,7 +30,6 @@ pub async fn handle_rpc<T: EthSpec>(
                 "latest" => Ok(serde_json::to_value(
                     ctx.execution_block_generator
                         .read()
-                        .await
                         .latest_execution_block(),
                 )
                 .unwrap()),
@@ -50,7 +49,6 @@ pub async fn handle_rpc<T: EthSpec>(
             Ok(serde_json::to_value(
                 ctx.execution_block_generator
                     .read()
-                    .await
                     .execution_block_by_hash(hash),
             )
             .unwrap())
@@ -60,7 +58,6 @@ pub async fn handle_rpc<T: EthSpec>(
             let payload_id = ctx
                 .execution_block_generator
                 .write()
-                .await
                 .prepare_payload(request)?;
 
             Ok(serde_json::to_value(JsonPayloadIdResponse { payload_id }).unwrap())
@@ -70,7 +67,6 @@ pub async fn handle_rpc<T: EthSpec>(
             let status = ctx
                 .execution_block_generator
                 .write()
-                .await
                 .execute_payload(request.into());
 
             Ok(serde_json::to_value(ExecutePayloadResponseWrapper { status }).unwrap())
@@ -82,7 +78,6 @@ pub async fn handle_rpc<T: EthSpec>(
             let response = ctx
                 .execution_block_generator
                 .write()
-                .await
                 .get_payload(id)
                 .ok_or_else(|| format!("no payload for id {}", id))?;
 
@@ -93,7 +88,6 @@ pub async fn handle_rpc<T: EthSpec>(
             let request: JsonConsensusValidatedRequest = get_param_0(params)?;
             ctx.execution_block_generator
                 .write()
-                .await
                 .consensus_validated(request.block_hash, request.status)?;
 
             Ok(JsonValue::Null)
@@ -102,7 +96,6 @@ pub async fn handle_rpc<T: EthSpec>(
             let request: JsonForkChoiceUpdatedRequest = get_param_0(params)?;
             ctx.execution_block_generator
                 .write()
-                .await
                 .forkchoice_updated(request.head_block_hash, request.finalized_block_hash)?;
 
             Ok(JsonValue::Null)
