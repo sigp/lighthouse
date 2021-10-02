@@ -5,7 +5,7 @@ use beacon_chain::{
     BeaconChain,
 };
 use futures::prelude::*;
-use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
 use slog::Logger;
@@ -16,8 +16,8 @@ use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use types::{
-    CommitteeIndex, Epoch, EthSpec, MainnetEthSpec, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, ValidatorSubscription,
+    CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
@@ -52,8 +52,13 @@ impl TestBeaconChain {
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
                 .genesis_state(
-                    interop_genesis_state::<MainnetEthSpec>(&keypairs, 0, &spec)
-                        .expect("should generate interop state"),
+                    interop_genesis_state::<MainnetEthSpec>(
+                        &keypairs,
+                        0,
+                        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                        &spec,
+                    )
+                    .expect("should generate interop state"),
                 )
                 .expect("should build state using recent genesis")
                 .dummy_eth1_backend()
