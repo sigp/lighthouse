@@ -8,7 +8,7 @@ use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, Logger};
+use slog::{crit, info, Logger};
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -177,6 +177,14 @@ impl ExecutionLayer {
         random: Hash256,
     ) -> Result<PayloadId, Error> {
         let fee_recipient = self.fee_recipient()?;
+        info!(
+            self.log(),
+            "Issuing engine_preparePayload";
+            "fee_recipient" => ?fee_recipient,
+            "random" => ?random,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
         self.engines()
             .first_success(|engine| {
                 // TODO(merge): make a cache for these IDs, so we don't always have to perform this
@@ -205,6 +213,14 @@ impl ExecutionLayer {
         random: Hash256,
     ) -> Result<ExecutionPayload<T>, Error> {
         let fee_recipient = self.fee_recipient()?;
+        info!(
+            self.log(),
+            "Issuing engine_getPayload";
+            "fee_recipient" => ?fee_recipient,
+            "random" => ?random,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
         self.engines()
             .first_success(|engine| async move {
                 // TODO(merge): make a cache for these IDs, so we don't always have to perform this
@@ -236,6 +252,14 @@ impl ExecutionLayer {
         &self,
         execution_payload: &ExecutionPayload<T>,
     ) -> Result<(ExecutePayloadResponse, ExecutePayloadHandle), Error> {
+        info!(
+            self.log(),
+            "Issuing engine_executePayload";
+            "parent_hash" => ?execution_payload.parent_hash,
+            "block_hash" => ?execution_payload.block_hash,
+            "block_number" => execution_payload.block_number,
+        );
+
         let broadcast_results = self
             .engines()
             .broadcast(|engine| engine.api.execute_payload(execution_payload.clone()))
@@ -296,6 +320,12 @@ impl ExecutionLayer {
         block_hash: Hash256,
         status: ConsensusStatus,
     ) -> Result<(), Error> {
+        info!(
+            self.log(),
+            "Issuing engine_consensusValidated";
+            "status" => ?status,
+            "block_hash" => ?block_hash,
+        );
         let broadcast_results = self
             .engines()
             .broadcast(|engine| engine.api.consensus_validated(block_hash, status))
@@ -328,6 +358,12 @@ impl ExecutionLayer {
         head_block_hash: Hash256,
         finalized_block_hash: Hash256,
     ) -> Result<(), Error> {
+        info!(
+            self.log(),
+            "Issuing engine_forkchoiceUpdated";
+            "finalized_block_hash" => ?finalized_block_hash,
+            "head_block_hash" => ?head_block_hash,
+        );
         let broadcast_results = self
             .engines()
             .broadcast(|engine| {
@@ -357,7 +393,8 @@ impl ExecutionLayer {
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/validator.md
     pub async fn get_terminal_pow_block_hash(&self) -> Result<Option<Hash256>, Error> {
-        self.engines()
+        let hash_opt = self
+            .engines()
             .first_success(|engine| async move {
                 if self.terminal_block_hash() != Hash256::zero() {
                     // Note: the specification is written such that if there are multiple blocks in
@@ -376,7 +413,19 @@ impl ExecutionLayer {
                 }
             })
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Error::EngineErrors)?;
+
+        if let Some(hash) = &hash_opt {
+            info!(
+                self.log(),
+                "Found terminal block hash";
+                "terminal_block_hash_override" => ?self.terminal_block_hash(),
+                "terminal_total_difficulty" => ?self.terminal_total_difficulty(),
+                "block_hash" => ?hash,
+            );
+        }
+
+        Ok(hash_opt)
     }
 
     /// This function should remain internal. External users should use

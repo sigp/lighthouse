@@ -18,7 +18,7 @@ use execution_layer::{
     ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
-pub use genesis::interop_genesis_state;
+pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use logging::test_logger;
 use merkle_proof::MerkleTree;
@@ -181,6 +181,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             let genesis_state = interop_genesis_state::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
+                Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
                 builder.get_spec(),
             )
             .expect("should generate interop state");
@@ -226,6 +227,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             let genesis_state = interop_genesis_state::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
+                Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
                 builder.get_spec(),
             )
             .expect("should generate interop state");

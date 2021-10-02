@@ -17,7 +17,7 @@ use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
 use execution_layer::ExecutionLayer;
-use genesis::{interop_genesis_state, Eth1GenesisService};
+use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::NetworkGlobals;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
@@ -31,7 +31,8 @@ use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Hash256,
+    SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -229,7 +230,12 @@ where
                 genesis_time,
             } => {
                 let keypairs = generate_deterministic_keypairs(validator_count);
-                let genesis_state = interop_genesis_state(&keypairs, genesis_time, &spec)?;
+                let genesis_state = interop_genesis_state(
+                    &keypairs,
+                    genesis_time,
+                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    &spec,
+                )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
             ClientGenesis::SszBytes {

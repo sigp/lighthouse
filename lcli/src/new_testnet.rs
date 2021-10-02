@@ -1,8 +1,11 @@
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_network_config::Eth2NetworkConfig;
+use genesis::interop_genesis_state;
+use ssz::Encode;
 use std::path::PathBuf;
-use types::{Address, Config, EthSpec};
+use std::time::{SystemTime, UNIX_EPOCH};
+use types::{test_utils::generate_deterministic_keypairs, Address, Config, EthSpec};
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
@@ -54,10 +57,35 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.altair_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "merge-fork-epoch")? {
+        spec.merge_fork_epoch = Some(fork_epoch);
+    }
+
+    let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
+        let eth1_block_hash = parse_required(matches, "eth1-block-hash")?;
+        let validator_count = parse_required(matches, "validator-count")?;
+        let genesis_time = if let Some(time) = parse_optional(matches, "genesis-time")? {
+            time
+        } else {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| format!("Unable to get time: {:?}", e))?
+                .as_secs()
+        };
+
+        let keypairs = generate_deterministic_keypairs(validator_count);
+        let genesis_state =
+            interop_genesis_state::<T>(&keypairs, genesis_time, eth1_block_hash, &spec)?;
+
+        Some(genesis_state.as_ssz_bytes())
+    } else {
+        None
+    };
+
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
-        genesis_state_bytes: None,
+        genesis_state_bytes,
         config: Config::from_chain_spec::<T>(&spec),
     };
 
