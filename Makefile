@@ -18,9 +18,9 @@ PINNED_NIGHTLY ?= nightly
 # Binaries will most likely be found in `./target/release`
 install:
 ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --features portable
+	cargo install --path lighthouse --force --locked --features portable,spec-minimal
 else
-	cargo install --path lighthouse --force --locked
+	cargo install --path lighthouse --force --locked --features spec-minimal
 endif
 
 # Builds the lcli binary in release (optimized).
