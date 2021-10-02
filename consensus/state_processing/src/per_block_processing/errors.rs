@@ -73,6 +73,18 @@ pub enum BlockProcessingError {
         used: u64,
         limit: u64,
     },
+    ExecutionInvalidGasLimitIncrease {
+        limit: u64,
+        parent_limit: u64,
+    },
+    ExecutionInvalidGasLimitDecrease {
+        limit: u64,
+        parent_limit: u64,
+    },
+    ExecutionInvalidGasLimitTooSmall {
+        limit: u64,
+        min: u64,
+    },
     ExecutionInvalidTimestamp {
         expected: u64,
         found: u64,

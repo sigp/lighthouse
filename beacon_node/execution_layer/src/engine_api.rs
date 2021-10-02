@@ -107,7 +107,9 @@ pub enum BlockByNumberQuery<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
+    #[serde(rename = "hash")]
     pub block_hash: Hash256,
+    #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
     pub block_number: u64,
     pub parent_hash: Hash256,
     pub total_difficulty: Uint256,

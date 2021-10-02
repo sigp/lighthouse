@@ -11,16 +11,24 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use execution_layer::{
+    test_utils::{
+        ExecutionBlockGenerator, ExecutionLayerRuntime, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
+    },
+    ExecutionLayer,
+};
 use futures::channel::mpsc::Receiver;
 pub use genesis::interop_genesis_state;
 use int_to_bytes::int_to_bytes32;
 use logging::test_logger;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
+use parking_lot::RwLockWriteGuard;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
+use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -35,13 +43,13 @@ use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
-    typenum::U4294967296, AggregateSignature, Attestation, AttestationData, AttesterSlashing,
-    BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit, DepositData, Domain,
-    Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair, ProposerSlashing,
-    PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, Slot,
-    SubnetId, SyncCommittee, SyncCommitteeContribution, SyncCommitteeMessage, VariableList,
-    VoluntaryExit,
+    typenum::U4294967296, Address, AggregateSignature, Attestation, AttestationData,
+    AttesterSlashing, BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit,
+    DepositData, Domain, Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair,
+    ProposerSlashing, PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommittee, SyncCommitteeContribution,
+    SyncCommitteeMessage, VariableList, VoluntaryExit,
 };
 
 // 4th September 2019
@@ -147,6 +155,9 @@ pub struct Builder<T: BeaconChainTypes> {
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
+    execution_layer: Option<ExecutionLayer>,
+    execution_layer_runtime: Option<ExecutionLayerRuntime>,
+    mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     log: Logger,
 }
 
@@ -254,6 +265,9 @@ where
             store: None,
             initial_mutator: None,
             store_mutator: None,
+            execution_layer: None,
+            mock_execution_layer: None,
+            execution_layer_runtime: None,
             log: test_logger(),
         }
     }
@@ -311,6 +325,47 @@ where
         self
     }
 
+    pub fn execution_layer(mut self, urls: &[&str]) -> Self {
+        let spec = self.spec.clone().expect("cannot build without spec");
+        assert!(
+            self.execution_layer.is_none(),
+            "execution layer already defined"
+        );
+
+        let el_runtime = ExecutionLayerRuntime::default();
+
+        let urls = urls
+            .iter()
+            .map(|s| SensitiveUrl::parse(*s))
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let execution_layer = ExecutionLayer::from_urls(
+            urls,
+            spec.terminal_total_difficulty,
+            spec.terminal_block_hash,
+            Some(Address::repeat_byte(42)),
+            el_runtime.task_executor.clone(),
+            el_runtime.log.clone(),
+        )
+        .unwrap();
+
+        self.execution_layer = Some(execution_layer);
+        self.execution_layer_runtime = Some(el_runtime);
+        self
+    }
+
+    pub fn mock_execution_layer(mut self) -> Self {
+        let spec = self.spec.clone().expect("cannot build without spec");
+        let mock = MockExecutionLayer::new(
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+            spec.terminal_block_hash,
+        );
+        self.execution_layer = Some(mock.el.clone());
+        self.mock_execution_layer = Some(mock);
+        self
+    }
+
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
@@ -326,6 +381,7 @@ where
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(MigratorConfig::default().blocking())
+            .execution_layer(self.execution_layer)
             .dummy_eth1_backend()
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
@@ -364,6 +420,8 @@ where
             chain: Arc::new(chain),
             validator_keypairs,
             shutdown_receiver,
+            mock_execution_layer: self.mock_execution_layer,
+            execution_layer_runtime: self.execution_layer_runtime,
             rng: make_rng(),
         }
     }
@@ -379,6 +437,9 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
     pub shutdown_receiver: Receiver<ShutdownReason>,
+
+    pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    pub execution_layer_runtime: Option<ExecutionLayerRuntime>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -405,6 +466,14 @@ where
 
     pub fn logger(&self) -> &slog::Logger {
         &self.chain.log
+    }
+
+    pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
+        self.mock_execution_layer
+            .as_ref()
+            .expect("harness was not built with mock execution layer")
+            .server
+            .execution_block_generator()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1434,6 +1503,40 @@ where
         _block_strategy: BlockStrategy,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         self.make_block(state, slot)
+    }
+
+    /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
+    pub fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
+        if self.chain.slot().unwrap() == self.chain.head_info().unwrap().slot {
+            self.advance_slot();
+        }
+
+        let num_slots = target_slot
+            .as_usize()
+            .checked_sub(self.chain.slot().unwrap().as_usize())
+            .expect("target_slot must be >= current_slot")
+            .checked_add(1)
+            .unwrap();
+
+        self.extend_slots(num_slots)
+    }
+
+    /// Uses `Self::extend_chain` to `num_slots` blocks.
+    ///
+    /// Utilizes:
+    ///
+    ///  - BlockStrategy::OnCanonicalHead,
+    ///  - AttestationStrategy::AllValidators,
+    pub fn extend_slots(&self, num_slots: usize) -> Hash256 {
+        if self.chain.slot().unwrap() == self.chain.head_info().unwrap().slot {
+            self.advance_slot();
+        }
+
+        self.extend_chain(
+            num_slots,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
     }
 
     /// Deprecated: Use add_attested_blocks_at_slots() instead

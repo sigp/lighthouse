@@ -7,6 +7,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{EthSpec, ExecutionPayload, Hash256, Uint256};
 
+const GAS_LIMIT: u64 = 16384;
+const GAS_USED: u64 = GAS_LIMIT - 1;
+
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)] // This struct is only for testing.
 pub enum Block<T: EthSpec> {
@@ -43,7 +46,7 @@ impl<T: EthSpec> Block<T> {
         }
     }
 
-    pub fn as_execution_block(&self, total_difficulty: u64) -> ExecutionBlock {
+    pub fn as_execution_block(&self, total_difficulty: Uint256) -> ExecutionBlock {
         match self {
             Block::PoW(block) => ExecutionBlock {
                 block_hash: block.block_hash,
@@ -55,7 +58,7 @@ impl<T: EthSpec> Block<T> {
                 block_hash: payload.block_hash,
                 block_number: payload.block_number,
                 parent_hash: payload.parent_hash,
-                total_difficulty: total_difficulty.into(),
+                total_difficulty,
             },
         }
     }
@@ -79,8 +82,9 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * PoW block parameters
      */
-    pub terminal_total_difficulty: u64,
+    pub terminal_total_difficulty: Uint256,
     pub terminal_block_number: u64,
+    pub terminal_block_hash: Hash256,
     /*
      * PoS block parameters
      */
@@ -90,12 +94,17 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
-    pub fn new(terminal_total_difficulty: u64, terminal_block_number: u64) -> Self {
+    pub fn new(
+        terminal_total_difficulty: Uint256,
+        terminal_block_number: u64,
+        terminal_block_hash: Hash256,
+    ) -> Self {
         let mut gen = Self {
             blocks: <_>::default(),
             block_hashes: <_>::default(),
             terminal_total_difficulty,
             terminal_block_number,
+            terminal_block_hash,
             pending_payloads: <_>::default(),
             next_payload_id: 0,
             payload_ids: <_>::default(),
@@ -140,6 +149,25 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
+    pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
+        let target_block = self
+            .terminal_block_number
+            .checked_sub(1)
+            .ok_or("terminal pow block is 0")?;
+        self.move_to_pow_block(target_block)
+    }
+
+    pub fn move_to_terminal_block(&mut self) -> Result<(), String> {
+        self.move_to_pow_block(self.terminal_block_number)
+    }
+
+    pub fn move_to_pow_block(&mut self, target_block: u64) -> Result<(), String> {
+        let next_block = self.latest_block().unwrap().block_number() + 1;
+        assert!(target_block >= next_block);
+
+        self.insert_pow_blocks(next_block..=target_block)
+    }
+
     pub fn insert_pow_blocks(
         &mut self,
         block_numbers: impl Iterator<Item = u64>,
@@ -152,13 +180,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
-        if block_number > self.terminal_block_number {
-            return Err(format!(
-                "{} is beyond terminal pow block {}",
-                block_number, self.terminal_block_number
-            ));
-        }
-
         let parent_hash = if block_number == 0 {
             Hash256::zero()
         } else if let Some(hash) = self.block_hashes.get(&(block_number - 1)) {
@@ -170,23 +191,12 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             ));
         };
 
-        let increment = self
-            .terminal_total_difficulty
-            .checked_div(self.terminal_block_number)
-            .expect("terminal block number must be non-zero");
-        let total_difficulty = increment
-            .checked_mul(block_number)
-            .expect("overflow computing total difficulty")
-            .into();
-
-        let mut block = PoWBlock {
+        let block = generate_pow_block(
+            self.terminal_total_difficulty,
+            self.terminal_block_number,
             block_number,
-            block_hash: Hash256::zero(),
             parent_hash,
-            total_difficulty,
-        };
-
-        block.block_hash = block.tree_hash_root();
+        )?;
 
         self.insert_block(Block::PoW(block))
     }
@@ -213,11 +223,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn prepare_payload(&mut self, payload: JsonPreparePayloadRequest) -> Result<u64, String> {
-        if !self
-            .blocks
-            .iter()
-            .any(|(_, block)| block.block_number() == self.terminal_block_number)
-        {
+        if !self.blocks.iter().any(|(_, block)| {
+            block.block_hash() == self.terminal_block_hash
+                || block.block_number() == self.terminal_block_number
+        }) {
             return Err("refusing to create payload id before terminal block".to_string());
         }
 
@@ -237,8 +246,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             logs_bloom: vec![0; 256].into(),
             random: payload.random,
             block_number: parent.block_number() + 1,
-            gas_limit: 10,
-            gas_used: 9,
+            gas_limit: GAS_LIMIT,
+            gas_used: GAS_USED,
             timestamp: payload.timestamp,
             extra_data: "block gen was here".as_bytes().to_vec().into(),
             base_fee_per_gas: Hash256::from_low_u64_le(1),
@@ -311,6 +320,42 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 }
 
+pub fn generate_pow_block(
+    terminal_total_difficulty: Uint256,
+    terminal_block_number: u64,
+    block_number: u64,
+    parent_hash: Hash256,
+) -> Result<PoWBlock, String> {
+    if block_number > terminal_block_number {
+        return Err(format!(
+            "{} is beyond terminal pow block {}",
+            block_number, terminal_block_number
+        ));
+    }
+
+    let total_difficulty = if block_number == terminal_block_number {
+        terminal_total_difficulty
+    } else {
+        let increment = terminal_total_difficulty
+            .checked_div(Uint256::from(terminal_block_number))
+            .expect("terminal block number must be non-zero");
+        increment
+            .checked_mul(Uint256::from(block_number))
+            .expect("overflow computing total difficulty")
+    };
+
+    let mut block = PoWBlock {
+        block_number,
+        block_hash: Hash256::zero(),
+        parent_hash,
+        total_difficulty,
+    };
+
+    block.block_hash = block.tree_hash_root();
+
+    Ok(block)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -322,8 +367,11 @@ mod test {
         const TERMINAL_BLOCK: u64 = 10;
         const DIFFICULTY_INCREMENT: u64 = 1;
 
-        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> =
-            ExecutionBlockGenerator::new(TERMINAL_DIFFICULTY, TERMINAL_BLOCK);
+        let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
+            TERMINAL_DIFFICULTY.into(),
+            TERMINAL_BLOCK,
+            Hash256::zero(),
+        );
 
         for i in 0..=TERMINAL_BLOCK {
             if i > 0 {

@@ -296,13 +296,16 @@ pub fn get_new_eth1_data<T: EthSpec>(
 }
 
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_valid_gas_limit
-pub fn is_valid_gas_limit<T: EthSpec>(
+pub fn verify_is_valid_gas_limit<T: EthSpec>(
     payload: &ExecutionPayload<T>,
     parent: &ExecutionPayloadHeader<T>,
-) -> Result<bool, ArithError> {
+) -> Result<(), BlockProcessingError> {
     // check if payload used too much gas
     if payload.gas_used > payload.gas_limit {
-        return Ok(false);
+        return Err(BlockProcessingError::ExecutionInvalidGasLimit {
+            used: payload.gas_used,
+            limit: payload.gas_limit,
+        });
     }
     // check if payload changed the gas limit too much
     if payload.gas_limit
@@ -310,21 +313,30 @@ pub fn is_valid_gas_limit<T: EthSpec>(
             .gas_limit
             .safe_add(parent.gas_limit.safe_div(T::gas_limit_denominator())?)?
     {
-        return Ok(false);
+        return Err(BlockProcessingError::ExecutionInvalidGasLimitIncrease {
+            limit: payload.gas_limit,
+            parent_limit: parent.gas_limit,
+        });
     }
     if payload.gas_limit
         <= parent
             .gas_limit
             .safe_sub(parent.gas_limit.safe_div(T::gas_limit_denominator())?)?
     {
-        return Ok(false);
+        return Err(BlockProcessingError::ExecutionInvalidGasLimitDecrease {
+            limit: payload.gas_limit,
+            parent_limit: parent.gas_limit,
+        });
     }
     // check if the gas limit is at least the minimum gas limit
     if payload.gas_limit < T::min_gas_limit() {
-        return Ok(false);
+        return Err(BlockProcessingError::ExecutionInvalidGasLimitTooSmall {
+            limit: payload.gas_limit,
+            min: T::min_gas_limit(),
+        });
     }
 
-    Ok(true)
+    Ok(())
 }
 
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#process_execution_payload
@@ -355,13 +367,7 @@ pub fn process_execution_payload<T: EthSpec>(
                 found: payload.block_number,
             }
         );
-        block_verify!(
-            is_valid_gas_limit(payload, state.latest_execution_payload_header()?)?,
-            BlockProcessingError::ExecutionInvalidGasLimit {
-                used: payload.gas_used,
-                limit: payload.gas_limit,
-            }
-        );
+        verify_is_valid_gas_limit(payload, state.latest_execution_payload_header()?)?;
     }
     block_verify!(
         payload.random == *state.get_randao_mix(state.current_epoch())?,
