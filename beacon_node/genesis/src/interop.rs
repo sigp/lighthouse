@@ -5,6 +5,8 @@ use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
 use types::{BeaconState, ChainSpec, DepositData, EthSpec, Hash256, Keypair, PublicKey, Signature};
 
+pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
+
 /// Builds a genesis state as defined by the Eth2 interop procedure (see below).
 ///
 /// Reference:
@@ -12,9 +14,10 @@ use types::{BeaconState, ChainSpec, DepositData, EthSpec, Hash256, Keypair, Publ
 pub fn interop_genesis_state<T: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
+    eth1_block_hash: Hash256,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let eth1_block_hash = Hash256::from_slice(&[0x42; 32]);
+    let eth1_block_hash = eth1_block_hash;
     let eth1_timestamp = 2_u64.pow(40);
     let amount = spec.max_effective_balance;
 
@@ -73,8 +76,13 @@ mod test {
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let state = interop_genesis_state::<TestEthSpec>(&keypairs, genesis_time, spec)
-            .expect("should build state");
+        let state = interop_genesis_state::<TestEthSpec>(
+            &keypairs,
+            genesis_time,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            spec,
+        )
+        .expect("should build state");
 
         assert_eq!(
             state.eth1_data().block_hash,
