@@ -133,6 +133,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
             allow_origin: None,
             serve_legacy_spec: true,
             tls_config: None,
+            allow_sync_stalled: false,
         },
         chain: Some(chain.clone()),
         network_tx: Some(network_tx),
