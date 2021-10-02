@@ -552,171 +552,15 @@ impl ExecutionLayer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{MockServer, DEFAULT_TERMINAL_DIFFICULTY};
-    use environment::null_logger;
+    use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
     use types::MainnetEthSpec;
 
-    struct SingleEngineTester {
-        server: MockServer<MainnetEthSpec>,
-        el: ExecutionLayer,
-        runtime: Option<Arc<tokio::runtime::Runtime>>,
-        _runtime_shutdown: exit_future::Signal,
-    }
-
-    impl SingleEngineTester {
-        pub fn new() -> Self {
-            let server = MockServer::unit_testing();
-
-            let url = SensitiveUrl::parse(&server.url()).unwrap();
-            let log = null_logger().unwrap();
-
-            let runtime = Arc::new(
-                tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap(),
-            );
-            let (runtime_shutdown, exit) = exit_future::signal();
-            let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-            let executor =
-                TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
-
-            let el = ExecutionLayer::from_urls(
-                vec![url],
-                DEFAULT_TERMINAL_DIFFICULTY.into(),
-                Hash256::zero(),
-                Some(Address::repeat_byte(42)),
-                executor,
-                log,
-            )
-            .unwrap();
-
-            Self {
-                server,
-                el,
-                runtime: Some(runtime),
-                _runtime_shutdown: runtime_shutdown,
-            }
-        }
-
-        pub async fn produce_valid_execution_payload_on_head(self) -> Self {
-            let latest_execution_block = {
-                let block_gen = self.server.execution_block_generator().await;
-                block_gen.latest_block().unwrap()
-            };
-
-            let parent_hash = latest_execution_block.block_hash();
-            let block_number = latest_execution_block.block_number() + 1;
-            let timestamp = block_number;
-            let random = Hash256::from_low_u64_be(block_number);
-
-            let _payload_id = self
-                .el
-                .prepare_payload(parent_hash, timestamp, random)
-                .await
-                .unwrap();
-
-            let payload = self
-                .el
-                .get_payload::<MainnetEthSpec>(parent_hash, timestamp, random)
-                .await
-                .unwrap();
-            let block_hash = payload.block_hash;
-            assert_eq!(payload.parent_hash, parent_hash);
-            assert_eq!(payload.block_number, block_number);
-            assert_eq!(payload.timestamp, timestamp);
-            assert_eq!(payload.random, random);
-
-            let (payload_response, mut payload_handle) =
-                self.el.execute_payload(&payload).await.unwrap();
-            assert_eq!(payload_response, ExecutePayloadResponse::Valid);
-
-            payload_handle.publish_async(ConsensusStatus::Valid).await;
-
-            self.el
-                .forkchoice_updated(block_hash, Hash256::zero())
-                .await
-                .unwrap();
-
-            let head_execution_block = {
-                let block_gen = self.server.execution_block_generator().await;
-                block_gen.latest_block().unwrap()
-            };
-
-            assert_eq!(head_execution_block.block_number(), block_number);
-            assert_eq!(head_execution_block.block_hash(), block_hash);
-            assert_eq!(head_execution_block.parent_hash(), parent_hash);
-
-            self
-        }
-
-        pub async fn move_to_block_prior_to_terminal_block(self) -> Self {
-            let target_block = {
-                let block_gen = self.server.execution_block_generator().await;
-                block_gen.terminal_block_number.checked_sub(1).unwrap()
-            };
-            self.move_to_pow_block(target_block).await
-        }
-
-        pub async fn move_to_terminal_block(self) -> Self {
-            let target_block = {
-                let block_gen = self.server.execution_block_generator().await;
-                block_gen.terminal_block_number
-            };
-            self.move_to_pow_block(target_block).await
-        }
-
-        pub async fn move_to_pow_block(self, target_block: u64) -> Self {
-            {
-                let mut block_gen = self.server.execution_block_generator().await;
-                let next_block = block_gen.latest_block().unwrap().block_number() + 1;
-                assert!(target_block >= next_block);
-
-                block_gen
-                    .insert_pow_blocks(next_block..=target_block)
-                    .unwrap();
-            }
-            self
-        }
-
-        pub async fn with_terminal_block<'a, T, U>(self, func: T) -> Self
-        where
-            T: Fn(ExecutionLayer, Option<ExecutionBlock>) -> U,
-            U: Future<Output = ()>,
-        {
-            let terminal_block_number = self
-                .server
-                .execution_block_generator()
-                .await
-                .terminal_block_number;
-            let terminal_block = self
-                .server
-                .execution_block_generator()
-                .await
-                .execution_block_by_number(terminal_block_number);
-
-            func(self.el.clone(), terminal_block).await;
-            self
-        }
-
-        pub fn shutdown(&mut self) {
-            if let Some(runtime) = self.runtime.take() {
-                Arc::try_unwrap(runtime).unwrap().shutdown_background()
-            }
-        }
-    }
-
-    impl Drop for SingleEngineTester {
-        fn drop(&mut self) {
-            self.shutdown()
-        }
-    }
+    type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
-        SingleEngineTester::new()
+        MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
@@ -727,15 +571,13 @@ mod test {
 
     #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
-        SingleEngineTester::new()
+        MockExecutionLayer::default_params()
             .move_to_block_prior_to_terminal_block()
-            .await
             .with_terminal_block(|el, _| async move {
                 assert_eq!(el.get_terminal_pow_block_hash().await.unwrap(), None)
             })
             .await
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, terminal_block| async move {
                 assert_eq!(
                     el.get_terminal_pow_block_hash().await.unwrap(),
@@ -747,9 +589,8 @@ mod test {
 
     #[tokio::test]
     async fn verifies_valid_terminal_block_hash() {
-        SingleEngineTester::new()
+        MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, terminal_block| async move {
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash)
@@ -763,9 +604,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_invalid_terminal_block_hash() {
-        SingleEngineTester::new()
+        MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, terminal_block| async move {
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
@@ -781,9 +621,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_unknown_terminal_block_hash() {
-        SingleEngineTester::new()
+        MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .await
             .with_terminal_block(|el, _| async move {
                 let missing_terminal_block = Hash256::repeat_byte(42);
 
