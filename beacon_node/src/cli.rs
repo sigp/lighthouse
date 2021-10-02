@@ -217,6 +217,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disable serving of legacy data on the /config/spec endpoint. May be \
                        disabled by default in a future release.")
         )
+        .arg(
+            Arg::with_name("http-allow-sync-stalled")
+                .long("http-allow-sync-stalled")
+                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
+                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
+                    MAINNET.")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")

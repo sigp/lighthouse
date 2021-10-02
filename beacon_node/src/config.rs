@@ -111,6 +111,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.serve_legacy_spec = false;
     }
 
+    if cli_args.is_present("http-allow-sync-stalled") {
+        client_config.http_api.allow_sync_stalled = true;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
