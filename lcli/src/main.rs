@@ -285,6 +285,14 @@ fn main() {
                         .help("Overwrites any previous testnet configurations"),
                 )
                 .arg(
+                    Arg::with_name("interop-genesis-state")
+                        .long("interop-genesis-state")
+                        .takes_value(false)
+                        .help(
+                            "If present, a interop-style genesis.ssz file will be generated.",
+                        ),
+                )
+                .arg(
                     Arg::with_name("min-genesis-time")
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
@@ -410,6 +418,27 @@ fn main() {
                         .help(
                             "The epoch at which to enable the Merge hard fork",
                         ),
+                )
+                .arg(
+                    Arg::with_name("eth1-block-hash")
+                        .long("eth1-block-hash")
+                        .value_name("BLOCK_HASH")
+                        .takes_value(true)
+                        .help("The eth1 block hash used when generating a genesis state."),
+                )
+                .arg(
+                    Arg::with_name("validator-count")
+                        .long("validator-count")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The number of validators when generating a genesis state."),
+                )
+                .arg(
+                    Arg::with_name("genesis-time")
+                        .long("genesis-time")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The genesis time when generating a genesis state."),
                 )
         )
         .subcommand(
