@@ -13,7 +13,7 @@ use hashset_delay::HashSetDelay;
 use libp2p::core::ConnectedPoint;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
-use slog::{crit, debug, error, warn};
+use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     pin::Pin,
