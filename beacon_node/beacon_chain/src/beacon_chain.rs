@@ -3350,13 +3350,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             new_finalized_checkpoint.root,
                             block_hash,
                         )
-                            .await
+                        .await
                         {
                             error!(
-                            log,
-                            "Failed to update execution head";
-                            "error" => ?e
-                        );
+                                log,
+                                "Failed to update execution head";
+                                "error" => ?e
+                            );
                         }
                     },
                     "update_execution_engine_forkchoice",
