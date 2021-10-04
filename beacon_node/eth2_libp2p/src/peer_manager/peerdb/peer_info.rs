@@ -147,7 +147,7 @@ impl<T: EthSpec> PeerInfo<T> {
         self.subnets.contains(subnet)
     }
 
-    /// Returns the seen IP addresses of the peer.
+    /// Returns the seen addresses of the peer.
     pub fn seen_addresses(&self) -> impl Iterator<Item = &SocketAddr> + '_ {
         self.seen_addresses.iter()
     }
