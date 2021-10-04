@@ -36,6 +36,8 @@ use std::borrow::Cow;
 use std::convert::TryInto;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
@@ -61,6 +63,9 @@ const API_PREFIX: &str = "eth";
 /// finalized head.
 const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 
+/// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
+type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -81,6 +86,9 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub serve_legacy_spec: bool,
+    pub tls_enabled: bool,
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -91,6 +99,9 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             serve_legacy_spec: true,
+            tls_enabled: false,
+            tls_cert: None,
+            tls_key: None,
         }
     }
 }
@@ -218,7 +229,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 pub fn serve<T: BeaconChainTypes>(
     ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
+) -> Result<HttpServer, Error> {
     let config = ctx.config.clone();
     let log = ctx.log.clone();
 
@@ -2589,22 +2600,51 @@ pub fn serve<T: BeaconChainTypes>(
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
 
-    let (listening_socket, server) = {
-        warp::serve(routes).try_bind_with_graceful_shutdown(
-            SocketAddrV4::new(config.listen_addr, config.listen_port),
-            async {
-                shutdown.await;
-            },
-        )?
+    let http_server: HttpServer = match config.tls_enabled {
+        true => {
+            let tls_cert = match config.tls_cert {
+                Some(cert) => cert,
+                None => return Err(Error::Other("--http-tls-cert path was empty.".to_string())),
+            };
+
+            let tls_key = match config.tls_key {
+                Some(key) => key,
+                None => return Err(Error::Other("--http-tls-key path was empty.".to_string())),
+            };
+
+            let (socket, server) = warp::serve(routes)
+                .tls()
+                .cert_path(tls_cert)
+                .key_path(tls_key)
+                .try_bind_with_graceful_shutdown(
+                    SocketAddrV4::new(config.listen_addr, config.listen_port),
+                    async {
+                        shutdown.await;
+                    },
+                )?;
+
+            info!(log, "HTTP API is being served over TLS";);
+
+            (socket, Box::pin(server))
+        }
+        false => {
+            let (socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
+                SocketAddrV4::new(config.listen_addr, config.listen_port),
+                async {
+                    shutdown.await;
+                },
+            )?;
+            (socket, Box::pin(server))
+        }
     };
 
     info!(
         log,
         "HTTP API started";
-        "listen_address" => listening_socket.to_string(),
+        "listen_address" => %http_server.0,
     );
 
-    Ok((listening_socket, server))
+    Ok(http_server)
 }
 
 /// Publish a message to the libp2p pubsub network.

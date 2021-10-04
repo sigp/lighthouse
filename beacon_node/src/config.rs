@@ -111,6 +111,24 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.serve_legacy_spec = false;
     }
 
+    if cli_args.is_present("http-enable-tls") {
+        client_config.http_api.tls_enabled = true;
+    }
+
+    if let Some(path) = cli_args.value_of("http-tls-cert") {
+        client_config.http_api.tls_cert = Some(
+            path.parse::<PathBuf>()
+                .map_err(|_| "http-tls-cert is not a valid path name.")?,
+        )
+    }
+
+    if let Some(path) = cli_args.value_of("http-tls-key") {
+        client_config.http_api.tls_key = Some(
+            path.parse::<PathBuf>()
+                .map_err(|_| "http-tls-key is not a valid path name.")?,
+        )
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
