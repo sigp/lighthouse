@@ -249,11 +249,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if let Some(terminal_total_difficulty) =
-        clap_utils::parse_optional(cli_args, "total-terminal-difficulty-override")?
+        clap_utils::parse_optional(cli_args, "terminal-total-difficulty-override")?
     {
         if client_config.execution_endpoints.is_none() {
             return Err(
-                "The --merge flag must be provided when using --total-terminal-difficulty-override"
+                "The --merge flag must be provided when using --terminal-total-difficulty-override"
                     .into(),
             );
         }
