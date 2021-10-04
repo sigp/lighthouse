@@ -3137,6 +3137,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .body()
             .execution_payload()
             .map(|ep| ep.block_hash);
+        let is_merge_complete = is_merge_complete(&new_head.beacon_state);
 
         drop(lag_timer);
 
@@ -3342,34 +3343,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If this is a post-merge block, update the execution layer.
-        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash {
-            let execution_layer = self
-                .execution_layer
-                .clone()
-                .ok_or(Error::ExecutionLayerMissing)?;
-            let store = self.store.clone();
-            let log = self.log.clone();
+        if let Some(block_hash) = new_head_execution_block_hash {
+            if is_merge_complete {
+                let execution_layer = self
+                    .execution_layer
+                    .clone()
+                    .ok_or(Error::ExecutionLayerMissing)?;
+                let store = self.store.clone();
+                let log = self.log.clone();
 
-            // Spawn the update task, without waiting for it to complete.
-            execution_layer.spawn(
-                move |execution_layer| async move {
-                    if let Err(e) = Self::update_execution_engine_forkchoice(
-                        execution_layer,
-                        store,
-                        new_finalized_checkpoint.root,
-                        new_head_execution_block_hash,
-                    )
-                    .await
-                    {
-                        error!(
-                            log,
-                            "Failed to update execution head";
-                            "error" => ?e
-                        );
-                    }
-                },
-                "update_execution_engine_forkchoice",
-            )
+                // Spawn the update task, without waiting for it to complete.
+                execution_layer.spawn(
+                    move |execution_layer| async move {
+                        if let Err(e) = Self::update_execution_engine_forkchoice(
+                            execution_layer,
+                            store,
+                            new_finalized_checkpoint.root,
+                            block_hash,
+                        )
+                        .await
+                        {
+                            error!(
+                                log,
+                                "Failed to update execution head";
+                                "error" => ?e
+                            );
+                        }
+                    },
+                    "update_execution_engine_forkchoice",
+                )
+            }
         }
 
         Ok(())
