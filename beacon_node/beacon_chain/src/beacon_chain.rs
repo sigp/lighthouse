@@ -3119,6 +3119,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .body()
             .execution_payload()
             .map(|ep| ep.block_hash);
+        let is_merge_complete = is_merge_complete(&new_head.beacon_state);
 
         drop(lag_timer);
 
@@ -3331,7 +3332,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If this is a post-merge block, update the execution layer.
-        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash {
+        if let Some(block_hash) = new_head_execution_block_hash && is_merge_complete {
             let execution_layer = self
                 .execution_layer
                 .clone()
@@ -3346,7 +3347,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         execution_layer,
                         store,
                         new_finalized_checkpoint.root,
-                        new_head_execution_block_hash,
+                        block_hash,
                     )
                     .await
                     {
