@@ -649,6 +649,10 @@ where
             let state_advance_context = runtime_context.service_context("state_advance".into());
             let log = state_advance_context.log().clone();
             spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone(), log);
+
+            if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
+                execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
+            }
         }
 
         Ok(Client {

@@ -76,7 +76,7 @@ impl<T: EngineApi> Engines<T> {
     /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
     ///
     /// This can be used to try and recover any offline nodes.
-    async fn upcheck_offline(&self) {
+    pub async fn upcheck_offline(&self) {
         let upcheck_futures = self.engines.iter().map(|engine| async move {
             let mut state = engine.state.write().await;
             if state.is_offline() {

@@ -8,11 +8,16 @@ use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, info, Logger};
+use slog::{crit, error, info, Logger};
+use slot_clock::SlotClock;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::{
+    sync::{Mutex, MutexGuard},
+    time::sleep,
+};
 
 pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
 pub use execute_payload_handle::ExecutePayloadHandle;
@@ -21,6 +26,10 @@ mod engine_api;
 mod engines;
 mod execute_payload_handle;
 pub mod test_utils;
+
+/// The amount of time before the start of each slot when we will run a routine to check on the
+/// status of the execution engines.
+const UPCHECK_ROUTINE_LOOKAHEAD: Duration = Duration::from_secs(1);
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
@@ -162,6 +171,41 @@ impl ExecutionLayer {
         U: Future<Output = ()> + Send + 'static,
     {
         self.executor().spawn(generate_future(self.clone()), name);
+    }
+
+    /// Spawns a routine which attempts to keep the execution engines online.
+    pub fn spawn_watchdog_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
+        let watchdog = |el: ExecutionLayer| async move {
+            // Run one task immediately.
+            el.watchdog_task().await;
+
+            // Start the loop to periodically updated.
+            loop {
+                if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
+                    // Sleep until shortly before the next slot.
+                    //
+                    // If we're already very close to the next slot, just run now.
+                    let sleep_duration = duration_to_next_slot
+                        .checked_sub(UPCHECK_ROUTINE_LOOKAHEAD)
+                        .unwrap_or_else(|| Duration::from_secs(0));
+                    sleep(sleep_duration.saturating_sub(UPCHECK_ROUTINE_LOOKAHEAD)).await;
+
+                    el.watchdog_task().await;
+                } else {
+                    // If we can't read the slot clock, just wait another slot.
+                    error!(el.log(), "Failed to read slot clock");
+                    sleep(slot_clock.slot_duration()).await;
+                    continue;
+                }
+            }
+        };
+
+        self.spawn(watchdog, "exec_watchdog");
+    }
+
+    /// Performs a single execution of the watchdog routine.
+    async fn watchdog_task(&self) {
+        self.engines().upcheck_offline().await;
     }
 
     /// Returns `true` if there is at least one "online" engine.
