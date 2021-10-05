@@ -1085,6 +1085,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
@@ -1382,6 +1383,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              signatures: Vec<SyncCommitteeMessage>,
