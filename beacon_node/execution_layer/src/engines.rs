@@ -6,14 +6,6 @@ use slog::{crit, error, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::RwLock;
 
-/// Indicates if the operation requires the engine to be synced before the command is sent.
-pub enum RequireSynced {
-    /// The engine must be synced.
-    Yes,
-    /// The operation can proceed without the engine being synced.
-    No,
-}
-
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
 enum EngineState {
@@ -209,11 +201,7 @@ impl<T: EngineApi> Engines<T> {
     ///
     /// This function might try to run `func` twice. If all nodes return an error on the first time
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn broadcast<'a, F, G, H>(
-        &'a self,
-        require_synced: RequireSynced,
-        func: F,
-    ) -> Vec<Result<H, EngineError>>
+    pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
@@ -248,8 +236,8 @@ impl<T: EngineApi> Engines<T> {
     {
         let func = &func;
         let futures = self.engines.iter().map(|engine| async move {
-            let engine_synced = *engine.state.read().await == EngineState::Synced;
-            if engine_synced {
+            let is_offline = *engine.state.read().await == EngineState::Offline;
+            if !is_offline {
                 func(engine).await.map_err(|error| {
                     error!(
                         self.log,
