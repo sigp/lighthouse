@@ -72,13 +72,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers.iter()
     }
 
-    /*
-    /// Returns an iterator over all peers in the db.
-    pub(super) fn peers_mut(&mut self) -> impl Iterator<Item = (&PeerId, &mut PeerInfo<TSpec>)> {
-        self.peers.iter_mut()
-    }
-    */
-
     /// Gives the ids of all known peers.
     pub fn peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers.keys()
@@ -1001,6 +994,25 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
             (ScoreState::Banned, ScoreState::Banned) => ScoreTransitionResult::NoAction,
         }
+    }
+
+    // Allow tests to inject peers ad-hoc. This is usually strictly limited to the peer manager,
+    // however we allow it for testing.
+    #[cfg(test)]
+    pub fn test_connect_ingoing(
+        &mut self,
+        peer_id: &PeerId,
+        seen_address: Multiaddr,
+        enr: Option<Enr>,
+    ) {
+        self.update_connection_state(
+            peer_id,
+            NewConnectionState::Connected {
+                enr,
+                seen_address,
+                direction: ConnectionDirection::Incoming,
+            },
+        );
     }
 }
 

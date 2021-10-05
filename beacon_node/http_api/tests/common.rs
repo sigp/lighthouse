@@ -103,7 +103,7 @@ pub fn create_api_server<T: BeaconChainTypes>(
     network_globals
         .peers
         .write()
-        .connect_ingoing(&peer_id, EXTERNAL_ADDR.parse().unwrap(), None);
+        .test_connect_ingoing(&peer_id, EXTERNAL_ADDR.parse().unwrap(), None);
 
     *network_globals.sync_state.write() = SyncState::Synced;
 
