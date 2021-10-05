@@ -63,6 +63,16 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
+    /// Returns `true` if there is at least one engine with an "online" status.
+    pub async fn any_online(&self) -> bool {
+        for engine in &self.engines {
+            if engine.state.read().await.is_online() {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
     ///
     /// This can be used to try and recover any offline nodes.

@@ -164,6 +164,16 @@ impl ExecutionLayer {
         self.executor().spawn(generate_future(self.clone()), name);
     }
 
+    /// Returns `true` if there is at least one "online" engine.
+    ///
+    /// For an engine to be online, it must be both:
+    ///
+    /// - Reachable
+    /// - Synced
+    pub async fn is_online(&self) -> bool {
+        self.engines().any_online().await
+    }
+
     /// Maps to the `engine_preparePayload` JSON-RPC function.
     ///
     /// ## Fallback Behavior
