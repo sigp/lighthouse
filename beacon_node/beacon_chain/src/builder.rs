@@ -25,7 +25,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{Error as StoreError, HotColdDB, ItemStore};
+use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::ShutdownReason;
 use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
@@ -87,6 +87,9 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     graffiti: Graffiti,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     validator_monitor: Option<ValidatorMonitor<T::EthSpec>>,
+    // Pending I/O batch that is constructed during building and should be executed atomically
+    // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
+    pending_io_batch: Vec<KeyValueStoreOp>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -124,6 +127,7 @@ where
             graffiti: Graffiti::default(),
             slasher: None,
             validator_monitor: None,
+            pending_io_batch: vec![],
         }
     }
 
@@ -416,13 +420,11 @@ where
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root);
-        store
-            .store_split()
-            .map_err(|e| format!("Error storing DB split point: {:?}", e))?;
-
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
+        // Write the state and block non-atomically, it doesn't matter if they're forgotten
+        // about on a crash restart.
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
@@ -430,18 +432,22 @@ where
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
 
-        // Store anchor info (context for weak subj sync).
-        store
-            .init_anchor_info(weak_subj_block.message())
-            .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?;
+        // Stage the database's metadata fields for atomic storage when `build` is called.
+        // This prevents the database from restarting in an inconsistent state if the anchor
+        // info or split point is written before the `PersistedBeaconChain`.
+        self.pending_io_batch.push(store.store_split_in_batch());
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(weak_subj_block.message())
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        store
-            .store_pruning_checkpoint(Checkpoint {
+        self.pending_io_batch
+            .push(store.pruning_checkpoint_store_op(Checkpoint {
                 root: weak_subj_block_root,
                 epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
-            })
-            .map_err(|e| format!("Failed to write pruning checkpoint: {:?}", e))?;
+            }));
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -542,7 +548,7 @@ where
     /// configured.
     #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
-        self,
+        mut self,
     ) -> Result<
         BeaconChain<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>,
         String,
@@ -678,6 +684,26 @@ where
                 &canonical_head.beacon_state,
             );
         }
+
+        // Store the `PersistedBeaconChain` in the database atomically with the metadata so that on
+        // restart we can correctly detect the presence of an initialized database.
+        //
+        // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
+        // doesn't write a `PersistedBeaconChain` without the rest of the batch.
+        self.pending_io_batch.push(BeaconChain::<
+            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+        >::persist_head_in_batch_standalone(
+            genesis_block_root, &head_tracker
+        ));
+        self.pending_io_batch.push(BeaconChain::<
+            Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+        >::persist_fork_choice_in_batch_standalone(
+            &fork_choice
+        ));
+        store
+            .hot_db
+            .do_atomically(self.pending_io_batch)
+            .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
 
         let beacon_chain = BeaconChain {
             spec: self.spec,

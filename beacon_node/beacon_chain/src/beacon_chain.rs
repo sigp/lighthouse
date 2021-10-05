@@ -339,24 +339,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Return a `PersistedBeaconChain` representing the current head.
-    pub fn make_persisted_head(&self) -> PersistedBeaconChain {
+    /// Return a `PersistedBeaconChain` without reference to a `BeaconChain`.
+    pub fn make_persisted_head(
+        genesis_block_root: Hash256,
+        head_tracker: &HeadTracker,
+    ) -> PersistedBeaconChain {
         PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
-            genesis_block_root: self.genesis_block_root,
-            ssz_head_tracker: self.head_tracker.to_ssz_container(),
+            genesis_block_root,
+            ssz_head_tracker: head_tracker.to_ssz_container(),
         }
     }
 
     /// Return a database operation for writing the beacon chain head to disk.
     pub fn persist_head_in_batch(&self) -> KeyValueStoreOp {
-        self.make_persisted_head()
+        Self::persist_head_in_batch_standalone(self.genesis_block_root, &self.head_tracker)
+    }
+
+    pub fn persist_head_in_batch_standalone(
+        genesis_block_root: Hash256,
+        head_tracker: &HeadTracker,
+    ) -> KeyValueStoreOp {
+        Self::make_persisted_head(genesis_block_root, head_tracker)
             .as_kv_store_op(BEACON_CHAIN_DB_KEY)
     }
 
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
         let fork_choice = self.fork_choice.read();
+        Self::persist_fork_choice_in_batch_standalone(&fork_choice)
+    }
+
+    /// Return a database operation for writing fork choice to disk.
+    pub fn persist_fork_choice_in_batch_standalone(
+        fork_choice: &BeaconForkChoice<T>,
+    ) -> KeyValueStoreOp {
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),

@@ -182,7 +182,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let backfill_complete = new_anchor.block_backfill_complete();
         self.store
-            .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?;
+            .compare_and_set_anchor_info_with_write(Some(anchor_info), Some(new_anchor))?;
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.

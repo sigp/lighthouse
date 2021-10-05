@@ -1414,7 +1414,7 @@ pub fn serve<T: BeaconChainTypes>(
                 Ok(api_types::GenericResponse::from(
                     api_types::DepositContractData {
                         address: chain.spec.deposit_contract_address,
-                        chain_id: eth1::DEFAULT_NETWORK_ID.into(),
+                        chain_id: chain.spec.deposit_chain_id,
                     },
                 ))
             })
