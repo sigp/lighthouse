@@ -8,10 +8,11 @@ use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, info, Logger};
+use slog::{crit, error, info, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard},
@@ -174,45 +175,49 @@ impl ExecutionLayer {
             // Run one task immediately.
             el.watchdog_task().await;
 
-            // Start the loop to periodically updated.
+            let recurring_task =
+                |el: ExecutionLayer, now: Instant, duration_to_next_slot: Duration| async move {
+                    // We run the task three times per slot.
+                    //
+                    // The interval between each task is 1/3rd of the slot duration. This matches nicely
+                    // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
+                    //
+                    // Each task is offset by 3/4ths of the interval.
+                    //
+                    // On mainnet, this means we will run tasks at:
+                    //
+                    // - 3s after slot start: 1s before publishing unaggregated attestations.
+                    // - 7s after slot start: 1s before publishing aggregated attestations.
+                    // - 11s after slot start: 1s before the next slot starts.
+                    let interval = duration_to_next_slot / 3;
+                    let offset = (interval / 4) * 3;
+
+                    let first_execution = duration_to_next_slot + offset;
+                    let second_execution = first_execution + interval;
+                    let third_execution = second_execution + interval;
+
+                    sleep_until(now + first_execution).await;
+                    el.engines().upcheck_offline(Logging::Disabled).await;
+
+                    sleep_until(now + second_execution).await;
+                    el.engines().upcheck_offline(Logging::Disabled).await;
+
+                    sleep_until(now + third_execution).await;
+                    el.engines().upcheck_offline(Logging::Disabled).await;
+                };
+
+            // Start the loop to periodically update.
             loop {
-                let duration_to_next_slot =
-                    if let Some(duration) = slot_clock.duration_to_next_slot() {
-                        duration
-                    } else {
-                        // If we can't read the slot clock, just try again in another slot.
-                        sleep(slot_clock.slot_duration()).await;
-                        continue;
-                    };
+                if let Some(duration) = slot_clock.duration_to_next_slot() {
+                    let now = Instant::now();
 
-                // We run the task three times per slot.
-                //
-                // The interval between each task is 1/3rd of the slot duration. This matches nicely
-                // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
-                //
-                // Each task is offset by 3/4ths of the interval.
-                //
-                // On mainnet, this means we will run tasks at:
-                //
-                // - 3s after slot start: 1s before publishing unaggregated attestations.
-                // - 7s after slot start: 1s before publishing aggregated attestations.
-                // - 11s after slot start: 1s before the next slot starts.
-                let now = Instant::now();
-                let interval = duration_to_next_slot / 3;
-                let offset = (interval / 4) * 3;
-
-                let first_execution = duration_to_next_slot + offset;
-                let second_execution = first_execution + interval;
-                let third_execution = second_execution + interval;
-
-                sleep_until(now + first_execution).await;
-                el.engines().upcheck_offline(Logging::Disabled).await;
-
-                sleep_until(now + second_execution).await;
-                el.engines().upcheck_offline(Logging::Disabled).await;
-
-                sleep_until(now + third_execution).await;
-                el.engines().upcheck_offline(Logging::Disabled).await;
+                    // Spawn a new task rather than waiting for this to finish. This ensure that a
+                    // slow run doesn't prevent the next run from starting.
+                    el.spawn(|el| recurring_task(el, now, duration), "exec_watchdog_task");
+                } else {
+                    error!(el.log(), "Failed to spawn watchdog task");
+                }
+                sleep(slot_clock.slot_duration()).await;
             }
         };
 
