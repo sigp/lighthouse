@@ -5,18 +5,17 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines};
+use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, error, info, Logger};
+use slog::{crit, info, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard},
-    time::sleep,
+    time::{sleep, sleep_until, Instant},
 };
 
 pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
@@ -26,10 +25,6 @@ mod engine_api;
 mod engines;
 mod execute_payload_handle;
 pub mod test_utils;
-
-/// The amount of time before the start of each slot when we will run a routine to check on the
-/// status of the execution engines.
-const UPCHECK_ROUTINE_LOOKAHEAD: Duration = Duration::from_secs(1);
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
@@ -181,22 +176,43 @@ impl ExecutionLayer {
 
             // Start the loop to periodically updated.
             loop {
-                if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
-                    // Sleep until shortly before the next slot.
-                    //
-                    // If we're already very close to the next slot, just run now.
-                    let sleep_duration = duration_to_next_slot
-                        .checked_sub(UPCHECK_ROUTINE_LOOKAHEAD)
-                        .unwrap_or_else(|| Duration::from_secs(0));
-                    sleep(sleep_duration.saturating_sub(UPCHECK_ROUTINE_LOOKAHEAD)).await;
+                let duration_to_next_slot =
+                    if let Some(duration) = slot_clock.duration_to_next_slot() {
+                        duration
+                    } else {
+                        // If we can't read the slot clock, just try again in another slot.
+                        sleep(slot_clock.slot_duration()).await;
+                        continue;
+                    };
 
-                    el.watchdog_task().await;
-                } else {
-                    // If we can't read the slot clock, just wait another slot.
-                    error!(el.log(), "Failed to read slot clock");
-                    sleep(slot_clock.slot_duration()).await;
-                    continue;
-                }
+                // We run the task three times per slot.
+                //
+                // The interval between each task is 1/3rd of the slot duration. This matches nicely
+                // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
+                //
+                // Each task is offset by 3/4ths of the interval.
+                //
+                // On mainnet, this means we will run tasks at:
+                //
+                // - 3s after slot start: 1s before publishing unaggregated attestations.
+                // - 7s after slot start: 1s before publishing aggregated attestations.
+                // - 11s after slot start: 1s before the next slot starts.
+                let now = Instant::now();
+                let interval = duration_to_next_slot / 3;
+                let offset = (interval / 4) * 3;
+
+                let first_execution = duration_to_next_slot + offset;
+                let second_execution = first_execution + interval;
+                let third_execution = second_execution + interval;
+
+                sleep_until(now + first_execution).await;
+                el.engines().upcheck_offline(Logging::Disabled).await;
+
+                sleep_until(now + second_execution).await;
+                el.engines().upcheck_offline(Logging::Disabled).await;
+
+                sleep_until(now + third_execution).await;
+                el.engines().upcheck_offline(Logging::Disabled).await;
             }
         };
 
@@ -205,7 +221,8 @@ impl ExecutionLayer {
 
     /// Performs a single execution of the watchdog routine.
     async fn watchdog_task(&self) {
-        self.engines().upcheck_offline().await;
+        // Disable logging since this runs frequently and may get annoying.
+        self.engines().upcheck_offline(Logging::Disabled).await;
     }
 
     /// Returns `true` if there is at least one "online" engine.

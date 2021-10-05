@@ -31,6 +31,22 @@ impl EngineState {
     }
 }
 
+/// Used to enable/disable logging on some tasks.
+#[derive(Copy, Clone, PartialEq)]
+pub enum Logging {
+    Enabled,
+    Disabled,
+}
+
+impl Logging {
+    pub fn is_enabled(&self) -> bool {
+        match self {
+            Logging::Enabled => true,
+            Logging::Disabled => false,
+        }
+    }
+}
+
 /// An execution engine.
 pub struct Engine<T> {
     pub id: String,
@@ -76,26 +92,30 @@ impl<T: EngineApi> Engines<T> {
     /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
     ///
     /// This can be used to try and recover any offline nodes.
-    pub async fn upcheck_offline(&self) {
+    pub async fn upcheck_offline(&self, logging: Logging) {
         let upcheck_futures = self.engines.iter().map(|engine| async move {
             let mut state = engine.state.write().await;
             if state.is_offline() {
                 match engine.api.upcheck().await {
                     Ok(()) => {
-                        info!(
-                            self.log,
-                            "Execution engine online";
-                            "id" => &engine.id
-                        );
+                        if logging.is_enabled() {
+                            info!(
+                                self.log,
+                                "Execution engine online";
+                                "id" => &engine.id
+                            );
+                        }
                         state.set_online()
                     }
                     Err(e) => {
-                        warn!(
-                            self.log,
-                            "Execution engine offline";
-                            "error" => ?e,
-                            "id" => &engine.id
-                        )
+                        if logging.is_enabled() {
+                            warn!(
+                                self.log,
+                                "Execution engine offline";
+                                "error" => ?e,
+                                "id" => &engine.id
+                            )
+                        }
                     }
                 }
             }
@@ -108,7 +128,7 @@ impl<T: EngineApi> Engines<T> {
             .filter(|state: &EngineState| state.is_online())
             .count();
 
-        if num_online == 0 {
+        if num_online == 0 && logging.is_enabled() {
             crit!(
                 self.log,
                 "No execution engines online";
@@ -130,7 +150,7 @@ impl<T: EngineApi> Engines<T> {
             Ok(result) => Ok(result),
             Err(mut first_errors) => {
                 // Try to recover some nodes.
-                self.upcheck_offline().await;
+                self.upcheck_offline(Logging::Enabled).await;
                 // Retry the call on all nodes.
                 match self.first_success_without_retry(func).await {
                     Ok(result) => Ok(result),
@@ -205,7 +225,7 @@ impl<T: EngineApi> Engines<T> {
         }
 
         if any_offline {
-            self.upcheck_offline().await;
+            self.upcheck_offline(Logging::Enabled).await;
             self.broadcast_without_retry(func).await
         } else {
             first_results
