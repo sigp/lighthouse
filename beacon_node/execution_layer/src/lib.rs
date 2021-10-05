@@ -5,7 +5,7 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines, Logging};
+use engines::{Engine, EngineError, Engines, ForkChoiceHead, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, error, info, Logger};
@@ -97,6 +97,7 @@ impl ExecutionLayer {
         let inner = Inner {
             engines: Engines {
                 engines,
+                latest_head: <_>::default(),
                 log: log.clone(),
             },
             terminal_total_difficulty,
@@ -435,6 +436,16 @@ impl ExecutionLayer {
             "finalized_block_hash" => ?finalized_block_hash,
             "head_block_hash" => ?head_block_hash,
         );
+
+        // Update the cached version of the latest head so it can be sent to new or reconnecting
+        // execution nodes.
+        self.engines()
+            .set_latest_head(ForkChoiceHead {
+                head_block_hash,
+                finalized_block_hash,
+            })
+            .await;
+
         let broadcast_results = self
             .engines()
             .broadcast(|engine| {

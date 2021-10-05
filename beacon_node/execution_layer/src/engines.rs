@@ -2,9 +2,10 @@
 
 use crate::engine_api::{EngineApi, Error as EngineApiError};
 use futures::future::join_all;
-use slog::{crit, error, info, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::RwLock;
+use types::Hash256;
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
@@ -12,6 +13,12 @@ enum EngineState {
     Synced,
     Offline,
     Syncing,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct ForkChoiceHead {
+    pub head_block_hash: Hash256,
+    pub finalized_block_hash: Hash256,
 }
 
 /// Used to enable/disable logging on some tasks.
@@ -52,6 +59,7 @@ impl<T> Engine<T> {
 /// manner.
 pub struct Engines<T> {
     pub engines: Vec<Engine<T>>,
+    pub latest_head: RwLock<Option<ForkChoiceHead>>,
     pub log: Logger,
 }
 
@@ -62,6 +70,41 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
+    pub async fn set_latest_head(&self, latest_head: ForkChoiceHead) {
+        *self.latest_head.write().await = Some(latest_head);
+    }
+
+    async fn send_latest_head(&self, engine: &Engine<T>) {
+        let latest_head: Option<ForkChoiceHead> = *self.latest_head.read().await;
+        if let Some(head) = latest_head {
+            info!(
+                self.log,
+                "Issuing forkchoiceUpdated";
+                "head" => ?head,
+                "id" => &engine.id,
+            );
+
+            if let Err(e) = engine
+                .api
+                .forkchoice_updated(head.head_block_hash, head.finalized_block_hash)
+                .await
+            {
+                error!(
+                    self.log,
+                    "Failed to issue latest head to engine";
+                    "error" => ?e,
+                    "id" => &engine.id,
+                );
+            }
+        } else {
+            debug!(
+                self.log,
+                "No head, not sending to engine";
+                "id" => &engine.id,
+            );
+        }
+    }
+
     /// Returns `true` if there is at least one engine with a "synced" status.
     pub async fn any_synced(&self) -> bool {
         for engine in &self.engines {
@@ -77,8 +120,8 @@ impl<T: EngineApi> Engines<T> {
     /// This can be used to try and recover any offline nodes.
     pub async fn upcheck_not_synced(&self, logging: Logging) {
         let upcheck_futures = self.engines.iter().map(|engine| async move {
-            let mut state = engine.state.write().await;
-            if *state != EngineState::Synced {
+            let mut state_lock = engine.state.write().await;
+            if *state_lock != EngineState::Synced {
                 match engine.api.upcheck().await {
                     Ok(()) => {
                         if logging.is_enabled() {
@@ -88,7 +131,11 @@ impl<T: EngineApi> Engines<T> {
                                 "id" => &engine.id
                             );
                         }
-                        *state = EngineState::Synced
+
+                        // Send the node our latest head.
+                        self.send_latest_head(engine).await;
+
+                        *state_lock = EngineState::Synced
                     }
                     Err(EngineApiError::IsSyncing) => {
                         if logging.is_enabled() {
@@ -98,7 +145,11 @@ impl<T: EngineApi> Engines<T> {
                                 "id" => &engine.id
                             )
                         }
-                        *state = EngineState::Syncing
+
+                        // Send the node our latest head, it may assist with syncing.
+                        self.send_latest_head(engine).await;
+
+                        *state_lock = EngineState::Syncing
                     }
                     Err(e) => {
                         if logging.is_enabled() {
@@ -112,7 +163,7 @@ impl<T: EngineApi> Engines<T> {
                     }
                 }
             }
-            *state
+            *state_lock
         });
 
         let num_synced = join_all(upcheck_futures)
@@ -197,7 +248,8 @@ impl<T: EngineApi> Engines<T> {
         Err(errors)
     }
 
-    /// Runs `func` on all nodes concurrently, returning all results.
+    /// Runs `func` on all nodes concurrently, returning all results. Any nodes that are offline
+    /// will be ignored, however all synced or unsynced nodes will receive the broadcast.
     ///
     /// This function might try to run `func` twice. If all nodes return an error on the first time
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
