@@ -261,7 +261,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Prepare a signed beacon block for storage in the database.
-    #[must_use]
     pub fn block_as_kv_store_op(
         &self,
         key: &Hash256,
@@ -973,7 +972,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Initialise the anchor info for checkpoint sync starting from `block`.
-    pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<(), Error> {
+    pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<KeyValueStoreOp, Error> {
         let anchor_slot = block.slot();
         let slots_per_restore_point = self.config.slots_per_restore_point;
 
@@ -1003,21 +1002,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Atomically update the anchor info from `prev_value` to `new_value`.
     ///
+    /// Return a `KeyValueStoreOp` which should be written to disk, possibly atomically with other
+    /// values.
+    ///
     /// Return an `AnchorInfoConcurrentMutation` error if the `prev_value` provided
     /// is not correct.
     pub fn compare_and_set_anchor_info(
         &self,
         prev_value: Option<AnchorInfo>,
         new_value: Option<AnchorInfo>,
-    ) -> Result<(), Error> {
+    ) -> Result<KeyValueStoreOp, Error> {
         let mut anchor_info = self.anchor_info.write();
         if *anchor_info == prev_value {
-            self.store_anchor_info(&new_value)?;
+            let kv_op = self.store_anchor_info_in_batch(&new_value);
             *anchor_info = new_value;
-            Ok(())
+            Ok(kv_op)
         } else {
             Err(Error::AnchorInfoConcurrentMutation)
         }
+    }
+
+    /// As for `compare_and_set_anchor_info`, but also writes the anchor to disk immediately.
+    pub fn compare_and_set_anchor_info_with_write(
+        &self,
+        prev_value: Option<AnchorInfo>,
+        new_value: Option<AnchorInfo>,
+    ) -> Result<(), Error> {
+        let kv_store_op = self.compare_and_set_anchor_info(prev_value, new_value)?;
+        self.hot_db.do_atomically(vec![kv_store_op])
     }
 
     /// Load the anchor info from disk, but do not set `self.anchor_info`.
@@ -1029,13 +1041,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// The argument is intended to be `self.anchor_info`, but is passed manually to avoid issues
     /// with recursive locking.
-    fn store_anchor_info(&self, anchor_info: &Option<AnchorInfo>) -> Result<(), Error> {
+    fn store_anchor_info_in_batch(&self, anchor_info: &Option<AnchorInfo>) -> KeyValueStoreOp {
         if let Some(ref anchor_info) = anchor_info {
-            self.hot_db.put(&ANCHOR_INFO_KEY, anchor_info)?;
+            anchor_info.as_kv_store_op(ANCHOR_INFO_KEY)
         } else {
-            self.hot_db.delete::<AnchorInfo>(&ANCHOR_INFO_KEY)?;
+            KeyValueStoreOp::DeleteKey(get_key_for_col(
+                DBColumn::BeaconMeta.into(),
+                ANCHOR_INFO_KEY.as_bytes(),
+            ))
         }
-        Ok(())
     }
 
     /// If an anchor exists, return its `anchor_slot` field.
@@ -1103,10 +1117,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.get(&SPLIT_KEY)
     }
 
-    /// Store the split point to disk.
-    pub fn store_split(&self) -> Result<(), Error> {
-        self.hot_db.put_sync(&SPLIT_KEY, &*self.split.read())?;
-        Ok(())
+    /// Stage the split for storage to disk.
+    pub fn store_split_in_batch(&self) -> KeyValueStoreOp {
+        self.split.read_recursive().as_kv_store_op(SPLIT_KEY)
     }
 
     /// Load the state root of a restore point.
