@@ -131,14 +131,17 @@ where
                             });
                         }
 
-                        self.compare_and_set_anchor_info(old_anchor, None)?;
+                        self.compare_and_set_anchor_info_with_write(old_anchor, None)?;
 
                         return Ok(());
                     } else {
                         // The lower limit has been raised, store it.
                         anchor.state_lower_limit = slot;
 
-                        self.compare_and_set_anchor_info(old_anchor, Some(anchor.clone()))?;
+                        self.compare_and_set_anchor_info_with_write(
+                            old_anchor,
+                            Some(anchor.clone()),
+                        )?;
                     }
                 }
             }
