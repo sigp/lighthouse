@@ -6,29 +6,20 @@ use slog::{crit, error, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::RwLock;
 
+/// Indicates if the operation requires the engine to be synced before the command is sent.
+pub enum RequireSynced {
+    /// The engine must be synced.
+    Yes,
+    /// The operation can proceed without the engine being synced.
+    No,
+}
+
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
 enum EngineState {
-    Online,
+    Synced,
     Offline,
-}
-
-impl EngineState {
-    fn set_online(&mut self) {
-        *self = EngineState::Online
-    }
-
-    fn set_offline(&mut self) {
-        *self = EngineState::Offline
-    }
-
-    fn is_online(&self) -> bool {
-        *self == EngineState::Online
-    }
-
-    fn is_offline(&self) -> bool {
-        *self == EngineState::Offline
-    }
+    Syncing,
 }
 
 /// Used to enable/disable logging on some tasks.
@@ -79,10 +70,10 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
-    /// Returns `true` if there is at least one engine with an "online" status.
-    pub async fn any_online(&self) -> bool {
+    /// Returns `true` if there is at least one engine with a "synced" status.
+    pub async fn any_synced(&self) -> bool {
         for engine in &self.engines {
-            if engine.state.read().await.is_online() {
+            if *engine.state.read().await == EngineState::Synced {
                 return true;
             }
         }
@@ -92,10 +83,10 @@ impl<T: EngineApi> Engines<T> {
     /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
     ///
     /// This can be used to try and recover any offline nodes.
-    pub async fn upcheck_offline(&self, logging: Logging) {
+    pub async fn upcheck_not_synced(&self, logging: Logging) {
         let upcheck_futures = self.engines.iter().map(|engine| async move {
             let mut state = engine.state.write().await;
-            if state.is_offline() {
+            if *state != EngineState::Synced {
                 match engine.api.upcheck().await {
                     Ok(()) => {
                         if logging.is_enabled() {
@@ -105,7 +96,17 @@ impl<T: EngineApi> Engines<T> {
                                 "id" => &engine.id
                             );
                         }
-                        state.set_online()
+                        *state = EngineState::Synced
+                    }
+                    Err(EngineApiError::IsSyncing) => {
+                        if logging.is_enabled() {
+                            warn!(
+                                self.log,
+                                "Execution engine syncing";
+                                "id" => &engine.id
+                            )
+                        }
+                        *state = EngineState::Syncing
                     }
                     Err(e) => {
                         if logging.is_enabled() {
@@ -122,16 +123,16 @@ impl<T: EngineApi> Engines<T> {
             *state
         });
 
-        let num_online = join_all(upcheck_futures)
+        let num_synced = join_all(upcheck_futures)
             .await
             .into_iter()
-            .filter(|state: &EngineState| state.is_online())
+            .filter(|state: &EngineState| *state == EngineState::Synced)
             .count();
 
-        if num_online == 0 && logging.is_enabled() {
+        if num_synced == 0 && logging.is_enabled() {
             crit!(
                 self.log,
-                "No execution engines online";
+                "No synced execution engines";
             )
         }
     }
@@ -150,7 +151,7 @@ impl<T: EngineApi> Engines<T> {
             Ok(result) => Ok(result),
             Err(mut first_errors) => {
                 // Try to recover some nodes.
-                self.upcheck_offline(Logging::Enabled).await;
+                self.upcheck_not_synced(Logging::Enabled).await;
                 // Retry the call on all nodes.
                 match self.first_success_without_retry(func).await {
                     Ok(result) => Ok(result),
@@ -176,8 +177,8 @@ impl<T: EngineApi> Engines<T> {
         let mut errors = vec![];
 
         for engine in &self.engines {
-            let engine_online = engine.state.read().await.is_online();
-            if engine_online {
+            let engine_synced = *engine.state.read().await == EngineState::Synced;
+            if engine_synced {
                 match func(engine).await {
                     Ok(result) => return Ok(result),
                     Err(error) => {
@@ -187,7 +188,7 @@ impl<T: EngineApi> Engines<T> {
                             "error" => ?error,
                             "id" => &engine.id
                         );
-                        engine.state.write().await.set_offline();
+                        *engine.state.write().await = EngineState::Offline;
                         errors.push(EngineError::Api {
                             id: engine.id.clone(),
                             error,
@@ -208,7 +209,11 @@ impl<T: EngineApi> Engines<T> {
     ///
     /// This function might try to run `func` twice. If all nodes return an error on the first time
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
+    pub async fn broadcast<'a, F, G, H>(
+        &'a self,
+        require_synced: RequireSynced,
+        func: F,
+    ) -> Vec<Result<H, EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
@@ -225,7 +230,7 @@ impl<T: EngineApi> Engines<T> {
         }
 
         if any_offline {
-            self.upcheck_offline(Logging::Enabled).await;
+            self.upcheck_not_synced(Logging::Enabled).await;
             self.broadcast_without_retry(func).await
         } else {
             first_results
@@ -243,8 +248,8 @@ impl<T: EngineApi> Engines<T> {
     {
         let func = &func;
         let futures = self.engines.iter().map(|engine| async move {
-            let engine_online = engine.state.read().await.is_online();
-            if engine_online {
+            let engine_synced = *engine.state.read().await == EngineState::Synced;
+            if engine_synced {
                 func(engine).await.map_err(|error| {
                     error!(
                         self.log,

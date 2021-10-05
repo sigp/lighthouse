@@ -197,13 +197,13 @@ impl ExecutionLayer {
                     let third_execution = second_execution + interval;
 
                     sleep_until(now + first_execution).await;
-                    el.engines().upcheck_offline(Logging::Disabled).await;
+                    el.engines().upcheck_not_synced(Logging::Disabled).await;
 
                     sleep_until(now + second_execution).await;
-                    el.engines().upcheck_offline(Logging::Disabled).await;
+                    el.engines().upcheck_not_synced(Logging::Disabled).await;
 
                     sleep_until(now + third_execution).await;
-                    el.engines().upcheck_offline(Logging::Disabled).await;
+                    el.engines().upcheck_not_synced(Logging::Disabled).await;
                 };
 
             // Start the loop to periodically update.
@@ -227,17 +227,12 @@ impl ExecutionLayer {
     /// Performs a single execution of the watchdog routine.
     async fn watchdog_task(&self) {
         // Disable logging since this runs frequently and may get annoying.
-        self.engines().upcheck_offline(Logging::Disabled).await;
+        self.engines().upcheck_not_synced(Logging::Disabled).await;
     }
 
-    /// Returns `true` if there is at least one "online" engine.
-    ///
-    /// For an engine to be online, it must be both:
-    ///
-    /// - Reachable
-    /// - Synced
-    pub async fn is_online(&self) -> bool {
-        self.engines().any_online().await
+    /// Returns `true` if there is at least one synced and reachable engine.
+    pub async fn is_synced(&self) -> bool {
+        self.engines().any_synced().await
     }
 
     /// Maps to the `engine_preparePayload` JSON-RPC function.

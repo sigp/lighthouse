@@ -3415,7 +3415,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if let Some(execution_layer) = &self.execution_layer {
-            if execution_layer.is_online().await {
+            if execution_layer.is_synced().await {
                 Ok(ExecutionLayerStatus::Ready)
             } else {
                 Ok(ExecutionLayerStatus::NotReady)
