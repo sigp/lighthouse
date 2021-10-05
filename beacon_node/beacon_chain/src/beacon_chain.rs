@@ -194,6 +194,7 @@ pub struct HeadInfo {
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
     pub proposer_shuffling_decision_root: Hash256,
+    pub is_merge_complete: bool,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -997,6 +998,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 genesis_time: head.beacon_state.genesis_time(),
                 genesis_validators_root: head.beacon_state.genesis_validators_root(),
                 proposer_shuffling_decision_root,
+                is_merge_complete: is_merge_complete(&head.beacon_state),
             })
         })
     }
