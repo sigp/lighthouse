@@ -301,6 +301,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
+ "execution_layer",
  "fork_choice",
  "futures",
  "genesis",
@@ -318,6 +319,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "safe_arith",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "slasher",
@@ -703,6 +705,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_config",
+ "execution_layer",
  "genesis",
  "http_api",
  "http_metrics",
@@ -1758,6 +1761,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "execution_layer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "environment",
+ "eth1",
+ "eth2_serde_utils 0.1.0",
+ "eth2_ssz_types",
+ "exit-future",
+ "futures",
+ "hex",
+ "lru",
+ "parking_lot",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "tree_hash",
+ "tree_hash_derive",
+ "types",
+ "warp 0.3.0 (git+https://github.com/paulhauner/warp?branch=cors-wildcard)",
+]
+
+[[package]]
 name = "exit-future"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2358,7 +2390,7 @@ dependencies = [
  "tokio-stream",
  "tree_hash",
  "types",
- "warp",
+ "warp 0.3.0 (git+https://github.com/macladson/warp?rev=dfa259e)",
  "warp_utils",
 ]
 
@@ -2379,7 +2411,7 @@ dependencies = [
  "store",
  "tokio",
  "types",
- "warp",
+ "warp 0.3.0 (git+https://github.com/macladson/warp?rev=dfa259e)",
  "warp_utils",
 ]
 
@@ -6415,7 +6447,7 @@ dependencies = [
  "types",
  "url",
  "validator_dir",
- "warp",
+ "warp 0.3.0 (git+https://github.com/macladson/warp?rev=dfa259e)",
  "warp_utils",
 ]
 
@@ -6484,6 +6516,35 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.3.0"
+source = "git+https://github.com/paulhauner/warp?branch=cors-wildcard#1f7daf462e6286fe5fd1743f7b788227efd3fa5c"
+dependencies = [
+ "bytes",
+ "futures",
+ "headers",
+ "http",
+ "hyper",
+ "log",
+ "mime",
+ "mime_guess",
+ "multipart",
+ "percent-encoding",
+ "pin-project 1.0.8",
+ "scoped-tls",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "tracing-futures",
+]
+
+[[package]]
+name = "warp"
+version = "0.3.0"
 source = "git+https://github.com/macladson/warp?rev=dfa259e#dfa259e19b7490e6bc4bf247e8b76f671d29a0eb"
 dependencies = [
  "bytes",
@@ -6525,7 +6586,7 @@ dependencies = [
  "state_processing",
  "tokio",
  "types",
- "warp",
+ "warp 0.3.0 (git+https://github.com/macladson/warp?rev=dfa259e)",
 ]
 
 [[package]]

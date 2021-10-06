@@ -5,14 +5,19 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines};
+use engines::{Engine, EngineError, Engines, ForkChoiceHead, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, info, Logger};
+use slog::{crit, error, info, Logger};
+use slot_clock::SlotClock;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::{
+    sync::{Mutex, MutexGuard},
+    time::{sleep, sleep_until, Instant},
+};
 
 pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
 pub use execute_payload_handle::ExecutePayloadHandle;
@@ -92,6 +97,7 @@ impl ExecutionLayer {
         let inner = Inner {
             engines: Engines {
                 engines,
+                latest_head: <_>::default(),
                 log: log.clone(),
             },
             terminal_total_difficulty,
@@ -162,6 +168,72 @@ impl ExecutionLayer {
         U: Future<Output = ()> + Send + 'static,
     {
         self.executor().spawn(generate_future(self.clone()), name);
+    }
+
+    /// Spawns a routine which attempts to keep the execution engines online.
+    pub fn spawn_watchdog_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
+        let watchdog = |el: ExecutionLayer| async move {
+            // Run one task immediately.
+            el.watchdog_task().await;
+
+            let recurring_task =
+                |el: ExecutionLayer, now: Instant, duration_to_next_slot: Duration| async move {
+                    // We run the task three times per slot.
+                    //
+                    // The interval between each task is 1/3rd of the slot duration. This matches nicely
+                    // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
+                    //
+                    // Each task is offset by 3/4ths of the interval.
+                    //
+                    // On mainnet, this means we will run tasks at:
+                    //
+                    // - 3s after slot start: 1s before publishing unaggregated attestations.
+                    // - 7s after slot start: 1s before publishing aggregated attestations.
+                    // - 11s after slot start: 1s before the next slot starts.
+                    let interval = duration_to_next_slot / 3;
+                    let offset = (interval / 4) * 3;
+
+                    let first_execution = duration_to_next_slot + offset;
+                    let second_execution = first_execution + interval;
+                    let third_execution = second_execution + interval;
+
+                    sleep_until(now + first_execution).await;
+                    el.engines().upcheck_not_synced(Logging::Disabled).await;
+
+                    sleep_until(now + second_execution).await;
+                    el.engines().upcheck_not_synced(Logging::Disabled).await;
+
+                    sleep_until(now + third_execution).await;
+                    el.engines().upcheck_not_synced(Logging::Disabled).await;
+                };
+
+            // Start the loop to periodically update.
+            loop {
+                if let Some(duration) = slot_clock.duration_to_next_slot() {
+                    let now = Instant::now();
+
+                    // Spawn a new task rather than waiting for this to finish. This ensure that a
+                    // slow run doesn't prevent the next run from starting.
+                    el.spawn(|el| recurring_task(el, now, duration), "exec_watchdog_task");
+                } else {
+                    error!(el.log(), "Failed to spawn watchdog task");
+                }
+                sleep(slot_clock.slot_duration()).await;
+            }
+        };
+
+        self.spawn(watchdog, "exec_watchdog");
+    }
+
+    /// Performs a single execution of the watchdog routine.
+    async fn watchdog_task(&self) {
+        // Disable logging since this runs frequently and may get annoying.
+        self.engines().upcheck_not_synced(Logging::Disabled).await;
+    }
+
+    /// Returns `true` if there is at least one synced and reachable engine.
+    pub async fn is_synced(&self) -> bool {
+        self.engines().any_synced().await
     }
 
     /// Maps to the `engine_preparePayload` JSON-RPC function.
@@ -364,6 +436,16 @@ impl ExecutionLayer {
             "finalized_block_hash" => ?finalized_block_hash,
             "head_block_hash" => ?head_block_hash,
         );
+
+        // Update the cached version of the latest head so it can be sent to new or reconnecting
+        // execution nodes.
+        self.engines()
+            .set_latest_head(ForkChoiceHead {
+                head_block_hash,
+                finalized_block_hash,
+            })
+            .await;
+
         let broadcast_results = self
             .engines()
             .broadcast(|engine| {

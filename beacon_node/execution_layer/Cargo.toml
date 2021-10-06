@@ -28,3 +28,4 @@ exit-future = "0.2.0"
 tree_hash = { path = "../../consensus/tree_hash"}
 tree_hash_derive = { path = "../../consensus/tree_hash_derive"}
 parking_lot = "0.11.0"
+slot_clock = { path = "../../common/slot_clock" }
