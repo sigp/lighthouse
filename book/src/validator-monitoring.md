@@ -27,7 +27,7 @@ automatic and manual.
 ### Automatic
 
 When the `--validator-monitor-auto` flag is supplied, any validator which uses the
-[`beacon_committee_subscriptions`](https://ethereum.github.io/eth2.0-APIs/#/Validator/prepareBeaconCommitteeSubnet)
+[`beacon_committee_subscriptions`](https://ethereum.github.io/beacon-APIs/#/Validator/prepareBeaconCommitteeSubnet)
 API endpoint will be enrolled for additional monitoring. All active validators will use this
 endpoint each epoch, so you can expect it to detect all local and active validators within several
 minutes after start up.
