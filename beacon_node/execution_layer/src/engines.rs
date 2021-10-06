@@ -225,7 +225,7 @@ impl<T: EngineApi> Engines<T> {
                 match func(engine).await {
                     Ok(result) => return Ok(result),
                     Err(error) => {
-                        error!(
+                        debug!(
                             self.log,
                             "Execution engine call failed";
                             "error" => ?error,
