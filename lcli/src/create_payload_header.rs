@@ -1,6 +1,7 @@
 use bls::Hash256;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
+use int_to_bytes::int_to_bytes32;
 use ssz::Encode;
 use std::fs::File;
 use std::io::Write;
@@ -15,8 +16,10 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             .map_err(|e| format!("Unable to get time: {:?}", e))?
             .as_secs(),
     );
-    let base_fee_per_gas: u64 = parse_required(matches, "base-fee-per-gas")?;
-    let base_fee_per_gas = Hash256::from_low_u64_be(base_fee_per_gas);
+    let base_fee_per_gas = Hash256::from_slice(&int_to_bytes32(parse_required(
+        matches,
+        "base-fee-per-gas",
+    )?));
     let gas_limit = parse_required(matches, "gas-limit")?;
     let file_name = matches.value_of("file").ok_or("No file supplied")?;
 
