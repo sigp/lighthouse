@@ -194,6 +194,7 @@ pub struct HeadInfo {
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
     pub proposer_shuffling_decision_root: Hash256,
+    pub is_merge_complete: bool,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -202,6 +203,19 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type SlotClock: slot_clock::SlotClock;
     type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
     type EthSpec: types::EthSpec;
+}
+
+/// Indicates the status of the `ExecutionLayer`.
+#[derive(Debug, PartialEq)]
+pub enum ExecutionLayerStatus {
+    /// The execution layer is synced and reachable.
+    Ready,
+    /// The execution layer either syncing or unreachable.
+    NotReady,
+    /// The execution layer is required, but has not been enabled. This is a configuration error.
+    Missing,
+    /// The execution layer is not yet required, therefore the status is irrelevant.
+    NotRequired,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -1001,6 +1015,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 genesis_time: head.beacon_state.genesis_time(),
                 genesis_validators_root: head.beacon_state.genesis_validators_root(),
                 proposer_shuffling_decision_root,
+                is_merge_complete: is_merge_complete(&head.beacon_state),
             })
         })
     }
@@ -3403,6 +3418,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .forkchoice_updated(head_execution_block_hash, finalized_execution_block_hash)
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed)
+    }
+
+    /// Indicates the status of the execution layer.
+    pub async fn execution_layer_status(&self) -> Result<ExecutionLayerStatus, BeaconChainError> {
+        let epoch = self.epoch()?;
+        if self.spec.merge_fork_epoch.map_or(true, |fork| epoch < fork) {
+            return Ok(ExecutionLayerStatus::NotRequired);
+        }
+
+        if let Some(execution_layer) = &self.execution_layer {
+            if execution_layer.is_synced().await {
+                Ok(ExecutionLayerStatus::Ready)
+            } else {
+                Ok(ExecutionLayerStatus::NotReady)
+            }
+        } else {
+            // This branch is slightly more restrictive than what is minimally required.
+            //
+            // It is possible for a node without an execution layer (EL) to follow the chain
+            // *after* the merge fork and *before* the terminal execution block, as long as
+            // that node is not required to produce blocks.
+            //
+            // However, here we say that all nodes *must* have an EL as soon as the merge fork
+            // happens. We do this because it's very difficult to determine that the terminal
+            // block has been met if we don't already have an EL. As far as we know, the
+            // terminal execution block might already exist and we've been rejecting it since
+            // we don't have an EL to verify it.
+            //
+            // I think it is very reasonable to say that the beacon chain expects all BNs to
+            // be paired with an EL node by the time the merge fork epoch is reached. So, we
+            // enforce that here.
+            Ok(ExecutionLayerStatus::Missing)
+        }
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.
