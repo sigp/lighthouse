@@ -14,13 +14,13 @@ use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
 pub use genesis::interop_genesis_state;
 use int_to_bytes::int_to_bytes32;
+use logging::test_logger;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
-use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -105,25 +105,6 @@ fn make_rng() -> Mutex<StdRng> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
     Mutex::new(StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64))
-}
-
-/// Return a logger suitable for test usage.
-///
-/// By default no logs will be printed, but they can be enabled via the `test_logger` feature.
-///
-/// We've tried the `slog_term::TestStdoutWriter` in the past, but found it too buggy because
-/// of the threading limitation.
-pub fn test_logger() -> Logger {
-    use sloggers::Build;
-
-    if cfg!(feature = "test_logger") {
-        sloggers::terminal::TerminalLoggerBuilder::new()
-            .level(sloggers::types::Severity::Debug)
-            .build()
-            .unwrap()
-    } else {
-        sloggers::null::NullLoggerBuilder.build().unwrap()
-    }
 }
 
 /// Return a `ChainSpec` suitable for test usage.

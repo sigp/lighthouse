@@ -451,6 +451,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
+ "logging",
  "lru",
  "maplit",
  "merkle_proof",
@@ -3715,6 +3716,7 @@ dependencies = [
  "lighthouse_metrics",
  "slog",
  "slog-term",
+ "sloggers",
 ]
 
 [[package]]
@@ -5564,6 +5566,7 @@ dependencies = [
  "lighthouse_metrics",
  "lmdb",
  "lmdb-sys",
+ "logging",
  "maplit",
  "parking_lot",
  "rand 0.7.3",
@@ -6093,6 +6096,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dfed899f0eb03f32ee8c6a0aabdb8a7949659e3466561fc0adf54e26d88c5f4"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "test-test_logger"
+version = "0.1.0"
+dependencies = [
+ "logging",
+ "slog",
 ]
 
 [[package]]

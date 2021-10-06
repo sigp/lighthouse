@@ -1,5 +1,3 @@
-use slog::Logger;
-use sloggers::Build;
 use std::collections::HashSet;
 use types::{
     AggregateSignature, AttestationData, AttesterSlashing, BeaconBlockHeader, Checkpoint, Epoch,
@@ -7,17 +5,6 @@ use types::{
 };
 
 pub type E = MainnetEthSpec;
-
-pub fn logger() -> Logger {
-    if cfg!(feature = "test_logger") {
-        sloggers::terminal::TerminalLoggerBuilder::new()
-            .level(sloggers::types::Severity::Trace)
-            .build()
-            .unwrap()
-    } else {
-        sloggers::null::NullLoggerBuilder.build().unwrap()
-    }
-}
 
 pub fn indexed_att(
     attesting_indices: impl AsRef<[u64]>,
