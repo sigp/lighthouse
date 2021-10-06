@@ -640,6 +640,8 @@ dependencies = [
  "hex",
  "log",
  "logging",
+ "serde",
+ "serde_derive",
  "slog",
  "slog-async",
  "slog-scope",

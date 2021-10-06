@@ -2,9 +2,10 @@ use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
 use eth2_libp2p::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use eth2_libp2p::{
-    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
+    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, Keypair},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
+use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -12,14 +13,28 @@ use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
+#[derive(Serialize, Deserialize)]
 pub struct BootNodeConfig<T: EthSpec> {
     pub listen_socket: SocketAddr,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
+    // CombinedKey is skipped by serde as it is defined in a different crate and
+    // does not implement Serialize and Deserialize.
+    // Despite skip a default is needed to enable BootNodeConfig's
+    // Deserialization (CombinedKey has no default value).
+    #[serde(skip, default = "generate_local_key")]
     pub local_key: CombinedKey,
+    #[serde(skip)]
     pub discv5_config: Discv5Config,
     phantom: PhantomData<T>,
+}
+
+/// Generates a new `secp256k1` key.
+fn generate_local_key() -> CombinedKey {
+    // Currently discv5 supports only secp256k1 keys.
+    let private_key = Keypair::generate_secp256k1();
+    CombinedKey::from_libp2p(&private_key).unwrap()
 }
 
 impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
