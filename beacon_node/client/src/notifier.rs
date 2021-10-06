@@ -302,6 +302,11 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
     if let Ok(head_info) = beacon_chain.head_info() {
         // Perform some logging about the eth1 chain
         if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
+            // No need to do logging if using the dummy backend.
+            if eth1_chain.is_dummy_backend() {
+                return;
+            }
+
             if let Some(status) =
                 eth1_chain.sync_status(head_info.genesis_time, current_slot_opt, &beacon_chain.spec)
             {
