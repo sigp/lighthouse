@@ -223,6 +223,11 @@ where
         }
     }
 
+    /// Returns `true` if the "dummy" backend is being used.
+    pub fn is_dummy_backend(&self) -> bool {
+        self.use_dummy_backend
+    }
+
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
     pub fn eth1_data_for_block_production(
