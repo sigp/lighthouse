@@ -100,10 +100,11 @@ pub fn create_api_server<T: BeaconChainTypes>(
         NetworkGlobals::new(enr.clone(), TCP_PORT, UDP_PORT, meta_data, vec![], &log);
 
     let peer_id = PeerId::random();
-    network_globals
-        .peers
-        .write()
-        .test_connect_ingoing(&peer_id, EXTERNAL_ADDR.parse().unwrap(), None);
+    network_globals.peers.write().test_connect_ingoing(
+        &peer_id,
+        EXTERNAL_ADDR.parse().unwrap(),
+        None,
+    );
 
     *network_globals.sync_state.write() = SyncState::Synced;
 
