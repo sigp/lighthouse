@@ -20,7 +20,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    WhenSlotSkipped,
+    ExecutionLayerStatus, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -340,7 +340,7 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
-    // Create a `warp` filter that rejects request whilst the node is syncing.
+    // Create a `warp` filter that rejects requests whilst the node is syncing.
     let not_while_syncing_filter =
         warp::any()
             .and(network_globals.clone())
@@ -384,6 +384,28 @@ pub fn serve<T: BeaconChainTypes>(
                 },
             )
             .untuple_one();
+
+    // Create a `warp` filter that rejects requests unless the execution layer (EL) is ready.
+    let only_while_el_is_ready = warp::any()
+        .and(chain_filter.clone())
+        .and_then(move |chain: Arc<BeaconChain<T>>| async move {
+            let status = chain.execution_layer_status().await.map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "failed to read execution engine status: {:?}",
+                    e
+                ))
+            })?;
+            match status {
+                ExecutionLayerStatus::Ready | ExecutionLayerStatus::NotRequired => Ok(()),
+                ExecutionLayerStatus::NotReady => Err(warp_utils::reject::custom_server_error(
+                    "execution engine(s) not ready".to_string(),
+                )),
+                ExecutionLayerStatus::Missing => Err(warp_utils::reject::custom_server_error(
+                    "no execution engines configured".to_string(),
+                )),
+            }
+        })
+        .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
@@ -1081,6 +1103,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
@@ -1378,6 +1401,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              signatures: Vec<SyncCommitteeMessage>,
@@ -1807,6 +1831,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(|epoch: Epoch, chain: Arc<BeaconChain<T>>, log: Logger| {
@@ -1824,6 +1849,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
@@ -1858,6 +1884,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -1890,6 +1917,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -1921,6 +1949,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(warp::body::json())
         .and(chain_filter.clone())
         .and_then(
@@ -1943,6 +1972,7 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(warp::body::json())
         .and(chain_filter.clone())
         .and_then(
@@ -1960,6 +1990,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
@@ -1982,6 +2013,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("aggregate_and_proofs"))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
@@ -2082,6 +2114,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("contribution_and_proofs"))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(only_while_el_is_ready)
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
