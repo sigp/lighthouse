@@ -665,13 +665,9 @@ where
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
                 if head.is_merge_complete {
-                    let result = runtime_context
-                        .executor
-                        .runtime()
-                        .upgrade()
-                        .ok_or_else(|| "Cannot update engine head, shutting down".to_string())?
-                        .block_on(async move {
-                            BeaconChain::<
+                    runtime_context.executor.spawn(
+                        async move {
+                            let result = BeaconChain::<
                                 Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
                             >::update_execution_engine_forkchoice(
                                 inner_execution_layer,
@@ -679,18 +675,20 @@ where
                                 head.finalized_checkpoint.root,
                                 head.block_root,
                             )
-                            .await
-                        });
+                            .await;
 
-                    // No need to exit early if setting the head fails. It will be set again if/when the
-                    // node comes online.
-                    if let Err(e) = result {
-                        warn!(
-                            log,
-                            "Failed to update head on execution engines";
-                            "error" => ?e
-                        );
-                    }
+                            // No need to exit early if setting the head fails. It will be set again if/when the
+                            // node comes online.
+                            if let Err(e) = result {
+                                warn!(
+                                    log,
+                                    "Failed to update head on execution engines";
+                                    "error" => ?e
+                                );
+                            }
+                        },
+                        "el_fork_choice_update",
+                    );
                 }
 
                 // Spawn a routine that tracks the status of the execution engines.
