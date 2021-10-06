@@ -2011,6 +2011,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
+ "slot_clock",
  "task_executor",
  "tokio",
  "tree_hash",
