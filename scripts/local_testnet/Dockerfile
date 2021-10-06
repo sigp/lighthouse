@@ -1,32 +1,17 @@
-FROM rust:1.50.0 AS builder
-RUN apt-get update && apt-get install -y cmake
+FROM sigp/lcli:latest-unstable
 
-RUN git clone https://github.com/sigp/lighthouse
-ARG PORTABLE
-ENV PORTABLE $PORTABLE
-RUN cd lighthouse && make
-RUN env
-RUN cd lighthouse && make install-lcli
-
-##################################################
-FROM debian:buster-slim
+COPY --from=sigp/lighthouse /usr/local/bin/lighthouse /usr/local/bin/lighthouse
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  libssl-dev \
-  ca-certificates \
   nodejs npm \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/local/cargo/bin/lighthouse /usr/local/bin/lighthouse
-COPY --from=builder /usr/local/cargo/bin/lcli /usr/local/bin/lcli
-COPY --from=builder /lighthouse /lighthouse
-
 RUN npm -g install ganache-cli
 
-WORKDIR /lighthouse/scripts/local_testnet/
+RUN mkdir /app
 
-ADD ganache_test_node.sh ./ganache_test_node.sh
-ADD vars.env ./vars.env
-ADD setup.sh ./setup.sh
+WORKDIR /app
+
+ADD ./* /app/
 

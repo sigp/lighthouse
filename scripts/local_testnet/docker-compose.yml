@@ -3,6 +3,8 @@ services:
   ganache:
     build: .
     # network_mode: "host"
+    volumes:
+      - data:/root/.lighthouse
     networks:
       - testnet
     entrypoint: "./ganache_test_node.sh"
