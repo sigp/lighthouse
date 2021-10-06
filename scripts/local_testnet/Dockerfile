@@ -24,7 +24,9 @@ COPY --from=builder /lighthouse /lighthouse
 
 RUN npm -g install ganache-cli
 
-ADD ganache_test_node.sh /ganache_test_node.sh
-ADD vars.env /lighthouse/scripts/local_testnet/vars.env
-
 WORKDIR /lighthouse/scripts/local_testnet/
+
+ADD ganache_test_node.sh ./ganache_test_node.sh
+ADD vars.env ./vars.env
+ADD setup.sh ./setup.sh
+

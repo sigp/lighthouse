@@ -3,6 +3,7 @@
 source ./vars.env
 
 ganache-cli \
+	--host "0.0.0.0" \
 	--defaultBalanceEther 1000000000 \
 	--gasLimit 1000000000 \
 	--accounts 10 \

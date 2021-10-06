@@ -13,7 +13,7 @@ source ./vars.env
 
 lcli \
 	deploy-deposit-contract \
-	--eth1-http http://localhost:8545 \
+	--eth1-http http://ganache:8545 \
 	--confirmations 1 \
 	--validator-count $VALIDATOR_COUNT
 

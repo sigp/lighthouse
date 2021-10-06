@@ -2,12 +2,15 @@ version: '3'
 services:
   ganache:
     build: .
-    network_mode: "host"
+    # network_mode: "host"
+    networks:
+      - testnet
     entrypoint: "./ganache_test_node.sh"
   
   boot:
     build: .
-    network_mode: "host"
+    networks:
+      - testnet
     volumes:
       - data:/root/.lighthouse
     depends_on: 
@@ -93,3 +96,5 @@ services:
 volumes:
   data:
     
+networks:
+  testnet:
