@@ -36,20 +36,12 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        let chain_db = client_config.get_db_path().ok_or("Failed to get db_path")?;
-        if chain_db.exists() {
-            fs::remove_dir_all(chain_db)
-                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-        }
+        fs::remove_dir_all(client_config.get_db_path())
+            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
 
         // Remove the freezer db.
-        let freezer_db = client_config
-            .get_freezer_db_path()
-            .ok_or("Failed to get freezer db path")?;
-        if freezer_db.exists() {
-            fs::remove_dir_all(freezer_db)
-                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-        }
+        fs::remove_dir_all(client_config.get_freezer_db_path())
+            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
     }
 
     // Create `datadir` and any non-existing parent directories.
