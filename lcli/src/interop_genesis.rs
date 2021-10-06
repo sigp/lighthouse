@@ -38,6 +38,7 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
         &keypairs,
         genesis_time,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        None,
         &spec,
     )?;
 

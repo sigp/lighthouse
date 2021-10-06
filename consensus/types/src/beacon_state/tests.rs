@@ -562,6 +562,7 @@ fn tree_hash_cache_linear_history_long_skip() {
         &keypairs,
         0,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        None,
         spec,
     )
     .unwrap();

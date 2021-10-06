@@ -427,6 +427,15 @@ fn main() {
                         .help("The eth1 block hash used when generating a genesis state."),
                 )
                 .arg(
+                    Arg::with_name("execution-payload-header")
+                        .long("execution-payload-header")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Path to file containing `ExecutionPayloadHeader` SSZ bytes to be \
+                            used in the genesis state."),
+                )
+                .arg(
                     Arg::with_name("validator-count")
                         .long("validator-count")
                         .value_name("INTEGER")

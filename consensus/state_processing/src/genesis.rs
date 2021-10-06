@@ -68,7 +68,8 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
-        *state.latest_execution_payload_header_mut()? = execution_payload_header.unwrap_or_default();
+        *state.latest_execution_payload_header_mut()? =
+            execution_payload_header.unwrap_or_default();
     }
 
     // Now that we have our validators, initialize the caches (including the committees)

@@ -38,7 +38,9 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
         let meta: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let execution_payload_header: Option<ExecutionPayloadHeader<E>> =
             if meta.execution_payload_header {
-                ssz_decode_file(&path.join("execution_payload_header.ssz_snappy"))?
+                Some(ssz_decode_file(
+                    &path.join("execution_payload_header.ssz_snappy"),
+                )?)
             } else {
                 None
             };
