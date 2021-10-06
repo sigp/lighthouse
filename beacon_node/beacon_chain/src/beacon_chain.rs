@@ -3384,7 +3384,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                         .await
                         {
-                            error!(
+                            debug!(
                                 log,
                                 "Failed to update execution head";
                                 "error" => ?e
