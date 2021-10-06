@@ -2,7 +2,7 @@
 
 use crate::engine_api::{EngineApi, Error as EngineApiError};
 use futures::future::join_all;
-use slog::{crit, debug, error, info, warn, Logger};
+use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::RwLock;
 use types::Hash256;
@@ -89,7 +89,7 @@ impl<T: EngineApi> Engines<T> {
                 .forkchoice_updated(head.head_block_hash, head.finalized_block_hash)
                 .await
             {
-                error!(
+                debug!(
                     self.log,
                     "Failed to issue latest head to engine";
                     "error" => ?e,
@@ -225,7 +225,7 @@ impl<T: EngineApi> Engines<T> {
                 match func(engine).await {
                     Ok(result) => return Ok(result),
                     Err(error) => {
-                        error!(
+                        debug!(
                             self.log,
                             "Execution engine call failed";
                             "error" => ?error,
@@ -291,7 +291,7 @@ impl<T: EngineApi> Engines<T> {
             let is_offline = *engine.state.read().await == EngineState::Offline;
             if !is_offline {
                 func(engine).await.map_err(|error| {
-                    error!(
+                    debug!(
                         self.log,
                         "Execution engine call failed";
                         "error" => ?error,

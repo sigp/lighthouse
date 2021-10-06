@@ -8,7 +8,7 @@ use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceHead, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, error, info, Logger};
+use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
 use std::sync::Arc;
@@ -249,7 +249,7 @@ impl ExecutionLayer {
         random: Hash256,
     ) -> Result<PayloadId, Error> {
         let fee_recipient = self.fee_recipient()?;
-        info!(
+        debug!(
             self.log(),
             "Issuing engine_preparePayload";
             "fee_recipient" => ?fee_recipient,
@@ -285,7 +285,7 @@ impl ExecutionLayer {
         random: Hash256,
     ) -> Result<ExecutionPayload<T>, Error> {
         let fee_recipient = self.fee_recipient()?;
-        info!(
+        debug!(
             self.log(),
             "Issuing engine_getPayload";
             "fee_recipient" => ?fee_recipient,
@@ -323,8 +323,8 @@ impl ExecutionLayer {
     pub async fn execute_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
-    ) -> Result<(ExecutePayloadResponse, ExecutePayloadHandle), Error> {
-        info!(
+    ) -> Result<(ExecutePayloadResponse, Option<ExecutePayloadHandle>), Error> {
+        debug!(
             self.log(),
             "Issuing engine_executePayload";
             "parent_hash" => ?execution_payload.parent_hash,
@@ -358,23 +358,20 @@ impl ExecutionLayer {
             );
         }
 
-        let execute_payload_response = if valid > 0 {
-            ExecutePayloadResponse::Valid
+        if valid > 0 {
+            let handle = ExecutePayloadHandle {
+                block_hash: execution_payload.block_hash,
+                execution_layer: Some(self.clone()),
+                log: self.log().clone(),
+            };
+            Ok((ExecutePayloadResponse::Valid, Some(handle)))
         } else if invalid > 0 {
-            ExecutePayloadResponse::Invalid
+            Ok((ExecutePayloadResponse::Invalid, None))
         } else if syncing > 0 {
-            ExecutePayloadResponse::Syncing
+            Ok((ExecutePayloadResponse::Syncing, None))
         } else {
-            return Err(Error::EngineErrors(errors));
-        };
-
-        let execute_payload_handle = ExecutePayloadHandle {
-            block_hash: execution_payload.block_hash,
-            execution_layer: Some(self.clone()),
-            log: self.log().clone(),
-        };
-
-        Ok((execute_payload_response, execute_payload_handle))
+            Err(Error::EngineErrors(errors))
+        }
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
@@ -392,7 +389,7 @@ impl ExecutionLayer {
         block_hash: Hash256,
         status: ConsensusStatus,
     ) -> Result<(), Error> {
-        info!(
+        debug!(
             self.log(),
             "Issuing engine_consensusValidated";
             "status" => ?status,
@@ -430,7 +427,7 @@ impl ExecutionLayer {
         head_block_hash: Hash256,
         finalized_block_hash: Hash256,
     ) -> Result<(), Error> {
-        info!(
+        debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
