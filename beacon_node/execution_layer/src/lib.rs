@@ -323,7 +323,7 @@ impl ExecutionLayer {
     pub async fn execute_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
-    ) -> Result<(ExecutePayloadResponse, ExecutePayloadHandle), Error> {
+    ) -> Result<(ExecutePayloadResponse, Option<ExecutePayloadHandle>), Error> {
         info!(
             self.log(),
             "Issuing engine_executePayload";
@@ -358,23 +358,20 @@ impl ExecutionLayer {
             );
         }
 
-        let execute_payload_response = if valid > 0 {
-            ExecutePayloadResponse::Valid
+        if valid > 0 {
+            let handle = ExecutePayloadHandle {
+                block_hash: execution_payload.block_hash,
+                execution_layer: Some(self.clone()),
+                log: self.log().clone(),
+            };
+            Ok((ExecutePayloadResponse::Valid, Some(handle)))
         } else if invalid > 0 {
-            ExecutePayloadResponse::Invalid
+            Ok((ExecutePayloadResponse::Invalid, None))
         } else if syncing > 0 {
-            ExecutePayloadResponse::Syncing
+            Ok((ExecutePayloadResponse::Syncing, None))
         } else {
-            return Err(Error::EngineErrors(errors));
-        };
-
-        let execute_payload_handle = ExecutePayloadHandle {
-            block_hash: execution_payload.block_hash,
-            execution_layer: Some(self.clone()),
-            log: self.log().clone(),
-        };
-
-        Ok((execute_payload_response, execute_payload_handle))
+            Err(Error::EngineErrors(errors))
+        }
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.

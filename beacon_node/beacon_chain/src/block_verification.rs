@@ -1160,7 +1160,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
             match execute_payload_response {
                 Ok((status, handle)) => match status {
-                    ExecutePayloadResponse::Valid => Some(handle),
+                    ExecutePayloadResponse::Valid => handle,
                     ExecutePayloadResponse::Invalid => {
                         return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
                     }
@@ -1170,7 +1170,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                             "Optimistically accepting payload";
                             "msg" => "execution engine is syncing"
                         );
-                        Some(handle)
+                        handle
                     }
                 },
                 Err(e) => {
