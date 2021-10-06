@@ -647,8 +647,55 @@ where
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
             let state_advance_context = runtime_context.service_context("state_advance".into());
-            let log = state_advance_context.log().clone();
-            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone(), log);
+            let state_advance_log = state_advance_context.log().clone();
+            spawn_state_advance_timer(
+                state_advance_context.executor,
+                beacon_chain.clone(),
+                state_advance_log,
+            );
+
+            if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
+                let store = beacon_chain.store.clone();
+                let inner_execution_layer = execution_layer.clone();
+
+                let head = beacon_chain
+                    .head_info()
+                    .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
+
+                // Issue the head to the execution engine on startup. This ensures it can start
+                // syncing.
+                if head.is_merge_complete {
+                    let result = runtime_context
+                        .executor
+                        .runtime()
+                        .upgrade()
+                        .ok_or_else(|| "Cannot update engine head, shutting down".to_string())?
+                        .block_on(async move {
+                            BeaconChain::<
+                                Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
+                            >::update_execution_engine_forkchoice(
+                                inner_execution_layer,
+                                store,
+                                head.finalized_checkpoint.root,
+                                head.block_root,
+                            )
+                            .await
+                        });
+
+                    // No need to exit early if setting the head fails. It will be set again if/when the
+                    // node comes online.
+                    if let Err(e) = result {
+                        warn!(
+                            log,
+                            "Failed to update head on execution engines";
+                            "error" => ?e
+                        );
+                    }
+                }
+
+                // Spawn a routine that tracks the status of the execution engines.
+                execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
+            }
         }
 
         Ok(Client {
