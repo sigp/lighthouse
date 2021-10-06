@@ -55,7 +55,7 @@ use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, Logger};
+use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{is_execution_enabled, is_merge_block};
@@ -1127,7 +1127,15 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             match is_valid_terminal_pow_block {
                 Some(true) => Ok(()),
                 Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock),
-                None => Err(ExecutionPayloadError::TerminalPoWBlockNotFound),
+                None => {
+                    info!(
+                        chain.log,
+                        "Optimistically accepting terminal block";
+                        "block_hash" => ?execution_payload.parent_hash,
+                        "msg" => "the terminal block/parent was unavailable"
+                    );
+                    Ok(())
+                }
             }?;
         }
 
@@ -1147,21 +1155,34 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                         object_fork: block.message().body().fork_name(),
                     })?;
 
-            let (execute_payload_status, execute_payload_handle) = execution_layer
-                .block_on(|execution_layer| execution_layer.execute_payload(execution_payload))
-                .map_err(ExecutionPayloadError::from)?;
+            let execute_payload_response = execution_layer
+                .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
 
-            match execute_payload_status {
-                ExecutePayloadResponse::Valid => Ok(()),
-                ExecutePayloadResponse::Invalid => {
-                    Err(ExecutionPayloadError::RejectedByExecutionEngine)
+            match execute_payload_response {
+                Ok((status, handle)) => match status {
+                    ExecutePayloadResponse::Valid => handle,
+                    ExecutePayloadResponse::Invalid => {
+                        return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
+                    }
+                    ExecutePayloadResponse::Syncing => {
+                        debug!(
+                            chain.log,
+                            "Optimistically accepting payload";
+                            "msg" => "execution engine is syncing"
+                        );
+                        handle
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        chain.log,
+                        "Optimistically accepting payload";
+                        "error" => ?e,
+                        "msg" => "execution engine returned an error"
+                    );
+                    None
                 }
-                ExecutePayloadResponse::Syncing => {
-                    Err(ExecutionPayloadError::ExecutionEngineIsSyncing)
-                }
-            }?;
-
-            Some(execute_payload_handle)
+            }
         } else {
             None
         };
