@@ -265,14 +265,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 };
 
                 let block_hash = match beacon_chain.head_safety_status() {
-                    Ok(HeadSafetyStatus::Safe(hash_opt)) => hash_opt,
+                    Ok(HeadSafetyStatus::Safe(hash_opt)) => hash_opt
+                        .map(|hash| format!("{} (verified)", hash))
+                        .unwrap_or_else(|| "n/a".to_string()),
                     Ok(HeadSafetyStatus::Unsafe(block_hash)) => {
                         warn!(
                             log,
                             "Head execution payload is unverified";
                             "execution_block_hash" => ?block_hash,
                         );
-                        Some(block_hash)
+                        format!("{} (unverified)", block_hash)
                     }
                     Ok(HeadSafetyStatus::Invalid(block_hash)) => {
                         crit!(
@@ -281,7 +283,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             "msg" => "this scenario may be unrecoverable",
                             "execution_block_hash" => ?block_hash,
                         );
-                        Some(block_hash)
+                        format!("{} (invalid)", block_hash)
                     }
                     Err(e) => {
                         error!(
@@ -289,18 +291,15 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             "Failed to read head safety status";
                             "error" => ?e
                         );
-                        None
+                        "n/a".to_string()
                     }
                 };
-                let block_hash_string = block_hash
-                    .map(|hash| format!("{:?}", hash))
-                    .unwrap_or_else(|| "n/a".to_string());
 
                 info!(
                     log,
                     "Synced";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "execution_block_hash" => block_hash_string,
+                    "exec_hash" => block_hash,
                     "finalized_root" => format!("{}", finalized_root),
                     "finalized_epoch" => finalized_epoch,
                     "epoch" => current_epoch,
