@@ -380,13 +380,19 @@ pub fn serve<T: BeaconChainTypes>(
                 ))
             })?;
             match status {
-                HeadSafetyStatus::Safe => Ok(()),
-                HeadSafetyStatus::Unsafe => Err(warp_utils::reject::custom_server_error(
-                    "optimistic head has not been verified by the execution layer".to_string(),
-                )),
-                HeadSafetyStatus::Invalid => Err(warp_utils::reject::custom_server_error(
-                    "the head block has an invalid payload, this may be unrecoverable".to_string(),
-                )),
+                HeadSafetyStatus::Safe(_) => Ok(()),
+                HeadSafetyStatus::Unsafe(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "optimistic head hash {:?} has not been verified by the execution layer",
+                        hash
+                    )))
+                }
+                HeadSafetyStatus::Invalid(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "the head block has an invalid payload {:?}, this may be unrecoverable",
+                        hash
+                    )))
+                }
             }
         })
         .untuple_one();

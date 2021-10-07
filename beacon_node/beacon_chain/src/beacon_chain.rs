@@ -209,9 +209,9 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 /// Indicates the status of the `ExecutionLayer`.
 #[derive(Debug, PartialEq)]
 pub enum HeadSafetyStatus {
-    Safe,
-    Unsafe,
-    Invalid,
+    Safe(Option<Hash256>),
+    Unsafe(Hash256),
+    Invalid(Hash256),
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3423,10 +3423,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BeaconChainError::HeadMissingFromForkChoice(head.block_root))?;
 
         let status = match head_block.execution_status {
-            ExecutionStatus::Valid(_) => HeadSafetyStatus::Safe,
-            ExecutionStatus::Invalid(_) => HeadSafetyStatus::Invalid,
-            ExecutionStatus::Unknown(_) => HeadSafetyStatus::Unsafe,
-            ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe,
+            ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
+            ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
+            ExecutionStatus::Unknown(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
+            ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
         };
 
         Ok(status)
