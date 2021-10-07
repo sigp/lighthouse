@@ -2505,7 +2505,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let s = futures::stream::select_all(receivers);
 
-                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                    Ok::<_, warp::Rejection>(warp::sse::reply(s))
                 })
             },
         );
