@@ -51,9 +51,9 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use execution_layer::ExecutePayloadResponse;
-use fork_choice::{ForkChoice, ForkChoiceStore};
+use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use safe_arith::ArithError;
 use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -232,6 +232,16 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// See `ExecutionPayloadError` for scoring information
     ExecutionPayloadError(ExecutionPayloadError),
+    /// The block references an parent block which has an execution payload which was found to be
+    /// invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// TODO(merge): reconsider how we score peers for this.
+    ///
+    /// The peer sent us an invalid block, but I'm not really sure how to score this in an
+    /// "optimistic" sync world.
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -529,6 +539,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec>,
     pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
+    pub payload_verification_status: PayloadVerificationStatus,
 }
 
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
@@ -1140,52 +1151,42 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
-        let execute_payload_handle = if is_execution_enabled(&state, block.message().body()) {
-            let execution_layer = chain
-                .execution_layer
-                .as_ref()
-                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-            let execution_payload =
-                block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .ok_or_else(|| InconsistentFork {
-                        fork_at_slot: eth2::types::ForkName::Merge,
-                        object_fork: block.message().body().fork_name(),
-                    })?;
+        let (execute_payload_handle, payload_verification_status) =
+            if is_execution_enabled(&state, block.message().body()) {
+                let execution_layer = chain
+                    .execution_layer
+                    .as_ref()
+                    .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+                let execution_payload =
+                    block
+                        .message()
+                        .body()
+                        .execution_payload()
+                        .ok_or_else(|| InconsistentFork {
+                            fork_at_slot: eth2::types::ForkName::Merge,
+                            object_fork: block.message().body().fork_name(),
+                        })?;
 
-            let execute_payload_response = execution_layer
-                .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+                let execute_payload_response = execution_layer
+                    .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
 
-            match execute_payload_response {
-                Ok((status, handle)) => match status {
-                    ExecutePayloadResponse::Valid => handle,
-                    ExecutePayloadResponse::Invalid => {
-                        return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
-                    }
-                    ExecutePayloadResponse::Syncing => {
-                        debug!(
-                            chain.log,
-                            "Optimistically accepting payload";
-                            "msg" => "execution engine is syncing"
-                        );
-                        handle
-                    }
-                },
-                Err(e) => {
-                    error!(
-                        chain.log,
-                        "Optimistically accepting payload";
-                        "error" => ?e,
-                        "msg" => "execution engine returned an error"
-                    );
-                    None
+                match execute_payload_response {
+                    Ok((status, handle)) => match status {
+                        ExecutePayloadResponse::Valid => {
+                            (handle, PayloadVerificationStatus::Verified)
+                        }
+                        ExecutePayloadResponse::Invalid => {
+                            return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
+                        }
+                        ExecutePayloadResponse::Syncing => {
+                            (handle, PayloadVerificationStatus::NotVerified)
+                        }
+                    },
+                    Err(_) => (None, PayloadVerificationStatus::NotVerified),
                 }
-            }
-        } else {
-            None
-        };
+            } else {
+                (None, PayloadVerificationStatus::Irrelevant)
+            };
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1300,6 +1301,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             state,
             parent_block: parent.beacon_block,
             confirmation_db_batch,
+            payload_verification_status,
         })
     }
 }
@@ -1315,7 +1317,21 @@ fn validate_execution_payload<T: BeaconChainTypes>(
     if let Some(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
-        let is_merge_complete = parent_block.execution_block_hash != Hash256::zero();
+
+        let is_merge_complete = match parent_block.execution_status {
+            // Optimistically declare that an "unknown" status block has completed the merge.
+            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
+            // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
+            // by definition.
+            ExecutionStatus::Irrelevant(_) => false,
+            // If the parent has an invalid payload then it's impossible to build a valid block upon
+            // it. Reject the block.
+            ExecutionStatus::Invalid(_) => {
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: parent_block.root,
+                })
+            }
+        };
         let is_merge_block =
             !is_merge_complete && *execution_payload != <ExecutionPayload<T::EthSpec>>::default();
         if !is_merge_block && !is_merge_complete {

@@ -20,7 +20,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    ExecutionLayerStatus, WhenSlotSkipped,
+    HeadSafetyStatus, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -368,24 +368,31 @@ pub fn serve<T: BeaconChainTypes>(
             )
             .untuple_one();
 
-    // Create a `warp` filter that rejects requests unless the execution layer (EL) is ready.
-    let only_while_el_is_ready = warp::any()
+    // Create a `warp` filter that rejects requests unless the head has been verified by the
+    // execution layer.
+    let only_with_safe_head = warp::any()
         .and(chain_filter.clone())
         .and_then(move |chain: Arc<BeaconChain<T>>| async move {
-            let status = chain.execution_layer_status().await.map_err(|e| {
+            let status = chain.head_safety_status().map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
-                    "failed to read execution engine status: {:?}",
+                    "failed to read head safety status: {:?}",
                     e
                 ))
             })?;
             match status {
-                ExecutionLayerStatus::Ready | ExecutionLayerStatus::NotRequired => Ok(()),
-                ExecutionLayerStatus::NotReady => Err(warp_utils::reject::custom_server_error(
-                    "execution engine(s) not ready".to_string(),
-                )),
-                ExecutionLayerStatus::Missing => Err(warp_utils::reject::custom_server_error(
-                    "no execution engines configured".to_string(),
-                )),
+                HeadSafetyStatus::Safe(_) => Ok(()),
+                HeadSafetyStatus::Unsafe(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "optimistic head hash {:?} has not been verified by the execution layer",
+                        hash
+                    )))
+                }
+                HeadSafetyStatus::Invalid(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "the head block has an invalid payload {:?}, this may be unrecoverable",
+                        hash
+                    )))
+                }
             }
         })
         .untuple_one();
@@ -1085,7 +1092,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
@@ -1383,7 +1389,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              signatures: Vec<SyncCommitteeMessage>,
@@ -1803,7 +1808,6 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(|epoch: Epoch, chain: Arc<BeaconChain<T>>, log: Logger| {
@@ -1821,7 +1825,6 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
@@ -1853,7 +1856,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
+        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -1886,7 +1889,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
+        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -1918,7 +1921,6 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and(warp::body::json())
         .and(chain_filter.clone())
         .and_then(
@@ -1941,7 +1943,6 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and(warp::body::json())
         .and(chain_filter.clone())
         .and_then(
@@ -1959,7 +1960,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
+        .and(only_with_safe_head)
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
@@ -1982,7 +1983,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("aggregate_and_proofs"))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
@@ -2083,7 +2083,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("contribution_and_proofs"))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
-        .and(only_while_el_is_ready)
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
