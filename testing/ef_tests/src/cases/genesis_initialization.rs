@@ -9,7 +9,7 @@ use types::{BeaconState, Deposit, EthSpec, ExecutionPayloadHeader, ForkName, Has
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
     deposits_count: usize,
-    execution_payload_header: bool,
+    execution_payload_header: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -37,7 +37,7 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
         } = yaml_decode_file(&path.join("eth1.yaml"))?;
         let meta: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let execution_payload_header: Option<ExecutionPayloadHeader<E>> =
-            if meta.execution_payload_header {
+            if meta.execution_payload_header.unwrap_or(false) {
                 Some(ssz_decode_file(
                     &path.join("execution_payload_header.ssz_snappy"),
                 )?)
