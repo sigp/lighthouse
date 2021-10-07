@@ -255,6 +255,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         self.peers.iter().filter(|(_, info)| info.is_connected())
     }
 
+    pub fn connected_peer_count(&self) -> usize {
+        self.connected_peers().count()
+    }
+
+    /// Returns a `Client` type if one is known for the `PeerId`.
+    pub fn client(&self, peer_id: &PeerId) -> super::client::Client {
+        self.peer_info(peer_id)
+            .map(|info| info.client.clone())
+            .unwrap_or_default()
+    }
     /// Gives the ids of all known connected peers.
     pub fn connected_peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
@@ -271,12 +281,20 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    pub fn connected_or_dialing_peer_count(&self) -> usize {
+        self.connected_or_dialing_peers().count()
+    }
+
     /// Connected outbound-only peers
     pub fn connected_outbound_only_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
             .filter(|(_, info)| info.is_outbound_only())
             .map(|(peer_id, _)| peer_id)
+    }
+
+    pub fn connected_outbound_only_peer_count(&self) -> usize {
+        self.connected_outbound_only_peers().count()
     }
 
     /// Gives the `peer_id` of all known connected and synced peers.
