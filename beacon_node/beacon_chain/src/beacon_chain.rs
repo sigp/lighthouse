@@ -56,6 +56,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use proto_array::ExecutionStatus;
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -195,6 +196,7 @@ pub struct HeadInfo {
     pub genesis_validators_root: Hash256,
     pub proposer_shuffling_decision_root: Hash256,
     pub is_merge_complete: bool,
+    pub execution_payload_block_hash: Option<Hash256>,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -205,17 +207,23 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type EthSpec: types::EthSpec;
 }
 
-/// Indicates the status of the `ExecutionLayer`.
+/// Indicates the EL payload verification status of the head beacon block.
 #[derive(Debug, PartialEq)]
-pub enum ExecutionLayerStatus {
-    /// The execution layer is synced and reachable.
-    Ready,
-    /// The execution layer either syncing or unreachable.
-    NotReady,
-    /// The execution layer is required, but has not been enabled. This is a configuration error.
-    Missing,
-    /// The execution layer is not yet required, therefore the status is irrelevant.
-    NotRequired,
+pub enum HeadSafetyStatus {
+    /// The head block has either been verified by an EL or is does not require EL verification
+    /// (e.g., it is pre-merge or pre-terminal-block).
+    ///
+    /// If the block is post-terminal-block, `Some(execution_payload.block_hash)` is included with
+    /// the variant.
+    Safe(Option<Hash256>),
+    /// The head block execution payload has not yet been verified by an EL.
+    ///
+    /// The `execution_payload.block_hash` of the head block is returned.
+    Unsafe(Hash256),
+    /// The head block execution payload was deemed to be invalid by an EL.
+    ///
+    /// The `execution_payload.block_hash` of the head block is returned.
+    Invalid(Hash256),
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -1016,6 +1024,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 genesis_validators_root: head.beacon_state.genesis_validators_root(),
                 proposer_shuffling_decision_root,
                 is_merge_complete: is_merge_complete(&head.beacon_state),
+                execution_payload_block_hash: head
+                    .beacon_block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .map(|ep| ep.block_hash),
             })
         })
     }
@@ -2308,6 +2322,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let mut ops = fully_verified_block.confirmation_db_batch;
+        let payload_verification_status = fully_verified_block.payload_verification_status;
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -2427,7 +2442,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             fork_choice
-                .on_block(current_slot, &block, block_root, &state)
+                .on_block(
+                    current_slot,
+                    &block,
+                    block_root,
+                    &state,
+                    payload_verification_status,
+                )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
@@ -3260,6 +3281,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
+            // Check to ensure that this finalized block hasn't been marked as invalid.
+            let finalized_block = self
+                .fork_choice
+                .read()
+                .get_block(&new_finalized_checkpoint.root)
+                .ok_or(BeaconChainError::FinalizedBlockMissingFromForkChoice(
+                    new_finalized_checkpoint.root,
+                ))?;
+            if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
+                crit!(
+                    self.log,
+                    "Finalized block has an invalid payload";
+                    "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+                    You may be on a hostile network.",
+                    "block_hash" => ?block_hash
+                );
+                let mut shutdown_sender = self.shutdown_sender();
+                shutdown_sender
+                    .try_send(ShutdownReason::Failure(
+                        "Finalized block has an invalid execution payload.",
+                    ))
+                    .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+            }
+
             // Due to race conditions, it's technically possible that the head we load here is
             // different to the one earlier in this function.
             //
@@ -3420,37 +3465,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::ExecutionForkChoiceUpdateFailed)
     }
 
-    /// Indicates the status of the execution layer.
-    pub async fn execution_layer_status(&self) -> Result<ExecutionLayerStatus, BeaconChainError> {
-        let epoch = self.epoch()?;
-        if self.spec.merge_fork_epoch.map_or(true, |fork| epoch < fork) {
-            return Ok(ExecutionLayerStatus::NotRequired);
-        }
+    /// Returns the status of the current head block, regarding the validity of the execution
+    /// payload.
+    pub fn head_safety_status(&self) -> Result<HeadSafetyStatus, BeaconChainError> {
+        let head = self.head_info()?;
+        let head_block = self
+            .fork_choice
+            .read()
+            .get_block(&head.block_root)
+            .ok_or(BeaconChainError::HeadMissingFromForkChoice(head.block_root))?;
 
-        if let Some(execution_layer) = &self.execution_layer {
-            if execution_layer.is_synced().await {
-                Ok(ExecutionLayerStatus::Ready)
-            } else {
-                Ok(ExecutionLayerStatus::NotReady)
-            }
-        } else {
-            // This branch is slightly more restrictive than what is minimally required.
-            //
-            // It is possible for a node without an execution layer (EL) to follow the chain
-            // *after* the merge fork and *before* the terminal execution block, as long as
-            // that node is not required to produce blocks.
-            //
-            // However, here we say that all nodes *must* have an EL as soon as the merge fork
-            // happens. We do this because it's very difficult to determine that the terminal
-            // block has been met if we don't already have an EL. As far as we know, the
-            // terminal execution block might already exist and we've been rejecting it since
-            // we don't have an EL to verify it.
-            //
-            // I think it is very reasonable to say that the beacon chain expects all BNs to
-            // be paired with an EL node by the time the merge fork epoch is reached. So, we
-            // enforce that here.
-            Ok(ExecutionLayerStatus::Missing)
-        }
+        let status = match head_block.execution_status {
+            ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
+            ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
+            ExecutionStatus::Unknown(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
+            ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
+        };
+
+        Ok(status)
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.
