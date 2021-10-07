@@ -995,25 +995,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             (ScoreState::Banned, ScoreState::Banned) => ScoreTransitionResult::NoAction,
         }
     }
-
-    // Allow tests to inject peers ad-hoc. This is usually strictly limited to the peer manager,
-    // however we allow it for testing.
-    #[cfg(test)]
-    pub fn test_connect_ingoing(
-        &mut self,
-        peer_id: &PeerId,
-        seen_address: Multiaddr,
-        enr: Option<Enr>,
-    ) {
-        self.update_connection_state(
-            peer_id,
-            NewConnectionState::Connected {
-                enr,
-                seen_address,
-                direction: ConnectionDirection::Incoming,
-            },
-        );
-    }
 }
 
 /// Internal enum for managing connection state transitions.

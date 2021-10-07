@@ -255,7 +255,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
         gossipsub
-            .with_peer_score(params.clone(), thresholds)
+            .with_peer_score(params, thresholds)
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
@@ -265,7 +265,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(&config, network_globals.clone(), log).await?,
+            peer_manager: PeerManager::new(&config, network_globals.clone(), log)?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,

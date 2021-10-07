@@ -77,6 +77,6 @@ pub use peer_manager::{
     peerdb::client::Client,
     peerdb::score::{PeerAction, ReportSource},
     peerdb::PeerDB,
-    ConnectionDirection, PeerConnectionStatus, PeerInfo, SyncInfo, SyncStatus,
+    ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
 pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
