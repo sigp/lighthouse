@@ -18,7 +18,7 @@ pub fn interop_genesis_state<T: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
-    execution_payload_hearder: Option<ExecutionPayloadHeader<T>>,
+    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     let eth1_timestamp = 2_u64.pow(40);
@@ -50,7 +50,7 @@ pub fn interop_genesis_state<T: EthSpec>(
         eth1_block_hash,
         eth1_timestamp,
         genesis_deposits(datas, spec)?,
-        execution_payload_hearder,
+        execution_payload_header,
         spec,
     )
     .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
