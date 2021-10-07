@@ -236,9 +236,53 @@ impl ProtoArray {
 
         if let Some(parent_index) = node.parent {
             self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+
+            if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
+                self.propagate_execution_payload_verification(parent_index)?;
+            }
         }
 
         Ok(())
+    }
+
+    pub fn propagate_execution_payload_verification(
+        &mut self,
+        verified_node_index: usize,
+    ) -> Result<(), Error> {
+        let mut index = verified_node_index;
+        loop {
+            let node = self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+            let parent_index = match node.execution_status {
+                // We have reached a node that we already know is valid. No need to iterate further.
+                ExecutionStatus::Valid(_) => return Ok(()),
+                // We have reached an irrelevant node, this node is prior to a terminal execution
+                // block. There's no need to iterate further.
+                ExecutionStatus::Irrelevant(_) => return Ok(()),
+                // The block has an unknown status, set it to valid since any ancestor of a valid
+                // payload can be considered valid.
+                ExecutionStatus::Unknown(payload_block_hash) => {
+                    node.execution_status = ExecutionStatus::Valid(payload_block_hash);
+                    if let Some(parent_index) = node.parent {
+                        parent_index
+                    } else {
+                        return Ok(());
+                    }
+                }
+                // An ancestor of the valid payload was invalid. This is a serious error which
+                // indicates a consensus failure in the execution node. This is unrecoverable.
+                ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
+                    return Err(Error::InvalidAncestorOfValidPayload {
+                        ancestor_block_root: node.root,
+                        ancestor_payload_block_hash,
+                    })
+                }
+            };
+
+            index = parent_index;
+        }
     }
 
     /// Follows the best-descendant links to find the best-block (i.e., head-block).
