@@ -50,7 +50,7 @@ use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
 use execution_layer::ExecutionLayer;
-use fork_choice::ForkChoice;
+use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -2410,7 +2410,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             fork_choice
-                .on_block(current_slot, &block, block_root, &state)
+                .on_block(
+                    current_slot,
+                    &block,
+                    block_root,
+                    &state,
+                    //TODO(paul): set this correctly.
+                    PayloadVerificationStatus::Verified,
+                )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 

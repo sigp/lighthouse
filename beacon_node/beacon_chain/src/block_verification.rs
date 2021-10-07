@@ -53,7 +53,7 @@ use crate::{
 use execution_layer::ExecutePayloadResponse;
 use fork_choice::{ForkChoice, ForkChoiceStore};
 use parking_lot::RwLockReadGuard;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use safe_arith::ArithError;
 use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -232,6 +232,16 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// See `ExecutionPayloadError` for scoring information
     ExecutionPayloadError(ExecutionPayloadError),
+    /// The block references an parent block which has an execution payload which was found to be
+    /// invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// TODO(paul): revist this.
+    ///
+    /// The peer sent us an invalid block, but I'm not really sure how to score this in an
+    /// "optimistic" sync world.
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -1315,7 +1325,16 @@ fn validate_execution_payload<T: BeaconChainTypes>(
     if let Some(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
-        let is_merge_complete = parent_block.execution_block_hash != Hash256::zero();
+
+        let is_merge_complete = match parent_block.execution_status {
+            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
+            ExecutionStatus::Irrelevant(_) => false,
+            ExecutionStatus::Invalid(_) => {
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: parent_block.root,
+                })
+            }
+        };
         let is_merge_block =
             !is_merge_complete && *execution_payload != <ExecutionPayload<T::EthSpec>>::default();
         if !is_merge_block && !is_merge_complete {

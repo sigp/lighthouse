@@ -1,4 +1,4 @@
-use crate::{error::Error, Block};
+use crate::{error::Error, Block, ExecutionStatus};
 use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
@@ -35,11 +35,11 @@ pub struct ProtoNode {
     best_child: Option<usize>,
     #[ssz(with = "four_byte_option_usize")]
     best_descendant: Option<usize>,
-    /// It's necessary to track this so that we can refuse to propagate post-merge blocks without
-    /// execution payloads, without confusing these with pre-merge blocks.
+    /// Indicates if an execution node has marked this block as valid. Also contains the execution
+    /// block hash.
     ///
-    /// Relevant spec issue: https://github.com/ethereum/consensus-specs/issues/2618
-    pub execution_block_hash: Hash256,
+    /// Present a `u8` since SSZ doesn't support the type of enum we want to use.
+    pub execution_status: ExecutionStatus,
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
@@ -78,7 +78,11 @@ impl Into<ProtoNode> for LegacyProtoNode {
             weight: self.weight,
             best_child: self.best_child,
             best_descendant: self.best_descendant,
-            execution_block_hash: Hash256::zero(),
+            // We set the following execution value as if the block is a pre-merge-fork block. This
+            // is safe as long as we never import a merge block with the old version of proto-array.
+            // This will be safe since we can't actually process merge blocks until we've made this
+            // change to fork choice.
+            execution_status: ExecutionStatus::irrelevant(),
         }
     }
 }
@@ -224,7 +228,7 @@ impl ProtoArray {
             weight: 0,
             best_child: None,
             best_descendant: None,
-            execution_block_hash: block.execution_block_hash,
+            execution_status: block.execution_status,
         };
 
         self.indices.insert(node.root, node_index);

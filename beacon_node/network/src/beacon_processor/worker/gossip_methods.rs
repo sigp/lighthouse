@@ -726,8 +726,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
-            // TODO: is this what we should be doing when block verification fails?
-            | Err(e @BlockError::ExecutionPayloadError(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ExecutionPayloadError(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
