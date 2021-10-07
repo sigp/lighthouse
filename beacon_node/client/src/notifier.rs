@@ -1,8 +1,8 @@
 use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, HeadSafetyStatus};
 use lighthouse_network::{types::SyncState, NetworkGlobals};
 use parking_lot::Mutex;
-use slog::{debug, error, info, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -263,10 +263,43 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 } else {
                     head_root.to_string()
                 };
+
+                let block_hash = match beacon_chain.head_safety_status() {
+                    Ok(HeadSafetyStatus::Safe(hash_opt)) => hash_opt
+                        .map(|hash| format!("{} (verified)", hash))
+                        .unwrap_or_else(|| "n/a".to_string()),
+                    Ok(HeadSafetyStatus::Unsafe(block_hash)) => {
+                        warn!(
+                            log,
+                            "Head execution payload is unverified";
+                            "execution_block_hash" => ?block_hash,
+                        );
+                        format!("{} (unverified)", block_hash)
+                    }
+                    Ok(HeadSafetyStatus::Invalid(block_hash)) => {
+                        crit!(
+                            log,
+                            "Head execution payload is invalid";
+                            "msg" => "this scenario may be unrecoverable",
+                            "execution_block_hash" => ?block_hash,
+                        );
+                        format!("{} (invalid)", block_hash)
+                    }
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Failed to read head safety status";
+                            "error" => ?e
+                        );
+                        "n/a".to_string()
+                    }
+                };
+
                 info!(
                     log,
                     "Synced";
                     "peers" => peer_count_pretty(connected_peer_count),
+                    "exec_hash" => block_hash,
                     "finalized_root" => format!("{}", finalized_root),
                     "finalized_epoch" => finalized_epoch,
                     "epoch" => current_epoch,
