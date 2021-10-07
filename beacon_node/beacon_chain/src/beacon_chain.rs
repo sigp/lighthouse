@@ -3245,6 +3245,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
+            // Check to ensure that this finalized block hasn't been marked as invalid.
+            let finalized_block = self
+                .fork_choice
+                .read()
+                .get_block(&new_finalized_checkpoint.root)
+                .ok_or(BeaconChainError::FinalizedBlockMissingFromForkChoice(
+                    new_finalized_checkpoint.root,
+                ))?;
+            if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
+                crit!(
+                    self.log,
+                    "Finalized block has an invalid payload";
+                    "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+                    You may be on a hostile network.",
+                    "block_hash" => ?block_hash
+                );
+                let mut shutdown_sender = self.shutdown_sender();
+                shutdown_sender
+                    .try_send(ShutdownReason::Failure(
+                        "Finalized block has an invalid execution payload.",
+                    ))
+                    .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+            }
+
             // Due to race conditions, it's technically possible that the head we load here is
             // different to the one earlier in this function.
             //
