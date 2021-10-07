@@ -30,4 +30,8 @@ pub enum Error {
         head_justified_epoch: Epoch,
         head_finalized_epoch: Epoch,
     },
+    InvalidAncestorOfValidPayload {
+        ancestor_block_root: Hash256,
+        ancestor_payload_block_hash: Hash256,
+    },
 }

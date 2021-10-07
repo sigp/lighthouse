@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
+use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
@@ -37,6 +37,11 @@ pub enum Error<T> {
     InvalidAnchor {
         block_slot: Slot,
         state_slot: Slot,
+    },
+    InvalidPayloadStatus {
+        block_slot: Slot,
+        block_root: Hash256,
+        payload_verification_status: PayloadVerificationStatus,
     },
 }
 
@@ -99,6 +104,19 @@ impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
         Error::ProtoArrayError(e)
     }
+}
+
+/// Indicates if a block has been verified by an execution payload.
+///
+/// There is no variant for "invalid", since such a block should never be added to fork choice.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PayloadVerificationStatus {
+    /// An EL has declared the execution payload to be valid.
+    Verified,
+    /// An EL has not yet made a determination about the execution payload.
+    NotVerified,
+    /// The block is either pre-merge-fork, or prior to the terminal PoW block.
+    Irrelevant,
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -262,9 +280,13 @@ where
                 .map_err(Error::BeaconStateError)?;
 
         // Default any non-merge execution block hashes to 0x000..000.
-        let execution_block_hash = anchor_block.message_merge().map_or_else(
-            |()| Hash256::zero(),
-            |message| message.body.execution_payload.block_hash,
+        let execution_status = anchor_block.message_merge().map_or_else(
+            |()| ExecutionStatus::irrelevant(),
+            |message| {
+                // Assume that this payload is valid, since the anchor should be a trusted block and
+                // state.
+                ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+            },
         );
 
         let proto_array = ProtoArrayForkChoice::new(
@@ -275,7 +297,7 @@ where
             fc_store.finalized_checkpoint().root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
-            execution_block_hash,
+            execution_status,
         )?;
 
         Ok(Self {
@@ -446,6 +468,7 @@ where
         block: &BeaconBlock<E>,
         block_root: Hash256,
         state: &BeaconState<E>,
+        payload_verification_status: PayloadVerificationStatus,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
 
@@ -552,11 +575,32 @@ where
             .on_verified_block(block, block_root, state)
             .map_err(Error::AfterBlockFailed)?;
 
-        // Default any non-merge execution block hashes to 0x000..000.
-        let execution_block_hash = block.body_merge().map_or_else(
-            |()| Hash256::zero(),
-            |body| body.execution_payload.block_hash,
-        );
+        let execution_status = if let Some(execution_payload) = block.body().execution_payload() {
+            let block_hash = execution_payload.block_hash;
+
+            if block_hash == Hash256::zero() {
+                // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
+                // the payload.
+                ExecutionStatus::irrelevant()
+            } else {
+                match payload_verification_status {
+                    PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
+                    PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    // It would be a logic error to declare a block irrelevant if it has an
+                    // execution payload with a non-zero block hash.
+                    PayloadVerificationStatus::Irrelevant => {
+                        return Err(Error::InvalidPayloadStatus {
+                            block_slot: block.slot(),
+                            block_root,
+                            payload_verification_status,
+                        })
+                    }
+                }
+            }
+        } else {
+            // There is no payload to verify.
+            ExecutionStatus::irrelevant()
+        };
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
@@ -580,7 +624,7 @@ where
             state_root: block.state_root(),
             justified_epoch: state.current_justified_checkpoint().epoch,
             finalized_epoch: state.finalized_checkpoint().epoch,
-            execution_block_hash,
+            execution_status,
         })?;
 
         Ok(())

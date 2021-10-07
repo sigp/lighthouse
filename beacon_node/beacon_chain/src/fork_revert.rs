@@ -1,5 +1,5 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::ForkChoice;
+use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
@@ -164,9 +164,21 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;
 
+        // Setting this to unverified is the safest solution, since we don't have a way to
+        // retro-actively determine if they were valid or not.
+        //
+        // This scenario is so rare that it seems OK to double-verify some blocks.
+        let payload_verification_status = PayloadVerificationStatus::NotVerified;
+
         let (block, _) = block.deconstruct();
         fork_choice
-            .on_block(block.slot(), &block, block.canonical_root(), &state)
+            .on_block(
+                block.slot(),
+                &block,
+                block.canonical_root(),
+                &state,
+                payload_verification_status,
+            )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }
 
