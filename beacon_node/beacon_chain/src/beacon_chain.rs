@@ -206,11 +206,22 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type EthSpec: types::EthSpec;
 }
 
-/// Indicates the status of the `ExecutionLayer`.
+/// Indicates the EL payload verification status of the head beacon block.
 #[derive(Debug, PartialEq)]
 pub enum HeadSafetyStatus {
+    /// The head block has either been verified by an EL or is does not require EL verification
+    /// (e.g., it is pre-merge or pre-terminal-block).
+    ///
+    /// If the block is post-terminal-block, `Some(execution_payload.block_hash)` is included with
+    /// the variant.
     Safe(Option<Hash256>),
+    /// The head block execution payload has not yet been verified by an EL.
+    ///
+    /// The `execution_payload.block_hash` of the head block is returned.
     Unsafe(Hash256),
+    /// The head block execution payload was deemed to be invalid by an EL.
+    ///
+    /// The `execution_payload.block_hash` of the head block is returned.
     Invalid(Hash256),
 }
 

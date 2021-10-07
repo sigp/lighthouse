@@ -16,15 +16,24 @@ pub struct VoteTracker {
     next_epoch: Epoch,
 }
 
+/// Represents the verification status of an execution payload.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
+    /// An EL has determined that the payload is valid.
     Valid(Hash256),
+    /// An EL has determined that the payload is invalid.
     Invalid(Hash256),
+    /// An EL has not yet verified the execution payload.
     Unknown(Hash256),
-    // Note: this `bool` only exists to satisfy our SSZ implementation which requires all variants
-    // to have a value. It can be set to anything.
-    Irrelevant(bool),
+    /// The block is either prior to the merge fork, or after the merge fork but before the terminal
+    /// PoW block has been found.
+    ///
+    /// # Note:
+    ///
+    /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
+    /// to have a value. It can be set to anything.
+    Irrelevant(bool), // TODO(merge): fix bool.
 }
 
 impl ExecutionStatus {

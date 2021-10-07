@@ -111,10 +111,16 @@ impl<T> From<String> for Error<T> {
     }
 }
 
+/// Indicates if a block has been verified by an execution payload.
+///
+/// There is no variant for "invalid", since such a block should never be added to fork choice.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PayloadVerificationStatus {
+    /// An EL has declared the execution payload to be valid.
     Verified,
+    /// An EL has not yet made a determination about the execution payload.
     NotVerified,
+    /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
 }
 
@@ -282,9 +288,9 @@ where
         let execution_status = anchor_block.message_merge().map_or_else(
             |()| ExecutionStatus::irrelevant(),
             |message| {
-                // TODO(paul): we need to figure out the actual execution status of this block. I'm
-                // just setting it to "Unknown" since it seems safest for now.
-                ExecutionStatus::Unknown(message.body.execution_payload.block_hash)
+                // Assume that this payload is valid, since the anchor should be a trusted block and
+                // state.
+                ExecutionStatus::Valid(message.body.execution_payload.block_hash)
             },
         );
 
@@ -577,11 +583,15 @@ where
             let block_hash = execution_payload.block_hash;
 
             if block_hash == Hash256::zero() {
+                // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
+                // the payload.
                 ExecutionStatus::irrelevant()
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
                     PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    // It would be a logic error to declare a block irrelevant if it has an
+                    // execution payload with a non-zero block hash.
                     PayloadVerificationStatus::Irrelevant => {
                         return Err(Error::InvalidPayloadStatus {
                             block_slot: block.slot(),
@@ -592,6 +602,7 @@ where
                 }
             }
         } else {
+            // There is no payload to verify.
             ExecutionStatus::irrelevant()
         };
 

@@ -37,8 +37,6 @@ pub struct ProtoNode {
     best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
     /// block hash.
-    ///
-    /// Present a `u8` since SSZ doesn't support the type of enum we want to use.
     pub execution_status: ExecutionStatus,
 }
 
@@ -256,10 +254,12 @@ impl ProtoArray {
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
             let parent_index = match node.execution_status {
-                // We have reached a node that we already know is valid. No need to iterate further.
+                // We have reached a node that we already know is valid. No need to iterate further
+                // since we assume an ancestors have already been set to valid.
                 ExecutionStatus::Valid(_) => return Ok(()),
                 // We have reached an irrelevant node, this node is prior to a terminal execution
-                // block. There's no need to iterate further.
+                // block. There's no need to iterate further, it's impossible for this block to have
+                // any relevant ancestors.
                 ExecutionStatus::Irrelevant(_) => return Ok(()),
                 // The block has an unknown status, set it to valid since any ancestor of a valid
                 // payload can be considered valid.
@@ -268,6 +268,7 @@ impl ProtoArray {
                     if let Some(parent_index) = node.parent {
                         parent_index
                     } else {
+                        // We have reached the root block, iteration complete.
                         return Ok(());
                     }
                 }

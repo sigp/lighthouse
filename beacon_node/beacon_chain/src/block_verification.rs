@@ -237,7 +237,7 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// ## Peer scoring
     ///
-    /// TODO(paul): revist this.
+    /// TODO(merge): reconsider how we score peers for this.
     ///
     /// The peer sent us an invalid block, but I'm not really sure how to score this in an
     /// "optimistic" sync world.
@@ -1179,23 +1179,10 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                             return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
                         }
                         ExecutePayloadResponse::Syncing => {
-                            debug!(
-                                chain.log,
-                                "Optimistically accepting payload";
-                                "msg" => "execution engine is syncing"
-                            );
                             (handle, PayloadVerificationStatus::NotVerified)
                         }
                     },
-                    Err(e) => {
-                        error!(
-                            chain.log,
-                            "Optimistically accepting payload";
-                            "error" => ?e,
-                            "msg" => "execution engine returned an error"
-                        );
-                        (None, PayloadVerificationStatus::NotVerified)
-                    }
+                    Err(_) => (None, PayloadVerificationStatus::NotVerified),
                 }
             } else {
                 (None, PayloadVerificationStatus::Irrelevant)
@@ -1332,8 +1319,13 @@ fn validate_execution_payload<T: BeaconChainTypes>(
         // the parent here in order to avoid loading the parent state during gossip verification.
 
         let is_merge_complete = match parent_block.execution_status {
+            // Optimistically declare that an "unknown" status block has completed the merge.
             ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
+            // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
+            // by definition.
             ExecutionStatus::Irrelevant(_) => false,
+            // If the parent has an invalid payload then it's impossible to build a valid block upon
+            // it. Reject the block.
             ExecutionStatus::Invalid(_) => {
                 return Err(BlockError::ParentExecutionPayloadInvalid {
                     parent_root: parent_block.root,

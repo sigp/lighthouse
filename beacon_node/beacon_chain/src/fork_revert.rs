@@ -164,8 +164,10 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;
 
-        // TODO(paul): figure out how to determine if this is verified or not. I'm returning
-        // `NotVerified` for now since it's safest.
+        // Setting this to unverified is the safest solution, since we don't have a way to
+        // retro-actively determine if they were valid or not.
+        //
+        // This scenario is so rare that it seems OK to double-verify some blocks.
         let payload_verification_status = PayloadVerificationStatus::NotVerified;
 
         let (block, _) = block.deconstruct();
