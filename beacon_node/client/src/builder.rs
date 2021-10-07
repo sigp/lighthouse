@@ -664,7 +664,7 @@ where
 
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
-                if head.is_merge_complete {
+                if let Some(block_hash) = head.execution_payload_block_hash {
                     runtime_context.executor.spawn(
                         async move {
                             let result = BeaconChain::<
@@ -673,7 +673,7 @@ where
                                 inner_execution_layer,
                                 store,
                                 head.finalized_checkpoint.root,
-                                head.block_root,
+                                block_hash,
                             )
                             .await;
 

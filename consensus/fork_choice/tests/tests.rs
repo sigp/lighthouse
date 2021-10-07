@@ -11,8 +11,8 @@ use beacon_chain::{
     StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
-    SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
+    QueuedAttestation, SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
 use store::MemoryStore;
 use types::{
@@ -270,7 +270,13 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .on_block(current_slot, &block, block.canonical_root(), &state)
+            .on_block(
+                current_slot,
+                &block,
+                block.canonical_root(),
+                &state,
+                PayloadVerificationStatus::Verified,
+            )
             .unwrap();
         self
     }
@@ -305,7 +311,13 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .on_block(current_slot, &block, block.canonical_root(), &state)
+            .on_block(
+                current_slot,
+                &block,
+                block.canonical_root(),
+                &state,
+                PayloadVerificationStatus::Verified,
+            )
             .err()
             .expect("on_block did not return an error");
         comparison_func(err);
