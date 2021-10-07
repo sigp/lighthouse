@@ -2,6 +2,7 @@
 use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
+use slog::{info, warn};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -91,6 +92,39 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             db.store_schema_version(to)?;
 
+            Ok(())
+        }
+        // Downgrade v5 to v4
+        (SchemaVersion(5), SchemaVersion(4)) => {
+            info!(&db.log, "Dowgrade v5 to v4");
+            if let Some(OnDiskStoreConfig {
+                slots_per_restore_point,
+            }) = db.hot_db.get(&CONFIG_KEY)?
+            {
+                // If this is a checkpoint-sync'd DB then we can't downgrade.
+                if db.load_anchor_info()?.is_some() {
+                    // Whoops, contains a load anchor so this DB can't be downgraded
+                    warn!(
+                        &db.log,
+                        "Cannot dowgrade v5 to v4 because DB contains checkpoints"
+                    );
+                    return Err(HotColdDBError::UnsupportedSchemaVersion {
+                        target_version: to,
+                        current_version: from,
+                    }
+                    .into());
+                }
+
+                let new_config = OnDiskStoreConfigV4 {
+                    slots_per_restore_point,
+                    _block_cache_size: 0,
+                };
+                db.hot_db.put(&CONFIG_KEY, &new_config)?;
+            }
+
+            db.store_schema_version(to)?;
+
+            info!(&db.log, "Dowgrade v5 to v4 completed");
             Ok(())
         }
         // Anything else is an error.

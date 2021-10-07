@@ -72,7 +72,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
-    pub(crate) log: Logger,
+    pub log: Logger,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
 }
@@ -1033,7 +1033,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load the anchor info from disk, but do not set `self.anchor_info`.
-    fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
+    pub fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
         self.hot_db.get(&ANCHOR_INFO_KEY)
     }
 
