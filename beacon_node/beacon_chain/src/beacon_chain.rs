@@ -50,7 +50,7 @@ use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
 use execution_layer::ExecutionLayer;
-use fork_choice::{ForkChoice, PayloadVerificationStatus};
+use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -2291,6 +2291,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let mut ops = fully_verified_block.confirmation_db_batch;
+        let payload_verification_status = fully_verified_block.payload_verification_status;
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
@@ -2415,8 +2416,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &block,
                     block_root,
                     &state,
-                    //TODO(paul): set this correctly.
-                    PayloadVerificationStatus::Verified,
+                    payload_verification_status,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }

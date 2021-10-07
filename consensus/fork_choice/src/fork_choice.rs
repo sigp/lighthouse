@@ -43,6 +43,11 @@ pub enum Error<T> {
         block_slot: Slot,
         state_slot: Slot,
     },
+    InvalidPayloadStatus {
+        block_slot: Slot,
+        block_root: Hash256,
+        payload_verification_status: PayloadVerificationStatus,
+    },
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -106,9 +111,11 @@ impl<T> From<String> for Error<T> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PayloadVerificationStatus {
     Verified,
     NotVerified,
+    Irrelevant,
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -575,6 +582,13 @@ where
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
                     PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    PayloadVerificationStatus::Irrelevant => {
+                        return Err(Error::InvalidPayloadStatus {
+                            block_slot: block.slot(),
+                            block_root,
+                            payload_verification_status,
+                        })
+                    }
                 }
             }
         } else {
