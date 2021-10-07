@@ -258,10 +258,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .with_peer_score(params.clone(), thresholds)
             .expect("Valid score params and thresholds");
 
-        // TODO: just add a PeerManagerConfig field to the big config.
+        // TODO: Add a PeerManagerConfig field to the big config?
         let peer_manager_cfg = peer_manager::config::Config {
             discovery_enabled: !config.disable_discovery,
             target_peer_count: config.target_peers,
+            trusted_peers: config
+                .trusted_peers
+                .iter()
+                .map(|p| p.clone().into())
+                .collect(),
             ..Default::default()
         };
 
@@ -274,7 +279,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(&peer_manager_cfg, sync_state, log).await?,
+            peer_manager: PeerManager::new(peer_manager_cfg, sync_state, log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,

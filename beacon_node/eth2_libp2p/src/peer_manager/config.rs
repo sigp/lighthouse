@@ -1,3 +1,5 @@
+use libp2p::PeerId;
+
 /* CONSTANTS */
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
@@ -44,6 +46,9 @@ pub struct Config {
     /// Target number of peers to connect to.
     pub target_peer_count: usize,
 
+    /// Peers to consider as trusted during initialization.
+    pub trusted_peers: Vec<PeerId>,
+
     /* RPC related configurations */
     /// Time in seconds between status requests sent to peers.
     pub status_interval: u64,
@@ -63,6 +68,7 @@ impl Default for Config {
             status_interval: DEFAULT_STATUS_INTERVAL,
             ping_interval_inbound: DEFAULT_PING_INTERVAL_INBOUND,
             ping_interval_outbound: DEFAULT_PING_INTERVAL_OUTBOUND,
+            trusted_peers: Vec::new(),
         }
     }
 }

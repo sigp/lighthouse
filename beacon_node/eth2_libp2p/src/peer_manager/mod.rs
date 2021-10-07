@@ -79,11 +79,11 @@ pub struct PeerManager<TSpec: EthSpec> {
 }
 
 /// Public READ ONLY access to the peer db.
-pub struct ReadOnlyPeers<TSpec: EthSpec> {
+pub struct ReadOnlyPeerDB<TSpec: EthSpec> {
     peer_db: Arc<RwLock<PeerDB<TSpec>>>,
 }
 
-impl<TSpec: EthSpec> ReadOnlyPeers<TSpec> {
+impl<TSpec: EthSpec> ReadOnlyPeerDB<TSpec> {
     /// Get read access
     pub fn read<'a>(&'a self) -> impl std::ops::Deref<Target = PeerDB<TSpec>> + 'a {
         self.peer_db.read()
@@ -119,31 +119,39 @@ pub enum PeerManagerEvent {
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
     pub async fn new(
-        cfg: &config::Config,
+        cfg: config::Config,
         sync_state: Arc<RwLock<SyncState>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         // Set up the peer manager heartbeat interval
         let heartbeat =
             tokio::time::interval(tokio::time::Duration::from_secs(config::HEARTBEAT_INTERVAL));
+        let config::Config {
+            discovery_enabled,
+            target_peer_count,
+            status_interval,
+            ping_interval_inbound,
+            ping_interval_outbound,
+            trusted_peers,
+        } = cfg;
 
         Ok(PeerManager {
-            peer_db: Arc::new(RwLock::new(PeerDB::new(vec![], log))),
+            peer_db: Arc::new(RwLock::new(PeerDB::new(trusted_peers, log))),
             sync_state,
             events: SmallVec::new(),
-            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(cfg.ping_interval_inbound)),
-            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(cfg.ping_interval_outbound)),
-            status_peers: HashSetDelay::new(Duration::from_secs(cfg.status_interval)),
-            target_peers: cfg.target_peer_count,
+            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
+            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
+            status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
+            target_peers: target_peer_count,
             sync_committee_subnets: Default::default(),
             heartbeat,
-            discovery_enabled: cfg.discovery_enabled,
+            discovery_enabled,
             log: log.clone(),
         })
     }
 
-    pub fn get_peer_db_access(&self) -> ReadOnlyPeers<TSpec> {
-        ReadOnlyPeers {
+    pub fn get_peer_db_access(&self) -> ReadOnlyPeerDB<TSpec> {
+        ReadOnlyPeerDB {
             peer_db: self.peer_db.clone(),
         }
     }
@@ -1242,7 +1250,7 @@ mod tests {
         };
         let log = build_log(slog::Level::Debug, false);
         let sync_state = Arc::new(RwLock::new(SyncState::Stalled));
-        PeerManager::new(&cfg, sync_state, &log).await.unwrap()
+        PeerManager::new(cfg, sync_state, &log).await.unwrap()
     }
 
     #[tokio::test]

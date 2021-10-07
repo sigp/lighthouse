@@ -8,11 +8,12 @@ use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
 use types::EthSpec;
 
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
-    pub local_enr: RwLock<Enr>,
+    pub local_enr: Arc<RwLock<Enr>>,
     /// The local peer_id.
     pub peer_id: RwLock<PeerId>,
     /// Listening multiaddrs.
@@ -22,13 +23,13 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The UDP port that the discovery service is listening on
     pub listen_port_udp: AtomicU16,
     /// The collection of known peers.
-    pub peers: RwLock<PeerDB<TSpec>>,
+    pub peers: Arc<RwLock<PeerDB<TSpec>>>,
     // The local meta data of our node.
     pub local_metadata: RwLock<MetaData<TSpec>>,
     /// The current gossipsub topic subscriptions.
     pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
     /// The current sync status of the node.
-    pub sync_state: RwLock<SyncState>,
+    pub sync_state: Arc<RwLock<SyncState>>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
 }
@@ -43,15 +44,15 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
-            local_enr: RwLock::new(enr.clone()),
+            local_enr: Arc::new(RwLock::new(enr.clone())),
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             listen_port_tcp: AtomicU16::new(tcp_port),
             listen_port_udp: AtomicU16::new(udp_port),
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, log)),
+            peers: Arc::new(RwLock::new(PeerDB::new(trusted_peers, log))),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
-            sync_state: RwLock::new(SyncState::Stalled),
+            sync_state: Arc::new(RwLock::new(SyncState::Stalled)),
             backfill_state: RwLock::new(BackFillState::NotRequired),
         }
     }
