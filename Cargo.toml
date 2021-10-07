@@ -63,6 +63,8 @@ members = [
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
 
+    "database_manager",
+
     "lcli",
 
     "lighthouse",

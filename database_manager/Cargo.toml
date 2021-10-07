@@ -1,0 +1,17 @@
+[package]
+name = "database_manager"
+version = "0.1.0"
+authors = ["Wink Saville <wink@saville.com"]
+edition = "2018"
+
+[lib]
+name = "database_manager"
+path = "src/lib.rs"
+
+[dependencies]
+clap = "2.33.3"
+beacon_chain = { path = "../beacon_node/beacon_chain" }
+environment = { path = "../lighthouse/environment" }
+types = { path = "../consensus/types" }
+logging = { path = "../common/logging" }
+tempfile = "3.1.0"

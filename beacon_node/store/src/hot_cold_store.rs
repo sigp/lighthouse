@@ -145,9 +145,34 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
 }
 
 impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
+    /// Open a new or existing database but do not migrate, typicall use `open`.
+    ///
+    /// The `config.slots_per_restore_point` field must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
+    pub fn open_as_is(
+        hot_path: &Path,
+        cold_path: &Path,
+        config: StoreConfig,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Result<Arc<Self>, Error> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+
+        Ok(Arc::new(HotColdDB {
+            split: RwLock::new(Split::default()),
+            anchor_info: RwLock::new(None),
+            cold_db: LevelDB::open(cold_path)?,
+            hot_db: LevelDB::open(hot_path)?,
+            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            config,
+            spec,
+            log,
+            _phantom: PhantomData,
+        }))
+    }
+
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
     ///
-    /// The `slots_per_restore_point` parameter must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
+    /// The `config.slots_per_restore_point` field must be a divisor of `SLOTS_PER_HISTORICAL_ROOT`.
     ///
     /// The `migrate_schema` function is passed in so that the parent `BeaconChain` can provide
     /// context and access `BeaconChain`-level code without creating a circular dependency.
@@ -159,19 +184,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Arc<Self>, Error> {
-        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
-
-        let db = Arc::new(HotColdDB {
-            split: RwLock::new(Split::default()),
-            anchor_info: RwLock::new(None),
-            cold_db: LevelDB::open(cold_path)?,
-            hot_db: LevelDB::open(hot_path)?,
-            block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            config,
-            spec,
-            log,
-            _phantom: PhantomData,
-        });
+        let db = Self::open_as_is(hot_path, cold_path, config, spec, log)?;
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
@@ -962,7 +975,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load the database schema version from disk.
-    fn load_schema_version(&self) -> Result<Option<SchemaVersion>, Error> {
+    pub fn load_schema_version(&self) -> Result<Option<SchemaVersion>, Error> {
         self.hot_db.get(&SCHEMA_VERSION_KEY)
     }
 
