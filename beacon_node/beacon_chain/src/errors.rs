@@ -136,6 +136,7 @@ pub enum BeaconChainError {
     AltairForkDisabled,
     ExecutionLayerMissing,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    HeadMissingFromForkChoice(Hash256),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

@@ -56,6 +56,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use proto_array::ExecutionStatus;
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -216,6 +217,14 @@ pub enum ExecutionLayerStatus {
     Missing,
     /// The execution layer is not yet required, therefore the status is irrelevant.
     NotRequired,
+}
+
+/// Indicates the status of the `ExecutionLayer`.
+#[derive(Debug, PartialEq)]
+pub enum HeadSafetyStatus {
+    Safe,
+    Unsafe,
+    Invalid,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3414,6 +3423,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .forkchoice_updated(head_execution_block_hash, finalized_execution_block_hash)
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed)
+    }
+
+    /// Returns the status of the current head block, regarding the validity of the execution
+    /// payload.
+    pub fn head_safety_status(&self) -> Result<HeadSafetyStatus, BeaconChainError> {
+        let head = self.head_info()?;
+        let head_block = self
+            .fork_choice
+            .read()
+            .get_block(&head.block_root)
+            .ok_or(BeaconChainError::HeadMissingFromForkChoice(head.block_root))?;
+
+        let status = match head_block.execution_status {
+            ExecutionStatus::Valid(_) => HeadSafetyStatus::Safe,
+            ExecutionStatus::Invalid(_) => HeadSafetyStatus::Invalid,
+            ExecutionStatus::Unknown(_) => HeadSafetyStatus::Unsafe,
+            ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe,
+        };
+
+        Ok(status)
     }
 
     /// Indicates the status of the execution layer.
