@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::proto_array::ProtoArray;
 use crate::ssz_container::{LegacySszContainer, SszContainer};
+use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
@@ -13,6 +14,32 @@ pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
     next_epoch: Epoch,
+}
+
+/// Represents the verification status of an execution payload.
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[ssz(enum_behaviour = "union")]
+pub enum ExecutionStatus {
+    /// An EL has determined that the payload is valid.
+    Valid(Hash256),
+    /// An EL has determined that the payload is invalid.
+    Invalid(Hash256),
+    /// An EL has not yet verified the execution payload.
+    Unknown(Hash256),
+    /// The block is either prior to the merge fork, or after the merge fork but before the terminal
+    /// PoW block has been found.
+    ///
+    /// # Note:
+    ///
+    /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
+    /// to have a value. It can be set to anything.
+    Irrelevant(bool), // TODO(merge): fix bool.
+}
+
+impl ExecutionStatus {
+    pub fn irrelevant() -> Self {
+        ExecutionStatus::Irrelevant(false)
+    }
 }
 
 /// A block that is to be applied to the fork choice.
@@ -29,7 +56,9 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
-    pub execution_block_hash: Hash256,
+    /// Indicates if an execution node has marked this block as valid. Also contains the execution
+    /// block hash.
+    pub execution_status: ExecutionStatus,
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -76,7 +105,7 @@ impl ProtoArrayForkChoice {
         finalized_root: Hash256,
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
-        execution_block_hash: Hash256,
+        execution_status: ExecutionStatus,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -98,7 +127,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id,
             justified_epoch,
             finalized_epoch,
-            execution_block_hash,
+            execution_status,
         };
 
         proto_array
@@ -208,7 +237,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
             justified_epoch: block.justified_epoch,
             finalized_epoch: block.finalized_epoch,
-            execution_block_hash: block.execution_block_hash,
+            execution_status: block.execution_status,
         })
     }
 
@@ -372,7 +401,7 @@ mod test_compute_deltas {
         let unknown = Hash256::from_low_u64_be(4);
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let execution_block_hash = Hash256::zero();
+        let execution_status = ExecutionStatus::irrelevant();
 
         let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
@@ -382,7 +411,7 @@ mod test_compute_deltas {
             finalized_root,
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
-            execution_block_hash,
+            execution_status,
         )
         .unwrap();
 
@@ -398,7 +427,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id.clone(),
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
-                execution_block_hash,
+                execution_status,
             })
             .unwrap();
 
@@ -414,7 +443,7 @@ mod test_compute_deltas {
                 next_epoch_shuffling_id: junk_shuffling_id,
                 justified_epoch: genesis_epoch,
                 finalized_epoch: genesis_epoch,
-                execution_block_hash,
+                execution_status,
             })
             .unwrap();
 
