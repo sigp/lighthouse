@@ -696,7 +696,7 @@ mod tests {
     use bls::{Hash256, PublicKeyBytes};
     use env_logger;
     use environment::EnvironmentBuilder;
-    use eth2::types::{GenericResponse, GenesisData, SyncingData, VersionData, ValidatorData, Validator};
+    use eth2::types::{GenericResponse, GenesisData, SyncingData, VersionData, ValidatorData, Validator, ValidatorStatus};
     use futures::future::FutureExt;
     use httpmock::prelude::*;
     use httpmock::Mock;
@@ -802,7 +802,7 @@ mod tests {
             self
         }
 
-        fn validators_exist<E: EthSpec>(self, validator_ids: &[(usize, &PublicKeyBytes)]) -> Self {
+        fn validators_exist<E: EthSpec>(self, validator_ids: &[(usize, PublicKeyBytes)]) -> Self {
             // .push("beacon")
             //     .push("states")
             //     .push(&state_id.to_string())
@@ -810,9 +810,9 @@ mod tests {
             //     .push(&validator_id.to_string());
             for (index, pubkey) in validator_ids {
                 let val = Validator {
-                    pubkey: **pubkey,
+                    pubkey: *pubkey,
                     withdrawal_credentials: Hash256::zero(),
-                    effective_balance: E::effe,
+                    effective_balance: E::default_spec().min_deposit_amount,
                     slashed: false,
                     activation_eligibility_epoch: Epoch::new(0),
                     activation_epoch: Epoch::new(0),
@@ -821,11 +821,11 @@ mod tests {
                 };
 
                 let val_data = ValidatorData {
-                    index: index as u64,
+                    index: *index as u64,
                     // default balance
-                    balance: u64,
-                    status: ValidatorStatus,
-                    validator: Validator,
+                    balance: E::default_spec().min_deposit_amount,
+                    status: ValidatorStatus::Active,
+                    validator: val,
                 };
 
 
@@ -1085,8 +1085,8 @@ mod tests {
             let validator = ProductionValidatorClient::new(context, config).await.unwrap();
 
             //TODO: check if indices are ordered and start at 0
-            let index_pubkey = validator.validator_store.initialized_validators().read().iter_voting_pubkeys().enumerate().collect::<Vec<_>>();
-            mock_beacon.validators_exist(&index_pubkey);
+            let index_pubkey = validator.validator_store.initialized_validators().read().iter_voting_pubkeys().cloned().enumerate().collect::<Vec<_>>();
+            mock_beacon.validators_exist::<MainnetEthSpec>(index_pubkey.as_slice());
 
             let duration_to_next_slot = validator.duties_service.slot_clock.duration_to_next_slot().unwrap();
             sleep(duration_to_next_slot).await;
