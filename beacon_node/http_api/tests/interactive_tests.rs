@@ -18,7 +18,7 @@ async fn deposit_contract_custom_network() {
     // Arbitrary contract address.
     spec.deposit_contract_address = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".parse().unwrap();
 
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let client = &tester.client;
 
     let result = client.get_config_deposit_contract().await.unwrap().data;

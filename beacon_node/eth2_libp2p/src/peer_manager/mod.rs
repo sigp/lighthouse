@@ -117,7 +117,7 @@ pub enum PeerManagerEvent {
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
-    pub fn new(
+    pub async fn new(
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -1085,7 +1085,7 @@ mod tests {
         }
     }
 
-    fn build_peer_manager(target: usize) -> PeerManager<E> {
+    async fn build_peer_manager(target: usize) -> PeerManager<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
             discovery_port: unused_port(),
@@ -1107,12 +1107,14 @@ mod tests {
             vec![],
             &log,
         );
-        PeerManager::new(&config, Arc::new(globals), &log).unwrap()
+        PeerManager::new(&config, Arc::new(globals), &log)
+            .await
+            .unwrap()
     }
 
-    #[test]
-    fn test_peer_manager_disconnects_correctly_during_heartbeat() {
-        let mut peer_manager = build_peer_manager(3);
+    #[tokio::test]
+    async fn test_peer_manager_disconnects_correctly_during_heartbeat() {
+        let mut peer_manager = build_peer_manager(3).await;
 
         // Create 5 peers to connect to.
         // 2 will be outbound-only, and have the lowest score.
@@ -1179,9 +1181,9 @@ mod tests {
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 
-    #[test]
-    fn test_peer_manager_not_enough_outbound_peers_no_panic_during_heartbeat() {
-        let mut peer_manager = build_peer_manager(20);
+    #[tokio::test]
+    async fn test_peer_manager_not_enough_outbound_peers_no_panic_during_heartbeat() {
+        let mut peer_manager = build_peer_manager(20).await;
 
         // Connect to 20 ingoing-only peers.
         for _i in 0..19 {
@@ -1213,9 +1215,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_peer_manager_remove_unhealthy_peers_brings_peers_below_target() {
-        let mut peer_manager = build_peer_manager(3);
+    #[tokio::test]
+    async fn test_peer_manager_remove_unhealthy_peers_brings_peers_below_target() {
+        let mut peer_manager = build_peer_manager(3).await;
 
         // Create 4 peers to connect to.
         // One pair will be unhealthy inbound only and outbound only peers.
@@ -1272,9 +1274,9 @@ mod tests {
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
 
-    #[test]
-    fn test_peer_manager_removes_enough_peers_when_one_is_unhealthy() {
-        let mut peer_manager = build_peer_manager(3);
+    #[tokio::test]
+    async fn test_peer_manager_removes_enough_peers_when_one_is_unhealthy() {
+        let mut peer_manager = build_peer_manager(3).await;
 
         // Create 5 peers to connect to.
         // One will be unhealthy inbound only and outbound only peers.

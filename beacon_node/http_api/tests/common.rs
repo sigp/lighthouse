@@ -46,7 +46,7 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
 }
 
 impl<E: EthSpec> InteractiveTester<E> {
-    pub fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
+    pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
         let harness = BeaconChainHarness::new(
             E::default(),
             spec,
@@ -59,7 +59,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             shutdown_tx: _server_shutdown,
             network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone());
+        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
 
         tokio::spawn(server);
 
@@ -82,7 +82,7 @@ impl<E: EthSpec> InteractiveTester<E> {
     }
 }
 
-pub fn create_api_server<T: BeaconChainTypes>(
+pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
@@ -107,7 +107,9 @@ pub fn create_api_server<T: BeaconChainTypes>(
 
     // Only a peer manager can add peers, so we create a dummy manager.
     let network_config = NetworkConfig::default();
-    let mut pm = PeerManager::new(&network_config, network_globals.clone(), &log).unwrap();
+    let mut pm = PeerManager::new(&network_config, network_globals.clone(), &log)
+        .await
+        .unwrap();
 
     // add a peer
     let peer_id = PeerId::random();

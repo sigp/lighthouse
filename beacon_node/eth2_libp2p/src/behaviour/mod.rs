@@ -265,7 +265,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(&config, network_globals.clone(), log)?,
+            peer_manager: PeerManager::new(&config, network_globals.clone(), log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,
