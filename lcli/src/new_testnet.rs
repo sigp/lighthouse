@@ -2,10 +2,15 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::interop_genesis_state;
+use ssz::Decode;
 use ssz::Encode;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{test_utils::generate_deterministic_keypairs, Address, Config, EthSpec};
+use types::{
+    test_utils::generate_deterministic_keypairs, Address, Config, EthSpec, ExecutionPayloadHeader,
+};
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
@@ -62,20 +67,51 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     }
 
     let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
-        let eth1_block_hash = parse_required(matches, "eth1-block-hash")?;
-        let validator_count = parse_required(matches, "validator-count")?;
-        let genesis_time = if let Some(time) = parse_optional(matches, "genesis-time")? {
-            time
+        let execution_payload_header: Option<ExecutionPayloadHeader<T>> =
+            parse_optional(matches, "execution-payload-header")?
+                .map(|filename: String| {
+                    let mut bytes = vec![];
+                    let mut file = File::open(filename.as_str())
+                        .map_err(|e| format!("Unable to open {}: {}", filename, e))?;
+                    file.read_to_end(&mut bytes)
+                        .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
+                    ExecutionPayloadHeader::<T>::from_ssz_bytes(bytes.as_slice())
+                        .map_err(|e| format!("SSZ decode failed: {:?}", e))
+                })
+                .transpose()?;
+
+        let (eth1_block_hash, genesis_time) = if let Some(payload) =
+            execution_payload_header.as_ref()
+        {
+            let eth1_block_hash =
+                parse_optional(matches, "eth1-block-hash")?.unwrap_or(payload.block_hash);
+            let genesis_time =
+                parse_optional(matches, "genesis-time")?.unwrap_or(payload.timestamp);
+            (eth1_block_hash, genesis_time)
         } else {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| format!("Unable to get time: {:?}", e))?
-                .as_secs()
+            let eth1_block_hash = parse_required(matches, "eth1-block-hash").map_err(|_| {
+                "One of `--execution-payload-header` or `--eth1-block-hash` must be set".to_string()
+            })?;
+            let genesis_time = parse_optional(matches, "genesis-time")?.unwrap_or(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| format!("Unable to get time: {:?}", e))?
+                    .as_secs(),
+            );
+            (eth1_block_hash, genesis_time)
         };
 
+        let validator_count = parse_required(matches, "validator-count")?;
+
         let keypairs = generate_deterministic_keypairs(validator_count);
-        let genesis_state =
-            interop_genesis_state::<T>(&keypairs, genesis_time, eth1_block_hash, &spec)?;
+
+        let genesis_state = interop_genesis_state::<T>(
+            &keypairs,
+            genesis_time,
+            eth1_block_hash,
+            execution_payload_header,
+            &spec,
+        )?;
 
         Some(genesis_state.as_ssz_bytes())
     } else {
