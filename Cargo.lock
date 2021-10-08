@@ -494,6 +494,7 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
+ "http_api",
  "hyper",
  "lighthouse_version",
  "monitoring_api",

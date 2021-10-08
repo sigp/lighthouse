@@ -38,3 +38,4 @@ hex = "0.4.2"
 slasher = { path = "../slasher" }
 monitoring_api = { path = "../common/monitoring_api" }
 sensitive_url = { path = "../common/sensitive_url" }
+http_api = { path = "http_api" }

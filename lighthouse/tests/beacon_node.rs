@@ -588,15 +588,13 @@ fn http_tls_flags() {
         )
         .run()
         .with_config(|config| {
-            assert!(config.http_api.tls_enabled);
-            assert_eq!(
-                config.http_api.tls_cert,
-                Some(dir.path().join("certificate.crt"))
-            );
-            assert_eq!(
-                config.http_api.tls_key,
-                Some(dir.path().join("private.key"))
-            );
+            let tls_config = config
+                .http_api
+                .tls_config
+                .as_ref()
+                .expect("tls_config was empty.");
+            assert_eq!(tls_config.cert, dir.path().join("certificate.crt"));
+            assert_eq!(tls_config.key, dir.path().join("private.key"));
         });
 }
 

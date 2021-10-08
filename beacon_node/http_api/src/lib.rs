@@ -66,6 +66,13 @@ const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
+/// Configuration used when serving the HTTP server over TLS.
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct TlsConfig {
+    pub cert: PathBuf,
+    pub key: PathBuf,
+}
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -86,9 +93,7 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub serve_legacy_spec: bool,
-    pub tls_enabled: bool,
-    pub tls_cert: Option<PathBuf>,
-    pub tls_key: Option<PathBuf>,
+    pub tls_config: Option<TlsConfig>,
 }
 
 impl Default for Config {
@@ -99,9 +104,7 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             serve_legacy_spec: true,
-            tls_enabled: false,
-            tls_cert: None,
-            tls_key: None,
+            tls_config: None,
         }
     }
 }
@@ -2600,40 +2603,26 @@ pub fn serve<T: BeaconChainTypes>(
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
 
-    let http_server: HttpServer = match config.tls_enabled {
-        true => {
-            let tls_cert = match config.tls_cert {
-                Some(cert) => cert,
-                None => return Err(Error::Other("--http-tls-cert path was empty.".to_string())),
-            };
-
-            let tls_key = match config.tls_key {
-                Some(key) => key,
-                None => return Err(Error::Other("--http-tls-key path was empty.".to_string())),
-            };
-
+    let http_socket: SocketAddrV4 = SocketAddrV4::new(config.listen_addr, config.listen_port);
+    let http_server: HttpServer = match config.tls_config {
+        Some(tls_config) => {
             let (socket, server) = warp::serve(routes)
                 .tls()
-                .cert_path(tls_cert)
-                .key_path(tls_key)
-                .try_bind_with_graceful_shutdown(
-                    SocketAddrV4::new(config.listen_addr, config.listen_port),
-                    async {
-                        shutdown.await;
-                    },
-                )?;
+                .cert_path(tls_config.cert)
+                .key_path(tls_config.key)
+                .try_bind_with_graceful_shutdown(http_socket, async {
+                    shutdown.await;
+                })?;
 
             info!(log, "HTTP API is being served over TLS";);
 
             (socket, Box::pin(server))
         }
-        false => {
-            let (socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-                SocketAddrV4::new(config.listen_addr, config.listen_port),
-                async {
+        None => {
+            let (socket, server) =
+                warp::serve(routes).try_bind_with_graceful_shutdown(http_socket, async {
                     shutdown.await;
-                },
-            )?;
+                })?;
             (socket, Box::pin(server))
         }
     };
