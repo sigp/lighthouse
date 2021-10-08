@@ -5,7 +5,6 @@ use crate::common::DepositDataTree;
 use crate::upgrade::{upgrade_to_altair, upgrade_to_merge};
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
-use types::consts::merge_testing::{GENESIS_BASE_FEE_PER_GAS, GENESIS_GAS_LIMIT};
 use types::DEPOSIT_TREE_DEPTH;
 use types::*;
 
@@ -14,6 +13,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
     eth1_timestamp: u64,
     deposits: Vec<Deposit>,
+    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
     let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
@@ -64,18 +64,12 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         upgrade_to_merge(&mut state, spec)?;
 
         // Remove intermediate Altair fork from `state.fork`.
-        state.fork_mut().previous_version = spec.genesis_fork_version;
+        state.fork_mut().previous_version = spec.merge_fork_version;
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
-        *state.latest_execution_payload_header_mut()? = ExecutionPayloadHeader {
-            block_hash: eth1_block_hash,
-            timestamp: eth1_timestamp,
-            random: eth1_block_hash,
-            gas_limit: GENESIS_GAS_LIMIT,
-            base_fee_per_gas: GENESIS_BASE_FEE_PER_GAS,
-            ..ExecutionPayloadHeader::default()
-        };
+        *state.latest_execution_payload_header_mut()? =
+            execution_payload_header.unwrap_or_default();
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
