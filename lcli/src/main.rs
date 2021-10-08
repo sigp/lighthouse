@@ -2,6 +2,7 @@
 extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
+mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod etl;
@@ -272,6 +273,57 @@ fn main() {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("create-payload-header")
+                .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
+                Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
+                .arg(
+                    Arg::with_name("execution-block-hash")
+                        .long("execution-block-hash")
+                        .value_name("BLOCK_HASH")
+                        .takes_value(true)
+                        .help("The block hash used when generating an execution payload. This \
+                            value is used for `execution_payload_header.block_hash` as well as \
+                            `execution_payload_header.random`")
+                        .required(true)
+                        .default_value(
+                            "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("genesis-time")
+                        .long("genesis-time")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The genesis time when generating an execution payload.")
+                )
+                .arg(
+                    Arg::with_name("base-fee-per-gas")
+                        .long("base-fee-per-gas")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The base fee per gas field in the execution payload generated.")
+                        .required(true)
+                        .default_value("1000000000"),
+                )
+                .arg(
+                    Arg::with_name("gas-limit")
+                        .long("gas-limit")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The gas limit field in the execution payload generated.")
+                        .required(true)
+                        .default_value("30000000"),
+                )
+                .arg(
+                    Arg::with_name("file")
+                        .long("file")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Output file"),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("new-testnet")
                 .about(
                     "Produce a new testnet directory. If any of the optional flags are not
@@ -425,6 +477,15 @@ fn main() {
                         .value_name("BLOCK_HASH")
                         .takes_value(true)
                         .help("The eth1 block hash used when generating a genesis state."),
+                )
+                .arg(
+                    Arg::with_name("execution-payload-header")
+                        .long("execution-payload-header")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Path to file containing `ExecutionPayloadHeader` SSZ bytes to be \
+                            used in the genesis state."),
                 )
                 .arg(
                     Arg::with_name("validator-count")
@@ -661,6 +722,8 @@ fn run<T: EthSpec>(
             change_genesis_time::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
+        ("create-payload-header", Some(matches)) => create_payload_header::run::<T>(matches)
+            .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         ("replace-state-pubkeys", Some(matches)) => {
             replace_state_pubkeys::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
