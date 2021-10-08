@@ -3014,6 +3014,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_wallet",
  "genesis",
+ "int_to_bytes",
  "lighthouse_version",
  "log",
  "sensitive_url",

@@ -954,6 +954,7 @@ mod test {
             &generate_deterministic_keypairs(validator_count),
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
             &spec,
         )
         .expect("should create interop genesis state");
@@ -1023,6 +1024,7 @@ mod test {
             &keypairs,
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
             spec,
         )
         .expect("should build state");
