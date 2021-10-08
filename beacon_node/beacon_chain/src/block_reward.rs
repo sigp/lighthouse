@@ -1,5 +1,5 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::{AttestationRewards, BlockReward};
+use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover};
 use std::collections::HashMap;
 use types::{BeaconBlockRef, BeaconState, EthSpec, Hash256, RelativeEpoch};
@@ -78,8 +78,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             per_attestation_rewards,
         };
 
+        let meta = BlockRewardMeta {
+            slot: block.slot(),
+            parent_slot: state.latest_block_header().slot,
+            proposer_index: block.proposer_index(),
+            graffiti: block.body().graffiti().as_utf8_lossy(),
+        };
+
         Ok(BlockReward {
             block_root,
+            meta,
             attestation_rewards,
         })
     }

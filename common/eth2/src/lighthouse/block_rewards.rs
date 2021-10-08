@@ -12,8 +12,18 @@ use types::{Hash256, Slot};
 pub struct BlockReward {
     /// Block root of the block that these rewards are for.
     pub block_root: Hash256,
+    /// Metadata about the block, particularly reward-relevant metadata.
+    pub meta: BlockRewardMeta,
     /// Rewards due to attestations.
     pub attestation_rewards: AttestationRewards,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BlockRewardMeta {
+    pub slot: Slot,
+    pub parent_slot: Slot,
+    pub proposer_index: u64,
+    pub graffiti: String,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
