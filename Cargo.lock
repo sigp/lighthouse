@@ -642,6 +642,7 @@ dependencies = [
  "logging",
  "serde",
  "serde_derive",
+ "serde_json",
  "slog",
  "slog-async",
  "slog-scope",

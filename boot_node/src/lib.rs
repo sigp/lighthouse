@@ -3,6 +3,8 @@ use clap::ArgMatches;
 use slog::{o, Drain, Level, Logger};
 
 use std::convert::TryFrom;
+use std::fs::File;
+use std::path::PathBuf;
 mod cli;
 mod config;
 mod server;
@@ -13,7 +15,12 @@ use types::{EthSpec, EthSpecId};
 const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
-pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String) {
+pub fn run(
+    matches: &ArgMatches<'_>,
+    eth_spec_id: EthSpecId,
+    config_dump: Option<PathBuf>,
+    debug_level: String,
+) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
@@ -49,22 +56,34 @@ pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String
     let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
-        EthSpecId::Minimal => main::<types::MinimalEthSpec>(matches, log),
-        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(matches, log),
+        EthSpecId::Minimal => main::<types::MinimalEthSpec>(matches, config_dump, log),
+        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(matches, config_dump, log),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }
 }
 
-fn main<T: EthSpec>(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
+fn main<T: EthSpec>(
+    matches: &ArgMatches<'_>,
+    config_dump: Option<PathBuf>,
+    log: slog::Logger,
+) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
-    // parse the CLI args into a useable config
+    // Parse the CLI args into a useable config
     let config: BootNodeConfig<T> = BootNodeConfig::try_from(matches)?;
+
+    // Dump config if config_dump is provided
+    if let Some(dump_path) = config_dump {
+        let mut file = File::create(dump_path)
+            .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+        serde_json::to_writer(&mut file, &config)
+            .map_err(|e| format!("Error serializing config: {:?}", e))?;
+    }
 
     // Run the boot node
     runtime.block_on(server::run(config, log));
