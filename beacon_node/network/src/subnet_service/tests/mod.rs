@@ -56,6 +56,7 @@ impl TestBeaconChain {
                         &keypairs,
                         0,
                         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                        None,
                         &spec,
                     )
                     .expect("should generate interop state"),
