@@ -3,7 +3,10 @@ use eth2_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
-use types::{BeaconState, ChainSpec, DepositData, EthSpec, Hash256, Keypair, PublicKey, Signature};
+use types::{
+    BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256, Keypair,
+    PublicKey, Signature,
+};
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 
@@ -15,9 +18,9 @@ pub fn interop_genesis_state<T: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
+    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let eth1_block_hash = eth1_block_hash;
     let eth1_timestamp = 2_u64.pow(40);
     let amount = spec.max_effective_balance;
 
@@ -47,6 +50,7 @@ pub fn interop_genesis_state<T: EthSpec>(
         eth1_block_hash,
         eth1_timestamp,
         genesis_deposits(datas, spec)?,
+        execution_payload_header,
         spec,
     )
     .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
@@ -80,6 +84,7 @@ mod test {
             &keypairs,
             genesis_time,
             Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
             spec,
         )
         .expect("should build state");
