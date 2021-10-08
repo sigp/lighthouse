@@ -8,7 +8,7 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::{config, metrics};
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
+use crate::{error, Enr, NetworkConfig, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
@@ -35,7 +35,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     path::Path,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
@@ -157,8 +156,8 @@ pub struct Discovery<TSpec: EthSpec> {
     /// static lifetime.
     discv5: Discv5,
 
-    /// A collection of network constants that can be read from other threads.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    local_enr: crate::types::Owner<Enr>,
+    peer_db: crate::types::ReadOnly<crate::peer_manager::PeerDB<TSpec>>,
 
     /// Indicates if we are actively searching for peers. We only allow a single FindPeers query at
     /// a time, regardless of the query concurrency.
@@ -186,7 +185,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     pub async fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        local_enr: crate::types::Owner<Enr>,
+        peer_db: crate::types::ReadOnly<crate::peer_manager::PeerDB<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         let log = log.clone();
@@ -196,16 +196,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             None => String::from(""),
         };
 
-        let local_enr = network_globals.local_enr.read().clone();
-
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip" => ?local_enr.ip(), "udp"=> ?local_enr.udp(), "tcp" => ?local_enr.tcp());
+        let our_enr = local_enr.read().clone();
+        info!(log, "ENR Initialised"; "enr" => our_enr.to_base64(), "seq" => our_enr.seq(), "id"=> %our_enr.node_id(), "ip" => ?our_enr.ip(), "udp"=> ?our_enr.udp(), "tcp" => ?our_enr.tcp());
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
 
-        let mut discv5 = Discv5::new(local_enr, enr_key, config.discv5_config.clone())
+        let mut discv5 = Discv5::new(our_enr, enr_key, config.discv5_config.clone())
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
@@ -290,7 +289,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
-            network_globals,
+            local_enr,
+            peer_db,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
             active_queries: FuturesUnordered::new(),
@@ -391,7 +391,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        *self.local_enr.write() = self.discv5.local_enr();
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
@@ -422,7 +422,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
 
         // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        *self.local_enr.write() = self.discv5.local_enr();
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
@@ -503,7 +503,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         }
 
         // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        *self.local_enr.write() = self.discv5.local_enr();
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
@@ -538,7 +538,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             });
 
         // replace the global version with discovery version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        *self.local_enr.write() = self.discv5.local_enr();
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
@@ -678,8 +678,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             .filter(|subnet_query| {
                 // Determine if we have sufficient peers, which may make this discovery unnecessary.
                 let peers_on_subnet = self
-                    .network_globals
-                    .peers
+                    .peer_db
                     .read()
                     .good_peers_on_subnet(subnet_query.subnet)
                     .count();
@@ -1024,7 +1023,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
-                            *self.network_globals.local_enr.write() = enr;
+                            *self.local_enr.write() = enr;
                             return Poll::Ready(NBAction::GenerateEvent(
                                 DiscoveryEvent::SocketUpdated(socket),
                             ));
@@ -1078,21 +1077,16 @@ mod tests {
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
         let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new(
-            enr,
-            9000,
-            9000,
-            MetaData::V2(MetaDataV2 {
-                seq_number: 0,
-                attnets: Default::default(),
-                syncnets: Default::default(),
-            }),
-            vec![],
+        let peer_db = crate::types::Owner::new(crate::peer_manager::PeerDB::new(vec![], &log));
+        Discovery::new(
+            &keypair,
+            &config,
+            crate::types::Owner::new(enr),
+            peer_db.read_access(),
             &log,
-        );
-        Discovery::new(&keypair, &config, Arc::new(globals), &log)
-            .await
-            .unwrap()
+        )
+        .await
+        .unwrap()
     }
 
     #[tokio::test]

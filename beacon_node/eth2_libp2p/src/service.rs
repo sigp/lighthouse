@@ -6,7 +6,7 @@ use crate::multiaddr::Protocol;
 use crate::rpc::{
     GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, RequestId,
 };
-use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind};
+use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind, SyncState, Owner, ReadOnly};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
@@ -28,7 +28,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
-
 use crate::peer_manager::config::{
     MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS,
 };
@@ -71,35 +70,41 @@ impl<TSpec: EthSpec> Service<TSpec> {
         enr_fork_id: EnrForkId,
         log: &Logger,
         fork_context: Arc<ForkContext>,
+        sync_state: crate::types::ReadOnly<crate::types::SyncState>,
         chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
         trace!(log, "Libp2p Service starting");
 
-        // initialise the node's ID
-        let local_keypair = load_private_key(config, &log);
-
-        // Create an ENR or load from disk if appropriate
-        let enr =
-            enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, enr_fork_id, &log)?;
-
-        let local_peer_id = enr.peer_id();
-
-        let meta_data = load_or_build_metadata(&config.network_dir, &log);
 
         // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(
+        /*
+         * new(
             enr.clone(),
             config.libp2p_port,
             config.discovery_port,
             meta_data,
+            sync_state,
             config
                 .trusted_peers
                 .iter()
                 .map(|x| PeerId::from(x.clone()))
                 .collect(),
             &log,
-        ));
+        )
+        */
+        let local_peer_id =
+        let network_globals = Arc::new(NetworkGlobals {
+            local_enr: todo!(,
+            listen_multiaddrs: todo!(),
+            listen_port_tcp: todo!(),
+            listen_port_udp: todo!(),
+            peers: todo!(),
+            local_metadata: todo!(),
+            gossipsub_subscriptions: todo!(),
+            sync_state,
+            backfill_state: todo!(),
+        });
 
         info!(log, "Libp2p Service"; "peer_id" => %enr.peer_id());
         let discovery_string = if config.disable_discovery {

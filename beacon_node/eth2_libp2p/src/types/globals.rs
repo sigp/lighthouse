@@ -11,52 +11,74 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use types::EthSpec;
 
-pub struct NetworkGlobals<TSpec: EthSpec> {
-    /// The current local ENR.
-    pub local_enr: Arc<RwLock<Enr>>,
-    /// The local peer_id.
-    pub peer_id: RwLock<PeerId>,
-    /// Listening multiaddrs.
-    pub listen_multiaddrs: RwLock<Vec<Multiaddr>>,
-    /// The TCP port that the libp2p service is listening on
-    pub listen_port_tcp: AtomicU16,
-    /// The UDP port that the discovery service is listening on
-    pub listen_port_udp: AtomicU16,
-    /// The collection of known peers.
-    pub peers: Arc<RwLock<PeerDB<TSpec>>>,
-    // The local meta data of our node.
-    pub local_metadata: RwLock<MetaData<TSpec>>,
-    /// The current gossipsub topic subscriptions.
-    pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
-    /// The current sync status of the node.
-    pub sync_state: Arc<RwLock<SyncState>>,
-    /// The current state of the backfill sync.
-    pub backfill_state: RwLock<BackFillState>,
+/// Simple struct to maintain the synchronization mechanism of a RwLock but defining a non-clonable
+/// data owner with write access.
+pub struct Owner<T> {
+    data: Arc<RwLock<T>>,
 }
 
-impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
-    pub fn new(
-        enr: Enr,
-        tcp_port: u16,
-        udp_port: u16,
-        local_metadata: MetaData<TSpec>,
-        trusted_peers: Vec<PeerId>,
-        log: &slog::Logger,
-    ) -> Self {
-        NetworkGlobals {
-            local_enr: Arc::new(RwLock::new(enr.clone())),
-            peer_id: RwLock::new(enr.peer_id()),
-            listen_multiaddrs: RwLock::new(Vec::new()),
-            listen_port_tcp: AtomicU16::new(tcp_port),
-            listen_port_udp: AtomicU16::new(udp_port),
-            local_metadata: RwLock::new(local_metadata),
-            peers: Arc::new(RwLock::new(PeerDB::new(trusted_peers, log))),
-            gossipsub_subscriptions: RwLock::new(HashSet::new()),
-            sync_state: Arc::new(RwLock::new(SyncState::Stalled)),
-            backfill_state: RwLock::new(BackFillState::NotRequired),
+/// Simple struct that uses the synchronization mechanisms of a RwLock but provides only read
+/// access to the underlying data.
+#[derive(Clone)]
+pub struct ReadOnly<T> {
+    data: Arc<RwLock<T>>,
+}
+
+impl<T> Owner<T> {
+    pub fn new(data: T) -> Owner<T> {
+        Owner {
+            data: Arc::new(RwLock::new(data)),
         }
     }
 
+    pub fn read_access(&self) -> ReadOnly<T> {
+        ReadOnly {
+            data: self.data.clone(),
+        }
+    }
+
+    pub fn read<'a>(&'a self) -> impl std::ops::Deref<Target = T> + 'a {
+        self.data.read()
+    }
+
+    pub fn write<'a>(&'a self) -> impl std::ops::DerefMut<Target = T> + 'a {
+        self.data.write()
+    }
+}
+
+impl<T> ReadOnly<T> {
+    pub fn read<'a>(&'a self) -> impl std::ops::Deref<Target = T> + 'a {
+        self.data.read()
+    }
+}
+
+/// Relevant information about the network.
+// NOTE: this is intented to be read only.
+pub struct NetworkGlobals<TSpec: EthSpec> {
+    /// The current local ENR.
+    local_enr: ReadOnly<Enr>,
+    /// The local peer_id.
+    /// TODO: remove?
+    // pub peer_id: ReadOnly<PeerId>,
+    /// Listening multiaddrs.
+    listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
+    /// The TCP port that the libp2p service is listening on
+    listen_port_tcp: AtomicU16,
+    /// The UDP port that the discovery service is listening on
+    listen_port_udp: AtomicU16,
+    /// The collection of known peers.
+    peers: ReadOnly<PeerDB<TSpec>>,
+    // The local meta data of our node.
+    local_metadata: ReadOnly<MetaData<TSpec>>,
+    /// The current gossipsub topic subscriptions.
+    gossipsub_subscriptions: ReadOnly<HashSet<GossipTopic>>,
+    /// The current sync status of the node.
+    sync_state: ReadOnly<SyncState>,
+    /// The current state of the backfill sync.
+    backfill_state: ReadOnly<BackFillState>,
+}
+
+impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// Returns the local ENR from the underlying Discv5 behaviour that external peers may connect
     /// to.
     pub fn local_enr(&self) -> Enr {
@@ -65,7 +87,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Returns the local libp2p PeerID.
     pub fn local_peer_id(&self) -> PeerId {
-        *self.peer_id.read()
+        self.local_enr.read().peer_id()
     }
 
     /// Returns the list of `Multiaddr` that the underlying libp2p instance is listening on.
@@ -120,12 +142,5 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             .peer_info(peer_id)
             .map(|info| info.client.clone())
             .unwrap_or_default()
-    }
-
-    /// Updates the syncing state of the node.
-    ///
-    /// The old state is returned
-    pub fn set_sync_state(&self, new_state: SyncState) -> SyncState {
-        std::mem::replace(&mut *self.sync_state.write(), new_state)
     }
 }

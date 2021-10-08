@@ -12,7 +12,7 @@ pub type EnrSyncCommitteeBitfield<T> = BitVector<<T as EthSpec>::SyncCommitteeSu
 
 pub type Enr = discv5::enr::Enr<discv5::enr::CombinedKey>;
 
-pub use globals::NetworkGlobals;
+pub use globals::{NetworkGlobals, Owner, ReadOnly}; // TODO: where to put those.
 pub use pubsub::{PubsubMessage, SnappyTransform};
 pub use subnet::{Subnet, SubnetDiscovery};
 pub use sync_state::{BackFillState, SyncState};

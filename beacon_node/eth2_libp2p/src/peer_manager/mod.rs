@@ -9,7 +9,7 @@
 pub use self::peerdb::*;
 use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
-use crate::types::SyncState;
+use crate::types::{Owner, ReadOnly, SyncState};
 use crate::PeerId;
 use crate::{error, metrics, Gossipsub};
 use crate::{Subnet, SubnetDiscovery};
@@ -19,12 +19,10 @@ use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::core::ConnectedPoint;
 use libp2p::identify::IdentifyInfo;
-use parking_lot::RwLock;
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
@@ -50,11 +48,11 @@ use std::net::IpAddr;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
-    peer_db: Arc<RwLock<PeerDB<TSpec>>>,
+    peer_db: Owner<PeerDB<TSpec>>,
     /// Syncing state of the node.
     // TODO: This means the PeerManager has also write access to this. Same strategy could apply to
     // the sync state, being sync who provides a read only access struct to it.
-    sync_state: Arc<RwLock<SyncState>>,
+    sync_state: ReadOnly<SyncState>,
     /// A queue of events that the `PeerManager` is waiting to produce.
     events: SmallVec<[PeerManagerEvent; 16]>,
     /// A collection of inbound-connected peers awaiting to be Ping'd.
@@ -76,18 +74,6 @@ pub struct PeerManager<TSpec: EthSpec> {
     discovery_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
-}
-
-/// Public READ ONLY access to the peer db.
-pub struct ReadOnlyPeerDB<TSpec: EthSpec> {
-    peer_db: Arc<RwLock<PeerDB<TSpec>>>,
-}
-
-impl<TSpec: EthSpec> ReadOnlyPeerDB<TSpec> {
-    /// Get read access
-    pub fn read<'a>(&'a self) -> impl std::ops::Deref<Target = PeerDB<TSpec>> + 'a {
-        self.peer_db.read()
-    }
 }
 
 /// The events that the `PeerManager` outputs (requests).
@@ -120,7 +106,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
     pub async fn new(
         cfg: config::Config,
-        sync_state: Arc<RwLock<SyncState>>,
+        sync_state: ReadOnly<SyncState>,
+        peer_db: Owner<PeerDB<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         // Set up the peer manager heartbeat interval
@@ -136,7 +123,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         } = cfg;
 
         Ok(PeerManager {
-            peer_db: Arc::new(RwLock::new(PeerDB::new(trusted_peers, log))),
+            peer_db,
             sync_state,
             events: SmallVec::new(),
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
@@ -150,10 +137,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         })
     }
 
-    pub fn get_peer_db_access(&self) -> ReadOnlyPeerDB<TSpec> {
-        ReadOnlyPeerDB {
-            peer_db: self.peer_db.clone(),
-        }
+    pub fn peer_db_access(&self) -> ReadOnly<PeerDB<TSpec>> {
+        self.peer_db.read_access()
     }
 
     /* Public accessible functions */
@@ -1249,8 +1234,11 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let sync_state = Arc::new(RwLock::new(SyncState::Stalled));
-        PeerManager::new(cfg, sync_state, &log).await.unwrap()
+        let sync_state = Owner::new(SyncState::Stalled);
+        let peer_db = Owner::new(PeerDB::new(vec![], &log));
+        PeerManager::new(cfg, sync_state.read_access(), peer_db, &log)
+            .await
+            .unwrap()
     }
 
     #[tokio::test]

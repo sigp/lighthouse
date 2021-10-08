@@ -2,6 +2,7 @@ use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
 use crate::config::gossipsub_config;
+use crate::discovery::enr::build_or_load_enr;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
     self, score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -9,11 +10,12 @@ use crate::peer_manager::{
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
-    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
-    SubnetDiscovery,
+    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, Owner, ReadOnly,
+    SnappyTransform, Subnet, SubnetDiscovery, SyncState,
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{load_private_key, rpc::*, EnrExt};
 use futures::prelude::*;
 use libp2p::{
     core::{
@@ -162,16 +164,76 @@ pub struct Behaviour<TSpec: EthSpec> {
     #[behaviour(ignore)]
     network_dir: PathBuf,
     #[behaviour(ignore)]
-    fork_context: Arc<ForkContext>,
+    fork_context: Arc<ForkContext>,  // Gossipsub stuff too.
     /// Gossipsub score parameters.
-    #[behaviour(ignore)]
+    #[behaviour(ignore)] // Gossipsub stuff.
     score_settings: PeerScoreSettings<TSpec>,
     /// The interval for updating gossipsub scores
-    #[behaviour(ignore)]
-    update_gossipsub_scores: tokio::time::Interval,
+    #[behaviour(ignore)] // Gossipsub stuff.
+    update_gossipsub_scores: tokio::time::Interval, // Interval using gossipsub to move scores in the peer manager. Mixed thing here.
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
+}
+
+/// Load metadata from persisted file. Return default metadata if loading fails.
+fn load_or_build_metadata<E: EthSpec>(
+    network_dir: &std::path::Path,
+    log: &slog::Logger,
+) -> MetaData<E> {
+    // We load a V2 metadata version by default (regardless of current fork)
+    // since a V2 metadata can be converted to V1. The RPC encoder is responsible
+    // for sending the correct metadata version based on the negotiated protocol version.
+    let mut meta_data = MetaDataV2 {
+        seq_number: 0,
+        attnets: crate::types::EnrAttestationBitfield::<E>::default(),
+        syncnets: crate::EnrSyncCommitteeBitfield::<E>::default(),
+    };
+    // Read metadata from persisted file if available
+    let metadata_path = network_dir.join(METADATA_FILENAME);
+    if let Ok(mut metadata_file) = File::open(metadata_path) {
+        let mut metadata_ssz = Vec::new();
+        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
+            // Attempt to read a MetaDataV2 version from the persisted file,
+            // if that fails, read MetaDataV1
+            match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
+                Ok(persisted_metadata) => {
+                    meta_data.seq_number = persisted_metadata.seq_number;
+                    // Increment seq number if persisted attnet is not default
+                    if persisted_metadata.attnets != meta_data.attnets
+                        || persisted_metadata.syncnets != meta_data.syncnets
+                    {
+                        meta_data.seq_number += 1;
+                    }
+                    debug!(log, "Loaded metadata from disk");
+                }
+                Err(_) => {
+                    match MetaDataV1::<E>::from_ssz_bytes(&metadata_ssz) {
+                        Ok(persisted_metadata) => {
+                            let persisted_metadata = MetaData::V1(persisted_metadata);
+                            // Increment seq number as the persisted metadata version is updated
+                            meta_data.seq_number = *persisted_metadata.seq_number() + 1;
+                            debug!(log, "Loaded metadata from disk");
+                        }
+                        Err(e) => {
+                            debug!(
+                                log,
+                                "Metadata from file could not be decoded";
+                                "error" => ?e,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    // Wrap the MetaData
+    let meta_data = MetaData::V2(meta_data);
+
+    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
+    save_metadata_to_disk(network_dir, meta_data.clone(), log);
+    meta_data
 }
 
 /// Implements the combined behaviour for the libp2p service.
@@ -179,12 +241,23 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
         mut config: NetworkConfig,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        sync_state: ReadOnly<SyncState>,
+        enr_fork_id: EnrForkId,
         log: &slog::Logger,
         fork_context: Arc<ForkContext>,
         chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
+
+        // initialise the node's ID
+        let local_keypair = load_private_key(&config, &log);
+
+        // Create an ENR or load from disk if appropriate
+        let enr = build_or_load_enr::<TSpec>(local_keypair.clone(), &config, enr_fork_id, &log)?;
+
+        let local_peer_id = enr.peer_id();
+
+        let meta_data = load_or_build_metadata(&config.network_dir, &log);
 
         // Set up the Identify Behaviour
         let identify_config = if config.private {
@@ -197,17 +270,24 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .with_agent_version(lighthouse_version::version_with_platform())
         };
 
+        let local_enr = crate::types::Owner::new(enr);
+        let peer_db = crate::types::Owner::new(crate::peer_manager::PeerDB::new(
+            config
+                .trusted_peers
+                .iter()
+                .map(|p| p.clone().into())
+                .collect(),
+            log,
+        ));
+        let local_enr_reader = local_enr.read_access();
         // Build and start the discovery sub-behaviour
         let mut discovery =
-            Discovery::new(local_key, &config, network_globals.clone(), log).await?;
+            Discovery::new(local_key, &config, local_enr, peer_db.read_access(), log).await?;
         // start searching for peers
         discovery.discover_peers();
 
         // Grab our local ENR FORK ID
-        let enr_fork_id = network_globals
-            .local_enr()
-            .eth2()
-            .expect("Local ENR must have a fork id");
+        let enr_fork_id = enr.eth2().expect("Local ENR must have a fork id");
 
         let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
@@ -270,8 +350,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             ..Default::default()
         };
 
-        // TODO: get from higher up
-        let sync_state = Arc::new(parking_lot::RwLock::new(crate::types::SyncState::Stalled));
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
@@ -279,7 +357,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(peer_manager_cfg, sync_state, log).await?,
+            peer_manager: PeerManager::new(peer_manager_cfg, sync_state, peer_db, log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,
@@ -587,6 +665,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if !self.discovery.started {
             return;
         }
+        // TODO: move this to the peer manager.
 
         let filtered: Vec<SubnetDiscovery> = subnets_to_discover
             .into_iter()
