@@ -2725,6 +2725,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_wallet",
  "genesis",
+ "int_to_bytes",
  "lighthouse_network",
  "lighthouse_version",
  "log",

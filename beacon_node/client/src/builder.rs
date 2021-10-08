@@ -234,6 +234,7 @@ where
                     &keypairs,
                     genesis_time,
                     Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    None,
                     &spec,
                 )?;
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
