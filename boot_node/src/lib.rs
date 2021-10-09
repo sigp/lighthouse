@@ -20,6 +20,7 @@ pub fn run(
     eth_spec_id: EthSpecId,
     config_dump: Option<PathBuf>,
     debug_level: String,
+    immediate_shutdown: bool,
 ) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
@@ -56,8 +57,12 @@ pub fn run(
     let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
-        EthSpecId::Minimal => main::<types::MinimalEthSpec>(matches, config_dump, log),
-        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(matches, config_dump, log),
+        EthSpecId::Minimal => {
+            main::<types::MinimalEthSpec>(matches, config_dump, log, immediate_shutdown)
+        }
+        EthSpecId::Mainnet => {
+            main::<types::MainnetEthSpec>(matches, config_dump, log, immediate_shutdown)
+        }
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }
@@ -67,6 +72,7 @@ fn main<T: EthSpec>(
     matches: &ArgMatches<'_>,
     config_dump: Option<PathBuf>,
     log: slog::Logger,
+    immediate_shutdown: bool,
 ) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -86,6 +92,8 @@ fn main<T: EthSpec>(
     }
 
     // Run the boot node
-    runtime.block_on(server::run(config, log));
+    if !immediate_shutdown {
+        runtime.block_on(server::run(config, log));
+    }
     Ok(())
 }

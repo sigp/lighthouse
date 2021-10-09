@@ -209,6 +209,7 @@ fn main() {
                 eth_spec_id,
                 clap_utils::parse_optional::<PathBuf>(&matches, "dump-config")?,
                 debug_info,
+                matches.is_present("immediate-shutdown"),
             );
 
             return Ok(());
