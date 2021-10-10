@@ -80,12 +80,20 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain
+ifeq ($(OS),Windows_NT)
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude psutil
+else
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude psutil
+endif
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --workspace --exclude ef_tests --exclude beacon_chain
+ifeq ($(OS),Windows_NT)
+	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude psutil
+else
+	cargo test --workspace --exclude ef_tests --exclude beacon_chain --exclude psutil
+endif
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -134,7 +142,8 @@ lint:
         -D warnings \
         -A clippy::from-over-into \
         -A clippy::upper-case-acronyms \
-        -A clippy::vec-init-then-push
+        -A clippy::vec-init-then-push \
+        -A clippy::needless_borrow
 
 # Runs the makefile in the `ef_tests` repo.
 #
