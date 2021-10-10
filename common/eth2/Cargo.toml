@@ -27,7 +27,8 @@ futures = "0.3.8"
 store = { path = "../../beacon_node/store", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-psutil = { version = "3.2.0", optional = true }
+#psutil = { version = "3.2.0", optional = true }
+psutil = { path = "../../common/rust-psutil", optional = true }
 procinfo = { version = "0.4.2", optional = true }
 
 [features]

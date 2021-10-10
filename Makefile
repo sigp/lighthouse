@@ -134,7 +134,8 @@ lint:
         -D warnings \
         -A clippy::from-over-into \
         -A clippy::upper-case-acronyms \
-        -A clippy::vec-init-then-push
+        -A clippy::vec-init-then-push \
+        -A clippy::needless_borrow
 
 # Runs the makefile in the `ef_tests` repo.
 #
