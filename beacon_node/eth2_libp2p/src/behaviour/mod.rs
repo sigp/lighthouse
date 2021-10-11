@@ -348,6 +348,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Subscribes to a gossipsub topic.
+    ///
+    /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
@@ -358,13 +360,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let topic: Topic = topic.into();
 
         match self.gossipsub.subscribe(&topic) {
-            Err(_) => {
-                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic);
+            Err(e) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic, "error" => ?e);
                 false
             }
-            Ok(v) => {
+            Ok(_) => {
                 debug!(self.log, "Subscribed to topic"; "topic" => %topic);
-                v
+                true
             }
         }
     }

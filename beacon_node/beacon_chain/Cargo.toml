@@ -8,7 +8,6 @@ edition = "2018"
 default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
-test_logger = [] # Print log output to stderr when running tests instead of dropping it
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 
 [dev-dependencies]
@@ -55,3 +54,4 @@ itertools = "0.10.0"
 slasher = { path = "../../slasher" }
 eth2 = { path = "../../common/eth2" }
 strum = { version = "0.21.0", features = ["derive"] }
+logging = { path = "../../common/logging" }
