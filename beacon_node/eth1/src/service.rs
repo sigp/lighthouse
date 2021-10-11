@@ -163,12 +163,17 @@ impl EndpointsCache {
                                 if changed {
                                     info!(
                                         self.log,
-                                        "first_success changing to eth1 endpoint {}",
+                                        "Changing to eth1 endpoint {}",
                                         endpoint.endpoint.to_string()
                                     );
                                     info!(
                                         self.log,
-                                        "                          from endpoint {:?}", prev_url
+                                        "            from endpoint {}",
+                                        if let Some(purl) = prev_url {
+                                            purl.to_string()
+                                        } else {
+                                            "None".to_string()
+                                        }
                                     );
                                 }
                                 Ok(t)
@@ -501,7 +506,6 @@ impl Service {
                     config.deposit_contract_deploy_block,
                 )),
                 endpoints_cache: RwLock::new(None),
-                endpoint_index: RwLock::new(None),
                 remote_head_block: RwLock::new(None),
                 config: RwLock::new(config),
                 spec,
@@ -749,7 +753,7 @@ impl Service {
 
         let (
             (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache),
-            cur_index,
+            _num_errors,
         ) = endpoints
             .first_success(|e| async move {
                 get_remote_head_and_new_block_ranges(e, self, node_far_behind_seconds).await
@@ -761,43 +765,6 @@ impl Service {
                     process_single_err(&e)
                 )
             })?;
-
-        // Return the url of the endpoint as a String
-        let ep_to_string = |idx: usize| -> String {
-            if let Some(epws) = endpoints.fallback.servers.get(idx) {
-                epws.endpoint.to_string()
-            } else {
-                "Bad index, should not happen".to_string()
-            }
-        };
-
-        let prev_index = self.inner.update_endpoint_index(cur_index);
-        match prev_index {
-            Some(prev_index) => {
-                if cur_index != prev_index {
-                    info!(
-                        self.log,
-                        "Changing to eth1 endpoint";
-                        "idx" => cur_index,
-                        "url" => ep_to_string(cur_index),
-                    );
-                    info!(
-                        self.log,
-                        "            from endpoint";
-                        "idx" => prev_index,
-                        "url" => ep_to_string(prev_index),
-                    );
-                }
-            }
-            None => {
-                info!(
-                    self.log,
-                    "New eth1 endpoint";
-                    "idx" => cur_index,
-                    "url" => ep_to_string(cur_index),
-                );
-            }
-        };
 
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
