@@ -1,6 +1,6 @@
 use super::manager::SLOT_IMPORT_TOLERANCE;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{PeerSyncStatus, SyncInfo};
+use eth2_libp2p::{SyncInfo, SyncStatus as PeerSyncStatus};
 use std::cmp::Ordering;
 
 /// The type of peer relative to our current state.

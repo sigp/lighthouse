@@ -1620,23 +1620,21 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
-                        let address = if let Some(socket_addr) =
-                            peer_info.seen_addresses.iter().next()
-                        {
+                        let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
                             let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
                             addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
                             addr.to_string()
-                        } else if let Some(addr) = peer_info.listening_addresses.first() {
+                        } else if let Some(addr) = peer_info.listening_addresses().first() {
                             addr.to_string()
                         } else {
                             String::new()
                         };
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                        if let Some(dir) = peer_info.connection_direction().as_ref() {
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
-                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
                                 direction: api_types::PeerDirection::from_connection_direction(dir),
                                 state: api_types::PeerState::from_peer_connection_status(
@@ -1669,20 +1667,20 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers()
                         .for_each(|(peer_id, peer_info)| {
                             let address =
-                                if let Some(socket_addr) = peer_info.seen_addresses.iter().next() {
+                                if let Some(socket_addr) = peer_info.seen_addresses().next() {
                                     let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
                                     addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(
                                         socket_addr.port(),
                                     ));
                                     addr.to_string()
-                                } else if let Some(addr) = peer_info.listening_addresses.first() {
+                                } else if let Some(addr) = peer_info.listening_addresses().first() {
                                     addr.to_string()
                                 } else {
                                     String::new()
                                 };
 
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                            if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            if let Some(dir) = peer_info.connection_direction() {
                                 let direction =
                                     api_types::PeerDirection::from_connection_direction(dir);
                                 let state = api_types::PeerState::from_peer_connection_status(
@@ -1700,7 +1698,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 if state_matches && direction_matches {
                                     peers.push(api_types::PeerData {
                                         peer_id: peer_id.to_string(),
-                                        enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                        enr: peer_info.enr().map(|enr| enr.to_base64()),
                                         last_seen_p2p_address: address,
                                         direction,
                                         state,
