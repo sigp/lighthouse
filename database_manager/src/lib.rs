@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tempfile::tempdir;
 
 use beacon_chain::{
@@ -46,9 +44,13 @@ pub fn display_db_version<E: EthSpec>(
     let config = StoreConfig::default();
     let log = test_logger();
 
-    let db: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> =
-        HotColdDB::open_as_is(hot_path.as_path(), cold_path.as_path(), config, spec, log)?;
-    let schema_version = db.load_schema_version()?;
+    let (_db, schema_version) = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open_as_is(
+        hot_path.as_path(),
+        cold_path.as_path(),
+        config,
+        spec,
+        log,
+    )?;
 
     println!("database version: {:?}", schema_version);
 

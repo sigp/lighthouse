@@ -154,10 +154,10 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         config: StoreConfig,
         spec: ChainSpec,
         log: Logger,
-    ) -> Result<Arc<Self>, Error> {
+    ) -> Result<(Arc<Self>, SchemaVersion), Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
-        Ok(Arc::new(HotColdDB {
+        let db = Arc::new(HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(None),
             cold_db: LevelDB::open(cold_path)?,
@@ -167,7 +167,17 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             spec,
             log,
             _phantom: PhantomData,
-        }))
+        });
+
+        // If no schema_version then this is a new db so initialize schema to current version
+        let schema_version = if let Some(sv) = db.load_schema_version()? {
+            sv
+        } else {
+            db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
+            CURRENT_SCHEMA_VERSION
+        };
+
+        Ok((db, schema_version))
     }
 
     /// Open a new or existing database, with the given paths to the hot and cold DBs.
@@ -184,11 +194,11 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         spec: ChainSpec,
         log: Logger,
     ) -> Result<Arc<Self>, Error> {
-        let db = Self::open_as_is(hot_path, cold_path, config, spec, log)?;
+        let (db, schema_version) = Self::open_as_is(hot_path, cold_path, config, spec, log)?;
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
-        if let Some(schema_version) = db.load_schema_version()? {
+        if schema_version != CURRENT_SCHEMA_VERSION {
             debug!(
                 db.log,
                 "Attempting schema migration";
@@ -196,8 +206,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
             );
             migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION)?;
-        } else {
-            db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
         }
 
         // Ensure that any on-disk config is compatible with the supplied config.
