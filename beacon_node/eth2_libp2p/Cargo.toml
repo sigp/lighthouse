@@ -51,7 +51,7 @@ superstruct = "0.2.0"
 #version = "0.39.1"
 default-features = false
 git = "https://github.com/sigp/rust-libp2p"
-rev = "6c804dd63855855285df92258460b4b069a1b1a7" # Lighthouse branch with gossipsub updates 
+branch = "lighthouse" # Lighthouse branch with gossipsub updates 
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
