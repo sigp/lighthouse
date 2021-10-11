@@ -81,6 +81,7 @@ async fn get_state(endpoint: &EndpointWithState) -> Option<EndpointState> {
 /// is not usable.
 pub struct EndpointsCache {
     pub fallback: Fallback<EndpointWithState>,
+    pub cur_endpoint_url: RwLock<Option<SensitiveUrl>>,
     pub config_network_id: Eth1Id,
     pub config_chain_id: Eth1Id,
     pub log: Logger,
@@ -121,6 +122,20 @@ impl EndpointsCache {
         state
     }
 
+    /// Update the endpoint_index to index
+    /// Returns previous value
+    pub fn update_cur_endpoint_url(&self, url: SensitiveUrl) -> (Option<SensitiveUrl>, bool) {
+        let mut rw_ref = self.cur_endpoint_url.write();
+        let prev_url = rw_ref.clone();
+        *rw_ref = Some(url.clone());
+        let changed: bool = if let Some(purl) = &prev_url {
+            purl.full != url.full
+        } else {
+            true
+        };
+        (prev_url, changed)
+    }
+
     /// Return the first successful result along with number of previous errors encountered
     /// or all the errors encountered if every none of the fallback endpoints return required output.
     pub async fn first_success<'a, F, O, R>(
@@ -142,7 +157,22 @@ impl EndpointsCache {
                             &[endpoint_str],
                         );
                         match func(&endpoint.endpoint).await {
-                            Ok(t) => Ok(t),
+                            Ok(t) => {
+                                let (prev_url, changed) =
+                                    self.update_cur_endpoint_url(endpoint.endpoint.clone());
+                                if changed {
+                                    info!(
+                                        self.log,
+                                        "first_success changing to eth1 endpoint {}",
+                                        endpoint.endpoint.to_string()
+                                    );
+                                    info!(
+                                        self.log,
+                                        "                          from endpoint {:?}", prev_url
+                                    );
+                                }
+                                Ok(t)
+                            }
                             Err(t) => {
                                 crate::metrics::inc_counter_vec(
                                     &crate::metrics::ENDPOINT_ERRORS,
@@ -649,6 +679,7 @@ impl Service {
         let config_chain_id = self.config().chain_id.clone();
         let new_cache = Arc::new(EndpointsCache {
             fallback: Fallback::new(endpoints.into_iter().map(EndpointWithState::new).collect()),
+            cur_endpoint_url: RwLock::new(None),
             config_network_id,
             config_chain_id,
             log: self.log.clone(),
@@ -731,26 +762,39 @@ impl Service {
                 )
             })?;
 
+        // Return the url of the endpoint as a String
+        let ep_to_string = |idx: usize| -> String {
+            if let Some(epws) = endpoints.fallback.servers.get(idx) {
+                epws.endpoint.to_string()
+            } else {
+                "Bad index, should not happen".to_string()
+            }
+        };
+
         let prev_index = self.inner.update_endpoint_index(cur_index);
         match prev_index {
             Some(prev_index) => {
                 if cur_index != prev_index {
                     info!(
                         self.log,
-                        "New endpoint: idx={} url={} Old endpoint: idx={} url={}",
-                        cur_index,
-                        &endpoints.fallback.servers[cur_index].endpoint.as_ref(),
-                        prev_index,
-                        &endpoints.fallback.servers[prev_index].endpoint.as_ref()
+                        "Changing to eth1 endpoint";
+                        "idx" => cur_index,
+                        "url" => ep_to_string(cur_index),
+                    );
+                    info!(
+                        self.log,
+                        "            from endpoint";
+                        "idx" => prev_index,
+                        "url" => ep_to_string(prev_index),
                     );
                 }
             }
             None => {
                 info!(
                     self.log,
-                    "New endpoint: idx={} url={} Old endpoint: None",
-                    cur_index,
-                    &endpoints.fallback.servers[cur_index].endpoint.as_ref()
+                    "New eth1 endpoint";
+                    "idx" => cur_index,
+                    "url" => ep_to_string(cur_index),
                 );
             }
         };
@@ -892,7 +936,7 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn update_deposit_cache(
+    pub async fn update_deposit_cache<'e>(
         &self,
         new_block_numbers: Option<Option<RangeInclusive<u64>>>,
         endpoints: &EndpointsCache,
@@ -1049,7 +1093,7 @@ impl Service {
     /// - Err(_) if there is an error.
     ///
     /// Emits logs for debugging and errors.
-    pub async fn update_block_cache(
+    pub async fn update_block_cache<'e>(
         &self,
         new_block_numbers: Option<Option<RangeInclusive<u64>>>,
         endpoints: &EndpointsCache,
