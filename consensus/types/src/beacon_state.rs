@@ -197,6 +197,8 @@ impl From<BeaconStateHash> for Hash256 {
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<T>
 where
     T: EthSpec,
@@ -275,36 +277,31 @@ where
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub exit_cache: ExitCache,
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]

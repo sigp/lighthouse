@@ -1,6 +1,6 @@
 [package]
 name = "eth2_ssz_derive"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 description = "Procedural derive macros to accompany the eth2_ssz crate."
@@ -12,4 +12,6 @@ proc-macro = true
 
 [dependencies]
 syn = "1.0.42"
+proc-macro2 = "1.0.23"
 quote = "1.0.7"
+darling = "0.13.0"

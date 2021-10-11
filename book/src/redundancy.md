@@ -1,6 +1,6 @@
 # Redundancy
 
-[subscribe-api]: https://ethereum.github.io/eth2.0-APIs/#/Validator/prepareBeaconCommitteeSubnet
+[subscribe-api]: https://ethereum.github.io/beacon-APIs/#/Validator/prepareBeaconCommitteeSubnet
 
 There are three places in Lighthouse where redundancy is notable:
 

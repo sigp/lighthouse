@@ -689,6 +689,19 @@ fn compact_db_flag() {
         .run()
         .with_config(|config| assert!(config.store.compact_on_init));
 }
+#[test]
+fn reconstruct_historic_states_flag() {
+    CommandLineTest::new()
+        .flag("reconstruct-historic-states", None)
+        .run()
+        .with_config(|config| assert!(config.chain.reconstruct_historic_states));
+}
+#[test]
+fn no_reconstruct_historic_states_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
+}
 
 // Tests for Slasher flags.
 #[test]

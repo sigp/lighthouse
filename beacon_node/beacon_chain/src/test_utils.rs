@@ -12,15 +12,15 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use futures::channel::mpsc::Receiver;
-use genesis::interop_genesis_state;
+pub use genesis::interop_genesis_state;
 use int_to_bytes::int_to_bytes32;
+use logging::test_logger;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
-use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -105,25 +105,6 @@ fn make_rng() -> Mutex<StdRng> {
     // Nondeterminism in tests is a highly undesirable thing.  Seed the RNG to some arbitrary
     // but fixed value for reproducibility.
     Mutex::new(StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64))
-}
-
-/// Return a logger suitable for test usage.
-///
-/// By default no logs will be printed, but they can be enabled via the `test_logger` feature.
-///
-/// We've tried the `slog_term::TestStdoutWriter` in the past, but found it too buggy because
-/// of the threading limitation.
-pub fn test_logger() -> Logger {
-    use sloggers::Build;
-
-    if cfg!(feature = "test_logger") {
-        sloggers::terminal::TerminalLoggerBuilder::new()
-            .level(sloggers::types::Severity::Debug)
-            .build()
-            .unwrap()
-    } else {
-        sloggers::null::NullLoggerBuilder.build().unwrap()
-    }
 }
 
 /// Return a `ChainSpec` suitable for test usage.
@@ -351,7 +332,7 @@ where
             .chain_config(chain_config)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
                 log.clone(),
-                1,
+                5,
             )))
             .monitor_validators(true, vec![], log);
 
@@ -1159,28 +1140,41 @@ where
     }
 
     pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
-        for (unaggregated_attestations, maybe_signed_aggregate) in attestations.into_iter() {
-            for (attestation, subnet_id) in unaggregated_attestations {
-                self.chain
-                    .verify_unaggregated_attestation_for_gossip(
-                        attestation.clone(),
-                        Some(subnet_id),
-                    )
-                    .unwrap()
-                    .add_to_pool(&self.chain)
-                    .unwrap();
+        let num_validators = self.validator_keypairs.len();
+        let mut unaggregated = Vec::with_capacity(num_validators);
+        // This is an over-allocation, but it should be fine. It won't be *that* memory hungry and
+        // it's nice to have fast tests.
+        let mut aggregated = Vec::with_capacity(num_validators);
+
+        for (unaggregated_attestations, maybe_signed_aggregate) in attestations.iter() {
+            for (attn, subnet) in unaggregated_attestations {
+                unaggregated.push((attn, Some(*subnet)));
             }
 
-            if let Some(signed_aggregate) = maybe_signed_aggregate {
-                let attn = self
-                    .chain
-                    .verify_aggregated_attestation_for_gossip(signed_aggregate)
-                    .unwrap();
-
-                self.chain.apply_attestation_to_fork_choice(&attn).unwrap();
-
-                self.chain.add_to_block_inclusion_pool(attn).unwrap();
+            if let Some(a) = maybe_signed_aggregate {
+                aggregated.push(a)
             }
+        }
+
+        for result in self
+            .chain
+            .batch_verify_unaggregated_attestations_for_gossip(unaggregated.into_iter())
+            .unwrap()
+        {
+            let verified = result.unwrap();
+            self.chain.add_to_naive_aggregation_pool(&verified).unwrap();
+        }
+
+        for result in self
+            .chain
+            .batch_verify_aggregated_attestations_for_gossip(aggregated.into_iter())
+            .unwrap()
+        {
+            let verified = result.unwrap();
+            self.chain
+                .apply_attestation_to_fork_choice(&verified)
+                .unwrap();
+            self.chain.add_to_block_inclusion_pool(&verified).unwrap();
         }
     }
 

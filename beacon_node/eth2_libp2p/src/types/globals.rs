@@ -1,7 +1,7 @@
 //! A collection of variables that are accessible outside of the network thread itself.
-use crate::peer_manager::PeerDB;
+use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::MetaData;
-use crate::types::SyncState;
+use crate::types::{BackFillState, SyncState};
 use crate::Client;
 use crate::EnrExt;
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
@@ -29,6 +29,8 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     pub gossipsub_subscriptions: RwLock<HashSet<GossipTopic>>,
     /// The current sync status of the node.
     pub sync_state: RwLock<SyncState>,
+    /// The current state of the backfill sync.
+    pub backfill_state: RwLock<BackFillState>,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
@@ -50,6 +52,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             peers: RwLock::new(PeerDB::new(trusted_peers, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
+            backfill_state: RwLock::new(BackFillState::NotRequired),
         }
     }
 
@@ -104,12 +107,17 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         self.sync_state.read().clone()
     }
 
+    /// Returns the current backfill state.
+    pub fn backfill_state(&self) -> BackFillState {
+        self.backfill_state.read().clone()
+    }
+
     /// Returns a `Client` type if one is known for the `PeerId`.
     pub fn client(&self, peer_id: &PeerId) -> Client {
         self.peers
             .read()
             .peer_info(peer_id)
-            .map(|info| info.client.clone())
+            .map(|info| info.client().clone())
             .unwrap_or_default()
     }
 

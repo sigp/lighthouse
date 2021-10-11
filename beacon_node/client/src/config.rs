@@ -1,5 +1,6 @@
 use directory::DEFAULT_ROOT_DIR;
 use network::NetworkConfig;
+use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ use types::{Graffiti, PublicKeyBytes};
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientGenesis {
     /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
@@ -26,6 +27,15 @@ pub enum ClientGenesis {
     /// We include the bytes instead of the `BeaconState<E>` because the `EthSpec` type
     /// parameter would be very annoying.
     SszBytes { genesis_state_bytes: Vec<u8> },
+    WeakSubjSszBytes {
+        genesis_state_bytes: Vec<u8>,
+        anchor_state_bytes: Vec<u8>,
+        anchor_block_bytes: Vec<u8>,
+    },
+    CheckpointSyncUrl {
+        genesis_state_bytes: Vec<u8>,
+        url: SensitiveUrl,
+    },
 }
 
 impl Default for ClientGenesis {

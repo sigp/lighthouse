@@ -323,7 +323,8 @@ fn append_to_file(file: &mut File, index: usize, pubkey: &PublicKeyBytes) -> Res
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{test_logger, BeaconChainHarness, EphemeralHarnessType};
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use logging::test_logger;
     use std::sync::Arc;
     use store::{HotColdDB, StoreConfig};
     use tempfile::tempdir;

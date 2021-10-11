@@ -20,6 +20,10 @@ pub struct BlsSign {
 impl BlsCase for BlsSign {}
 
 impl Case for BlsSign {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name == ForkName::Base
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         // Convert private_key and message to required types
         let sk = hex::decode(&self.input.privkey[2..])

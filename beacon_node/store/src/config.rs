@@ -24,8 +24,6 @@ pub struct StoreConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OnDiskStoreConfig {
     pub slots_per_restore_point: u64,
-    // NOTE: redundant, see https://github.com/sigp/lighthouse/issues/1784
-    pub _block_cache_size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +47,6 @@ impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
         OnDiskStoreConfig {
             slots_per_restore_point: self.slots_per_restore_point,
-            _block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
         }
     }
 
