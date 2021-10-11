@@ -1398,33 +1398,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_client,
                         block,
                         seen_timestamp,
-                    } => {
-                        if let Some(gossip_verified_block) = worker.process_gossip_unverified_block(
-                            message_id,
-                            peer_id,
-                            peer_client,
-                            *block,
-                            work_reprocessing_tx.clone(),
-                            seen_timestamp,
-                        ) {
-                            let block_root = gossip_verified_block.block_root;
-                            if duplicate_cache.check_and_insert(block_root) {
-                                worker.process_gossip_verified_block(
-                                    peer_id,
-                                    gossip_verified_block,
-                                    work_reprocessing_tx,
-                                    seen_timestamp,
-                                );
-                                duplicate_cache.remove(&block_root);
-                            } else {
-                                warn!(
-                                    log,
-                                    "RPC block is being imported";
-                                    "block_root" => %block_root,
-                                );
-                            }
-                        }
-                    }
+                    } => worker.process_gossip_block(
+                        message_id,
+                        peer_id,
+                        peer_client,
+                        *block,
+                        work_reprocessing_tx.clone(),
+                        duplicate_cache,
+                        seen_timestamp,
+                    ),
                     /*
                      * Import for blocks that we received earlier than their intended slot.
                      */
@@ -1504,30 +1486,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      * Verification for beacon blocks received during syncing via RPC.
                      */
                     Work::RpcBlock { block, result_tx } => {
-                        let block_root = block.canonical_root();
-                        if duplicate_cache.check_and_insert(block_root) {
-                            worker.process_rpc_block(*block, result_tx, work_reprocessing_tx);
-                            duplicate_cache.remove(&block_root);
-                        } else {
-                            warn!(
-                                log,
-                                "Gossip block is being imported";
-                                "block_root" => %block_root,
-                            );
-                            // The gossip block that is being imported should eventually
-                            // trigger reprocessing of queued attestations once it is imported.
-                            // If the gossip block fails import, then it will be downscored
-                            // appropriately in `process_gossip_block`.
-
-                            // Here, we assume that the block will eventually be imported and
-                            // send a `BlockIsAlreadyKnown` message to sync.
-                            if result_tx
-                                .send(Err(BlockError::BlockIsAlreadyKnown))
-                                .is_err()
-                            {
-                                crit!(log, "Failed return sync block result");
-                            }
-                        }
+                        worker.process_rpc_block(
+                            *block,
+                            result_tx,
+                            work_reprocessing_tx.clone(),
+                            duplicate_cache,
+                        );
                     }
                     /*
                      * Verification for a chain segment (multiple blocks).

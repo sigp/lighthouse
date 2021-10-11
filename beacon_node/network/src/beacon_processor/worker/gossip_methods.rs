@@ -25,6 +25,7 @@ use super::{
     },
     Worker,
 };
+use crate::beacon_processor::DuplicateCache;
 
 /// An attestation that has been validated by the `BeaconChain`.
 ///
@@ -606,6 +607,50 @@ impl<T: BeaconChainTypes> Worker<T> {
                     },
                     reprocess_tx,
                     error,
+                );
+            }
+        }
+    }
+
+    /// Process the beacon block received from the gossip network and:
+    ///
+    /// - If it passes gossip propagation criteria, tell the network thread to forward it.
+    /// - Attempt to add it to the beacon chain, informing the sync thread if more blocks need to
+    ///   be downloaded.
+    ///
+    /// Raises a log if there are errors.
+    pub fn process_gossip_block(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        block: SignedBeaconBlock<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        duplicate_cache: DuplicateCache,
+        seen_duration: Duration,
+    ) {
+        if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
+            message_id,
+            peer_id,
+            peer_client,
+            block,
+            reprocess_tx.clone(),
+            seen_duration,
+        ) {
+            let block_root = gossip_verified_block.block_root;
+            if duplicate_cache.check_and_insert(block_root) {
+                self.process_gossip_verified_block(
+                    peer_id,
+                    gossip_verified_block,
+                    reprocess_tx,
+                    seen_duration,
+                );
+                duplicate_cache.remove(&block_root);
+            } else {
+                warn!(
+                    self.log,
+                    "RPC block is being imported";
+                    "block_root" => %block_root,
                 );
             }
         }
