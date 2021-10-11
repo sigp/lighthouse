@@ -39,7 +39,7 @@
 //! task.
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
-use beacon_chain::parking_lot::RwLock;
+use beacon_chain::parking_lot::Mutex;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
 use eth2_libp2p::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
@@ -286,9 +286,9 @@ impl<T> LifoQueue<T> {
 }
 
 /// A simple  cache for detecting duplicate block roots across multiple threads.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DuplicateCache {
-    inner: Arc<RwLock<HashSet<Hash256>>>,
+    inner: Arc<Mutex<HashSet<Hash256>>>,
 }
 
 impl DuplicateCache {
@@ -298,26 +298,14 @@ impl DuplicateCache {
     /// Returns `true` if the block_root was successfully inserted and `false` if
     /// the block root already existed in the cache.
     pub fn check_and_insert(&self, block_root: Hash256) -> bool {
-        let mut inner = self.inner.write();
-        if !inner.contains(&block_root) {
-            inner.insert(block_root)
-        } else {
-            false
-        }
+        let mut inner = self.inner.lock();
+        inner.insert(block_root)
     }
 
     /// Remove the given block_root from the cache.
     pub fn remove(&self, block_root: &Hash256) {
-        let mut inner = self.inner.write();
+        let mut inner = self.inner.lock();
         inner.remove(block_root);
-    }
-}
-
-impl Clone for DuplicateCache {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
     }
 }
 
@@ -1419,7 +1407,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             work_reprocessing_tx.clone(),
                             seen_timestamp,
                         ) {
-                            let block_root = gossip_verified_block.block.canonical_root();
+                            let block_root = gossip_verified_block.block_root;
                             if duplicate_cache.check_and_insert(block_root) {
                                 worker.process_gossip_verified_block(
                                     peer_id,
