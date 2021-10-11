@@ -619,6 +619,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///   be downloaded.
     ///
     /// Raises a log if there are errors.
+    #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_block(
         self,
         message_id: MessageId,
