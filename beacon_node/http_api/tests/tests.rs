@@ -63,14 +63,14 @@ struct ApiTester {
 }
 
 impl ApiTester {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
-        Self::new_from_spec(spec)
+        Self::new_from_spec(spec).await
     }
 
-    pub fn new_from_spec(spec: ChainSpec) -> Self {
+    pub async fn new_from_spec(spec: ChainSpec) -> Self {
         let harness = BeaconChainHarness::new(
             MainnetEthSpec,
             Some(spec.clone()),
@@ -181,7 +181,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), log);
+        } = create_api_server(chain.clone(), log).await;
 
         tokio::spawn(server);
 
@@ -213,7 +213,7 @@ impl ApiTester {
         }
     }
 
-    pub fn new_from_genesis() -> Self {
+    pub async fn new_from_genesis() -> Self {
         let harness = BeaconChainHarness::new(
             MainnetEthSpec,
             None,
@@ -260,7 +260,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), log);
+        } = create_api_server(chain.clone(), log).await;
 
         tokio::spawn(server);
 
@@ -2453,7 +2453,7 @@ async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events() {
-    ApiTester::new().test_get_events().await;
+    ApiTester::new().await.test_get_events().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2461,6 +2461,7 @@ async fn get_events_altair() {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_spec(spec)
+        .await
         .test_get_events_altair()
         .await;
 }
@@ -2468,6 +2469,7 @@ async fn get_events_altair() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
+        .await
         .test_get_events_from_genesis()
         .await;
 }
@@ -2475,6 +2477,7 @@ async fn get_events_from_genesis() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get() {
     ApiTester::new()
+        .await
         .test_beacon_genesis()
         .await
         .test_beacon_states_root()
@@ -2515,17 +2518,21 @@ async fn beacon_get() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_valid() {
-    ApiTester::new().test_post_beacon_blocks_valid().await;
+    ApiTester::new().await.test_post_beacon_blocks_valid().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_invalid() {
-    ApiTester::new().test_post_beacon_blocks_invalid().await;
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_invalid()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_attestations_valid()
         .await;
 }
@@ -2533,6 +2540,7 @@ async fn beacon_pools_post_attestations_valid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attestations_invalid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_attestations_invalid()
         .await;
 }
@@ -2540,6 +2548,7 @@ async fn beacon_pools_post_attestations_invalid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_valid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_attester_slashings_valid()
         .await;
 }
@@ -2547,6 +2556,7 @@ async fn beacon_pools_post_attester_slashings_valid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_attester_slashings_invalid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_attester_slashings_invalid()
         .await;
 }
@@ -2554,6 +2564,7 @@ async fn beacon_pools_post_attester_slashings_invalid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_proposer_slashings_valid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_proposer_slashings_valid()
         .await;
 }
@@ -2561,6 +2572,7 @@ async fn beacon_pools_post_proposer_slashings_valid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_proposer_slashings_invalid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_proposer_slashings_invalid()
         .await;
 }
@@ -2568,6 +2580,7 @@ async fn beacon_pools_post_proposer_slashings_invalid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_voluntary_exits_valid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_voluntary_exits_valid()
         .await;
 }
@@ -2575,6 +2588,7 @@ async fn beacon_pools_post_voluntary_exits_valid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_pools_post_voluntary_exits_invalid() {
     ApiTester::new()
+        .await
         .test_post_beacon_pool_voluntary_exits_invalid()
         .await;
 }
@@ -2582,6 +2596,7 @@ async fn beacon_pools_post_voluntary_exits_invalid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn config_get() {
     ApiTester::new()
+        .await
         .test_get_config_fork_schedule()
         .await
         .test_get_config_spec()
@@ -2593,6 +2608,7 @@ async fn config_get() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn debug_get() {
     ApiTester::new()
+        .await
         .test_get_debug_beacon_states()
         .await
         .test_get_debug_beacon_heads()
@@ -2602,6 +2618,7 @@ async fn debug_get() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn node_get() {
     ApiTester::new()
+        .await
         .test_get_node_version()
         .await
         .test_get_node_syncing()
@@ -2620,17 +2637,24 @@ async fn node_get() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_early() {
-    ApiTester::new().test_get_validator_duties_early().await;
+    ApiTester::new()
+        .await
+        .test_get_validator_duties_early()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester() {
-    ApiTester::new().test_get_validator_duties_attester().await;
+    ApiTester::new()
+        .await
+        .test_get_validator_duties_attester()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_attester_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_attester()
         .await;
@@ -2638,12 +2662,16 @@ async fn get_validator_duties_attester_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer() {
-    ApiTester::new().test_get_validator_duties_proposer().await;
+    ApiTester::new()
+        .await
+        .test_get_validator_duties_proposer()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_duties_proposer_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_duties_proposer()
         .await;
@@ -2651,12 +2679,13 @@ async fn get_validator_duties_proposer_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production() {
-    ApiTester::new().test_block_production().await;
+    ApiTester::new().await.test_block_production().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production()
         .await;
@@ -2664,12 +2693,16 @@ async fn block_production_with_skip_slots() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data() {
-    ApiTester::new().test_get_validator_attestation_data().await;
+    ApiTester::new()
+        .await
+        .test_get_validator_attestation_data()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_attestation_data()
         .await;
@@ -2678,6 +2711,7 @@ async fn get_validator_attestation_data_with_skip_slots() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_attestation() {
     ApiTester::new()
+        .await
         .test_get_validator_aggregate_attestation()
         .await;
 }
@@ -2685,6 +2719,7 @@ async fn get_validator_aggregate_attestation() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_attestation_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_attestation()
         .await;
@@ -2693,6 +2728,7 @@ async fn get_validator_aggregate_attestation_with_skip_slots() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_valid() {
     ApiTester::new()
+        .await
         .test_get_validator_aggregate_and_proofs_valid()
         .await;
 }
@@ -2700,6 +2736,7 @@ async fn get_validator_aggregate_and_proofs_valid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_and_proofs_valid()
         .await;
@@ -2708,6 +2745,7 @@ async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_invalid() {
     ApiTester::new()
+        .await
         .test_get_validator_aggregate_and_proofs_invalid()
         .await;
 }
@@ -2715,6 +2753,7 @@ async fn get_validator_aggregate_and_proofs_invalid() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
     ApiTester::new()
+        .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_get_validator_aggregate_and_proofs_invalid()
         .await;
@@ -2723,6 +2762,7 @@ async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_beacon_committee_subscriptions() {
     ApiTester::new()
+        .await
         .test_get_validator_beacon_committee_subscriptions()
         .await;
 }
@@ -2730,6 +2770,7 @@ async fn get_validator_beacon_committee_subscriptions() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_endpoints() {
     ApiTester::new()
+        .await
         .test_get_lighthouse_health()
         .await
         .test_get_lighthouse_syncing()

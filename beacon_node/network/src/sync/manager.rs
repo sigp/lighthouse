@@ -654,15 +654,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // NOTE: here we are gracefully handling two race conditions: Receiving the status message
         // of a peer that is 1) disconnected 2) not in the PeerDB.
 
-        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let new_state = sync_type.as_sync_status(remote_sync_info);
-            let rpr = new_state.as_str();
-            let was_updated = peer_info.sync_status.update(new_state.clone());
+        let new_state = sync_type.as_sync_status(remote_sync_info);
+        let rpr = new_state.as_str();
+        // Drop the write lock
+        let update_sync_status = self
+            .network_globals
+            .peers
+            .write()
+            .update_sync_status(peer_id, new_state.clone());
+        if let Some(was_updated) = update_sync_status {
+            let is_connected = self.network_globals.peers.read().is_connected(peer_id);
             if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
                     "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
                     "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
-                    "is_connected" => peer_info.is_connected());
+                    "is_connected" => is_connected);
 
                 // A peer has transitioned its sync state. If the new state is "synced" we
                 // inform the backfill sync that a new synced peer has joined us.
@@ -670,7 +676,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.backfill_sync.fully_synced_peer_joined();
                 }
             }
-            peer_info.is_connected()
+            is_connected
         } else {
             error!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
             false

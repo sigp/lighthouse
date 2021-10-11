@@ -283,7 +283,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.swarm
             .behaviour_mut()
             .peer_manager_mut()
-            .report_peer(peer_id, action, source);
+            .report_peer(peer_id, action, source, None);
     }
 
     /// Disconnect and ban a peer, providing a reason.
