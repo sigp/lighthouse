@@ -2,20 +2,19 @@ use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
 use crate::config::gossipsub_config;
-use crate::discovery::enr::build_or_load_enr;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
     self, score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
-use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
-    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, Owner, ReadOnly,
-    SnappyTransform, Subnet, SubnetDiscovery, SyncState,
+    subnet_from_topic_hash, BackFillState, GossipEncoding, GossipKind, GossipTopic, Owner,
+    ReadOnly, SnappyTransform, Subnet, SubnetDiscovery, SyncState,
 };
+use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
-use crate::{load_private_key, rpc::*, EnrExt};
+use crate::{rpc::*, PeerDB};
 use futures::prelude::*;
 use libp2p::{
     core::{
@@ -39,6 +38,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -148,9 +148,38 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// custom type here to avoid having to specify the concrete type.
     #[behaviour(ignore)]
     internal_events: VecDeque<InternalBehaviourMessage>,
-    /// A collections of variables accessible outside the network service.
+
+    /// The current local ENR.
     #[behaviour(ignore)]
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    local_enr: ReadOnly<Enr>,
+    /// The local peer_id.
+    /// TODO: remove?
+    // pub peer_id: ReadOnly<PeerId>,
+    /// Listening multiaddrs.
+    #[behaviour(ignore)]
+    listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
+    /// The TCP port that the libp2p service is listening on
+    #[behaviour(ignore)]
+    listen_port_tcp: AtomicU16,
+    /// The UDP port that the discovery service is listening on
+    #[behaviour(ignore)]
+    listen_port_udp: AtomicU16,
+    /// The collection of known peers.
+    #[behaviour(ignore)]
+    peers: ReadOnly<PeerDB<TSpec>>,
+    // The local meta data of our node.
+    #[behaviour(ignore)]
+    local_metadata: Owner<MetaData<TSpec>>,
+    /// The current gossipsub topic subscriptions.
+    #[behaviour(ignore)]
+    gossipsub_subscriptions: Owner<HashSet<GossipTopic>>,
+    /// The current sync status of the node.
+    #[behaviour(ignore)]
+    sync_state: ReadOnly<SyncState>,
+    /// The current state of the backfill sync.
+    #[behaviour(ignore)]
+    backfill_state: ReadOnly<BackFillState>,
+
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
     // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
     // lookups for every gossipsub message send.
@@ -164,7 +193,7 @@ pub struct Behaviour<TSpec: EthSpec> {
     #[behaviour(ignore)]
     network_dir: PathBuf,
     #[behaviour(ignore)]
-    fork_context: Arc<ForkContext>,  // Gossipsub stuff too.
+    fork_context: Arc<ForkContext>, // Gossipsub stuff too.
     /// Gossipsub score parameters.
     #[behaviour(ignore)] // Gossipsub stuff.
     score_settings: PeerScoreSettings<TSpec>,
@@ -176,66 +205,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-/// Load metadata from persisted file. Return default metadata if loading fails.
-fn load_or_build_metadata<E: EthSpec>(
-    network_dir: &std::path::Path,
-    log: &slog::Logger,
-) -> MetaData<E> {
-    // We load a V2 metadata version by default (regardless of current fork)
-    // since a V2 metadata can be converted to V1. The RPC encoder is responsible
-    // for sending the correct metadata version based on the negotiated protocol version.
-    let mut meta_data = MetaDataV2 {
-        seq_number: 0,
-        attnets: crate::types::EnrAttestationBitfield::<E>::default(),
-        syncnets: crate::EnrSyncCommitteeBitfield::<E>::default(),
-    };
-    // Read metadata from persisted file if available
-    let metadata_path = network_dir.join(METADATA_FILENAME);
-    if let Ok(mut metadata_file) = File::open(metadata_path) {
-        let mut metadata_ssz = Vec::new();
-        if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
-            // Attempt to read a MetaDataV2 version from the persisted file,
-            // if that fails, read MetaDataV1
-            match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
-                Ok(persisted_metadata) => {
-                    meta_data.seq_number = persisted_metadata.seq_number;
-                    // Increment seq number if persisted attnet is not default
-                    if persisted_metadata.attnets != meta_data.attnets
-                        || persisted_metadata.syncnets != meta_data.syncnets
-                    {
-                        meta_data.seq_number += 1;
-                    }
-                    debug!(log, "Loaded metadata from disk");
-                }
-                Err(_) => {
-                    match MetaDataV1::<E>::from_ssz_bytes(&metadata_ssz) {
-                        Ok(persisted_metadata) => {
-                            let persisted_metadata = MetaData::V1(persisted_metadata);
-                            // Increment seq number as the persisted metadata version is updated
-                            meta_data.seq_number = *persisted_metadata.seq_number() + 1;
-                            debug!(log, "Loaded metadata from disk");
-                        }
-                        Err(e) => {
-                            debug!(
-                                log,
-                                "Metadata from file could not be decoded";
-                                "error" => ?e,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    };
-
-    // Wrap the MetaData
-    let meta_data = MetaData::V2(meta_data);
-
-    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
-    save_metadata_to_disk(network_dir, meta_data.clone(), log);
-    meta_data
-}
-
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
@@ -244,20 +213,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         sync_state: ReadOnly<SyncState>,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
+        enr: Owner<Enr>,
         fork_context: Arc<ForkContext>,
         chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
-
-        // initialise the node's ID
-        let local_keypair = load_private_key(&config, &log);
-
-        // Create an ENR or load from disk if appropriate
-        let enr = build_or_load_enr::<TSpec>(local_keypair.clone(), &config, enr_fork_id, &log)?;
-
-        let local_peer_id = enr.peer_id();
-
-        let meta_data = load_or_build_metadata(&config.network_dir, &log);
 
         // Set up the Identify Behaviour
         let identify_config = if config.private {
@@ -270,7 +230,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .with_agent_version(lighthouse_version::version_with_platform())
         };
 
-        let local_enr = crate::types::Owner::new(enr);
         let peer_db = crate::types::Owner::new(crate::peer_manager::PeerDB::new(
             config
                 .trusted_peers
@@ -279,15 +238,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .collect(),
             log,
         ));
-        let local_enr_reader = local_enr.read_access();
-        // Build and start the discovery sub-behaviour
-        let mut discovery =
-            Discovery::new(local_key, &config, local_enr, peer_db.read_access(), log).await?;
-        // start searching for peers
-        discovery.discover_peers();
+        let local_enr_reader = enr.read_access();
 
         // Grab our local ENR FORK ID
-        let enr_fork_id = enr.eth2().expect("Local ENR must have a fork id");
+        let enr_fork_id = enr.read().eth2().expect("Local ENR must have a fork id");
+        // Build and start the discovery sub-behaviour
+        let mut discovery =
+            Discovery::new(local_key, &config, enr, peer_db.read_access(), log).await?;
+        // start searching for peers
+        discovery.discover_peers();
 
         let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
@@ -360,7 +319,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             peer_manager: PeerManager::new(peer_manager_cfg, sync_state, peer_db, log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
-            network_globals,
             enr_fork_id,
             waker: None,
             network_dir: config.network_dir.clone(),
@@ -385,7 +343,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Returns the local ENR of the node.
     pub fn local_enr(&self) -> Enr {
-        self.network_globals.local_enr()
+        self.local_enr.read().clone()
     }
 
     /// Obtain a reference to the gossipsub protocol.
@@ -420,7 +378,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Subscribe to all currently subscribed topics with the new fork digest.
     pub fn subscribe_new_fork_topics(&mut self, new_fork_digest: [u8; 4]) {
-        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        let subscriptions = self.gossipsub_subscriptions.read().clone();
         for mut topic in subscriptions.into_iter() {
             topic.fork_digest = new_fork_digest;
             self.subscribe(topic);
@@ -429,7 +387,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Unsubscribe from all topics that doesn't have the given fork_digest
     pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
-        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        let subscriptions = self.gossipsub_subscriptions.read().clone();
         for topic in subscriptions
             .iter()
             .filter(|topic| topic.fork_digest != except)
@@ -444,10 +402,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
-        self.network_globals
-            .gossipsub_subscriptions
-            .write()
-            .insert(topic.clone());
+        self.gossipsub_subscriptions.write().insert(topic.clone());
 
         let topic: Topic = topic.into();
 
@@ -466,10 +421,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Unsubscribe from a gossipsub topic.
     pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
-        self.network_globals
-            .gossipsub_subscriptions
-            .write()
-            .remove(&topic);
+        self.gossipsub_subscriptions.write().remove(&topic);
 
         // unsubscribe from the topic
         let topic: Topic = topic.into();
@@ -533,7 +485,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             MessageAcceptance::Reject => Some("reject"),
         } {
             if let Some(client) = self
-                .network_globals
                 .peers
                 .read()
                 .peer_info(propagation_source)
@@ -672,8 +623,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .filter(|s| {
                 // Extend min_ttl of connected peers on required subnets
                 if let Some(min_ttl) = s.min_ttl {
-                    self.network_globals
-                        .peers
+                    self.peers
                         .write()
                         .extend_peers_on_subnet(&s.subnet, min_ttl);
                     if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
@@ -682,12 +632,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
                 }
                 // Already have target number of peers, no need for subnet discovery
-                let peers_on_subnet = self
-                    .network_globals
-                    .peers
-                    .read()
-                    .good_peers_on_subnet(s.subnet)
-                    .count();
+                let peers_on_subnet = self.peers.read().good_peers_on_subnet(s.subnet).count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
                     trace!(
                         self.log,
@@ -740,7 +685,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         {
             // write lock scope
-            let mut meta_data = self.network_globals.local_metadata.write();
+            let mut meta_data = self.local_metadata.write();
 
             *meta_data.seq_number_mut() += 1;
             *meta_data.attnets_mut() = local_attnets;
@@ -751,7 +696,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         // Save the updated metadata to disk
         save_metadata_to_disk(
             &self.network_dir,
-            self.network_globals.local_metadata.read().clone(),
+            self.local_metadata.read().clone(),
             &self.log,
         );
     }
@@ -759,7 +704,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Ping request to the peer.
     fn ping(&mut self, id: RequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: *self.network_globals.local_metadata.read().seq_number(),
+            data: *self.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Ping"; "request_id" => id, "peer_id" => %peer_id);
 
@@ -770,7 +715,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Sends a Pong response to the peer.
     fn pong(&mut self, id: PeerRequestId, peer_id: PeerId) {
         let ping = crate::rpc::Ping {
-            data: *self.network_globals.local_metadata.read().seq_number(),
+            data: *self.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => %peer_id);
         let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));
@@ -786,9 +731,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Sends a METADATA response to a peer.
     fn send_meta_data_response(&mut self, id: PeerRequestId, peer_id: PeerId) {
-        let event = RPCCodedResponse::Success(RPCResponse::MetaData(
-            self.network_globals.local_metadata.read().clone(),
-        ));
+        let event =
+            RPCCodedResponse::Success(RPCResponse::MetaData(self.local_metadata.read().clone()));
         self.eth2_rpc.send_response(peer_id, id, event);
     }
 
@@ -835,7 +779,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .discovery
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers.read();
+                let peers = self.peers.read();
                 if predicate(enr) && peers.should_dial(peer_id) {
                     Some(*peer_id)
                 } else {
@@ -1011,7 +955,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behavio
                             self.log, "Peer sent Goodbye";
                             "peer_id" => %peer_id,
                             "reason" => %reason,
-                            "client" => %self.network_globals.client(&peer_id),
+                            "client" => "TODO",
                         );
                         // NOTE: We currently do not inform the application that we are
                         // disconnecting here. The RPC handler will automatically
@@ -1078,7 +1022,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<DiscoveryEvent> for Behaviour<
                 let mut multiaddr = Multiaddr::from(socket_addr.ip());
                 // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
                 // should handle this.
-                multiaddr.push(MProtocol::Tcp(self.network_globals.listen_port_tcp()));
+                multiaddr.push(MProtocol::Tcp(self.listen_port_tcp.load(Ordering::Relaxed)));
                 self.internal_events
                     .push_back(InternalBehaviourMessage::SocketUpdated(multiaddr));
             }

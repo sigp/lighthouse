@@ -32,6 +32,7 @@ pub use libp2p::core::{identity::Keypair, Multiaddr};
 
 pub mod client;
 pub mod config;
+mod network_behaviour;
 mod peer_info;
 mod peer_sync_status;
 
