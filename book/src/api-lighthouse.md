@@ -1,7 +1,7 @@
 # Lighthouse Non-Standard APIs
 
 Lighthouse fully supports the standardization efforts at
-[github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs),
+[github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs),
 however sometimes development requires additional endpoints that shouldn't
 necessarily be defined as a broad-reaching standard.  Such endpoints are placed
 behind the `/lighthouse` path.
@@ -320,9 +320,9 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: a
 
 Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
 
-The `state_id` parameter is identical to that used in the [Standard Eth2.0 API
+The `state_id` parameter is identical to that used in the [Standard Eth2.0 Beacon Node API
 `beacon/state`
-routes](https://ethereum.github.io/eth2.0-APIs/#/Beacon/getStateRoot).
+routes](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot).
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq

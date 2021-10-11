@@ -4,8 +4,12 @@ version = "0.2.0"
 authors = ["blacktemplar <blacktemplar@a1.net>"]
 edition = "2018"
 
+[features]
+test_logger = [] # Print log output to stderr when running tests instead of dropping it
+
 [dependencies]
 slog = "2.5.2"
 slog-term = "2.6.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"
+sloggers = "2.0.2"

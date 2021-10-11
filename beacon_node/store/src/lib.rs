@@ -81,6 +81,7 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result
 }
 
+#[must_use]
 pub enum KeyValueStoreOp {
     PutKeyValue(Vec<u8>, Vec<u8>),
     DeleteKey(Vec<u8>),

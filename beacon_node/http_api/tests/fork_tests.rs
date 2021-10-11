@@ -17,7 +17,7 @@ async fn sync_committee_duties_across_fork() {
     let validator_count = E::sync_committee_size();
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
@@ -102,7 +102,7 @@ async fn attestations_across_fork_with_skip_slots() {
     let validator_count = E::sync_committee_size();
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
@@ -152,7 +152,7 @@ async fn sync_contributions_across_fork_with_skip_slots() {
     let validator_count = E::sync_committee_size();
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 
@@ -199,7 +199,7 @@ async fn sync_committee_indices_across_fork() {
     let validator_count = E::sync_committee_size();
     let fork_epoch = Epoch::new(8);
     let spec = altair_spec(fork_epoch);
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
 

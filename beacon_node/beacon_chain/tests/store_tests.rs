@@ -3,8 +3,8 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::test_utils::{
-    test_logger, test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy,
-    DiskHarnessType, HARNESS_SLOT_TIME,
+    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    HARNESS_SLOT_TIME,
 };
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
@@ -12,6 +12,7 @@ use beacon_chain::{
     WhenSlotSkipped,
 };
 use lazy_static::lazy_static;
+use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
 use std::collections::HashMap;

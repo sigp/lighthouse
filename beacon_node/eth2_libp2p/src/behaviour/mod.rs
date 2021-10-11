@@ -4,7 +4,7 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
+    peerdb::score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
@@ -255,7 +255,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
         gossipsub
-            .with_peer_score(params.clone(), thresholds)
+            .with_peer_score(params, thresholds)
             .expect("Valid score params and thresholds");
 
         Ok(Behaviour {
@@ -348,6 +348,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Subscribes to a gossipsub topic.
+    ///
+    /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
@@ -358,13 +360,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let topic: Topic = topic.into();
 
         match self.gossipsub.subscribe(&topic) {
-            Err(_) => {
-                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic);
+            Err(e) => {
+                warn!(self.log, "Failed to subscribe to topic"; "topic" => %topic, "error" => ?e);
                 false
             }
-            Ok(v) => {
+            Ok(_) => {
                 debug!(self.log, "Subscribed to topic"; "topic" => %topic);
-                v
+                true
             }
         }
     }
@@ -443,7 +445,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .peers
                 .read()
                 .peer_info(propagation_source)
-                .map(|info| info.client.kind.as_ref())
+                .map(|info| info.client().kind.as_ref())
             {
                 metrics::inc_counter_vec(
                     &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
@@ -832,12 +834,18 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self.peer_manager.add_subscription(&peer_id, subnet_id);
+                    self.network_globals
+                        .peers
+                        .write()
+                        .add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self.peer_manager.remove_subscription(&peer_id, subnet_id);
+                    self.network_globals
+                        .peers
+                        .write()
+                        .remove_subscription(&peer_id, &subnet_id);
                 }
             }
         }

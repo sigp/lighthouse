@@ -1,8 +1,9 @@
+use logging::test_logger;
 use maplit::hashset;
 use rayon::prelude::*;
 use slasher::{
     config::DEFAULT_CHUNK_SIZE,
-    test_utils::{att_slashing, indexed_att, logger, slashed_validators_from_slashings, E},
+    test_utils::{att_slashing, indexed_att, slashed_validators_from_slashings, E},
     Config, Slasher,
 };
 use std::collections::HashSet;
@@ -171,7 +172,7 @@ fn slasher_test(
 ) {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into()).for_testing();
-    let slasher = Slasher::open(config, logger()).unwrap();
+    let slasher = Slasher::open(config, test_logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
     for (i, attestation) in attestations.iter().enumerate() {
@@ -200,7 +201,7 @@ fn parallel_slasher_test(
 ) {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into()).for_testing();
-    let slasher = Slasher::open(config, logger()).unwrap();
+    let slasher = Slasher::open(config, test_logger()).unwrap();
     let current_epoch = Epoch::new(current_epoch);
 
     attestations

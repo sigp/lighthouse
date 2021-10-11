@@ -31,7 +31,7 @@ task_executor = { path = "../../common/task_executor" }
 environment = { path = "../../lighthouse/environment" }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-time = "0.2.22"
+time = "0.3.3"
 directory = {path = "../../common/directory"}
 http_api = { path = "../http_api" }
 http_metrics = { path = "../http_metrics" }

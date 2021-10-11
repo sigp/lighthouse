@@ -4,6 +4,7 @@ extern crate lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
+use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
 
@@ -155,5 +156,28 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
 
     fn start_separator(&mut self) -> Result<()> {
         self.wrapped.start_separator()
+    }
+}
+
+/// Return a logger suitable for test usage.
+///
+/// By default no logs will be printed, but they can be enabled via
+/// the `test_logger` feature.  This feature can be enabled for any
+/// dependent crate by passing `--features logging/test_logger`, e.g.
+/// ```bash
+/// cargo test -p beacon_chain --features logging/test_logger
+/// ```
+pub fn test_logger() -> Logger {
+    use sloggers::Build;
+
+    if cfg!(feature = "test_logger") {
+        sloggers::terminal::TerminalLoggerBuilder::new()
+            .level(sloggers::types::Severity::Debug)
+            .build()
+            .expect("Should build test_logger")
+    } else {
+        sloggers::null::NullLoggerBuilder
+            .build()
+            .expect("Should build null_logger")
     }
 }
