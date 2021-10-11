@@ -17,6 +17,12 @@ pub struct Owner<T> {
     data: Arc<RwLock<T>>,
 }
 
+impl<T: Default> Default for Owner<T> {
+    fn default() -> Self {
+        Owner::new(T::default())
+    }
+}
+
 /// Simple struct that uses the synchronization mechanisms of a RwLock but provides only read
 /// access to the underlying data.
 #[derive(Clone)]

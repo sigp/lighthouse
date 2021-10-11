@@ -1,3 +1,12 @@
+//! What does the service do:
+//!
+//! init:
+//! - Creates the swarm and the behaviour.
+//! - Dials initial peers.
+//! running:
+//! - Unifies events to emit.
+//! - Handles banning of peers since there is now way of doing it at the swarm level from the
+//! behaviour.
 use crate::behaviour::{
     save_metadata_to_disk, Behaviour, BehaviourEvent, PeerRequestId, Request, Response,
 };
@@ -87,21 +96,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
         let meta_data = load_or_build_metadata(&config.network_dir, &log);
 
-        // set up a collection of variables accessible outside of the network crate
-        // let network_globals = Arc::new(NetworkGlobals::new(
-        //     enr.clone(),
-        //     config.libp2p_port,
-        //     config.discovery_port,
-        //     meta_data,
-        //     config
-        //         .trusted_peers
-        //         .iter()
-        //         .map(|x| PeerId::from(x.clone()))
-        //         .collect(),
-        //     &log,
-        // ));
-        let network_globals = todo!();
-
         info!(log, "Libp2p Service"; "peer_id" => %enr.peer_id());
         let discovery_string = if config.disable_discovery {
             "None".into()
@@ -116,13 +110,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(
-                &local_keypair,
-                config.clone(),
-                network_globals.clone(),
-                &log,
+            let (behaviour, network_globals) = Behaviour::new(
+                local_key,
+                config,
+                sync_state,
+                backfill_state,
+                enr_fork_id,
+                log,
+                local_enr,
                 fork_context,
-                chain_spec,
+                metadata,
+                local_key,
             )
             .await?;
 

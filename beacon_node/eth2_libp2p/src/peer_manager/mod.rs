@@ -108,7 +108,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub async fn new(
         cfg: config::Config,
         sync_state: ReadOnly<SyncState>,
-        peer_db: Owner<PeerDB<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         // Set up the peer manager heartbeat interval
@@ -124,7 +123,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         } = cfg;
 
         Ok(PeerManager {
-            peer_db,
+            peer_db: Owner::new(PeerDB::new(trusted_peers, log)),
             sync_state,
             events: SmallVec::new(),
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
@@ -1236,8 +1235,7 @@ mod tests {
         };
         let log = build_log(slog::Level::Debug, false);
         let sync_state = Owner::new(SyncState::Stalled);
-        let peer_db = Owner::new(PeerDB::new(vec![], &log));
-        PeerManager::new(cfg, sync_state.read_access(), peer_db, &log)
+        PeerManager::new(cfg, sync_state.read_access(), &log)
             .await
             .unwrap()
     }

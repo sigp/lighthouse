@@ -157,7 +157,7 @@ pub struct Behaviour<TSpec: EthSpec> {
     // pub peer_id: ReadOnly<PeerId>,
     /// Listening multiaddrs.
     #[behaviour(ignore)]
-    listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
+    listen_multiaddrs: Owner<Vec<Multiaddr>>,
     /// The TCP port that the libp2p service is listening on
     #[behaviour(ignore)]
     listen_port_tcp: AtomicU16,
@@ -209,14 +209,16 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        mut config: NetworkConfig,
+        config: NetworkConfig,
         sync_state: ReadOnly<SyncState>,
+        backfill_state: ReadOnly<BackFillState>,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
-        enr: Owner<Enr>,
+        local_enr: Owner<Enr>,
         fork_context: Arc<ForkContext>,
+        metadata: MetaData<TSpec>,
         chain_spec: &ChainSpec,
-    ) -> error::Result<Self> {
+    ) -> error::Result<(Self, NetworkGlobals<TSpec>)> {
         let behaviour_log = log.new(o!());
 
         // Set up the Identify Behaviour
@@ -230,23 +232,13 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .with_agent_version(lighthouse_version::version_with_platform())
         };
 
-        let peer_db = crate::types::Owner::new(crate::peer_manager::PeerDB::new(
-            config
-                .trusted_peers
-                .iter()
-                .map(|p| p.clone().into())
-                .collect(),
-            log,
-        ));
-        let local_enr_reader = enr.read_access();
+        let local_enr_reader = local_enr.read_access();
 
         // Grab our local ENR FORK ID
-        let enr_fork_id = enr.read().eth2().expect("Local ENR must have a fork id");
-        // Build and start the discovery sub-behaviour
-        let mut discovery =
-            Discovery::new(local_key, &config, enr, peer_db.read_access(), log).await?;
-        // start searching for peers
-        discovery.discover_peers();
+        let enr_fork_id = local_enr
+            .read()
+            .eth2()
+            .expect("Local ENR must have a fork id");
 
         let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
@@ -288,15 +280,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             current_slot,
         )?;
 
-        trace!(behaviour_log, "Using peer score params"; "params" => ?params);
-
-        // Set up a scoring update interval
-        let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
-
-        gossipsub
-            .with_peer_score(params.clone(), thresholds)
-            .expect("Valid score params and thresholds");
-
         // TODO: Add a PeerManagerConfig field to the big config?
         let peer_manager_cfg = peer_manager::config::Config {
             discovery_enabled: !config.disable_discovery,
@@ -308,25 +291,79 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .collect(),
             ..Default::default()
         };
+        let peer_manager = PeerManager::new(peer_manager_cfg, sync_state, log).await?;
+        // Build and start the discovery sub-behaviour
+        let peer_db = peer_manager.peer_db_access();
+        let mut discovery = Discovery::new(local_key, &config, local_enr, peer_db, log).await?;
+        // start searching for peers
+        discovery.discover_peers();
+        trace!(behaviour_log, "Using peer score params"; "params" => ?params);
 
-        Ok(Behaviour {
+        // Set up a scoring update interval
+        let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
+
+        gossipsub
+            .with_peer_score(params.clone(), thresholds)
+            .expect("Valid score params and thresholds");
+
+        let gossipsub_subscriptions = Owner::default();
+
+        let behaviour = Behaviour {
             // Sub-behaviours
             gossipsub,
             eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(peer_manager_cfg, sync_state, peer_db, log).await?,
+            peer_manager,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
+            local_enr: local_enr_reader,
+            listen_multiaddrs: Owner::default(),
+            listen_port_tcp: AtomicU16::new(config.libp2p_port),
+            listen_port_udp: AtomicU16::new(config.discovery_port),
+            peers: peer_db.clone(),
+            local_metadata: Owner::new(metadata),
+            gossipsub_subscriptions: Owner::default(),
+            sync_state: sync_state.clone(),
+            backfill_state: backfill_state.clone(),
             enr_fork_id,
             waker: None,
             network_dir: config.network_dir.clone(),
-            log: behaviour_log,
-            score_settings,
             fork_context,
+            score_settings,
             update_gossipsub_scores,
-        })
+            log: behaviour_log,
+        };
+
+        let network_globals = NetworkGlobals {
+            local_enr: behaviour.local_enr.clone(),
+            listen_multiaddrs: behaviour.listen_multiaddrs.read_access(),
+            listen_port_tcp: behaviour.listen_port_tcp,
+            listen_port_udp: behaviour.listen_port_udp,
+            peers: peer_db,
+            local_metadata: behaviour.local_metadata.read_access(),
+            gossipsub_subscriptions: behaviour.gossipsub_subscriptions.read_access(),
+            sync_state,
+            backfill_state,
+        };
+        /*
+         NetworkGlobals {
+            local_enr: Arc::new(RwLock::new(enr.clone())),
+            peer_id: RwLock::new(enr.peer_id()),
+            listen_multiaddrs: RwLock::new(Vec::new()),
+            listen_port_tcp: AtomicU16::new(tcp_port),
+            listen_port_udp: AtomicU16::new(udp_port),
+            local_metadata: RwLock::new(local_metadata),
+            peers: Arc::new(RwLock::new(PeerDB::new(trusted_peers, log))),
+            gossipsub_subscriptions: RwLock::new(HashSet::new()),
+            sync_state: Arc::new(RwLock::new(SyncState::Stalled)),
+            backfill_state: RwLock::new(BackFillState::NotRequired),
+        }
+
+         */
+
+        Ok((behaviour, network_globals))
     }
 
     /* Public Accessible Functions to interact with the behaviour */
