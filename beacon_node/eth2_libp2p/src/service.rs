@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
 
-use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR};
+use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -138,13 +138,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .with_max_established_incoming(Some(
                     (config.target_peers as f32
                         * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
-                        as u32,
+                        .ceil() as u32,
                 ))
                 .with_max_established_outgoing(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
                 ))
                 .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)) as u32,
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
+                        .ceil() as u32,
                 ))
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
@@ -274,7 +275,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
     ) {
         self.swarm
             .behaviour_mut()
-            ._send_error_reponse(peer_id, id, error, reason);
+            .send_error_reponse(peer_id, id, error, reason);
     }
 
     /// Report a peer's action.
@@ -282,7 +283,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         self.swarm
             .behaviour_mut()
             .peer_manager_mut()
-            .report_peer(peer_id, action, source);
+            .report_peer(peer_id, action, source, None);
     }
 
     /// Disconnect and ban a peer, providing a reason.

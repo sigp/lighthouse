@@ -26,7 +26,7 @@ pub struct Deltas {
     penalties: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
+#[derive(Debug, Clone, PartialEq, CompareFields)]
 pub struct AllDeltas {
     source_deltas: Deltas,
     target_deltas: Deltas,

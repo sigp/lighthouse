@@ -18,7 +18,7 @@ The following CLI flags control the HTTP server:
 		header. The default is to not supply a header.
 
 The schema of the API aligns with the standard Eth2 Beacon Node API as defined
-at [github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs).
+at [github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
 An interactive specification is available [here][OpenAPI].
 
 ## Security
@@ -153,5 +153,5 @@ lighthouse bn --http --http-allow-origin "*"
 > **Warning:** Adding the wild-card allow-origin flag can pose a security risk.
 > Only use it in production if you understand the risks of a loose CORS policy.
 
-[OpenAPI]: https://ethereum.github.io/eth2.0-APIs/#/
+[OpenAPI]: https://ethereum.github.io/beacon-APIs/
 [ssh_tunnel]: https://www.ssh.com/academy/ssh/tunneling/example

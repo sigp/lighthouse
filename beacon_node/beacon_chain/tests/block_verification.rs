@@ -4,9 +4,10 @@
 extern crate lazy_static;
 
 use beacon_chain::test_utils::{
-    test_logger, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult};
+use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,

@@ -1,12 +1,13 @@
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
-//! https://github.com/ethereum/eth2.0-APIs
+//! https://github.com/ethereum/beacon-APIs
 //!
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
 mod attester_duties;
 mod block_id;
+mod database;
 mod metrics;
 mod proposer_duties;
 mod state_id;
@@ -15,7 +16,7 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::SignatureVerifiedAttestation,
+    attestation_verification::VerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -349,7 +350,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )))
                         }
                     }
-                    SyncState::SyncingHead { .. } | SyncState::SyncTransition => Ok(()),
+                    SyncState::SyncingHead { .. } | SyncState::SyncTransition | SyncState::BackFillSyncing { .. }  => Ok(()),
                     SyncState::Synced => Ok(()),
                     SyncState::Stalled => Err(warp_utils::reject::not_synced(
                         "sync is stalled".to_string(),
@@ -1065,7 +1066,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
-                            .verify_unaggregated_attestation_for_gossip(attestation.clone(), None)
+                            .verify_unaggregated_attestation_for_gossip(attestation, None)
                         {
                             Ok(attestation) => attestation,
                             Err(e) => {
@@ -1120,7 +1121,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         };
 
-                        if let Err(e) = chain.add_to_naive_aggregation_pool(attestation) {
+                        if let Err(e) = chain.add_to_naive_aggregation_pool(&attestation) {
                             error!(log,
                                 "Failure adding verified attestation to the naive aggregation pool";
                                 "error" => ?e,
@@ -1413,7 +1414,7 @@ pub fn serve<T: BeaconChainTypes>(
                 Ok(api_types::GenericResponse::from(
                     api_types::DepositContractData {
                         address: chain.spec.deposit_contract_address,
-                        chain_id: eth1::DEFAULT_NETWORK_ID.into(),
+                        chain_id: chain.spec.deposit_chain_id,
                     },
                 ))
             })
@@ -1579,7 +1580,8 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_task(move || match *network_globals.sync_state.read() {
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
-                | SyncState::SyncTransition => Ok(warp::reply::with_status(
+                | SyncState::SyncTransition
+                | SyncState::BackFillSyncing { .. } => Ok(warp::reply::with_status(
                     warp::reply(),
                     warp::http::StatusCode::PARTIAL_CONTENT,
                 )),
@@ -1618,23 +1620,21 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
-                        let address = if let Some(socket_addr) =
-                            peer_info.seen_addresses.iter().next()
-                        {
+                        let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
                             let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
                             addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
                             addr.to_string()
-                        } else if let Some(addr) = peer_info.listening_addresses.first() {
+                        } else if let Some(addr) = peer_info.listening_addresses().first() {
                             addr.to_string()
                         } else {
                             String::new()
                         };
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                        if let Some(dir) = peer_info.connection_direction.as_ref() {
+                        if let Some(dir) = peer_info.connection_direction().as_ref() {
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
-                                enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
                                 direction: api_types::PeerDirection::from_connection_direction(dir),
                                 state: api_types::PeerState::from_peer_connection_status(
@@ -1667,20 +1667,20 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers()
                         .for_each(|(peer_id, peer_info)| {
                             let address =
-                                if let Some(socket_addr) = peer_info.seen_addresses.iter().next() {
+                                if let Some(socket_addr) = peer_info.seen_addresses().next() {
                                     let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
                                     addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(
                                         socket_addr.port(),
                                     ));
                                     addr.to_string()
-                                } else if let Some(addr) = peer_info.listening_addresses.first() {
+                                } else if let Some(addr) = peer_info.listening_addresses().first() {
                                     addr.to_string()
                                 } else {
                                     String::new()
                                 };
 
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                            if let Some(dir) = peer_info.connection_direction.as_ref() {
+                            if let Some(dir) = peer_info.connection_direction() {
                                 let direction =
                                     api_types::PeerDirection::from_connection_direction(dir);
                                 let state = api_types::PeerState::from_peer_connection_status(
@@ -1698,7 +1698,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 if state_matches && direction_matches {
                                     peers.push(api_types::PeerData {
                                         peer_id: peer_id.to_string(),
-                                        enr: peer_info.enr.as_ref().map(|enr| enr.to_base64()),
+                                        enr: peer_info.enr().map(|enr| enr.to_base64()),
                                         last_seen_p2p_address: address,
                                         direction,
                                         state,
@@ -1956,7 +1956,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let mut failures = Vec::new();
 
                     // Verify that all messages in the post are valid before processing further
-                    for (index, aggregate) in aggregates.into_iter().enumerate() {
+                    for (index, aggregate) in aggregates.iter().enumerate() {
                         match chain.verify_aggregated_attestation_for_gossip(aggregate) {
                             Ok(verified_aggregate) => {
                                 messages.push(PubsubMessage::AggregateAndProofAttestation(Box::new(
@@ -1982,8 +1982,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err((AttnError::AttestationAlreadyKnown(_), _)) => continue,
-                            Err((e, aggregate)) => {
+                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
                                     "error" => format!("{:?}", e),
@@ -2015,7 +2015,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
                             warn!(log,
                                     "Could not add verified aggregate attestation to the inclusion pool";
                                     "error" => format!("{:?}", e),
@@ -2040,7 +2040,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("contribution_and_proofs"))
         .and(warp::path::end())
-        .and(not_while_syncing_filter)
+        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
@@ -2399,6 +2399,49 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    let database_path = warp::path("lighthouse").and(warp::path("database"));
+
+    // GET lighthouse/database/info
+    let get_lighthouse_database_info = database_path
+        .and(warp::path("info"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| blocking_json_task(move || database::info(chain)));
+
+    // POST lighthouse/database/reconstruct
+    let post_lighthouse_database_reconstruct = database_path
+        .and(warp::path("reconstruct"))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter)
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                chain.store_migrator.process_reconstruction();
+                Ok("success")
+            })
+        });
+
+    // POST lighthouse/database/historical_blocks
+    let post_lighthouse_database_historical_blocks = database_path
+        .and(warp::path("historical_blocks"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| {
+                info!(
+                    log,
+                    "Importing historical blocks";
+                    "count" => blocks.len(),
+                    "source" => "http_api"
+                );
+                blocking_json_task(move || database::historical_blocks(chain, blocks))
+            },
+        );
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2426,6 +2469,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::ChainReorg => {
                                     event_handler.subscribe_reorgs()
+                                }
+                                api_types::EventTopic::ContributionAndProof => {
+                                    event_handler.subscribe_contributions()
+                                }
+                                api_types::EventTopic::LateHead => {
+                                    event_handler.subscribe_late_head()
                                 }
                             };
 
@@ -2510,6 +2559,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_eth1_deposit_cache.boxed())
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
+                .or(get_lighthouse_database_info.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
@@ -2526,7 +2576,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_contribution_and_proofs.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
-                .or(post_lighthouse_liveness.boxed()),
+                .or(post_lighthouse_liveness.boxed())
+                .or(post_lighthouse_database_reconstruct.boxed())
+                .or(post_lighthouse_database_historical_blocks.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

@@ -23,6 +23,10 @@ pub struct BlsFastAggregateVerify {
 impl BlsCase for BlsFastAggregateVerify {}
 
 impl Case for BlsFastAggregateVerify {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name == ForkName::Base
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let message = Hash256::from_slice(
             &hex::decode(&self.input.message[2..])

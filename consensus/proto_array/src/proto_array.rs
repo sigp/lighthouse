@@ -1,8 +1,13 @@
 use crate::{error::Error, Block};
 use serde_derive::{Deserialize, Serialize};
+use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{AttestationShufflingId, Epoch, Hash256, Slot};
+
+// Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
+// selector.
+four_byte_option_impl!(four_byte_option_usize, usize);
 
 #[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
 pub struct ProtoNode {
@@ -21,11 +26,14 @@ pub struct ProtoNode {
     pub current_epoch_shuffling_id: AttestationShufflingId,
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub root: Hash256,
+    #[ssz(with = "four_byte_option_usize")]
     pub parent: Option<usize>,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
     weight: u64,
+    #[ssz(with = "four_byte_option_usize")]
     best_child: Option<usize>,
+    #[ssz(with = "four_byte_option_usize")]
     best_descendant: Option<usize>,
 }
 

@@ -231,6 +231,7 @@ impl TestRig {
             .try_send(WorkEvent::gossip_beacon_block(
                 junk_message_id(),
                 junk_peer_id(),
+                Client::default(),
                 Box::new(self.next_block.clone()),
                 Duration::from_secs(0),
             ))

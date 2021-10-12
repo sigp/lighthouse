@@ -73,7 +73,18 @@ where
     decompressor: D,
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
+    sets: ParallelSignatureSets<'a>,
+}
+
+#[derive(Default)]
+pub struct ParallelSignatureSets<'a> {
     sets: Vec<SignatureSet<'a>>,
+}
+
+impl<'a> From<Vec<SignatureSet<'a>>> for ParallelSignatureSets<'a> {
+    fn from(sets: Vec<SignatureSet<'a>>) -> Self {
+        Self { sets }
+    }
 }
 
 impl<'a, T, F, D> BlockSignatureVerifier<'a, T, F, D>
@@ -95,7 +106,7 @@ where
             decompressor,
             state,
             spec,
-            sets: vec![],
+            sets: ParallelSignatureSets::default(),
         }
     }
 
@@ -117,36 +128,6 @@ where
         let mut verifier = Self::new(state, get_pubkey, decompressor, spec);
         verifier.include_all_signatures(block, block_root)?;
         verifier.verify()
-    }
-
-    /// Verify all* the signatures that have been included in `self`, returning `Ok(())` if the
-    /// signatures are all valid.
-    ///
-    /// ## Notes
-    ///
-    /// Signature validation will take place in accordance to the [Faster verification of multiple
-    /// BLS signatures](https://ethresear.ch/t/fast-verification-of-multiple-bls-signatures/5407)
-    /// optimization proposed by Vitalik Buterin.
-    ///
-    /// It is not possible to know exactly _which_ signature is invalid here, just that
-    /// _at least one_ was invalid.
-    ///
-    /// Uses `rayon` to do a map-reduce of Vitalik's method across multiple cores.
-    pub fn verify(self) -> Result<()> {
-        let num_sets = self.sets.len();
-        let num_chunks = std::cmp::max(1, num_sets / rayon::current_num_threads());
-        let result: bool = self
-            .sets
-            .into_par_iter()
-            .chunks(num_chunks)
-            .map(|chunk| verify_signature_sets(chunk.iter()))
-            .reduce(|| true, |current, this| current && this);
-
-        if result {
-            Ok(())
-        } else {
-            Err(Error::SignatureInvalid)
-        }
     }
 
     /// Includes all signatures on the block (except the deposit signatures) for verification.
@@ -210,6 +191,7 @@ where
     /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
     pub fn include_proposer_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         self.sets
+            .sets
             .reserve(block.message().body().proposer_slashings().len() * 2);
 
         block
@@ -235,6 +217,7 @@ where
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
     pub fn include_attester_slashings(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         self.sets
+            .sets
             .reserve(block.message().body().attester_slashings().len() * 2);
 
         block
@@ -263,6 +246,7 @@ where
         block: &'a SignedBeaconBlock<T>,
     ) -> Result<Vec<IndexedAttestation<T>>> {
         self.sets
+            .sets
             .reserve(block.message().body().attestations().len());
 
         block
@@ -298,6 +282,7 @@ where
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
     pub fn include_exits(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
         self.sets
+            .sets
             .reserve(block.message().body().voluntary_exits().len());
 
         block
@@ -330,5 +315,47 @@ where
             }
         }
         Ok(())
+    }
+
+    /// Verify all the signatures that have been included in `self`, returning `true` if and only if
+    /// all the signatures are valid.
+    ///
+    /// See `ParallelSignatureSets::verify` for more info.
+    pub fn verify(self) -> Result<()> {
+        if self.sets.verify() {
+            Ok(())
+        } else {
+            Err(Error::SignatureInvalid)
+        }
+    }
+}
+
+impl<'a> ParallelSignatureSets<'a> {
+    pub fn push(&mut self, set: SignatureSet<'a>) {
+        self.sets.push(set);
+    }
+
+    /// Verify all the signatures that have been included in `self`, returning `true` if and only if
+    /// all the signatures are valid.
+    ///
+    /// ## Notes
+    ///
+    /// Signature validation will take place in accordance to the [Faster verification of multiple
+    /// BLS signatures](https://ethresear.ch/t/fast-verification-of-multiple-bls-signatures/5407)
+    /// optimization proposed by Vitalik Buterin.
+    ///
+    /// It is not possible to know exactly _which_ signature is invalid here, just that
+    /// _at least one_ was invalid.
+    ///
+    /// Uses `rayon` to do a map-reduce of Vitalik's method across multiple cores.
+    #[must_use]
+    pub fn verify(self) -> bool {
+        let num_sets = self.sets.len();
+        let num_chunks = std::cmp::max(1, num_sets / rayon::current_num_threads());
+        self.sets
+            .into_par_iter()
+            .chunks(num_chunks)
+            .map(|chunk| verify_signature_sets(chunk.iter()))
+            .reduce(|| true, |current, this| current && this)
     }
 }

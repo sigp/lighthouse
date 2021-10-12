@@ -103,6 +103,7 @@ pub struct Ping {
 )]
 #[derive(Clone, Debug, PartialEq, Serialize, Encode)]
 #[serde(bound = "T: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct MetaData<T: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,
@@ -141,6 +142,9 @@ pub enum GoodbyeReason {
     /// The peer is banned
     Banned = 251,
 
+    /// The IP address the peer is using is banned.
+    BannedIP = 252,
+
     /// Unknown reason.
     Unknown = 0,
 }
@@ -155,6 +159,7 @@ impl From<u64> for GoodbyeReason {
             129 => GoodbyeReason::TooManyPeers,
             250 => GoodbyeReason::BadScore,
             251 => GoodbyeReason::Banned,
+            252 => GoodbyeReason::BannedIP,
             _ => GoodbyeReason::Unknown,
         }
     }
@@ -396,6 +401,7 @@ impl std::fmt::Display for GoodbyeReason {
             GoodbyeReason::TooManyPeers => write!(f, "Too many peers"),
             GoodbyeReason::BadScore => write!(f, "Bad Score"),
             GoodbyeReason::Banned => write!(f, "Banned"),
+            GoodbyeReason::BannedIP => write!(f, "BannedIP"),
             GoodbyeReason::Unknown => write!(f, "Unknown Reason"),
         }
     }

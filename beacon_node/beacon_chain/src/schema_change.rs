@@ -2,12 +2,15 @@
 use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use store::config::OnDiskStoreConfig;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
-use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
-use store::Error as StoreError;
+use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
+use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
 
 const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
@@ -73,11 +76,49 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
+        // Migration for weak subjectivity sync support and clean up of `OnDiskStoreConfig` (#1784).
+        (SchemaVersion(4), SchemaVersion(5)) => {
+            if let Some(OnDiskStoreConfigV4 {
+                slots_per_restore_point,
+                ..
+            }) = db.hot_db.get(&CONFIG_KEY)?
+            {
+                let new_config = OnDiskStoreConfig {
+                    slots_per_restore_point,
+                };
+                db.hot_db.put(&CONFIG_KEY, &new_config)?;
+            }
+
+            db.store_schema_version(to)?;
+
+            Ok(())
+        }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
             target_version: to,
             current_version: from,
         }
         .into()),
+    }
+}
+
+// Store config used in v4 schema and earlier.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct OnDiskStoreConfigV4 {
+    pub slots_per_restore_point: u64,
+    pub _block_cache_size: usize,
+}
+
+impl StoreItem for OnDiskStoreConfigV4 {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }

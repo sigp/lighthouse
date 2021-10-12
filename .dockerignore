@@ -1,4 +1,4 @@
-testing/ef_tests/eth2.0-spec-tests
+testing/ef_tests/consensus-spec-tests
 target/
 *.data
 *.tar.gz

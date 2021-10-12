@@ -105,7 +105,7 @@ run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
-	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/eth2.0-spec-tests
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate.
 test-beacon-chain: test-beacon-chain-base test-beacon-chain-altair

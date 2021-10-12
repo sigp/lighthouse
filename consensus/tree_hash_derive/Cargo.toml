@@ -1,6 +1,6 @@
 [package]
 name = "tree_hash_derive"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 description = "Procedural derive macros to accompany the tree_hash crate."
@@ -12,3 +12,4 @@ proc-macro = true
 [dependencies]
 syn = "1.0.42"
 quote = "1.0.7"
+darling = "0.13.0"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # The purpose of this script is to compare a list of file names that were accessed during testing
-# against all the file names in the eth2.0-spec-tests repository. It then checks to see which files
+# against all the file names in the consensus-spec-tests repository. It then checks to see which files
 # were not accessed and returns an error if any non-intentionally-ignored files are detected.
 #
 # The ultimate goal is to detect any accidentally-missed spec tests.
@@ -12,20 +12,13 @@ import sys
 # First argument should the path to a file which contains a list of accessed file names.
 accessed_files_filename = sys.argv[1]
 
-# Second argument should be the path to the eth2.0-spec-tests directory.
+# Second argument should be the path to the consensus-spec-tests directory.
 tests_dir_filename = sys.argv[2]
 
-# If any of the file names found in the eth2.0-spec-tests directory *starts with* one of the
+# If any of the file names found in the consensus-spec-tests directory *starts with* one of the
 # following strings, we will assume they are to be ignored (i.e., we are purposefully *not* running
 # the spec tests).
 excluded_paths = [
-    # Configs from future phases
-    "tests/mainnet/config/custody_game.yaml",
-    "tests/mainnet/config/sharding.yaml",
-    "tests/mainnet/config/merge.yaml",
-    "tests/minimal/config/custody_game.yaml",
-    "tests/minimal/config/sharding.yaml",
-    "tests/minimal/config/merge.yaml",
     # Merge tests
     "tests/minimal/merge",
     "tests/mainnet/merge",
@@ -53,7 +46,7 @@ excluded_paths = [
 ]
 
 def normalize_path(path):
-	return path.split("eth2.0-spec-tests/", )[1]
+	return path.split("consensus-spec-tests/", )[1]
 
 # Determine the list of filenames which were accessed during tests.
 passed = set()
