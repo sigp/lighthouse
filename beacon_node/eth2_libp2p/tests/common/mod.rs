@@ -120,6 +120,9 @@ pub async fn build_libp2p_instance(
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     let fork_context = Arc::new(fork_context());
+    use eth2_libp2p::types::{BackFillState, Owner, SyncState};
+    let forward_sync_state = Owner::new(SyncState::Stalled);
+    let backfill_sync_state = Owner::new(BackFillState::NotRequired);
     Libp2pInstance(
         LibP2PService::new(
             executor,
@@ -128,6 +131,10 @@ pub async fn build_libp2p_instance(
             &log,
             fork_context,
             &ChainSpec::minimal(),
+            (
+                forward_sync_state.read_access(),
+                backfill_sync_state.read_access(),
+            ),
         )
         .await
         .expect("should build libp2p instance")

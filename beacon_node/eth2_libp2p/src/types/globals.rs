@@ -61,6 +61,30 @@ impl<T> Owner<T> {
     }
 }
 
+impl<T: std::fmt::Display> std::fmt::Display for Owner<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.data.read().fmt(f)
+    }
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for ReadOnly<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.data.read().fmt(f)
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Owner<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.data.read().fmt(f)
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for ReadOnly<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.data.read().fmt(f)
+    }
+}
+
 impl<T> ReadOnly<T> {
     pub fn read<'a>(&'a self) -> impl std::ops::Deref<Target = T> + 'a {
         self.data.read()
