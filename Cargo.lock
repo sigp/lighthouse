@@ -489,6 +489,7 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
+ "http_api",
  "hyper",
  "lighthouse_version",
  "monitoring_api",
@@ -6209,6 +6210,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-rustls"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc6844de72e57df1980054b38be3a9f4702aba4858be64dd700181a8a6d0e1b6"
+dependencies = [
+ "rustls",
+ "tokio",
+ "webpki",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6799,7 +6811,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.3.0"
-source = "git+https://github.com/paulhauner/warp?branch=cors-wildcard#1f7daf462e6286fe5fd1743f7b788227efd3fa5c"
+source = "git+https://github.com/macladson/warp?rev=dfa259e#dfa259e19b7490e6bc4bf247e8b76f671d29a0eb"
 dependencies = [
  "bytes 1.1.0",
  "futures",
@@ -6817,6 +6829,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
