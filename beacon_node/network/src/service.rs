@@ -7,6 +7,8 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use futures::future::OptionFuture;
+use futures::prelude::*;
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
     Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
@@ -16,8 +18,6 @@ use lighthouse_network::{
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
 use lighthouse_network::{MessageAcceptance, Service as LibP2PService};
-use futures::future::OptionFuture;
-use futures::prelude::*;
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;

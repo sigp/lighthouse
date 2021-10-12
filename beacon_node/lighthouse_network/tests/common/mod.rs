@@ -1,10 +1,10 @@
 #![cfg(test)]
+use libp2p::gossipsub::GossipsubConfigBuilder;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
 use lighthouse_network::Multiaddr;
 use lighthouse_network::Service as LibP2PService;
 use lighthouse_network::{Libp2pEvent, NetworkConfig};
-use libp2p::gossipsub::GossipsubConfigBuilder;
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::sync::Arc;
