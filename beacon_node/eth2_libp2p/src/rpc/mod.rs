@@ -218,8 +218,9 @@ where
     fn inject_connection_established(
         &mut self,
         _peer_id: &PeerId,
-        _: &ConnectionId,
-        _connected_point: &ConnectedPoint,
+        _connection_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
     }
 

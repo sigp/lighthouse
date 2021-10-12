@@ -333,6 +333,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         Some(info.update_sync_status(sync_status))
     }
 
+    /// Updates the ENR of a node.
+    // VISIBILITY: The peer manager is allowed to update the ENR of the peer.
+    pub(super) fn update_enr(&mut self, peer_id: &PeerId, enr: Enr) {
+        if let Some(info) = self.peers.get_mut(&peer_id) {
+            info.set_enr(enr);
+        }
+    }
+
     /// Updates the scores of known peers according to their connection status and the time that
     /// has passed. This function returns a list of peers that have been unbanned.
     /// NOTE: Peer scores cannot be penalized during the update, they can only increase. Therefore
@@ -538,11 +546,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     // VISIBILITY: Only the peer manager can adjust the connection state
-    pub(super) fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
+    pub(super) fn dialing_peer(&mut self, peer_id: &PeerId) {
         let info = self.peers.entry(*peer_id).or_default();
-        if let Some(enr) = enr {
-            info.set_enr(enr);
-        }
 
         if let Err(e) = info.dialing_peer() {
             error!(self.log, "{}", e; "peer_id" => %peer_id);
@@ -616,16 +621,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets a peer as connected with an ingoing connection.
     // VISIBILITY: Only the peer manager can adjust the connection state.
-    pub(super) fn connect_ingoing(
-        &mut self,
-        peer_id: &PeerId,
-        seen_address: Multiaddr,
-        enr: Option<Enr>,
-    ) {
+    pub(super) fn connect_ingoing(&mut self, peer_id: &PeerId, seen_address: Multiaddr) {
         self.update_connection_state(
             peer_id,
             NewConnectionState::Connected {
-                enr,
                 seen_address,
                 direction: ConnectionDirection::Incoming,
             },
@@ -634,16 +633,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Sets a peer as connected with an outgoing connection.
     // VISIBILITY: Only the peer manager can adjust the connection state.
-    pub(super) fn connect_outgoing(
-        &mut self,
-        peer_id: &PeerId,
-        seen_address: Multiaddr,
-        enr: Option<Enr>,
-    ) {
+    pub(super) fn connect_outgoing(&mut self, peer_id: &PeerId, seen_address: Multiaddr) {
         self.update_connection_state(
             peer_id,
             NewConnectionState::Connected {
-                enr,
                 seen_address,
                 direction: ConnectionDirection::Outgoing,
             },
@@ -693,16 +686,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             (
                 current_state,
                 NewConnectionState::Connected {
-                    enr,
                     direction,
                     seen_address,
                 },
             ) => {
-                // Update the ENR if one exists
-                if let Some(enr) = enr {
-                    info.set_enr(enr);
-                }
-
                 match current_state {
                     PeerConnectionStatus::Disconnected { .. } => {
                         self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
@@ -1002,8 +989,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 enum NewConnectionState {
     /// A peer has connected to us.
     Connected {
-        /// An optional known ENR if the peer was dialed.
-        enr: Option<Enr>,
         /// The seen socket address associated with the connection.
         seen_address: Multiaddr,
         /// The direction, incoming/outgoing.
@@ -1188,10 +1173,10 @@ mod tests {
 
         let (n_in, n_out) = (10, 20);
         for _ in 0..n_in {
-            pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         }
         for _ in 0..n_out {
-            pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         }
 
         // the peer is known
@@ -1216,10 +1201,10 @@ mod tests {
         // Create peer with no connections.
         let _p3 = PeerId::random();
 
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_outgoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_outgoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_outgoing(&p1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_outgoing(&p2, "/ip4/0.0.0.0".parse().unwrap());
 
         // We should only have one outbound-only peer (p2).
         // Peers that are inbound-only, have both types of connections, or no connections should not be counted.
@@ -1234,7 +1219,7 @@ mod tests {
         let mut peer_list = BTreeMap::new();
         for id in 0..MAX_DC_PEERS + 1 {
             let new_peer = PeerId::random();
-            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap());
             peer_list.insert(id, new_peer);
         }
         assert_eq!(pdb.disconnected_peers, 0);
@@ -1270,7 +1255,7 @@ mod tests {
         let mut peer_list = BTreeMap::new();
         for id in 0..MAX_DC_PEERS + 20 {
             let new_peer = PeerId::random();
-            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap());
             peer_list.insert(id, new_peer);
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1283,7 +1268,7 @@ mod tests {
         peer_list.clear();
         for id in 0..MAX_DC_PEERS + 20 {
             let new_peer = PeerId::random();
-            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap());
             peer_list.insert(id, new_peer);
         }
 
@@ -1293,7 +1278,7 @@ mod tests {
 
         pdb.update_min_ttl(&new_peer, min_ttl);
         // Peer then gets dialed
-        pdb.dialing_peer(&new_peer, None);
+        pdb.dialing_peer(&new_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         // Dialing fails, remove the peer
         pdb.inject_disconnect(&new_peer);
@@ -1314,7 +1299,7 @@ mod tests {
 
         for _ in 0..MAX_DC_PEERS + 1 {
             let p = PeerId::random();
-            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap());
         }
         assert_eq!(pdb.disconnected_peers, 0);
 
@@ -1332,7 +1317,7 @@ mod tests {
 
         for _ in 0..MAX_BANNED_PEERS + 1 {
             let p = PeerId::random();
-            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap());
         }
         assert_eq!(pdb.banned_peers_count.banned_peers(), 0);
 
@@ -1351,9 +1336,9 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap());
         add_score(&mut pdb, &p0, 70.0);
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
@@ -1373,9 +1358,9 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap());
+        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap());
         add_score(&mut pdb, &p0, 70.0);
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
@@ -1393,15 +1378,15 @@ mod tests {
 
         let random_peer = PeerId::random();
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.inject_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
-        pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.inject_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1436,10 +1421,10 @@ mod tests {
         println!("{}", random_peer3);
 
         // All 4 peers connected on the same IP
-        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
-        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
-        pdb.connect_ingoing(&random_peer2, multiaddr.clone(), None);
-        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer, multiaddr.clone());
+        pdb.connect_ingoing(&random_peer1, multiaddr.clone());
+        pdb.connect_ingoing(&random_peer2, multiaddr.clone());
+        pdb.connect_ingoing(&random_peer3, multiaddr.clone());
 
         // Should be no disconnected or banned peers
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1482,7 +1467,7 @@ mod tests {
             pdb.disconnected_peers, pdb.banned_peers_count.banned_peers
         );
         // Re-connect peer3, should have no effect
-        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer3, multiaddr.clone());
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -1521,7 +1506,7 @@ mod tests {
         );
 
         // Try and reconnect banned peer 2.
-        pdb.connect_outgoing(&random_peer2, multiaddr.clone(), None);
+        pdb.connect_outgoing(&random_peer2, multiaddr.clone());
         pdb.peer_info_mut(&random_peer2)
             .unwrap()
             .add_to_score(100.0);
@@ -1566,7 +1551,7 @@ mod tests {
         );
 
         // Unban peer 1
-        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
+        pdb.connect_ingoing(&random_peer1, multiaddr.clone());
         pdb.peer_info_mut(&random_peer1)
             .unwrap()
             .add_to_score(100.0);
@@ -1596,7 +1581,7 @@ mod tests {
         );
 
         // Add peer 0
-        pdb.connect_ingoing(&random_peer, multiaddr, None);
+        pdb.connect_ingoing(&random_peer, multiaddr);
         pdb.peer_info_mut(&random_peer).unwrap().add_to_score(100.0);
 
         // Should have 1 disconnect (peer 2) and one banned (peer 3)
@@ -1655,7 +1640,7 @@ mod tests {
             let mut addr = Multiaddr::empty();
             addr.push(Protocol::from(ip));
             addr.push(Protocol::Tcp(9000));
-            pdb.connect_ingoing(&p, addr, None);
+            pdb.connect_ingoing(&p, addr);
         }
         p
     }
@@ -1781,7 +1766,7 @@ mod tests {
         let mut socker_addr = Multiaddr::from(ip2);
         socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
-            pdb.connect_ingoing(p, socker_addr.clone(), None);
+            pdb.connect_ingoing(p, socker_addr.clone());
             let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
             pdb.inject_disconnect(p);
         }
@@ -1822,7 +1807,7 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], &log);
 
-        pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap());
 
         // Check trusted status and score
         assert!(pdb.peer_info(&trusted_peer).unwrap().is_trusted());
