@@ -370,12 +370,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         return Libp2pEvent::ZeroListeners;
                     }
                 }
-                SwarmEvent::Dialing(peer_id) => {
-                    self.swarm
-                        .behaviour_mut()
-                        .peer_manager_mut()
-                        .inject_dialing(&peer_id);
-                }
+                SwarmEvent::Dialing(_peer_id) => {}
             }
         }
     }

@@ -758,6 +758,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
             // Remove the ENR from the cache to prevent continual re-dialing on disconnects
             self.discovery.remove_cached_enr(&peer_id);
+            self.peer_manager.inject_dialing(&peer_id);
             self.internal_events
                 .push_back(InternalBehaviourMessage::DialPeer(peer_id));
         }
@@ -1011,6 +1012,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<DiscoveryEvent> for Behaviour<
             DiscoveryEvent::QueryResult(results) => {
                 let to_dial_peers = self.peer_manager.peers_discovered(results);
                 for peer_id in to_dial_peers {
+                    self.peer_manager.inject_dialing(&peer_id);
                     debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
                     self.internal_events
                         .push_back(InternalBehaviourMessage::DialPeer(peer_id));
