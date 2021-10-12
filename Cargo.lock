@@ -107,9 +107,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.7.4"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43bb833f0bf979d8475d38fbf09ed3b8a55e1885fe93ad3f93239fc6a4f17b98"
+checksum = "991984e3fd003e7ba02eb724f87a0f997b78677c46c0e91f8424ad7394c9886a"
 dependencies = [
  "getrandom 0.2.3",
  "once_cell",
@@ -484,12 +484,12 @@ dependencies = [
  "dirs",
  "environment",
  "eth2_config",
- "eth2_libp2p",
  "eth2_network_config",
  "futures",
  "genesis",
  "hex",
  "hyper",
+ "lighthouse_network",
  "lighthouse_version",
  "monitoring_api",
  "node_test_rig",
@@ -629,9 +629,9 @@ version = "2.0.0"
 dependencies = [
  "beacon_node",
  "clap",
- "eth2_libp2p",
  "eth2_ssz",
  "hex",
+ "lighthouse_network",
  "log",
  "logging",
  "slog",
@@ -861,12 +861,12 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_config",
- "eth2_libp2p",
  "genesis",
  "http_api",
  "http_metrics",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_network",
  "monitoring_api",
  "network",
  "parking_lot",
@@ -888,9 +888,9 @@ dependencies = [
 
 [[package]]
 name = "cmake"
-version = "0.1.45"
+version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb6210b637171dfba4cda12e579ac6dc73f5165ad56133e5d72ef3131f320855"
+checksum = "b7b858541263efe664aead4a5209a4ae5c5d2811167d4ed4ee0944503f8d2089"
 dependencies = [
  "cc",
 ]
@@ -921,11 +921,11 @@ dependencies = [
 
 [[package]]
 name = "console_error_panic_hook"
-version = "0.1.6"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8d976903543e0c48546a91908f21588a680a8c8f984df9a5d69feccb2b2a211"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "wasm-bindgen",
 ]
 
@@ -1661,13 +1661,13 @@ dependencies = [
  "account_utils",
  "bytes 1.1.0",
  "eth2_keystore",
- "eth2_libp2p",
  "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz",
  "eth2_ssz_derive",
  "futures",
  "futures-util",
  "libsecp256k1 0.6.0",
+ "lighthouse_network",
  "procinfo",
  "proto_array",
  "psutil",
@@ -1759,50 +1759,6 @@ dependencies = [
  "unicode-normalization",
  "uuid",
  "zeroize",
-]
-
-[[package]]
-name = "eth2_libp2p"
-version = "0.2.0"
-dependencies = [
- "directory",
- "dirs",
- "discv5",
- "error-chain",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
- "exit-future",
- "fnv",
- "futures",
- "hashset_delay",
- "hex",
- "lazy_static",
- "libp2p",
- "lighthouse_metrics",
- "lighthouse_version",
- "lru",
- "parking_lot",
- "rand 0.7.3",
- "regex",
- "serde",
- "serde_derive",
- "sha2",
- "slog",
- "slog-async",
- "slog-term",
- "smallvec",
- "snap",
- "strum",
- "superstruct",
- "task_executor",
- "tempfile",
- "tiny-keccak 2.0.2",
- "tokio",
- "tokio-io-timeout",
- "tokio-util",
- "types",
- "unsigned-varint 0.6.0",
 ]
 
 [[package]]
@@ -2603,12 +2559,12 @@ dependencies = [
  "environment",
  "eth1",
  "eth2",
- "eth2_libp2p",
  "eth2_ssz",
  "futures",
  "hex",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_network",
  "lighthouse_version",
  "network",
  "sensitive_url",
@@ -2631,8 +2587,8 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "environment",
- "eth2_libp2p",
  "lighthouse_metrics",
+ "lighthouse_network",
  "lighthouse_version",
  "malloc_utils",
  "reqwest",
@@ -2977,11 +2933,11 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
- "eth2_libp2p",
  "eth2_network_config",
  "eth2_ssz",
  "eth2_wallet",
  "genesis",
+ "lighthouse_network",
  "lighthouse_version",
  "log",
  "sensitive_url",
@@ -3600,11 +3556,11 @@ dependencies = [
  "env_logger 0.9.0",
  "environment",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_libp2p",
  "eth2_network_config",
  "futures",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_network",
  "lighthouse_version",
  "malloc_utils",
  "serde_json",
@@ -3624,6 +3580,50 @@ version = "0.2.0"
 dependencies = [
  "lazy_static",
  "prometheus",
+]
+
+[[package]]
+name = "lighthouse_network"
+version = "0.2.0"
+dependencies = [
+ "directory",
+ "dirs",
+ "discv5",
+ "error-chain",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "eth2_ssz_types",
+ "exit-future",
+ "fnv",
+ "futures",
+ "hashset_delay",
+ "hex",
+ "lazy_static",
+ "libp2p",
+ "lighthouse_metrics",
+ "lighthouse_version",
+ "lru",
+ "parking_lot",
+ "rand 0.7.3",
+ "regex",
+ "serde",
+ "serde_derive",
+ "sha2",
+ "slog",
+ "slog-async",
+ "slog-term",
+ "smallvec",
+ "snap",
+ "strum",
+ "superstruct",
+ "task_executor",
+ "tempfile",
+ "tiny-keccak 2.0.2",
+ "tokio",
+ "tokio-io-timeout",
+ "tokio-util",
+ "types",
+ "unsigned-varint 0.6.0",
 ]
 
 [[package]]
@@ -4020,7 +4020,6 @@ dependencies = [
  "beacon_chain",
  "environment",
  "error-chain",
- "eth2_libp2p",
  "eth2_ssz",
  "eth2_ssz_types",
  "exit-future",
@@ -4034,6 +4033,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
+ "lighthouse_network",
  "logging",
  "lru_cache",
  "matches",
@@ -5550,7 +5550,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "directory",
- "eth2_libp2p",
+ "lighthouse_network",
  "network",
  "slasher",
  "slog",

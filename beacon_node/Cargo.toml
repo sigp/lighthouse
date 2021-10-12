@@ -29,7 +29,7 @@ environment = { path = "../lighthouse/environment" }
 task_executor = { path = "../common/task_executor" }
 genesis = { path = "genesis" }
 eth2_network_config = { path = "../common/eth2_network_config" }
-eth2_libp2p = { path = "./eth2_libp2p" }
+lighthouse_network = { path = "./lighthouse_network" }
 serde = "1.0.116"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.14.4"

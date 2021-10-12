@@ -13,7 +13,7 @@ pub mod lighthouse_vc;
 pub mod types;
 
 use self::types::{Error as ResponseError, *};
-use eth2_libp2p::PeerId;
+use lighthouse_network::PeerId;
 use futures::Stream;
 use futures_util::StreamExt;
 pub use reqwest;

@@ -2,8 +2,8 @@ use beacon_chain::{
     attestation_verification::Error as AttnError,
     sync_committee_verification::Error as SyncCommitteeError,
 };
-use eth2_libp2p::PubsubMessage;
-use eth2_libp2p::{
+use lighthouse_network::PubsubMessage;
+use lighthouse_network::{
     types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
 };
 use fnv::FnvHashMap;

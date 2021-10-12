@@ -12,7 +12,7 @@ beacon_chain = { path = "../beacon_chain" }
 store = { path = "../store" }
 network = { path = "../network" }
 timer = { path = "../timer" }
-eth2_libp2p = { path = "../eth2_libp2p" }
+lighthouse_network = { path = "../lighthouse_network" }
 parking_lot = "0.11.0"
 types = { path = "../../consensus/types" }
 eth2_config = { path = "../../common/eth2_config" }

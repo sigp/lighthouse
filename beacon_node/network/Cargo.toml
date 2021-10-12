@@ -17,7 +17,7 @@ environment = { path = "../../lighthouse/environment" }
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
-eth2_libp2p =  { path = "../eth2_libp2p" }
+lighthouse_network =  { path = "../lighthouse_network" }
 hashset_delay = { path = "../../common/hashset_delay" }
 types = { path = "../../consensus/types" }
 slot_clock = { path = "../../common/slot_clock" }

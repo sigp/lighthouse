@@ -13,7 +13,7 @@
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::metrics;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use eth2_libp2p::{MessageId, PeerId};
+use lighthouse_network::{MessageId, PeerId};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};

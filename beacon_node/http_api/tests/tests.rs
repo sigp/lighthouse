@@ -8,7 +8,7 @@ use environment::null_logger;
 use eth2::Error;
 use eth2::StatusCode;
 use eth2::{types::*, BeaconNodeHttpClient, Timeouts};
-use eth2_libp2p::{Enr, EnrExt, PeerId};
+use lighthouse_network::{Enr, EnrExt, PeerId};
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use network::NetworkMessage;

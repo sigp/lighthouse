@@ -1,6 +1,6 @@
 use beacon_node::ClientConfig as Config;
 
-use eth2_libp2p::PeerId;
+use lighthouse_network::PeerId;
 use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;

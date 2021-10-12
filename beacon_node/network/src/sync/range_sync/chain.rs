@@ -3,7 +3,7 @@ use crate::beacon_processor::ProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
 use beacon_chain::BeaconChainTypes;
-use eth2_libp2p::{PeerAction, PeerId};
+use lighthouse_network::{PeerAction, PeerId};
 use fnv::FnvHashMap;
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};

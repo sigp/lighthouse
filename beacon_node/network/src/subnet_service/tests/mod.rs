@@ -4,7 +4,7 @@ use beacon_chain::{
     eth1_chain::CachingEth1Backend,
     BeaconChain,
 };
-use eth2_libp2p::NetworkConfig;
+use lighthouse_network::NetworkConfig;
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use lazy_static::lazy_static;
