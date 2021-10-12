@@ -661,9 +661,8 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                 if let Some(existing_slot) =
                     get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
                 {
-                    let existing = existing_slot.get();
-                    if existing < current_slot.as_u64() as i64 || (slot.as_u64() as i64) < existing
-                    {
+                    let existing = Slot::new(existing_slot.get() as u64);
+                    if existing < current_slot || slot < existing {
                         existing_slot.set(slot.as_u64() as i64);
                     }
                 } else {
