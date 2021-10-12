@@ -280,8 +280,10 @@ where
 }
 
 #[cfg(feature = "arbitrary")]
-impl<T: arbitrary::Arbitrary, N: 'static + Unsigned> arbitrary::Arbitrary for FixedVector<T, N> {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+impl<'a, T: arbitrary::Arbitrary<'a>, N: 'static + Unsigned> arbitrary::Arbitrary<'a>
+    for FixedVector<T, N>
+{
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let size = N::to_usize();
         let mut vec: Vec<T> = Vec::with_capacity(size);
         for _ in 0..size {

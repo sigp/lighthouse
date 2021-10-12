@@ -307,7 +307,7 @@ where
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub, AggPub, Sig, AggSig> arbitrary::Arbitrary
+impl<Pub, AggPub, Sig, AggSig> arbitrary::Arbitrary<'_>
     for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Pub: 'static,
