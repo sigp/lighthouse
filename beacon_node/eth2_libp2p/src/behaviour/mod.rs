@@ -160,10 +160,10 @@ pub struct Behaviour<TSpec: EthSpec> {
     listen_multiaddrs: Owner<Vec<Multiaddr>>,
     /// The TCP port that the libp2p service is listening on
     #[behaviour(ignore)]
-    listen_port_tcp: AtomicU16,
+    listen_port_tcp: Arc<AtomicU16>,
     /// The UDP port that the discovery service is listening on
     #[behaviour(ignore)]
-    listen_port_udp: AtomicU16,
+    listen_port_udp: Arc<AtomicU16>,
     /// The collection of known peers.
     #[behaviour(ignore)]
     peers: ReadOnly<PeerDB<TSpec>>,
@@ -209,12 +209,12 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        config: NetworkConfig,
+        mut config: NetworkConfig, // remove this
         sync_state: ReadOnly<SyncState>,
         backfill_state: ReadOnly<BackFillState>,
         enr_fork_id: EnrForkId,
         log: &slog::Logger,
-        local_enr: Owner<Enr>,
+        local_enr: Enr,
         fork_context: Arc<ForkContext>,
         metadata: MetaData<TSpec>,
         chain_spec: &ChainSpec,
@@ -232,13 +232,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .with_agent_version(lighthouse_version::version_with_platform())
         };
 
-        let local_enr_reader = local_enr.read_access();
-
         // Grab our local ENR FORK ID
-        let enr_fork_id = local_enr
-            .read()
-            .eth2()
-            .expect("Local ENR must have a fork id");
+        let enr_fork_id = local_enr.eth2().expect("Local ENR must have a fork id");
 
         let possible_fork_digests = fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
@@ -291,10 +286,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 .collect(),
             ..Default::default()
         };
-        let peer_manager = PeerManager::new(peer_manager_cfg, sync_state, log).await?;
+        let peer_manager = PeerManager::new(peer_manager_cfg, sync_state.clone(), log).await?;
         // Build and start the discovery sub-behaviour
         let peer_db = peer_manager.peer_db_access();
-        let mut discovery = Discovery::new(local_key, &config, local_enr, peer_db, log).await?;
+        let mut discovery =
+            Discovery::new(local_key, &config, local_enr, peer_db.clone(), log).await?;
+        let local_enr = discovery.enr_read_access();
         // start searching for peers
         discovery.discover_peers();
         trace!(behaviour_log, "Using peer score params"; "params" => ?params);
@@ -306,8 +303,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .with_peer_score(params.clone(), thresholds)
             .expect("Valid score params and thresholds");
 
-        let gossipsub_subscriptions = Owner::default();
-
+        let peers = peer_db.clone();
         let behaviour = Behaviour {
             // Sub-behaviours
             gossipsub,
@@ -318,10 +314,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             peer_manager,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
-            local_enr: local_enr_reader,
+            local_enr,
             listen_multiaddrs: Owner::default(),
-            listen_port_tcp: AtomicU16::new(config.libp2p_port),
-            listen_port_udp: AtomicU16::new(config.discovery_port),
+            listen_port_tcp: Arc::new(AtomicU16::new(config.libp2p_port)),
+            listen_port_udp: Arc::new(AtomicU16::new(config.discovery_port)),
             peers: peer_db.clone(),
             local_metadata: Owner::new(metadata),
             gossipsub_subscriptions: Owner::default(),
@@ -339,8 +335,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let network_globals = NetworkGlobals {
             local_enr: behaviour.local_enr.clone(),
             listen_multiaddrs: behaviour.listen_multiaddrs.read_access(),
-            listen_port_tcp: behaviour.listen_port_tcp,
-            listen_port_udp: behaviour.listen_port_udp,
+            listen_port_tcp: behaviour.listen_port_tcp.clone(),
+            listen_port_udp: behaviour.listen_port_udp.clone(),
             peers: peer_db,
             local_metadata: behaviour.local_metadata.read_access(),
             gossipsub_subscriptions: behaviour.gossipsub_subscriptions.read_access(),
@@ -660,9 +656,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .filter(|s| {
                 // Extend min_ttl of connected peers on required subnets
                 if let Some(min_ttl) = s.min_ttl {
-                    self.peers
-                        .write()
-                        .extend_peers_on_subnet(&s.subnet, min_ttl);
+                    self.peer_manager.extend_peers_on_subnet(&s.subnet, min_ttl);
                     if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
                         self.peer_manager_mut()
                             .add_sync_subnet(sync_subnet, min_ttl);
@@ -702,6 +696,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         // update the local reference
         self.enr_fork_id = enr_fork_id;
+    }
+
+    pub fn dial_peer() {
+
     }
 
     /* Private internal functions */

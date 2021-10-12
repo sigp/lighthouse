@@ -25,9 +25,16 @@ impl<T: Default> Default for Owner<T> {
 
 /// Simple struct that uses the synchronization mechanisms of a RwLock but provides only read
 /// access to the underlying data.
-#[derive(Clone)]
 pub struct ReadOnly<T> {
     data: Arc<RwLock<T>>,
+}
+
+impl<T> Clone for ReadOnly<T> {
+    fn clone(&self) -> Self {
+        ReadOnly {
+            data: self.data.clone(),
+        }
+    }
 }
 
 impl<T> Owner<T> {
@@ -62,26 +69,26 @@ impl<T> ReadOnly<T> {
 // NOTE: this is intented to be read only.
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
-    local_enr: ReadOnly<Enr>,
+    pub(crate) local_enr: ReadOnly<Enr>,
     /// The local peer_id.
     /// TODO: remove?
     // pub peer_id: ReadOnly<PeerId>,
     /// Listening multiaddrs.
-    listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
+    pub(crate) listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
     /// The TCP port that the libp2p service is listening on
-    listen_port_tcp: AtomicU16,
+    pub(crate) listen_port_tcp: Arc<AtomicU16>,
     /// The UDP port that the discovery service is listening on
-    listen_port_udp: AtomicU16,
+    pub(crate) listen_port_udp: Arc<AtomicU16>,
     /// The collection of known peers.
-    peers: ReadOnly<PeerDB<TSpec>>,
+    pub(crate) peers: ReadOnly<PeerDB<TSpec>>,
     // The local meta data of our node.
-    local_metadata: ReadOnly<MetaData<TSpec>>,
+    pub(crate) local_metadata: ReadOnly<MetaData<TSpec>>,
     /// The current gossipsub topic subscriptions.
-    gossipsub_subscriptions: ReadOnly<HashSet<GossipTopic>>,
+    pub(crate) gossipsub_subscriptions: ReadOnly<HashSet<GossipTopic>>,
     /// The current sync status of the node.
-    sync_state: ReadOnly<SyncState>,
+    pub(crate) sync_state: ReadOnly<SyncState>,
     /// The current state of the backfill sync.
-    backfill_state: ReadOnly<BackFillState>,
+    pub(crate) backfill_state: ReadOnly<BackFillState>,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {

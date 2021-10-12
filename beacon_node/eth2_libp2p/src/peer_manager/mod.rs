@@ -9,10 +9,11 @@
 pub use self::peerdb::*;
 use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::types::Subnet;
 use crate::types::{Owner, ReadOnly, SyncState};
 use crate::PeerId;
+use crate::SubnetDiscovery;
 use crate::{error, metrics, Gossipsub};
-use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use futures::prelude::*;
 use futures::Stream;
@@ -32,7 +33,6 @@ pub use libp2p::core::{identity::Keypair, Multiaddr};
 
 pub mod client;
 pub mod config;
-mod network_behaviour;
 mod peer_info;
 mod peer_sync_status;
 
@@ -1126,6 +1126,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         for peer_id in disconnecting_peers {
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
         }
+    }
+
+    pub(crate) fn extend_peers_on_subnet(&self, subnet: &Subnet, min_ttl: Instant) {
+        self.peer_db.write().extend_peers_on_subnet(subnet, min_ttl);
     }
 }
 

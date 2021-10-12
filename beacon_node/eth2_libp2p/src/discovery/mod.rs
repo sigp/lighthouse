@@ -6,6 +6,7 @@
 pub(crate) mod enr;
 pub mod enr_ext;
 
+use crate::types::ReadOnly;
 // Allow external use of the lighthouse ENR builder
 use crate::{config, metrics};
 use crate::{error, Enr, NetworkConfig, Subnet, SubnetDiscovery};
@@ -185,7 +186,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     pub async fn new(
         local_key: &Keypair,
         config: &NetworkConfig,
-        local_enr: crate::types::Owner<Enr>,
+        local_enr: Enr,
         peer_db: crate::types::ReadOnly<crate::peer_manager::PeerDB<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
@@ -196,15 +197,14 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             None => String::from(""),
         };
 
-        let our_enr = local_enr.read().clone();
-        info!(log, "ENR Initialised"; "enr" => our_enr.to_base64(), "seq" => our_enr.seq(), "id"=> %our_enr.node_id(), "ip" => ?our_enr.ip(), "udp"=> ?our_enr.udp(), "tcp" => ?our_enr.tcp());
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip" => ?local_enr.ip(), "udp"=> ?local_enr.udp(), "tcp" => ?local_enr.tcp());
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
 
-        let mut discv5 = Discv5::new(our_enr, enr_key, config.discv5_config.clone())
+        let mut discv5 = Discv5::new(local_enr.clone(), enr_key, config.discv5_config.clone())
             .map_err(|e| format!("Discv5 service failed. Error: {:?}", e))?;
 
         // Add bootnodes to routing table
@@ -289,7 +289,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
-            local_enr,
+            local_enr: crate::types::Owner::new(local_enr),
             peer_db,
             find_peer_active: false,
             queued_queries: VecDeque::with_capacity(10),
@@ -302,6 +302,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         })
     }
 
+    pub fn enr_read_access(&self) -> ReadOnly<Enr> {
+        self.local_enr.read_access()
+    }
     /// Return the nodes local ENR.
     pub fn local_enr(&self) -> Enr {
         self.discv5.local_enr()
@@ -1078,15 +1081,9 @@ mod tests {
         let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let peer_db = crate::types::Owner::new(crate::peer_manager::PeerDB::new(vec![], &log));
-        Discovery::new(
-            &keypair,
-            &config,
-            crate::types::Owner::new(enr),
-            peer_db.read_access(),
-            &log,
-        )
-        .await
-        .unwrap()
+        Discovery::new(&keypair, &config, enr, peer_db.read_access(), &log)
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
