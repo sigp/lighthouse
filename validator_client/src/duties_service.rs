@@ -9,6 +9,7 @@
 mod sync;
 
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
@@ -485,6 +486,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         current_epoch,
         &local_indices,
         &local_pubkeys,
+        current_slot,
     )
     .await
     {
@@ -504,9 +506,14 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     );
 
     // Download the duties and update the duties for the next epoch.
-    if let Err(e) =
-        poll_beacon_attesters_for_epoch(duties_service, next_epoch, &local_indices, &local_pubkeys)
-            .await
+    if let Err(e) = poll_beacon_attesters_for_epoch(
+        duties_service,
+        next_epoch,
+        &local_indices,
+        &local_pubkeys,
+        current_slot,
+    )
+    .await
     {
         error!(
             log,
@@ -599,6 +606,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
+    current_slot: Slot,
 ) -> Result<(), Error> {
     let log = duties_service.context.log();
 
@@ -648,6 +656,24 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             .into_iter()
             .filter(|duty| local_pubkeys.contains(&duty.pubkey))
             .filter(|duty| {
+                let validator_index = duty.validator_index;
+                let slot = duty.slot;
+                if let Some(existing_slot) =
+                    get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
+                {
+                    let existing = existing_slot.get();
+                    if existing < current_slot.as_u64() as i64 || (slot.as_u64() as i64) < existing
+                    {
+                        existing_slot.set(slot.as_u64() as i64);
+                    }
+                } else {
+                    set_int_gauge(
+                        &ATTESTATION_DUTY,
+                        &[&validator_index.to_string()],
+                        slot.as_u64() as i64,
+                    );
+                }
+
                 // Only update the duties if either is true:
                 //
                 // - There were no known duties for this epoch.
