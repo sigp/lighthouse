@@ -9,6 +9,7 @@ use eth2_libp2p::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
+use eth2_libp2p::libp2p::core::connection::ConnectionId;
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
@@ -118,8 +119,8 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         local_addr: EXTERNAL_ADDR.parse().unwrap(),
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
-    let num_established = std::num::NonZeroU32::new(1).unwrap();
-    pm.inject_connection_established(peer_id, connected_point, num_established, None);
+    use eth2_libp2p::NetworkBehaviour;
+    pm.inject_connection_established(&peer_id, &ConnectionId::new(500), &connected_point, None);
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());

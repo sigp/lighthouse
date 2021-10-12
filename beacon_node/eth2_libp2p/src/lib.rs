@@ -68,8 +68,10 @@ pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response}
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
+pub use libp2p;
 pub use libp2p::bandwidth::BandwidthSinks;
 pub use libp2p::gossipsub::{MessageAcceptance, MessageId, Topic, TopicHash};
+pub use libp2p::swarm::NetworkBehaviour;
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use metrics::scrape_discovery_metrics;
