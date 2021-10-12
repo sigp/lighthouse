@@ -31,6 +31,8 @@ pub struct ReadOnly<T> {
 
 impl<T> Clone for ReadOnly<T> {
     fn clone(&self) -> Self {
+        // NOTE: clone cannot be derived since that would require T: Clone which is not needed nor
+        // desirable.
         ReadOnly {
             data: self.data.clone(),
         }
