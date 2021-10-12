@@ -50,6 +50,9 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    /// A list of custom certificates that the validator client will additionally use when
+    /// connecting to a beacon node over SSL/TLS.
+    pub custom_beacon_certs: Option<Vec<PathBuf>>,
 }
 
 impl Default for Config {
@@ -80,6 +83,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
+            custom_beacon_certs: None,
         }
     }
 }
@@ -191,6 +195,13 @@ impl Config {
 
                 config.graffiti = Some(graffiti.into());
             }
+        }
+
+        if let Some(custom_certificates) =
+            parse_optional::<String>(cli_args, "include-custom-certificates")?
+        {
+            config.custom_beacon_certs =
+                Some(custom_certificates.split(',').map(PathBuf::from).collect());
         }
 
         /*
