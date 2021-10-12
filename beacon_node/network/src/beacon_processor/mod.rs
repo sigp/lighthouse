@@ -1337,8 +1337,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             "worker" => worker_id,
         );
 
-        let log = log.clone();
-
         executor.spawn_blocking(
             move || {
                 let _worker_timer = worker_timer;
