@@ -91,4 +91,4 @@ eth2_ssz_types = { path = "consensus/ssz_types" }
 eth2_ssz_derive = { path = "consensus/ssz_derive" }
 tree_hash = { path = "consensus/tree_hash" }
 tree_hash_derive = { path = "consensus/tree_hash_derive" }
-ethereum-types = { git = "https://github.com/realbigsean/parity-common", rev="5b19b17e2c9acf339e445978b1ad8f56a5c7942d" }
+fixed-hash = { git = "https://github.com/realbigsean/parity-common", rev="5b19b17e2c9acf339e445978b1ad8f56a5c7942d", features = ["arbitrary"]}
