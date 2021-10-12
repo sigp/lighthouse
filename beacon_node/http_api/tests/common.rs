@@ -3,13 +3,13 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts};
+use eth2_libp2p::libp2p::core::connection::ConnectionId;
 use eth2_libp2p::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
-use eth2_libp2p::libp2p::core::connection::ConnectionId;
 use http_api::{Config, Context};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
