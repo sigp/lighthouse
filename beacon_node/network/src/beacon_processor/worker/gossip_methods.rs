@@ -648,7 +648,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 duplicate_cache.remove(&block_root);
             } else {
-                warn!(
+                debug!(
                     self.log,
                     "RPC block is being imported";
                     "block_root" => %block_root,
