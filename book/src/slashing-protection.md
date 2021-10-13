@@ -75,7 +75,7 @@ Instructions for exporting your existing client's database are out of scope for 
 please check the other client's documentation for instructions.
 
 When importing an interchange file, you still need to import the validator keystores themselves
-separately, using the instructions about [importing keystores into
+separately, using the instructions for [importing keystores into
 Lighthouse](./validator-import-launchpad.md).
 
 ---
@@ -91,31 +91,24 @@ up to date.
 
 [EIP-3076]: https://eips.ethereum.org/EIPS/eip-3076
 
+### How Import Works
+
+Since version 1.6.0 Lighthouse will ignore any slashable data in the import data and will safely
+update the low watermarks for blocks and attestations. It will store only the maximum-slot block
+for each validator, and the maximum source/target attestation. This is faster than importing
+all data while also being more resilient to repeated imports & stale data.
+
 ### Minification
 
-Since version 1.5.0 Lighthouse automatically _minifies_ slashing protection data upon import.
-Minification safely shrinks the input file, making it faster to import.
-
-If an import file contains slashable data, then its minification is still safe to import _even
-though_ the non-minified file would fail to be imported. This means that leaving minification
-enabled is recommended if the input could contain slashable data. Conversely, if you would like to
-double-check that the input file is not slashable with respect to itself, then you should disable
-minification.
-
-Minification can be disabled for imports by adding `--minify=false` to the command:
-
-```
-lighthouse account validator slashing-protection import --minify=false <my_interchange.json>
-```
-
-It can also be enabled for exports (disabled by default):
+The exporter can be configured to minify (shrink) the data it exports by keeping only the
+maximum-slot and maximum-epoch messages. Provide the `--minify=true` flag:
 
 ```
 lighthouse account validator slashing-protection export --minify=true <lighthouse_interchange.json>
 ```
 
-Minifying the export file should make it faster to import, and may allow it to be imported into an
-implementation that is rejecting the non-minified equivalent due to slashable data.
+This may make the file faster to import into other clients, but is unnecessary for Lighthouse to
+Lighthouse transfers since v1.5.0.
 
 ## Troubleshooting
 
@@ -160,46 +153,6 @@ Sep 29 15:15:05.303 CRIT Not signing slashable attestation       error: InvalidA
 
 This log is still marked as `CRIT` because in general it should occur only very rarely,
 and _could_ indicate a serious error or misconfiguration (see [Avoiding Slashing](#avoiding-slashing)).
-
-### Slashable Data in Import
-
-During import of an [interchange file](#import-and-export) if you receive an error about
-the file containing slashable data, then you must carefully consider whether you want to continue.
-
-There are several potential causes for this error, each of which require a different reaction. If
-the error output lists multiple validator keys, the cause could be different for each of them.
-
-1. Your validator has actually signed slashable data. If this is the case, you should assess
-   whether your validator has been slashed (or is likely to be slashed). It's up to you
-   whether you'd like to continue.
-2. You have exported data from Lighthouse to another client, and then back to Lighthouse,
-   _in a way that didn't preserve the signing roots_. A message with no signing roots
-   is considered slashable with respect to _any_ other message at the same slot/epoch,
-   so even if it was signed by Lighthouse originally, Lighthouse has no way of knowing this.
-   If you're sure you haven't run Lighthouse and the other client simultaneously, you
-   can [drop Lighthouse's DB in favour of the interchange file](#drop-and-re-import).
-3. You have imported the same interchange file (which lacks signing roots) twice, e.g. from Teku.
-   It might be safe to continue as-is, or you could consider a [Drop and
-   Re-import](#drop-and-re-import).
-
-If you are running the import command with `--minify=false`, you should consider enabling
-[minification](#minification).
-
-#### Drop and Re-import
-
-If you'd like to prioritize an interchange file over any existing database stored by Lighthouse
-then you can _move_ (not delete) Lighthouse's database and replace it like so:
-
-```bash
-mv $datadir/validators/slashing_protection.sqlite ~/slashing_protection_backup.sqlite
-```
-
-```
-lighthouse account validator slashing-protection import <my_interchange.json>
-```
-
-If your interchange file doesn't cover all of your validators, you shouldn't do this. Please reach
-out on Discord if you need help.
 
 ## Limitation of Liability
 

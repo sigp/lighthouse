@@ -129,6 +129,8 @@ impl StreamTest<BeaconBlockHeader> {
     }
 }
 
+// This function roundtrips the database, but applies minification in order to be compatible with
+// the implicit minification done on import.
 fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
     let exported = db
         .export_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
@@ -142,6 +144,9 @@ fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
         .export_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
 
-    assert_eq!(exported, reexported);
+    assert!(exported
+        .minify()
+        .unwrap()
+        .equiv(&reexported.minify().unwrap()));
     assert_eq!(is_empty, exported.is_empty());
 }

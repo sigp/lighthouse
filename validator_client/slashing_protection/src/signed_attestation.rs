@@ -1,4 +1,4 @@
-use crate::{hash256_from_row, SigningRoot};
+use crate::{signing_root_from_row, SigningRoot};
 use types::{AttestationData, Epoch, Hash256, SignedRoot};
 
 /// An attestation that has previously been signed.
@@ -56,7 +56,7 @@ impl SignedAttestation {
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         let source = row.get(0)?;
         let target = row.get(1)?;
-        let signing_root = hash256_from_row(2, row)?.into();
+        let signing_root = signing_root_from_row(2, row)?;
         Ok(SignedAttestation::new(source, target, signing_root))
     }
 }
