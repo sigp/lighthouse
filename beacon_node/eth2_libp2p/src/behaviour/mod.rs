@@ -698,9 +698,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.enr_fork_id = enr_fork_id;
     }
 
-    pub fn dial_peer() {
-
-    }
+    pub fn dial_peer() {}
 
     /* Private internal functions */
 
@@ -861,6 +859,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             }
         }
         WhitelistSubscriptionFilter(possible_hashes)
+    }
+
+    pub(crate) fn new_listen_addr(&self, address: Multiaddr) {
+        self.listen_multiaddrs.write().push(address)
     }
 }
 

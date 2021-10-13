@@ -19,13 +19,14 @@ use crate::types::{
     error, BackFillState, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind, ReadOnly,
     SyncState,
 };
-use crate::EnrExt;
+use crate::{Enr, EnrExt};
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
 use libp2p::core::{
     connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
     transport::Boxed,
 };
+use libp2p::gossipsub::{MessageAcceptance, MessageId};
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
@@ -67,7 +68,7 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
-    pub swarm: Swarm<Behaviour<TSpec>>,
+    swarm: Swarm<Behaviour<TSpec>>,
     /// The bandwidth logger for the underlying libp2p transport.
     pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
@@ -312,6 +313,29 @@ impl<TSpec: EthSpec> Service<TSpec> {
             .send_successful_response(peer_id, id, response);
     }
 
+    pub fn report_message_validation_result(
+        &mut self,
+        propagation_source: &PeerId,
+        message_id: MessageId,
+        validation_result: MessageAcceptance,
+    ) {
+        self.swarm.behaviour_mut().report_message_validation_result(
+            &propagation_source,
+            message_id,
+            validation_result,
+        );
+    }
+
+    pub fn local_enr(&self) -> Enr {
+        self.swarm.behaviour().local_enr()
+    }
+
+    pub fn add_enrs(&mut self, enrs: impl Iterator<Item = Enr>) {
+        for enr in enrs {
+            self.swarm.behaviour_mut().add_enr(enr);
+        }
+    }
+
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
         loop {
             match self.swarm.select_next_some().await {
@@ -358,7 +382,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         .inject_connection_closed(peer_id, endpoint, num_established);
                 }
                 SwarmEvent::NewListenAddr { address, .. } => {
-                    return Libp2pEvent::NewListenAddr(address)
+                    self.swarm.behaviour_mut().new_listen_addr(address.clone());
+                    return Libp2pEvent::NewListenAddr(address);
+                }
+                SwarmEvent::ExpiredListenAddr { address, .. } => {
+                    // TODO: remove the address?
+                    debug!(self.log, "Listen address expired"; "address" => %address)
                 }
                 SwarmEvent::IncomingConnection {
                     local_addr,
@@ -390,9 +419,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
                     debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
-                }
-                SwarmEvent::ExpiredListenAddr { address, .. } => {
-                    debug!(self.log, "Listen address expired"; "address" => %address)
                 }
                 SwarmEvent::ListenerClosed {
                     addresses, reason, ..
