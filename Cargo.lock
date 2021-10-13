@@ -2115,7 +2115,7 @@ dependencies = [
 [[package]]
 name = "fixed-hash"
 version = "0.7.0"
-source = "git+https://github.com/realbigsean/parity-common?rev=5b19b17e2c9acf339e445978b1ad8f56a5c7942d#5b19b17e2c9acf339e445978b1ad8f56a5c7942d"
+source = "git+https://github.com/paritytech/parity-common?rev=df638ab0885293d21d656dc300d39236b69ce57d#df638ab0885293d21d656dc300d39236b69ce57d"
 dependencies = [
  "arbitrary",
  "byteorder",
