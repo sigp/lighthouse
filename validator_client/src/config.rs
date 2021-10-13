@@ -52,7 +52,7 @@ pub struct Config {
     pub enable_doppelganger_protection: bool,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
-    pub custom_beacon_certs: Option<Vec<PathBuf>>,
+    pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
 }
 
 impl Default for Config {
@@ -83,7 +83,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
-            custom_beacon_certs: None,
+            beacon_nodes_tls_certs: None,
         }
     }
 }
@@ -197,11 +197,8 @@ impl Config {
             }
         }
 
-        if let Some(custom_certificates) =
-            parse_optional::<String>(cli_args, "include-custom-certificates")?
-        {
-            config.custom_beacon_certs =
-                Some(custom_certificates.split(',').map(PathBuf::from).collect());
+        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
+            config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
         }
 
         /*

@@ -203,11 +203,11 @@ fn use_long_timeouts_flag() {
 }
 
 #[test]
-fn include_custom_certificates_flag() {
+fn beacon_nodes_tls_certs_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag(
-            "include-custom-certificates",
+            "beacon-nodes-tls-certs",
             Some(
                 vec![
                     dir.path().join("certificate.crt").to_str().unwrap(),
@@ -220,7 +220,7 @@ fn include_custom_certificates_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(
-                config.custom_beacon_certs,
+                config.beacon_nodes_tls_certs,
                 Some(vec![
                     dir.path().join("certificate.crt"),
                     dir.path().join("certificate2.crt")

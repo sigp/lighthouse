@@ -102,11 +102,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         longer timeouts can cause missed duties when fallbacks are used.")
         )
         .arg(
-            Arg::with_name("include-custom-certificates")
-                .long("include-custom-certificates")
+            Arg::with_name("beacon-nodes-tls-certs")
+                .long("beacon-nodes-tls-certs")
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
-                .help("Comma-separated paths to custom SSL certificates to use when connecting \
+                .help("Comma-separated paths to custom TLS certificates to use when connecting \
                         to a beacon node. These certificates must be in PEM format and are used \
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path.")

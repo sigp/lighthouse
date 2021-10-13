@@ -191,7 +191,7 @@ lighthouse vc --beacon-nodes https://localhost:5052
 You can also specify any custom certificates via the validator client CLI like
 so:
 ```bash
-lighthouse vc --beacon-nodes https://localhost:5052 --include-custom-certificates cert.pem
+lighthouse vc --beacon-nodes https://localhost:5052 --beacon-nodes-tls-certs cert.pem
 ```
 
 ## Troubleshooting

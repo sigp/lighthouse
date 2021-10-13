@@ -253,7 +253,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 let mut beacon_node_http_client_builder = ClientBuilder::new();
 
                 // Add new custom root certificates if specified.
-                if let Some(certificates) = &config.custom_beacon_certs {
+                if let Some(certificates) = &config.beacon_nodes_tls_certs {
                     for cert in certificates {
                         beacon_node_http_client_builder = beacon_node_http_client_builder
                             .add_root_certificate(load_pem_certificate(cert)?);
