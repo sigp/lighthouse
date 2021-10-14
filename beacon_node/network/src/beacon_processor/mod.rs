@@ -1103,8 +1103,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     }
                     // The chain is syncing and this event should be dropped during sync.
                     Some(work_event)
-                        if self.network_globals.sync_state.read().is_syncing()
-                            && drop_during_sync =>
+                        if self.network_globals.sync_state().is_syncing() && drop_during_sync =>
                     {
                         let work_id = work_event.work.str_id();
                         metrics::inc_counter_vec(

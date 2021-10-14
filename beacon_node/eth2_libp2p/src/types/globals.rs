@@ -95,26 +95,26 @@ impl<T> ReadOnly<T> {
 // NOTE: this is intented to be read only.
 pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The current local ENR.
-    pub(crate) local_enr: ReadOnly<Enr>,
+    pub local_enr: ReadOnly<Enr>,
     /// The local peer_id.
     /// TODO: remove?
     // pub peer_id: ReadOnly<PeerId>,
     /// Listening multiaddrs.
-    pub(crate) listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
+    pub listen_multiaddrs: ReadOnly<Vec<Multiaddr>>,
     /// The TCP port that the libp2p service is listening on
-    pub(crate) listen_port_tcp: Arc<AtomicU16>,
+    pub listen_port_tcp: Arc<AtomicU16>,
     /// The UDP port that the discovery service is listening on
-    pub(crate) listen_port_udp: Arc<AtomicU16>,
+    pub listen_port_udp: Arc<AtomicU16>,
     /// The collection of known peers.
-    pub(crate) peers: ReadOnly<PeerDB<TSpec>>,
+    pub peers: ReadOnly<PeerDB<TSpec>>,
     // The local meta data of our node.
-    pub(crate) local_metadata: ReadOnly<MetaData<TSpec>>,
+    pub local_metadata: ReadOnly<MetaData<TSpec>>,
     /// The current gossipsub topic subscriptions.
-    pub(crate) gossipsub_subscriptions: ReadOnly<HashSet<GossipTopic>>,
+    pub gossipsub_subscriptions: ReadOnly<HashSet<GossipTopic>>,
     /// The current sync status of the node.
-    pub(crate) sync_state: ReadOnly<SyncState>,
+    pub sync_state: ReadOnly<SyncState>,
     /// The current state of the backfill sync.
-    pub(crate) backfill_state: ReadOnly<BackFillState>,
+    pub backfill_state: ReadOnly<BackFillState>,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {

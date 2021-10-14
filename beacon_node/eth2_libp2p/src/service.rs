@@ -3,30 +3,27 @@
 //! init:
 //! - Creates the swarm and the behaviour.
 //! - Dials initial peers.
+//! - Gives access to the public behaviour methods.
 //! running:
 //! - Unifies events to emit.
 //! - Handles banning of peers since there is now way of doing it at the swarm level from the
 //! behaviour.
-use crate::behaviour::{
-    save_metadata_to_disk, Behaviour, BehaviourEvent, PeerRequestId, Request, Response,
-};
+use crate::behaviour::{save_metadata_to_disk, Behaviour, BehaviourEvent};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{
-    GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, RequestId,
-};
+use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
     error, BackFillState, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind, ReadOnly,
     SyncState,
 };
-use crate::{Enr, EnrExt};
-use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
+use crate::EnrExt;
+use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use libp2p::core::{
     connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
     transport::Boxed,
 };
-use libp2p::gossipsub::{MessageAcceptance, MessageId};
+
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
@@ -271,69 +268,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
         Ok((Arc::new(network_globals), service))
     }
 
-    /// Sends a request to a peer, with a given Id.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
-        self.swarm
-            .behaviour_mut()
-            .send_request(peer_id, request_id, request);
+    /// Get access to the underlying behaviour.
+    pub fn b(&self) -> &Behaviour<TSpec> {
+        self.swarm.behaviour()
     }
 
-    /// Informs the peer that their request failed.
-    pub fn respond_with_error(
-        &mut self,
-        peer_id: PeerId,
-        id: PeerRequestId,
-        error: RPCResponseErrorCode,
-        reason: String,
-    ) {
-        self.swarm
-            .behaviour_mut()
-            .send_error_reponse(peer_id, id, error, reason);
-    }
-
-    /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
-        self.swarm
-            .behaviour_mut()
-            .peer_manager_mut()
-            .report_peer(peer_id, action, source);
-    }
-
-    /// Disconnect and ban a peer, providing a reason.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        self.swarm
-            .behaviour_mut()
-            .goodbye_peer(peer_id, reason, source);
-    }
-
-    /// Sends a response to a peer's request.
-    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
-        self.swarm
-            .behaviour_mut()
-            .send_successful_response(peer_id, id, response);
-    }
-
-    pub fn report_message_validation_result(
-        &mut self,
-        propagation_source: &PeerId,
-        message_id: MessageId,
-        validation_result: MessageAcceptance,
-    ) {
-        self.swarm.behaviour_mut().report_message_validation_result(
-            &propagation_source,
-            message_id,
-            validation_result,
-        );
-    }
-
-    pub fn local_enr(&self) -> Enr {
-        self.swarm.behaviour().local_enr()
-    }
-
-    pub fn add_enrs(&mut self, enrs: impl Iterator<Item = Enr>) {
-        for enr in enrs {
-            self.swarm.behaviour_mut().add_enr(enr);
-        }
+    /// Get mutable access to the underlying behaviour.
+    pub fn b_mut(&mut self) -> &mut Behaviour<TSpec> {
+        self.swarm.behaviour_mut()
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {

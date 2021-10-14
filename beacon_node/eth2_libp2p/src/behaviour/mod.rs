@@ -11,10 +11,9 @@ use crate::types::{
     subnet_from_topic_hash, BackFillState, GossipEncoding, GossipKind, GossipTopic, Owner,
     ReadOnly, SnappyTransform, Subnet, SubnetDiscovery, SyncState,
 };
-use crate::EnrExt;
-use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use crate::{rpc::*, PeerDB};
+use crate::{Eth2Enr, PeerAction};
 use futures::prelude::*;
 use libp2p::{
     core::{
@@ -364,16 +363,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /* Public Accessible Functions to interact with the behaviour */
 
-    /// Get a mutable reference to the underlying discovery sub-behaviour.
-    pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec> {
-        &mut self.discovery
-    }
-
-    /// Get a mutable reference to the peer manager.
-    pub fn peer_manager_mut(&mut self) -> &mut PeerManager<TSpec> {
-        &mut self.peer_manager
-    }
-
     /// Returns the local ENR of the node.
     pub fn local_enr(&self) -> Enr {
         self.local_enr.read().clone()
@@ -382,6 +371,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Obtain a reference to the gossipsub protocol.
     pub fn gs(&self) -> &Gossipsub {
         &self.gossipsub
+    }
+
+    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
+        self.peer_manager.report_peer(peer_id, action, source)
     }
 
     /* Pubsub behaviour functions */
@@ -590,17 +583,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     }
 
     /// Send a successful response to a peer over RPC.
-    pub fn send_successful_response(
-        &mut self,
-        peer_id: PeerId,
-        id: PeerRequestId,
-        response: Response<TSpec>,
-    ) {
+    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
         self.eth2_rpc.send_response(peer_id, id, response.into())
     }
 
     /// Inform the peer that their request produced an error.
-    pub fn send_error_reponse(
+    pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,
@@ -658,8 +646,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 if let Some(min_ttl) = s.min_ttl {
                     self.peer_manager.extend_peers_on_subnet(&s.subnet, min_ttl);
                     if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
-                        self.peer_manager_mut()
-                            .add_sync_subnet(sync_subnet, min_ttl);
+                        self.peer_manager.add_sync_subnet(sync_subnet, min_ttl);
                     }
                 }
                 // Already have target number of peers, no need for subnet discovery
