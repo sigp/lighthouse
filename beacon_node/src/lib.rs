@@ -8,6 +8,7 @@ pub use beacon_chain;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
+    TimeoutRwLock,
 };
 use clap::ArgMatches;
 pub use cli::cli_app;
@@ -65,6 +66,11 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let executor = context.executor.clone();
+
+        if !client_config.chain.enable_lock_timeouts {
+            info!(log, "Disabling lock timeouts globally");
+            TimeoutRwLock::disable_timeouts()
+        }
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)

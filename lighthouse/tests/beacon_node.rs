@@ -178,6 +178,21 @@ fn max_skip_slots_flag() {
 }
 
 #[test]
+fn enable_lock_timeouts_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.chain.enable_lock_timeouts));
+}
+
+#[test]
+fn disable_lock_timeouts_flag() {
+    CommandLineTest::new()
+        .flag("disable-lock-timeouts", None)
+        .run()
+        .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

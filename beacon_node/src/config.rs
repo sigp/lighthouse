@@ -504,6 +504,10 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
+    if cli_args.is_present("disable-lock-timeouts") {
+        client_config.chain.enable_lock_timeouts = false;
+    }
+
     Ok(client_config)
 }
 
