@@ -6,6 +6,7 @@ use lighthouse_metrics::{
 };
 use slog::Logger;
 use slog_term::Decorator;
+use sloggers::Build;
 use std::io::{Result, Write};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
@@ -159,25 +160,34 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
     }
 }
 
+/// A logger that may output logs if the severity is >= the passed value.
+pub fn a_logger(severity: sloggers::types::Severity) -> Logger {
+    sloggers::terminal::TerminalLoggerBuilder::new()
+        .level(severity)
+        .build()
+        .expect("Should build test_logger")
+}
+
+/// A logger that does not output any logs.
+pub fn a_null_logger() -> Logger {
+    sloggers::null::NullLoggerBuilder
+        .build()
+        .expect("Should build null_logger")
+}
+
 /// Return a logger suitable for test usage.
 ///
 /// By default no logs will be printed, but they can be enabled via
-/// the `test_logger` feature.  This feature can be enabled for any
-/// dependent crate by passing `--features logging/test_logger`, e.g.
+/// the `test_logger` feature, in which case the severity will be Debug.
+/// This feature can be enabled for any dependent crate by passing
+/// `--features logging/test_logger`, e.g.
 /// ```bash
 /// cargo test -p beacon_chain --features logging/test_logger
 /// ```
 pub fn test_logger() -> Logger {
-    use sloggers::Build;
-
     if cfg!(feature = "test_logger") {
-        sloggers::terminal::TerminalLoggerBuilder::new()
-            .level(sloggers::types::Severity::Debug)
-            .build()
-            .expect("Should build test_logger")
+        a_logger(sloggers::types::Severity::Debug)
     } else {
-        sloggers::null::NullLoggerBuilder
-            .build()
-            .expect("Should build null_logger")
+        a_null_logger()
     }
 }
