@@ -952,6 +952,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub(crate) fn extend_peers_on_subnet(&self, subnet: &Subnet, min_ttl: Instant) {
         self.peer_db.write().extend_peers_on_subnet(subnet, min_ttl);
     }
+
+    pub(crate) fn add_subscription(&self, peer_id: &PeerId, subnet_id: Subnet) {
+        self.peer_db.write().add_subscription(peer_id, subnet_id)
+    }
+
+    pub(crate) fn remove_subscription(&self, peer_id: &PeerId, subnet_id: &Subnet) {
+        self.peer_db.write().remove_subscription(peer_id, subnet_id)
+    }
 }
 
 impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {

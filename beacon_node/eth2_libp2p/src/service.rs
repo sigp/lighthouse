@@ -122,7 +122,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 config.clone(), // TODO: remove this
                 forward_sync_state,
                 backfill_state,
-                enr_fork_id,
                 &log,
                 enr,
                 fork_context,

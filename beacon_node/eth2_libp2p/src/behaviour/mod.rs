@@ -4,7 +4,8 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    peerdb::score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent, config as peer_manager_config
+    config as peer_manager_config, peerdb::score::ReportSource, ConnectionDirection, PeerManager,
+    PeerManagerEvent,
 };
 use crate::service::METADATA_FILENAME;
 use crate::types::{
@@ -172,12 +173,6 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// The current gossipsub topic subscriptions.
     #[behaviour(ignore)]
     gossipsub_subscriptions: Owner<HashSet<GossipTopic>>,
-    /// The current sync status of the node.
-    #[behaviour(ignore)]
-    sync_state: ReadOnly<SyncState>,
-    /// The current state of the backfill sync.
-    #[behaviour(ignore)]
-    backfill_state: ReadOnly<BackFillState>,
 
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
     // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
@@ -211,7 +206,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         mut config: NetworkConfig, // remove this
         sync_state: ReadOnly<SyncState>,
         backfill_state: ReadOnly<BackFillState>,
-        enr_fork_id: EnrForkId,
         log: &slog::Logger,
         local_enr: Enr,
         fork_context: Arc<ForkContext>,
@@ -302,7 +296,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .with_peer_score(params, thresholds)
             .expect("Valid score params and thresholds");
 
-        let peers = peer_db.clone();
         let behaviour = Behaviour {
             // Sub-behaviours
             gossipsub,
@@ -320,8 +313,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             peers: peer_db.clone(),
             local_metadata: Owner::new(metadata),
             gossipsub_subscriptions: Owner::default(),
-            sync_state: sync_state.clone(),
-            backfill_state: backfill_state.clone(),
             enr_fork_id,
             waker: None,
             network_dir: config.network_dir.clone(),
@@ -363,6 +354,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /* Public Accessible Functions to interact with the behaviour */
 
+    /// Get a mutable reference to the underlying discovery sub-behaviour.
+    pub(crate) fn discovery_mut(&mut self) -> &mut Discovery<TSpec> {
+        &mut self.discovery
+    }
+    /// Get a mutable reference to the peer manager.
+    pub(crate) fn peer_manager_mut(&mut self) -> &mut PeerManager<TSpec> {
+        &mut self.peer_manager
+    }
+
     /// Returns the local ENR of the node.
     pub fn local_enr(&self) -> Enr {
         self.local_enr.read().clone()
@@ -373,8 +373,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         &self.gossipsub
     }
 
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource, reason: Option<GoodbyeReason>) {
-        self.peer_manager.report_peer(peer_id, action, source, reason)
+    pub fn report_peer(
+        &mut self,
+        peer_id: &PeerId,
+        action: PeerAction,
+        source: ReportSource,
+        reason: Option<GoodbyeReason>,
+    ) {
+        self.peer_manager
+            .report_peer(peer_id, action, source, reason)
     }
 
     /* Pubsub behaviour functions */
@@ -895,18 +902,12 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self
-                        .peers
-                        .write()
-                        .add_subscription(&peer_id, subnet_id);
+                    self.peer_manager.add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self
-                        .peers
-                        .write()
-                        .remove_subscription(&peer_id, &subnet_id);
+                    self.peer_manager.remove_subscription(&peer_id, &subnet_id);
                 }
             }
         }
