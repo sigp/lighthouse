@@ -22,6 +22,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     from: SchemaVersion,
     to: SchemaVersion,
 ) -> Result<(), StoreError> {
+    info!(&db.log, "migrate_schema: from={} to={}", from.0, to.0);
     match (from, to) {
         // Migrating from the current schema version to iself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
@@ -119,9 +120,19 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     slots_per_restore_point,
                     _block_cache_size: 0,
                 };
+                info!(
+                    &db.log,
+                    "Dowgrade v5 to v4: call db.hot_db.put(CONFIG_KEY={} new_config={:#?}",
+                    CONFIG_KEY,
+                    new_config
+                );
                 db.hot_db.put(&CONFIG_KEY, &new_config)?;
             }
 
+            info!(
+                &db.log,
+                "Dowgrade v5 to v4: db.store_schema_version={}", to.0
+            );
             db.store_schema_version(to)?;
 
             info!(&db.log, "Dowgrade v5 to v4 completed");

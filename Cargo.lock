@@ -1269,6 +1269,7 @@ dependencies = [
  "clap",
  "environment",
  "logging",
+ "sloggers",
  "tempfile",
  "types",
 ]

@@ -1,37 +1,17 @@
 use tempfile::tempdir;
 
 use beacon_chain::{
+    builder::Witness,
+    eth1_chain::CachingEth1Backend,
+    schema_change::migrate_schema,
+    slot_clock::SystemTimeSlotClock,
     store::{errors::Error, metadata::SchemaVersion, HotColdDB, LevelDB, StoreConfig},
     test_utils::test_spec,
 };
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
-use logging::test_logger;
+use logging::{a_logger, test_logger};
 use types::EthSpec;
-
-//use beacon_chain::{
-//    builder::Witness,
-//    schema_change::migrate_schema,
-//    slot_clock::SlotClock,
-//    store::ItemStore,
-//    BeaconChainTypes, Eth1ChainBackend,
-//};
-
-//impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore> BeaconChainTypes
-//    for Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
-//where
-//    THotStore: ItemStore<TEthSpec> + 'static,
-//    TColdStore: ItemStore<TEthSpec> + 'static,
-//    TSlotClock: SlotClock + 'static,
-//    TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
-//    TEthSpec: EthSpec + 'static,
-//{
-//    type HotStore = THotStore;
-//    type ColdStore = TColdStore;
-//    type SlotClock = TSlotClock;
-//    type Eth1Chain = TEth1Backend;
-//    type EthSpec = TEthSpec;
-//}
 
 pub const CMD: &str = "database_manager";
 //pub const SECRETS_DIR_FLAG: &str = "secrets-dir";
@@ -126,7 +106,7 @@ pub fn downgrade_db<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Re
     let hot_path = datadir.path().join("hot_db");
     let cold_path = datadir.path().join("cold_db");
     let config = get_store_config(matches, env)?;
-    let log = test_logger();
+    let log = a_logger(sloggers::types::Severity::Info);
 
     let (_db, schema_version) = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open_as_is(
         hot_path.as_path(),
@@ -138,22 +118,16 @@ pub fn downgrade_db<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Re
 
     let from = schema_version;
     let to = SchemaVersion(from.0 - 1);
+    //let to = SchemaVersion(from.0);
 
-    println!("downgrade database version {} to {}", from.0, to.0,);
+    println!("downgrade database version {} to {}", from.0, to.0);
 
-    // Cannot figure out how to invoke migrate_schema as it's a generic function
-    // that must implement the `pub trait BeaconChainTypes`. The two only places
-    // where migrate_schema is called are:
-    //
-    //  - Recursively in the implementation itself in
-    //    beacon_node/beacon_chain/src/schema_change.rs
-    //
-    //  - beacon_node/store/srch/hot_cold_store.rs::open where it's passed
-    //    as a fn parameter in a call from
-    //    beacon_node/client/src/builder.rs::disk_store
-
-    //migrate_schema::Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>(_db, datadir.path(), from, to)?;
-    //migrate_schema::<_>(_db, datadir.path(), from, to)?;
+    migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
+        _db,
+        datadir.path(),
+        from,
+        to,
+    )?;
 
     Ok(())
 }

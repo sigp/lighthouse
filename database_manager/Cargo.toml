@@ -14,4 +14,5 @@ beacon_chain = { path = "../beacon_node/beacon_chain" }
 environment = { path = "../lighthouse/environment" }
 types = { path = "../consensus/types" }
 logging = { path = "../common/logging" }
+sloggers = "2.0.2"
 tempfile = "3.1.0"
