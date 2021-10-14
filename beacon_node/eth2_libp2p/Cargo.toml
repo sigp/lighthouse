@@ -40,15 +40,11 @@ regex = "1.3.9"
 strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.2.0"
 
-# TODO: remove the rev-reference and go back to release versions once there is a release that
-# includes the following PR:
-#
-# https://github.com/libp2p/rust-libp2p/pull/2175
 [dependencies.libp2p]
-#version = "0.39.1"
+# version = "0.39.1"
 default-features = false
-git = "https://github.com/sigp/rust-libp2p"
-branch = "lighthouse" # Lighthouse branch with gossipsub updates 
+git = "https://github.com/libp2p/rust-libp2p"
+rev = "40c5335e3bd6afaea46c9c8116ba8ff16a6bdf91" # Current libp2p/master
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
