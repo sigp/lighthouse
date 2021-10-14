@@ -21,8 +21,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypairs, AggregateSignature, BeaconState, BitList, Domain,
-    EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    AggregateSignature, BeaconState, BitList, Domain, EthSpec, Hash256, Keypair, MainnetEthSpec,
+    RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -71,11 +71,11 @@ impl ApiTester {
     }
 
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
-        let harness = BeaconChainHarness::new(
-            MainnetEthSpec,
-            Some(spec.clone()),
-            generate_deterministic_keypairs(VALIDATOR_COUNT),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec.clone())
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 
@@ -214,11 +214,11 @@ impl ApiTester {
     }
 
     pub async fn new_from_genesis() -> Self {
-        let harness = BeaconChainHarness::new(
-            MainnetEthSpec,
-            None,
-            generate_deterministic_keypairs(VALIDATOR_COUNT),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .default_spec()
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 

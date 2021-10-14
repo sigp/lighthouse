@@ -266,6 +266,7 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 

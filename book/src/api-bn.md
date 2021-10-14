@@ -13,9 +13,14 @@ The following CLI flags control the HTTP server:
 	provided).
 - `--http-port`: specify the listen port of the server.
 - `--http-address`: specify the listen address of the server. It is _not_ recommended to listen
-     on `0.0.0.0`, please see [Security](#security) below.
+  on `0.0.0.0`, please see [Security](#security) below.
 - `--http-allow-origin`: specify the value of the `Access-Control-Allow-Origin`
-		header. The default is to not supply a header.
+	header. The default is to not supply a header.
+- `--http-enable-tls`: serve the HTTP server over TLS. Must be used with `--http-tls-cert`
+	and `http-tls-key`. This feature is currently experimental, please see
+	[Serving the HTTP API over TLS](#serving-the-http-api-over-tls) below.
+- `--http-tls-cert`: specify the path to the certificate file for Lighthouse to use.
+- `--http-tls-key`: specify the path to the private key file for Lighthouse to use.
 
 The schema of the API aligns with the standard Eth2 Beacon Node API as defined
 at [github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
@@ -116,6 +121,68 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "
     }
   }
 }
+```
+
+## Serving the HTTP API over TLS
+> **Warning**: This feature is currently experimental.
+
+The HTTP server can be served over TLS by using the `--http-enable-tls`,
+`http-tls-cert` and `http-tls-key` flags.
+This allows the API to be accessed via HTTPS, encrypting traffic to
+and from the server.
+
+This is particularly useful when connecting validator clients to
+beacon nodes on different machines or remote servers.
+However, even when serving the HTTP API server over TLS, it should
+not be exposed publicly without one of the security measures suggested
+in the [Security](#security) section.
+
+Below is an simple example serving the HTTP API over TLS using a
+self-signed certificate on Linux:
+
+### Enabling TLS on a beacon node
+Generate a self-signed certificate using `openssl`:
+```bash
+openssl req -x509 -nodes -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+```
+Note that currently Lighthouse only accepts keys that are not password protected.
+This means we need to run with the `-nodes` flag (short for 'no DES').
+
+Once generated, we can run Lighthouse:
+```bash
+lighthouse bn --http --http-enable-tls --http-tls-cert cert.pem --http-tls-key key.pem
+```
+Note that the user running Lighthouse must have permission to read the
+certificate and key.
+
+The API is now being served at `https://localhost:5052`.
+
+To test connectivity, you can run the following:
+```bash
+curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem
+
+```
+### Connecting a validator client
+In order to connect a validator client to a beacon node over TLS, we need to
+add the certificate to the trust store of our operating system.
+The process for this will vary depending on your operating system.
+Below are the instructions for Ubuntu and Arch Linux:
+
+```bash
+# Ubuntu
+sudo cp cert.pem /usr/local/share/ca-certificates/beacon.crt
+sudo update-ca-certificates
+```
+
+```bash
+# Arch
+sudo cp cert.pem /etc/ca-certificates/trust-source/anchors/beacon.crt
+sudo trust extract-compat
+```
+
+Now the validator client can be connected to the beacon node by running:
+```bash
+lighthouse vc --beacon-nodes https://localhost:5052
 ```
 
 ## Troubleshooting

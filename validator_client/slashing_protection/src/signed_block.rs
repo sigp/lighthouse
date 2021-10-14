@@ -1,4 +1,4 @@
-use crate::{hash256_from_row, SigningRoot};
+use crate::{signing_root_from_row, SigningRoot};
 use types::{BeaconBlockHeader, Hash256, SignedRoot, Slot};
 
 /// A block that has previously been signed.
@@ -30,7 +30,7 @@ impl SignedBlock {
     /// Parse an SQLite row of `(slot, signing_root)`.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         let slot = row.get(0)?;
-        let signing_root = hash256_from_row(1, row)?.into();
+        let signing_root = signing_root_from_row(1, row)?;
         Ok(SignedBlock { slot, signing_root })
     }
 }

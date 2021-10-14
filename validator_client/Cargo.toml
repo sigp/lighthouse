@@ -43,7 +43,7 @@ eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
-warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
+warp = { git = "https://github.com/macladson/warp", rev ="dfa259e" }
 hyper = "0.14.4"
 eth2_serde_utils = "0.1.0"
 libsecp256k1 = "0.6.0"
