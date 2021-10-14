@@ -9,9 +9,8 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use store::config::StoreConfig;
     use tokio::runtime::Runtime;
-    use types::{test_utils::generate_deterministic_keypairs, MinimalEthSpec};
+    use types::MinimalEthSpec;
 
     fn get_logger(actual_log: bool) -> Logger {
         if actual_log {
@@ -35,13 +34,12 @@ mod tests {
     fn test_dht_persistence() {
         let log = get_logger(false);
 
-        let beacon_chain = BeaconChainHarness::new_with_store_config(
-            MinimalEthSpec,
-            None,
-            generate_deterministic_keypairs(8),
-            StoreConfig::default(),
-        )
-        .chain;
+        let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+            .default_spec()
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .build()
+            .chain;
 
         let store = beacon_chain.store.clone();
 

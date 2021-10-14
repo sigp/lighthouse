@@ -21,6 +21,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
+use slog::Logger;
 use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -60,6 +61,12 @@ pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
 
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
+
+type BoxedMutator<E, Hot, Cold> = Box<
+    dyn FnOnce(
+        BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+    ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
+>;
 
 pub type AddBlocksResult<E> = (
     HashMap<Slot, SignedBeaconBlockHash>,
@@ -134,6 +141,216 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
     spec
 }
 
+pub struct Builder<T: BeaconChainTypes> {
+    eth_spec_instance: T::EthSpec,
+    spec: Option<ChainSpec>,
+    validator_keypairs: Option<Vec<Keypair>>,
+    chain_config: Option<ChainConfig>,
+    store_config: Option<StoreConfig>,
+    #[allow(clippy::type_complexity)]
+    store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
+    initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
+    store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
+    log: Logger,
+}
+
+impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
+    pub fn fresh_ephemeral_store(mut self) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let validator_keypairs = self
+            .validator_keypairs
+            .clone()
+            .expect("cannot build without validator keypairs");
+
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(
+                self.store_config.clone().unwrap_or_default(),
+                spec.clone(),
+                self.log.clone(),
+            )
+            .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            let genesis_state = interop_genesis_state::<E>(
+                &validator_keypairs,
+                HARNESS_GENESIS_TIME,
+                builder.get_spec(),
+            )
+            .expect("should generate interop state");
+            builder
+                .genesis_state(genesis_state)
+                .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+}
+
+impl<E: EthSpec> Builder<DiskHarnessType<E>> {
+    /// Disk store, start from genesis.
+    pub fn fresh_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+        let validator_keypairs = self
+            .validator_keypairs
+            .clone()
+            .expect("cannot build without validator keypairs");
+
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            let genesis_state = interop_genesis_state::<E>(
+                &validator_keypairs,
+                HARNESS_GENESIS_TIME,
+                builder.get_spec(),
+            )
+            .expect("should generate interop state");
+            builder
+                .genesis_state(genesis_state)
+                .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
+    /// Disk store, resume.
+    pub fn resumed_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .resume_from_db()
+                .expect("should resume from database")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+}
+
+impl<E, Hot, Cold> Builder<BaseHarnessType<E, Hot, Cold>>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
+    pub fn new(eth_spec_instance: E) -> Self {
+        Self {
+            eth_spec_instance,
+            spec: None,
+            validator_keypairs: None,
+            chain_config: None,
+            store_config: None,
+            store: None,
+            initial_mutator: None,
+            store_mutator: None,
+            log: test_logger(),
+        }
+    }
+
+    pub fn deterministic_keypairs(self, num_keypairs: usize) -> Self {
+        self.keypairs(types::test_utils::generate_deterministic_keypairs(
+            num_keypairs,
+        ))
+    }
+
+    pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
+        self.validator_keypairs = Some(validator_keypairs);
+        self
+    }
+
+    pub fn default_spec(self) -> Self {
+        self.spec_or_default(None)
+    }
+
+    pub fn spec(self, spec: ChainSpec) -> Self {
+        self.spec_or_default(Some(spec))
+    }
+
+    pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
+        self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
+        self
+    }
+
+    /// This mutator will be run before the `store_mutator`.
+    pub fn initial_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
+        assert!(
+            self.initial_mutator.is_none(),
+            "initial mutator already set"
+        );
+        self.initial_mutator = Some(mutator);
+        self
+    }
+
+    /// This mutator will be run after the `initial_mutator`.
+    pub fn store_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
+        assert!(self.store_mutator.is_none(), "store mutator already set");
+        self.store_mutator = Some(mutator);
+        self
+    }
+
+    /// Purposefully replace the `store_mutator`.
+    pub fn override_store_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
+        assert!(self.store_mutator.is_some(), "store mutator not set");
+        self.store_mutator = Some(mutator);
+        self
+    }
+
+    pub fn chain_config(mut self, chain_config: ChainConfig) -> Self {
+        self.chain_config = Some(chain_config);
+        self
+    }
+
+    pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
+        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
+
+        let log = test_logger();
+        let spec = self.spec.expect("cannot build without spec");
+        let validator_keypairs = self
+            .validator_keypairs
+            .expect("cannot build without validator keypairs");
+
+        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
+            .logger(log.clone())
+            .custom_spec(spec)
+            .store(self.store.expect("cannot build without store"))
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .shutdown_sender(shutdown_tx)
+            .chain_config(self.chain_config.unwrap_or_default())
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                5,
+            )))
+            .monitor_validators(true, vec![], log);
+
+        builder = if let Some(mutator) = self.initial_mutator {
+            mutator(builder)
+        } else {
+            builder
+        };
+
+        builder = if let Some(mutator) = self.store_mutator {
+            mutator(builder)
+        } else {
+            builder
+        };
+
+        // Initialize the slot clock only if it hasn't already been initialized.
+        builder = if builder.get_slot_clock().is_none() {
+            builder
+                .testing_slot_clock(HARNESS_SLOT_TIME)
+                .expect("should configure testing slot clock")
+        } else {
+            builder
+        };
+
+        let chain = builder.build().expect("should build");
+
+        BeaconChainHarness {
+            spec: chain.spec.clone(),
+            chain: Arc::new(chain),
+            validator_keypairs,
+            shutdown_receiver,
+            rng: make_rng(),
+        }
+    }
+}
+
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
 /// attestations.
 ///
@@ -158,205 +375,14 @@ pub type HarnessSyncContributions<E> = Vec<(
     Option<SignedContributionAndProof<E>>,
 )>;
 
-impl<E: EthSpec> BeaconChainHarness<EphemeralHarnessType<E>> {
-    pub fn new(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        validator_keypairs: Vec<Keypair>,
-    ) -> Self {
-        Self::new_with_store_config(
-            eth_spec_instance,
-            spec,
-            validator_keypairs,
-            StoreConfig::default(),
-        )
-    }
-
-    pub fn new_with_store_config(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        validator_keypairs: Vec<Keypair>,
-        config: StoreConfig,
-    ) -> Self {
-        Self::new_with_chain_config(
-            eth_spec_instance,
-            spec,
-            validator_keypairs,
-            config,
-            ChainConfig::default(),
-        )
-    }
-
-    pub fn new_with_chain_config(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        validator_keypairs: Vec<Keypair>,
-        store_config: StoreConfig,
-        chain_config: ChainConfig,
-    ) -> Self {
-        Self::ephemeral_with_mutator(
-            eth_spec_instance,
-            spec,
-            validator_keypairs,
-            store_config,
-            chain_config,
-            |x| x,
-        )
-    }
-
-    pub fn ephemeral_with_mutator(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        validator_keypairs: Vec<Keypair>,
-        store_config: StoreConfig,
-        chain_config: ChainConfig,
-        mutator: impl FnOnce(
-            BeaconChainBuilder<EphemeralHarnessType<E>>,
-        ) -> BeaconChainBuilder<EphemeralHarnessType<E>>,
-    ) -> Self {
-        let spec = spec.unwrap_or_else(test_spec::<E>);
-        let log = test_logger();
-        let store = Arc::new(HotColdDB::open_ephemeral(store_config, spec.clone(), log).unwrap());
-        Self::new_with_mutator(
-            eth_spec_instance,
-            spec,
-            store,
-            validator_keypairs.clone(),
-            chain_config,
-            |mut builder| {
-                builder = mutator(builder);
-                let genesis_state = interop_genesis_state::<E>(
-                    &validator_keypairs,
-                    HARNESS_GENESIS_TIME,
-                    builder.get_spec(),
-                )
-                .expect("should generate interop state");
-                builder
-                    .genesis_state(genesis_state)
-                    .expect("should build state using recent genesis")
-            },
-        )
-    }
-}
-
-impl<E: EthSpec> BeaconChainHarness<DiskHarnessType<E>> {
-    /// Disk store, start from genesis.
-    pub fn new_with_disk_store(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
-        validator_keypairs: Vec<Keypair>,
-    ) -> Self {
-        let spec = spec.unwrap_or_else(test_spec::<E>);
-
-        let chain_config = ChainConfig::default();
-
-        Self::new_with_mutator(
-            eth_spec_instance,
-            spec,
-            store,
-            validator_keypairs.clone(),
-            chain_config,
-            |builder| {
-                let genesis_state = interop_genesis_state::<E>(
-                    &validator_keypairs,
-                    HARNESS_GENESIS_TIME,
-                    builder.get_spec(),
-                )
-                .expect("should generate interop state");
-                builder
-                    .genesis_state(genesis_state)
-                    .expect("should build state using recent genesis")
-            },
-        )
-    }
-
-    /// Disk store, resume.
-    pub fn resume_from_disk_store(
-        eth_spec_instance: E,
-        spec: Option<ChainSpec>,
-        store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
-        validator_keypairs: Vec<Keypair>,
-    ) -> Self {
-        let spec = spec.unwrap_or_else(test_spec::<E>);
-
-        let chain_config = ChainConfig::default();
-
-        Self::new_with_mutator(
-            eth_spec_instance,
-            spec,
-            store,
-            validator_keypairs,
-            chain_config,
-            |builder| {
-                builder
-                    .resume_from_db()
-                    .expect("should resume from database")
-            },
-        )
-    }
-}
-
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,
     Hot: ItemStore<E>,
     Cold: ItemStore<E>,
 {
-    /// Generic initializer.
-    ///
-    /// This initializer should be able to handle almost any configuration via arguments and the
-    /// provided `mutator` function. Please do not copy and paste this function.
-    pub fn new_with_mutator(
-        eth_spec_instance: E,
-        spec: ChainSpec,
-        store: Arc<HotColdDB<E, Hot, Cold>>,
-        validator_keypairs: Vec<Keypair>,
-        chain_config: ChainConfig,
-        mutator: impl FnOnce(
-            BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-        ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
-    ) -> Self {
-        let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
-
-        let log = test_logger();
-
-        let mut builder = BeaconChainBuilder::new(eth_spec_instance)
-            .logger(log.clone())
-            .custom_spec(spec)
-            .store(store)
-            .store_migrator_config(MigratorConfig::default().blocking())
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .shutdown_sender(shutdown_tx)
-            .chain_config(chain_config)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-                log.clone(),
-                5,
-            )))
-            .monitor_validators(true, vec![], log);
-
-        // Caller must initialize genesis state.
-        builder = mutator(builder);
-
-        // Initialize the slot clock only if it hasn't already been initialized.
-        builder = if builder.get_slot_clock().is_none() {
-            builder
-                .testing_slot_clock(HARNESS_SLOT_TIME)
-                .expect("should configure testing slot clock")
-        } else {
-            builder
-        };
-
-        let chain = builder.build().expect("should build");
-
-        Self {
-            spec: chain.spec.clone(),
-            chain: Arc::new(chain),
-            validator_keypairs,
-            shutdown_receiver,
-            rng: make_rng(),
-        }
+    pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
+        Builder::new(eth_spec_instance)
     }
 
     pub fn logger(&self) -> &slog::Logger {
