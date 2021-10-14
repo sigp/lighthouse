@@ -368,7 +368,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             },
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
-            enable_per_validator_metrics: config.enable_per_validator_metrics,
+            enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
         });
 
         // Update the metrics server.

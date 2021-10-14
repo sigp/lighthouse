@@ -54,7 +54,7 @@ pub struct Config {
     /// for all our managed validators.
     /// Note: We publish validator specific metrics for low validator counts without this flag
     /// (<= 64 validators)
-    pub enable_per_validator_metrics: bool,
+    pub enable_high_validator_count_metrics: bool,
 }
 
 impl Default for Config {
@@ -85,7 +85,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
-            enable_per_validator_metrics: false,
+            enable_high_validator_count_metrics: false,
         }
     }
 }
@@ -243,8 +243,8 @@ impl Config {
             config.http_metrics.enabled = true;
         }
 
-        if cli_args.is_present("enable-per-validator-metrics") {
-            config.enable_per_validator_metrics = true;
+        if cli_args.is_present("enable-high-validator-count-metrics") {
+            config.enable_high_validator_count_metrics = true;
         }
 
         if let Some(address) = cli_args.value_of("metrics-address") {

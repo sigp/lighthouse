@@ -127,7 +127,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// This functionality is a little redundant since most BNs will likely reject duties when they
     /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
-    pub enable_per_validator_metrics: bool,
+    pub enable_high_validator_count_metrics: bool,
     pub context: RuntimeContext<E>,
     pub spec: ChainSpec,
 }
@@ -230,7 +230,7 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
 
     /// Returns `true` if we should collect per validator metrics and `false` otherwise.
     pub fn per_validator_metrics(&self) -> bool {
-        self.enable_per_validator_metrics
+        self.enable_high_validator_count_metrics
             || self.total_validator_count() <= VALIDATOR_METRICS_MIN_COUNT
     }
 }
