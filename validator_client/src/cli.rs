@@ -204,8 +204,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("enable-per-validator-metrics")
                 .long("enable-per-validator-metrics")
-                .help("Enable metrics for per validator attestation for > 64 validators. \
-                    Note: This flag is automatically enabled for < 64 validators. \
+                .help("Enable per validator metrics for > 64 validators. \
+                    Note: This flag is automatically enabled for <= 64 validators. \
                     Enabling this metric for higher validator counts will lead to higher volume \
                     of prometheus metrics being collected.")
                 .takes_value(false),

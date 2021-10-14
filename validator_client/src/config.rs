@@ -53,7 +53,7 @@ pub struct Config {
     /// If true, then we publish validator specific metrics (e.g next attestation duty slot)
     /// for all our managed validators.
     /// Note: We publish validator specific metrics for low validator counts without this flag
-    /// (< 64 validators)
+    /// (<= 64 validators)
     pub enable_per_validator_metrics: bool,
 }
 
