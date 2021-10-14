@@ -1,11 +1,18 @@
 //! Implementation of Lighthouse's peer management system.
+//! The PeerManager manages scoring of peers with respect to their behaviour in different
+//! protocols, mainly the RPC and Gossipsub. Based on certain conditions, including peers' scores
+//! the PeerManager will also disconnect, ban, and request searching or dialing peers. Additionally
+//! it manages the intervals at which peers mut be ping'd and status'd to stay healthy.
+// TODO(@me): I'm trying to understand what is the peer manager at this point. It does a lot of
+// stuff wrt to all behaviours/protocols it seems. TODO: Remove/improve this
 
 use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
-use crate::types::SyncState;
+use crate::types::Subnet;
+use crate::types::{Owner, ReadOnly, SyncState};
+use crate::PeerId;
+use crate::SubnetDiscovery;
 use crate::{error, metrics, Gossipsub};
-use crate::{NetworkConfig, NetworkGlobals, PeerId};
-use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use futures::prelude::*;
 use futures::Stream;
@@ -17,7 +24,6 @@ use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
@@ -27,6 +33,7 @@ pub use libp2p::core::{identity::Keypair, Multiaddr};
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
+pub use peerdb::PeerDB;
 
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
@@ -35,37 +42,15 @@ use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
-
-/// The time in seconds between re-status's peers.
-const STATUS_INTERVAL: u64 = 300;
-/// The time in seconds between PING events. We do not send a ping if the other peer has PING'd us
-/// within this time frame (Seconds)
-/// This is asymmetric to avoid simultaneous pings.
-/// The interval for outbound connections.
-const PING_INTERVAL_OUTBOUND: u64 = 15;
-/// The interval for inbound connections.
-const PING_INTERVAL_INBOUND: u64 = 20;
-
-/// The heartbeat performs regular updates such as updating reputations and performing discovery
-/// requests. This defines the interval in seconds.
-const HEARTBEAT_INTERVAL: u64 = 30;
-
-/// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
-/// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
-/// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
-pub const PEER_EXCESS_FACTOR: f32 = 0.1;
-/// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
-pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
-/// The fraction of extra peers beyond the PEER_EXCESS_FACTOR that we allow us to dial for when
-/// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
-/// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
-/// dialing priority peers we need for validator duties.
-pub const PRIORITY_PEER_EXCESS: f32 = 0.05;
+pub mod config;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
-    /// Storage of network globals to access the `PeerDB`.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    peer_db: Owner<PeerDB<TSpec>>,
+    /// Syncing state of the node.
+    // TODO: This means the PeerManager has also write access to this. Same strategy could apply to
+    // the sync state, being sync who provides a read only access struct to it.
+    sync_state: ReadOnly<SyncState>,
     /// A queue of events that the `PeerManager` is waiting to produce.
     events: SmallVec<[PeerManagerEvent; 16]>,
     /// A collection of inbound-connected peers awaiting to be Ping'd.
@@ -118,25 +103,39 @@ pub enum PeerManagerEvent {
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
     pub async fn new(
-        config: &NetworkConfig,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
+        cfg: config::Config,
+        sync_state: ReadOnly<SyncState>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
         // Set up the peer manager heartbeat interval
-        let heartbeat = tokio::time::interval(tokio::time::Duration::from_secs(HEARTBEAT_INTERVAL));
+        let heartbeat =
+            tokio::time::interval(tokio::time::Duration::from_secs(config::HEARTBEAT_INTERVAL));
+        let config::Config {
+            discovery_enabled,
+            target_peer_count,
+            status_interval,
+            ping_interval_inbound,
+            ping_interval_outbound,
+            trusted_peers,
+        } = cfg;
 
         Ok(PeerManager {
-            network_globals,
+            peer_db: Owner::new(PeerDB::new(trusted_peers, log)),
+            sync_state,
             events: SmallVec::new(),
-            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_INBOUND)),
-            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_OUTBOUND)),
-            status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
-            target_peers: config.target_peers,
+            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
+            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
+            status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
+            target_peers: target_peer_count,
             sync_committee_subnets: Default::default(),
             heartbeat,
-            discovery_enabled: !config.disable_discovery,
+            discovery_enabled,
             log: log.clone(),
         })
+    }
+
+    pub fn peer_db_access(&self) -> ReadOnly<PeerDB<TSpec>> {
+        self.peer_db.read_access()
     }
 
     /* Public accessible functions */
@@ -147,8 +146,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        // Update the sync status if required
-        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+        // get the peer info
+        if let Some(info) = self.peer_db.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
                 info.update_sync_status(SyncStatus::IrrelevantPeer);
@@ -168,11 +167,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         source: ReportSource,
         reason: Option<GoodbyeReason>,
     ) {
-        let action = self
-            .network_globals
-            .peers
-            .write()
-            .report_peer(peer_id, action, source);
+        let action = self.peer_db.write().report_peer(peer_id, action, source);
         self.handle_score_action(peer_id, action, reason);
     }
 
@@ -256,7 +251,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub fn peers_discovered(&mut self, results: HashMap<PeerId, Option<Instant>>) -> Vec<PeerId> {
         let mut to_dial_peers = Vec::new();
 
-        let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
+        let connected_or_dialing = self.peer_db.read().connected_or_dialing_peer_count();
         for (peer_id, min_ttl) in results {
             // There are two conditions in deciding whether to dial this peer.
             // 1. If we are less than our max connections. Discovery queries are executed to reach
@@ -269,25 +264,22 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if (min_ttl.is_some()
                 && connected_or_dialing + to_dial_peers.len() < self.max_priority_peers()
                 || connected_or_dialing + to_dial_peers.len() < self.max_peers())
-                && self.network_globals.peers.read().should_dial(&peer_id)
+                && self.peer_db.read().should_dial(&peer_id)
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
                 if let Some(min_ttl) = min_ttl {
-                    self.network_globals
-                        .peers
-                        .write()
-                        .update_min_ttl(&peer_id, min_ttl);
+                    self.peer_db.write().update_min_ttl(&peer_id, min_ttl);
                 }
                 to_dial_peers.push(peer_id);
             }
         }
 
         // Queue another discovery if we need to
-        let peer_count = self.network_globals.connected_or_dialing_peers();
-        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let peer_count = self.peer_db.read().connected_or_dialing_peer_count();
+        let outbound_only_peer_count = self.peer_db.read().connected_outbound_only_peer_count();
         let min_outbound_only_target =
-            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
+            (self.target_peers as f32 * config::MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
         if self.discovery_enabled
             && (peer_count < self.target_peers.saturating_sub(to_dial_peers.len())
@@ -324,15 +316,16 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// The maximum number of peers we allow to connect to us. This is `target_peers` * (1 +
     /// PEER_EXCESS_FACTOR)
     fn max_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize
+        (self.target_peers as f32 * (1.0 + config::PEER_EXCESS_FACTOR)).ceil() as usize
     }
 
     /// The maximum number of peers we allow when dialing a priority peer (i.e a peer that is
     /// subscribed to subnets that our validator requires. This is `target_peers` * (1 +
     /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
     fn max_priority_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
-            as usize
+        (self.target_peers as f32
+            * (1.0 + config::PEER_EXCESS_FACTOR + config::PRIORITY_PEER_EXCESS))
+            .ceil() as usize
     }
 
     /* Notifications from the Swarm */
@@ -381,8 +374,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Check the connection limits
         if self.peer_limit_reached()
             && self
-                .network_globals
-                .peers
+                .peer_db
                 .read()
                 .peer_info(&peer_id)
                 .map_or(true, |peer| !peer.has_future_duty())
@@ -412,7 +404,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
+        let connected_peers = self.peer_db.read().connected_peer_count() as i64;
 
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -428,12 +420,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) {
         if num_established == 0 {
             // There are no more connections
-            if self
-                .network_globals
-                .peers
-                .read()
-                .is_connected_or_disconnecting(&peer_id)
-            {
+
+            if self.peer_db.read().is_connected_or_disconnecting(&peer_id) {
                 // We are disconnecting the peer or the peer has already been connected.
                 // Both these cases, the peer has been previously registered by the peer manager and
                 // potentially the application layer.
@@ -444,8 +432,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
                 // Decrement the PEERS_PER_CLIENT metric
                 if let Some(kind) = self
-                    .network_globals
-                    .peers
+                    .peer_db
                     .read()
                     .peer_info(&peer_id)
                     .map(|info| info.client().kind.clone())
@@ -463,7 +450,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // reference so that peer manager can track this peer.
             self.inject_disconnect(&peer_id);
 
-            let connected_peers = self.network_globals.connected_peers() as i64;
+            let connected_peers = self.peer_db.read().connected_peer_count() as i64;
 
             // Update the prometheus metrics
             metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
@@ -478,7 +465,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
     /// the peer is not already connected.
     pub fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        if !self.network_globals.peers.read().is_connected(peer_id) {
+        if !self.peer_db.read().is_connected(peer_id) {
             self.inject_disconnect(peer_id);
         }
     }
@@ -487,22 +474,22 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is used to determine if we should accept incoming connections.
     pub fn ban_status(&self, peer_id: &PeerId) -> BanResult {
-        self.network_globals.peers.read().ban_status(peer_id)
+        self.peer_db.read().ban_status(peer_id)
     }
 
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
-        self.network_globals.peers.read().is_connected(peer_id)
+        self.peer_db.read().is_connected(peer_id)
     }
 
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
     pub fn peer_limit_reached(&self) -> bool {
-        self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+        self.peer_db.read().connected_or_dialing_peer_count() >= self.max_peers()
     }
 
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
-        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+        if let Some(peer_info) = self.peer_db.write().peer_info_mut(peer_id) {
             let previous_kind = peer_info.client().kind.clone();
             let previous_listening_addresses =
                 peer_info.set_listening_addresses(info.listen_addrs.clone());
@@ -548,8 +535,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         err: &RPCError,
         direction: ConnectionDirection,
     ) {
-        let client = self.network_globals.client(peer_id);
-        let score = self.network_globals.peers.read().score(peer_id);
+        let client = self.peer_db.read().client(peer_id);
+        let score = self.peer_db.read().score(peer_id);
         debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
             "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
         metrics::inc_counter_vec(
@@ -647,7 +634,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// A ping request has been received.
     // NOTE: The behaviour responds with a PONG automatically
     pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
-        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
+        if let Some(peer_info) = self.peer_db.read().peer_info(peer_id) {
             // received a ping
             // reset the to-ping timer for this peer
             debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
@@ -684,7 +671,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A PONG has been returned from a peer.
     pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
-        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
+        if let Some(peer_info) = self.peer_db.read().peer_info(peer_id) {
             // received a pong
 
             // if the sequence number is unknown send update the meta data of the peer.
@@ -707,7 +694,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Received a metadata response from a peer.
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
-        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
+        if let Some(peer_info) = self.peer_db.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
@@ -733,8 +720,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Updates the gossipsub scores for all known peers in gossipsub.
     pub(crate) fn update_gossipsub_scores(&mut self, gossipsub: &Gossipsub) {
         let actions = self
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .update_gossipsub_scores(self.target_peers, gossipsub);
 
@@ -775,11 +761,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        let ban_operation = self
-            .network_globals
-            .peers
-            .write()
-            .inject_disconnect(peer_id);
+        let ban_operation = self.peer_db.write().inject_disconnect(peer_id);
 
         if let Some(ban_operation) = ban_operation {
             // The peer was awaiting a ban, continue to ban the peer.
@@ -805,7 +787,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         enr: Option<Enr>,
     ) -> bool {
         {
-            let mut peerdb = self.network_globals.peers.write();
+            let mut peerdb = self.peer_db.write();
             if !matches!(peerdb.ban_status(peer_id), BanResult::NotBanned) {
                 // don't connect if the peer is banned
                 error!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
@@ -832,7 +814,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
+        let connected_peers = self.peer_db.read().connected_peer_count() as i64;
 
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
@@ -841,8 +823,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Increment the PEERS_PER_CLIENT metric
         if let Some(kind) = self
-            .network_globals
-            .peers
+            .peer_db
             .read()
             .peer_info(peer_id)
             .map(|peer_info| peer_info.client().kind.clone())
@@ -861,10 +842,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn disconnect_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         self.events
             .push(PeerManagerEvent::DisconnectPeer(peer_id, reason));
-        self.network_globals
-            .peers
-            .write()
-            .notify_disconnecting(&peer_id, false);
+        self.peer_db.write().notify_disconnecting(&peer_id, false);
     }
 
     /// Run discovery query for additional sync committee peers if we fall below `TARGET_PEERS`.
@@ -878,8 +856,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .iter()
             .filter_map(|(k, v)| {
                 if self
-                    .network_globals
-                    .peers
+                    .peer_db
                     .read()
                     .good_peers_on_subnet(Subnet::SyncCommittee(*k))
                     .count()
@@ -914,10 +891,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
-        let peer_count = self.network_globals.connected_or_dialing_peers();
-        let mut outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let peer_count = self.peer_db.read().connected_or_dialing_peer_count();
+        let mut outbound_only_peer_count = self.peer_db.read().connected_outbound_only_peer_count();
         let min_outbound_only_target =
-            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
+            (self.target_peers as f32 * config::MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
         if self.discovery_enabled
             && (peer_count < self.target_peers
@@ -929,7 +906,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // Updates peer's scores and unban any peers if required.
-        let actions = self.network_globals.peers.write().update_scores();
+        let actions = self.peer_db.write().update_scores();
         for (peer_id, action) in actions {
             self.handle_score_action(&peer_id, action, None);
         }
@@ -940,15 +917,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Keep a list of peers we are disconnecting
         let mut disconnecting_peers = Vec::new();
 
-        let connected_peer_count = self.network_globals.connected_peers();
+        let connected_peer_count = self.peer_db.read().connected_peer_count();
         if connected_peer_count > self.target_peers {
             // Remove excess peers with the worst scores, but keep subnet peers.
             // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
-            outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+            outbound_only_peer_count = self.peer_db.read().connected_outbound_only_peer_count();
             let mut n_outbound_removed = 0;
             for (peer_id, info) in self
-                .network_globals
-                .peers
+                .peer_db
                 .read()
                 .worst_connected_peers()
                 .iter()
@@ -971,6 +947,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         for peer_id in disconnecting_peers {
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
         }
+    }
+
+    pub(crate) fn extend_peers_on_subnet(&self, subnet: &Subnet, min_ttl: Instant) {
+        self.peer_db.write().extend_peers_on_subnet(subnet, min_ttl);
     }
 }
 
@@ -1011,7 +991,7 @@ impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
         }
 
         if !matches!(
-            self.network_globals.sync_state(),
+            self.sync_state.read().clone(),
             SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
         ) {
             loop {
@@ -1056,22 +1036,10 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discovery::enr::build_enr;
-    use crate::discovery::enr_ext::CombinedKeyExt;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
-    use crate::Enr;
-    use discv5::enr::CombinedKey;
     use slog::{o, Drain};
-    use std::net::UdpSocket;
-    use types::{EnrForkId, MinimalEthSpec};
+    use types::MinimalEthSpec;
 
     type E = MinimalEthSpec;
-
-    pub fn unused_port() -> u16 {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
-        let local_addr = socket.local_addr().expect("should read udp socket");
-        local_addr.port()
-    }
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1086,28 +1054,13 @@ mod tests {
     }
 
     async fn build_peer_manager(target: usize) -> PeerManager<E> {
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let config = NetworkConfig {
-            discovery_port: unused_port(),
-            target_peers: target,
+        let cfg = config::Config {
+            target_peer_count: target,
             ..Default::default()
         };
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new(
-            enr,
-            9000,
-            9000,
-            MetaData::V2(MetaDataV2 {
-                seq_number: 0,
-                attnets: Default::default(),
-                syncnets: Default::default(),
-            }),
-            vec![],
-            &log,
-        );
-        PeerManager::new(&config, Arc::new(globals), &log)
+        let sync_state = Owner::new(SyncState::Stalled);
+        PeerManager::new(cfg, sync_state.read_access(), &log)
             .await
             .unwrap()
     }
@@ -1140,45 +1093,59 @@ mod tests {
 
         // Set the outbound-only peers to have the lowest score.
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&outbound_only_peer1)
             .unwrap()
             .add_to_score(-1.0);
 
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&outbound_only_peer2)
             .unwrap()
             .add_to_score(-2.0);
 
         // Check initial connected peers.
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 5);
+        assert_eq!(
+            peer_manager
+                .peer_db
+                .read()
+                .connected_or_dialing_peer_count(),
+            5
+        );
 
         peer_manager.heartbeat();
 
         // Check that we disconnected from two peers.
         // Check that one outbound-only peer was removed because it had the worst score
         // and that we did not disconnect the other outbound peer due to the minimum outbound quota.
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
+        assert_eq!(
+            peer_manager
+                .peer_db
+                .read()
+                .connected_or_dialing_peer_count(),
+            3
+        );
         assert!(peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .read()
             .is_connected(&outbound_only_peer1));
         assert!(!peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .read()
             .is_connected(&outbound_only_peer2));
 
         peer_manager.heartbeat();
 
         // Check that if we are at target number of peers, we do not disconnect any.
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
+        assert_eq!(
+            peer_manager
+                .peer_db
+                .read()
+                .connected_or_dialing_peer_count(),
+            3
+        );
     }
 
     #[tokio::test]
@@ -1200,8 +1167,7 @@ mod tests {
             None,
         );
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(outbound_only_peer))
             .unwrap()
@@ -1210,7 +1176,10 @@ mod tests {
         // Having less outbound-only peers than minimum won't cause panic when the outbound-only peer is being considered for disconnection.
         peer_manager.heartbeat();
         assert_eq!(
-            peer_manager.network_globals.connected_or_dialing_peers(),
+            peer_manager
+                .peer_db
+                .read()
+                .connected_or_dialing_peer_count(),
             20
         );
     }
@@ -1241,29 +1210,25 @@ mod tests {
             None,
         );
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .add_to_score(-19.8);
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(outbound_only_peer1))
             .unwrap()
             .add_to_score(-19.8);
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .set_gossipsub_score(-85.0);
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(outbound_only_peer1))
             .unwrap()
@@ -1271,7 +1236,13 @@ mod tests {
         peer_manager.heartbeat();
         // Tests that when we are over the target peer limit, after disconnecting one unhealthy peer,
         // the loop to check for disconnecting peers will stop because we have removed enough peers (only needed to remove 1 to reach target).
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
+        assert_eq!(
+            peer_manager
+                .peer_db
+                .read()
+                .connected_or_dialing_peer_count(),
+            3
+        );
     }
 
     #[tokio::test]
@@ -1301,15 +1272,13 @@ mod tests {
             None,
         );
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .add_to_score(-19.9);
         peer_manager
-            .network_globals
-            .peers
+            .peer_db
             .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
@@ -1318,6 +1287,12 @@ mod tests {
         peer_manager.heartbeat();
         // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
         // the number of connected peers updates and we will not remove too many peers.
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
+        assert_eq!(
+            peer_manager
+                .peer_db
+                .read()
+                .connected_or_dialing_peer_count(),
+            3
+        );
     }
 }

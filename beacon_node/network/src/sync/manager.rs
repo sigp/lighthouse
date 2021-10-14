@@ -43,9 +43,9 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
-use eth2_libp2p::types::{NetworkGlobals, SyncState};
-use eth2_libp2p::SyncInfo;
+use eth2_libp2p::types::{NetworkGlobals, Owner, ReadOnly, SyncState};
 use eth2_libp2p::{PeerAction, PeerId};
+use eth2_libp2p::{PeerDB, SyncInfo};
 use fnv::FnvHashMap;
 use lru_cache::LRUCache;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -166,7 +166,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     chain: Arc<BeaconChain<T>>,
 
     /// A reference to the network globals and peer-db.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+    peer_db: ReadOnly<PeerDB<T::EthSpec>>,
+
+    /// Global syncing state.
+    sync_state: Owner<SyncState>,
 
     /// A receiving channel sent by the message processor thread.
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
@@ -236,6 +239,7 @@ pub fn spawn<T: BeaconChainTypes>(
 
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
+        sync_state: Owner::new(SyncState::Stalled),
         range_sync: RangeSync::new(
             beacon_chain.clone(),
             beacon_processor_send.clone(),
@@ -249,7 +253,7 @@ pub fn spawn<T: BeaconChainTypes>(
         ),
         network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         chain: beacon_chain,
-        network_globals,
+        peer_db: network_globals.peers.clone(),
         input_channel: sync_recv,
         parent_queue: SmallVec::new(),
         failed_chains: LRUCache::new(500),
@@ -519,7 +523,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// to find the parent or chain of parents that match our current chain.
     fn add_unknown_block(&mut self, peer_id: PeerId, block: SignedBeaconBlock<T::EthSpec>) {
         // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
-        if !self.network_globals.sync_state.read().is_synced() {
+        if !self.sync_state.read().is_synced() {
             let head_slot = self
                 .chain
                 .head_info()
@@ -576,7 +580,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// request to find the requested block.
     fn search_for_block(&mut self, peer_id: PeerId, block_hash: Hash256) {
         // If we are not synced, ignore this block
-        if !self.network_globals.sync_state.read().is_synced() {
+        if !self.sync_state.read().is_synced() {
             return;
         }
 
@@ -683,6 +687,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    /// Updates the syncing state of the node.
+    ///
+    /// The old state is returned
+    fn set_sync_state(&self, new_state: SyncState) -> SyncState {
+        std::mem::replace(&mut *self.sync_state.write(), new_state)
+    }
+
     /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as
     /// logging any changes.
     ///
@@ -712,7 +723,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
                         let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
-                        let peers = self.network_globals.peers.read();
+                        let peers = self.peer_db.read();
                         if current_slot >= head
                             && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
                             && head > 0
@@ -774,8 +785,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             },
         };
 
-        let old_state = self.network_globals.set_sync_state(new_state);
-        let new_state = self.network_globals.sync_state.read();
+        let old_state = self.set_sync_state(new_state);
+        let new_state = *self.sync_state.read();
         if !new_state.eq(&old_state) {
             info!(self.log, "Sync state updated"; "old_state" => %old_state, "new_state" => %new_state);
             // If we have become synced - Subscribe to all the core subnet topics

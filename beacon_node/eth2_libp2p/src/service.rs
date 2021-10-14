@@ -1,19 +1,29 @@
-use crate::behaviour::{
-    save_metadata_to_disk, Behaviour, BehaviourEvent, PeerRequestId, Request, Response,
-};
+//! What does the service do:
+//!
+//! init:
+//! - Creates the swarm and the behaviour.
+//! - Dials initial peers.
+//! - Gives access to the public behaviour methods.
+//! running:
+//! - Unifies events to emit.
+//! - Handles banning of peers since there is now way of doing it at the swarm level from the
+//! behaviour.
+use crate::behaviour::{save_metadata_to_disk, Behaviour, BehaviourEvent};
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{
-    GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, RequestId,
+use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
+use crate::types::{
+    error, BackFillState, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind, ReadOnly,
+    SyncState,
 };
-use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind};
 use crate::EnrExt;
-use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
+use crate::{NetworkConfig, NetworkGlobals};
 use futures::prelude::*;
 use libp2p::core::{
     connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
     transport::Boxed,
 };
+
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
@@ -29,7 +39,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
 
-use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::peer_manager::config::{
+    MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS,
+};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -53,7 +65,7 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service<TSpec: EthSpec> {
     /// The libp2p Swarm handler.
-    pub swarm: Swarm<Behaviour<TSpec>>,
+    swarm: Swarm<Behaviour<TSpec>>,
     /// The bandwidth logger for the underlying libp2p transport.
     pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
@@ -70,6 +82,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         log: &Logger,
         fork_context: Arc<ForkContext>,
         chain_spec: &ChainSpec,
+        sync_state: (ReadOnly<SyncState>, ReadOnly<BackFillState>),
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
         trace!(log, "Libp2p Service starting");
@@ -78,26 +91,16 @@ impl<TSpec: EthSpec> Service<TSpec> {
         let local_keypair = load_private_key(config, &log);
 
         // Create an ENR or load from disk if appropriate
-        let enr =
-            enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, enr_fork_id, &log)?;
+        let enr = enr::build_or_load_enr::<TSpec>(
+            local_keypair.clone(),
+            config,
+            enr_fork_id.clone(),
+            &log,
+        )?;
 
         let local_peer_id = enr.peer_id();
 
         let meta_data = load_or_build_metadata(&config.network_dir, &log);
-
-        // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(
-            enr.clone(),
-            config.libp2p_port,
-            config.discovery_port,
-            meta_data,
-            config
-                .trusted_peers
-                .iter()
-                .map(|x| PeerId::from(x.clone()))
-                .collect(),
-            &log,
-        ));
 
         info!(log, "Libp2p Service"; "peer_id" => %enr.peer_id());
         let discovery_string = if config.disable_discovery {
@@ -107,18 +110,23 @@ impl<TSpec: EthSpec> Service<TSpec> {
         };
         debug!(log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
-        let (mut swarm, bandwidth) = {
+        let (mut swarm, bandwidth, network_globals) = {
             // Set up the transport - tcp/ws with noise and mplex
             let (transport, bandwidth) = build_transport(local_keypair.clone())
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
+            let (forward_sync_state, backfill_state) = sync_state;
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(
+            let (behaviour, network_globals) = Behaviour::new(
                 &local_keypair,
-                config.clone(),
-                network_globals.clone(),
+                config.clone(), // TODO: remove this
+                forward_sync_state,
+                backfill_state,
+                enr_fork_id,
                 &log,
+                enr,
                 fork_context,
+                meta_data,
                 chain_spec,
             )
             .await?;
@@ -157,6 +165,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     .executor(Box::new(Executor(executor)))
                     .build(),
                 bandwidth,
+                network_globals,
             )
         };
 
@@ -206,6 +215,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
         let mut boot_nodes = config.boot_nodes_enr.clone();
         boot_nodes.dedup();
 
+        // TODO: move to the behaviour
         for bootnode_enr in boot_nodes {
             for multiaddr in &bootnode_enr.multiaddr() {
                 // ignore udp multiaddr if it exists
@@ -213,14 +223,14 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 if let Protocol::Udp(_) = components[1] {
                     continue;
                 }
-
-                if !network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&bootnode_enr.peer_id())
-                {
-                    dial_addr(multiaddr.clone());
-                }
+                //
+                //     if !network_globals
+                //         .peers
+                //         .read()
+                //         .is_connected_or_dialing(&bootnode_enr.peer_id())
+                //     {
+                //         dial_addr(multiaddr.clone());
+                //     }
             }
         }
 
@@ -255,49 +265,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
             log,
         };
 
-        Ok((network_globals, service))
+        Ok((Arc::new(network_globals), service))
     }
 
-    /// Sends a request to a peer, with a given Id.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
-        self.swarm
-            .behaviour_mut()
-            .send_request(peer_id, request_id, request);
+    /// Get access to the underlying behaviour.
+    pub fn b(&self) -> &Behaviour<TSpec> {
+        self.swarm.behaviour()
     }
 
-    /// Informs the peer that their request failed.
-    pub fn respond_with_error(
-        &mut self,
-        peer_id: PeerId,
-        id: PeerRequestId,
-        error: RPCResponseErrorCode,
-        reason: String,
-    ) {
-        self.swarm
-            .behaviour_mut()
-            .send_error_reponse(peer_id, id, error, reason);
-    }
-
-    /// Report a peer's action.
-    pub fn report_peer(&mut self, peer_id: &PeerId, action: PeerAction, source: ReportSource) {
-        self.swarm
-            .behaviour_mut()
-            .peer_manager_mut()
-            .report_peer(peer_id, action, source, None);
-    }
-
-    /// Disconnect and ban a peer, providing a reason.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        self.swarm
-            .behaviour_mut()
-            .goodbye_peer(peer_id, reason, source);
-    }
-
-    /// Sends a response to a peer's request.
-    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
-        self.swarm
-            .behaviour_mut()
-            .send_successful_response(peer_id, id, response);
+    /// Get mutable access to the underlying behaviour.
+    pub fn b_mut(&mut self) -> &mut Behaviour<TSpec> {
+        self.swarm.behaviour_mut()
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
@@ -346,7 +324,12 @@ impl<TSpec: EthSpec> Service<TSpec> {
                         .inject_connection_closed(peer_id, endpoint, num_established);
                 }
                 SwarmEvent::NewListenAddr { address, .. } => {
-                    return Libp2pEvent::NewListenAddr(address)
+                    self.swarm.behaviour_mut().new_listen_addr(address.clone());
+                    return Libp2pEvent::NewListenAddr(address);
+                }
+                SwarmEvent::ExpiredListenAddr { address, .. } => {
+                    // TODO: remove the address?
+                    debug!(self.log, "Listen address expired"; "address" => %address)
                 }
                 SwarmEvent::IncomingConnection {
                     local_addr,
@@ -378,9 +361,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
                 SwarmEvent::UnknownPeerUnreachableAddr { address, error } => {
                     debug!(self.log, "Peer not known at dialed address"; "address" => %address, "error" => %error);
-                }
-                SwarmEvent::ExpiredListenAddr { address, .. } => {
-                    debug!(self.log, "Listen address expired"; "address" => %address)
                 }
                 SwarmEvent::ListenerClosed {
                     addresses, reason, ..

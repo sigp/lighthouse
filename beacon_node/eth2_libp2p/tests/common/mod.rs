@@ -120,6 +120,9 @@ pub async fn build_libp2p_instance(
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     let fork_context = Arc::new(fork_context());
+    use eth2_libp2p::types::{BackFillState, Owner, SyncState};
+    let forward_sync_state = Owner::new(SyncState::Stalled);
+    let backfill_sync_state = Owner::new(BackFillState::NotRequired);
     Libp2pInstance(
         LibP2PService::new(
             executor,
@@ -128,6 +131,10 @@ pub async fn build_libp2p_instance(
             &log,
             fork_context,
             &ChainSpec::minimal(),
+            (
+                forward_sync_state.read_access(),
+                backfill_sync_state.read_access(),
+            ),
         )
         .await
         .expect("should build libp2p instance")
@@ -138,7 +145,7 @@ pub async fn build_libp2p_instance(
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<E>) -> Enr {
-    node.swarm.behaviour().local_enr()
+    node.local_enr()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
@@ -183,7 +190,7 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log).await;
 
-    let receiver_multiaddr = receiver.swarm.behaviour_mut().local_enr().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {
