@@ -166,7 +166,7 @@ impl<PublicKey, T: TSignature<PublicKey>> fmt::Debug for GenericSignature<Public
 }
 
 #[cfg(feature = "arbitrary")]
-impl<PublicKey: 'static, T: TSignature<PublicKey> + 'static> arbitrary::Arbitrary
+impl<PublicKey: 'static, T: TSignature<PublicKey> + 'static> arbitrary::Arbitrary<'_>
     for GenericSignature<PublicKey, T>
 {
     impl_arbitrary!(SIGNATURE_BYTES_LEN);

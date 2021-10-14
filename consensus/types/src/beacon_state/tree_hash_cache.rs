@@ -589,7 +589,7 @@ impl OptionalTreeHashCacheInner {
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
-impl<T: EthSpec> arbitrary::Arbitrary for BeaconTreeHashCache<T> {
+impl<T: EthSpec> arbitrary::Arbitrary<'_> for BeaconTreeHashCache<T> {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())
     }
