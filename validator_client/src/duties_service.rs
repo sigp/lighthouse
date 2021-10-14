@@ -40,6 +40,11 @@ const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 
+/// Minimum number of validators for which we auto-enable per-validator metrics.
+/// For validators greater than this value, we need to manually set the `enable-per-validator-metrics`
+/// flag in the cli to enable collection of per validator metrics.
+const VALIDATOR_METRICS_MIN_COUNT: usize = 64;
+
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlotClock,
@@ -122,6 +127,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// This functionality is a little redundant since most BNs will likely reject duties when they
     /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
+    pub enable_per_validator_metrics: bool,
     pub context: RuntimeContext<E>,
     pub spec: ChainSpec,
 }
@@ -220,6 +226,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             })
             .cloned()
             .collect()
+    }
+
+    /// Returns `true` if we should collect per validator metrics and `false` otherwise.
+    pub fn per_validator_metrics(&self) -> bool {
+        self.enable_per_validator_metrics
+            || self.total_validator_count() <= VALIDATOR_METRICS_MIN_COUNT
     }
 }
 
@@ -656,21 +668,23 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             .into_iter()
             .filter(|duty| local_pubkeys.contains(&duty.pubkey))
             .filter(|duty| {
-                let validator_index = duty.validator_index;
-                let slot = duty.slot;
-                if let Some(existing_slot) =
-                    get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
-                {
-                    let existing = Slot::new(existing_slot.get() as u64);
-                    if existing < current_slot || slot < existing {
-                        existing_slot.set(slot.as_u64() as i64);
+                if duties_service.per_validator_metrics() {
+                    let validator_index = duty.validator_index;
+                    let slot = duty.slot;
+                    if let Some(existing_slot) =
+                        get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
+                    {
+                        let existing = Slot::new(existing_slot.get() as u64);
+                        if existing < current_slot || slot < existing {
+                            existing_slot.set(slot.as_u64() as i64);
+                        }
+                    } else {
+                        set_int_gauge(
+                            &ATTESTATION_DUTY,
+                            &[&validator_index.to_string()],
+                            slot.as_u64() as i64,
+                        );
                     }
-                } else {
-                    set_int_gauge(
-                        &ATTESTATION_DUTY,
-                        &[&validator_index.to_string()],
-                        slot.as_u64() as i64,
-                    );
                 }
 
                 // Only update the duties if either is true:

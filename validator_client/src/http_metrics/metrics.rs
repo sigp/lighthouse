@@ -151,7 +151,7 @@ lazy_static::lazy_static! {
 
     pub static ref ATTESTATION_DUTY: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "vc_attestation_duty_slot",
-        "Attestation duty slot for all validators managed",
+        "Attestation duty slot for all managed validators",
         &["validator"]
     );
 }
