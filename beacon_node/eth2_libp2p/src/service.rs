@@ -320,7 +320,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     peer_id: _,
                     endpoint: _,
                     num_established: _,
-                    outgoing: _,
+                    concurrent_dial_errors: _,
                 } => {}
                 SwarmEvent::ConnectionClosed {
                     peer_id: _,
