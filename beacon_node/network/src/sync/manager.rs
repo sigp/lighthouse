@@ -219,6 +219,18 @@ impl SingleBlockRequest {
     }
 }
 
+/// Get the appropriate channels for the sync manager.
+pub fn sync_channels<T: BeaconChainTypes>() -> (
+    mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+) {
+    assert!(
+        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
+    );
+    mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>()
+}
+
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
 /// chain. This allows the chain to be
 /// dropped during the syncing process which will gracefully end the `SyncManager`.
@@ -228,15 +240,9 @@ pub fn spawn<T: BeaconChainTypes>(
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
+    sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
-) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
-    assert!(
-        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
-        "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
-    );
-    // generate the message channel
-    let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
-
+) {
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
         sync_state: Owner::new(SyncState::Stalled),
@@ -265,7 +271,6 @@ pub fn spawn<T: BeaconChainTypes>(
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-    sync_send
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {

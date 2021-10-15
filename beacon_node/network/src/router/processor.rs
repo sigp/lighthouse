@@ -39,21 +39,12 @@ impl<T: BeaconChainTypes> Processor<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
         log: &slog::Logger,
     ) -> Self {
         let sync_logger = log.new(o!("service"=> "sync"));
         let (beacon_processor_send, beacon_processor_receive) =
             mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-
-        // spawn the sync thread
-        let sync_send = crate::sync::manager::spawn(
-            executor.clone(),
-            beacon_chain.clone(),
-            network_globals.clone(),
-            network_send.clone(),
-            beacon_processor_send.clone(),
-            sync_logger,
-        );
 
         BeaconProcessor {
             beacon_chain: Arc::downgrade(&beacon_chain),

@@ -7,7 +7,7 @@
 
 mod processor;
 
-use crate::error;
+use crate::{error, sync::SyncMessage};
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::{
@@ -74,6 +74,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
         executor: task_executor::TaskExecutor,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
@@ -88,6 +89,7 @@ impl<T: BeaconChainTypes> Router<T> {
             beacon_chain,
             network_globals.clone(),
             network_send,
+            sync_send,
             &log,
         );
 

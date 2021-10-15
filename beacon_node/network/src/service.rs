@@ -222,6 +222,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch derived network services
 
+        // spawn the sync thread
+
+        let (sync_send, sync_recv) = crate::sync::manager::sync_channels();
+        crate::sync::manager::spawn(
+            executor.clone(),
+            beacon_chain.clone(),
+            network_globals.clone(),
+            network_send.clone(),
+            beacon_processor_send.clone(),
+            sync_logger,
+        );
+
         // router task
         let router_send = Router::spawn(
             beacon_chain.clone(),

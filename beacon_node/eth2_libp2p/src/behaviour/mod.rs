@@ -692,8 +692,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.enr_fork_id = enr_fork_id;
     }
 
-    pub fn dial_peer() {}
-
     /* Private internal functions */
 
     /// Updates the current meta data of the node to match the local ENR.
