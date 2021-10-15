@@ -855,6 +855,22 @@ lazy_static! {
         "beacon_sync_committee_message_processing_signature_seconds",
         "Time spent on the signature verification of sync message processing"
     );
+
+    /*
+     * Checkpoint sync & backfill
+     */
+    pub static ref BACKFILL_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_backfill_signature_setup_seconds",
+        "Time spent constructing the signature set during backfill sync"
+    );
+    pub static ref BACKFILL_SIGNATURE_VERIFY_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_backfill_signature_verify_seconds",
+        "Time spent verifying the signature set during backfill sync"
+    );
+    pub static ref BACKFILL_SIGNATURE_TOTAL_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_backfill_signature_total_seconds",
+        "Time spent verifying the signature set during backfill sync, including setup"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
