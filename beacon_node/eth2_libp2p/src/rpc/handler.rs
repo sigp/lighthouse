@@ -309,9 +309,6 @@ where
             return;
         }
         inbound_info.pending_items.push(response);
-        if let Some(waker) = &self.waker {
-            waker.wake_by_ref();
-        }
     }
 }
 
@@ -437,6 +434,10 @@ where
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
             RPCSend::Shutdown(reason) => self.shutdown(Some(reason)),
+        }
+        // In any case, we need the handler to process the event.
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref();
         }
     }
 
