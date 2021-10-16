@@ -2,6 +2,7 @@
 
 EF_TESTS = "testing/ef_tests"
 BEACON_CHAIN_CRATE = "beacon_node/beacon_chain"
+OP_POOL_CRATE = "beacon_node/operation_pool"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 GIT_TAG := $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
@@ -12,6 +13,10 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
+
+# List of all hard forks. This list is used to set env variables for several tests so that
+# they run for different forks.
+FORKS=phase0 altair
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -107,11 +112,19 @@ run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
-# Run the tests in the `beacon_chain` crate.
-test-beacon-chain: test-beacon-chain-base test-beacon-chain-altair
+# Run the tests in the `beacon_chain` crate for all known forks.
+test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo test --release --features fork_from_env --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
+
+# Run the tests in the `operation_pool` crate for all known forks.
+test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
+
+test-op-pool-%:
+	env FORK_NAME=$* cargo test --release \
+		--features 'beacon_chain/fork_from_env'\
+		--manifest-path=$(OP_POOL_CRATE)/Cargo.toml
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
