@@ -1742,20 +1742,17 @@ pub fn serve<T: BeaconChainTypes>(
                 let mut disconnected: u64 = 0;
                 let mut disconnecting: u64 = 0;
 
-                network_globals
-                    .peers()
-                    .peers()
-                    .for_each(|(_, peer_info)| {
-                        let state = api_types::PeerState::from_peer_connection_status(
-                            peer_info.connection_status(),
-                        );
-                        match state {
-                            api_types::PeerState::Connected => connected += 1,
-                            api_types::PeerState::Connecting => connecting += 1,
-                            api_types::PeerState::Disconnected => disconnected += 1,
-                            api_types::PeerState::Disconnecting => disconnecting += 1,
-                        }
-                    });
+                network_globals.peers().peers().for_each(|(_, peer_info)| {
+                    let state = api_types::PeerState::from_peer_connection_status(
+                        peer_info.connection_status(),
+                    );
+                    match state {
+                        api_types::PeerState::Connected => connected += 1,
+                        api_types::PeerState::Connecting => connecting += 1,
+                        api_types::PeerState::Disconnected => disconnected += 1,
+                        api_types::PeerState::Disconnecting => disconnecting += 1,
+                    }
+                });
 
                 Ok(api_types::GenericResponse::from(api_types::PeerCount {
                     connected,

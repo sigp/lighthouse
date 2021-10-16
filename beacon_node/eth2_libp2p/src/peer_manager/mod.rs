@@ -769,10 +769,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        let ban_operation = self
-            .network_globals
-            .peers_mut()
-            .inject_disconnect(peer_id);
+        let ban_operation = self.network_globals.peers_mut().inject_disconnect(peer_id);
 
         if let Some(ban_operation) = ban_operation {
             // The peer was awaiting a ban, continue to ban the peer.
