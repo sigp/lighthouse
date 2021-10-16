@@ -121,11 +121,11 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             .unwrap_or_default()
     }
 
-    pub fn peers<'a>(&'a self) -> impl std::ops::Deref<Target = PeerDB<TSpec>> + 'a {
+    pub fn peers(&self) -> impl std::ops::Deref<Target = PeerDB<TSpec>> + '_ {
         self.peers.read()
     }
 
-    pub fn peers_mut<'a>(&'a self) -> impl std::ops::DerefMut<Target = PeerDB<TSpec>> + 'a {
+    pub(crate) fn peers_mut(&self) -> impl std::ops::DerefMut<Target = PeerDB<TSpec>> + '_ {
         self.peers.write()
     }
 

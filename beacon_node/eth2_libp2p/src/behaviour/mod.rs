@@ -6,7 +6,6 @@ use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNE
 use crate::peer_manager::{
     peerdb::score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
-use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
@@ -14,6 +13,7 @@ use crate::types::{
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{rpc::*, SyncStatus};
 use futures::prelude::*;
 use libp2p::{
     core::{
@@ -31,7 +31,7 @@ use libp2p::{
     },
     NetworkBehaviour, PeerId,
 };
-use slog::{crit, debug, o, trace, warn};
+use slog::{crit, debug, error, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -552,6 +552,25 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
     /// Add an ENR to the routing table of the discovery mechanism.
     pub fn add_enr(&mut self, enr: Enr) {
         self.discovery.add_enr(enr);
+    }
+
+    pub fn update_peers_sync_status(&mut self, peer_id: &PeerId, sync_status: SyncStatus) {
+        let status_repr = sync_status.as_str();
+        match self
+            .network_globals
+            .peers_mut()
+            .update_sync_status(peer_id, sync_status)
+        {
+            Some(true) => {
+                trace!(self.log, "Peer sync status updated"; "peer_id" => %peer_id, "sync_status" => status_repr);
+            }
+            Some(false) => {
+                // Sync status is the same for known peer
+            }
+            None => {
+                error!(self.log, "Sync status update notification for unknown peer"; "peer_id" => %peer_id, "sync_status" => status_repr);
+            }
+        }
     }
 
     /// Updates a subnet value to the ENR attnets/syncnets bitfield.

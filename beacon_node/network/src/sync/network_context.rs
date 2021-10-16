@@ -8,7 +8,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
-use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request, SyncStatus};
 use fnv::FnvHashMap;
 use slog::{debug, trace, warn};
 use std::sync::Arc;
@@ -202,10 +202,17 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             });
     }
 
+    pub fn update_peer_sync_status(&self, peer_id: PeerId, new_status: SyncStatus) {
+        let _ = self.send_network_msg(NetworkMessage::UpdatePeerSyncStatus {
+            peer_id,
+            sync_status: new_status,
+        });
+    }
+
     /// Sends an arbitrary network message.
-    fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
-        self.network_send.send(msg).map_err(|_| {
-            debug!(self.log, "Could not send message to the network service");
+    fn send_network_msg(&self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
+        self.network_send.send(msg).map_err(|msg| {
+            warn!(self.log, "Could not send message to the network service"; "msg" => ?msg.0);
             "Network channel send Failed"
         })
     }
