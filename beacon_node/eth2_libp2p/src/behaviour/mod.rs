@@ -442,8 +442,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         } {
             if let Some(client) = self
                 .network_globals
-                .peers
-                .read()
+                .peers()
                 .peer_info(propagation_source)
                 .map(|info| info.client().kind.as_ref())
             {
@@ -580,8 +579,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // Extend min_ttl of connected peers on required subnets
                 if let Some(min_ttl) = s.min_ttl {
                     self.network_globals
-                        .peers
-                        .write()
+                        .peers_mut()
                         .extend_peers_on_subnet(&s.subnet, min_ttl);
                     if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
                         self.peer_manager_mut()
@@ -591,8 +589,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals
-                    .peers
-                    .read()
+                    .peers()
                     .good_peers_on_subnet(s.subnet)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
@@ -742,7 +739,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .discovery
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers.read();
+                let peers = self.network_globals.peers();
                 if predicate(enr) && peers.should_dial(peer_id) {
                     Some(*peer_id)
                 } else {
@@ -835,16 +832,14 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
-                        .peers
-                        .write()
+                        .peers_mut()
                         .add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
-                        .peers
-                        .write()
+                        .peers_mut()
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }

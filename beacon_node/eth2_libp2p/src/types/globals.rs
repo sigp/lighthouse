@@ -22,7 +22,7 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The UDP port that the discovery service is listening on
     pub listen_port_udp: AtomicU16,
     /// The collection of known peers.
-    pub peers: RwLock<PeerDB<TSpec>>,
+    peers: RwLock<PeerDB<TSpec>>,
     // The local meta data of our node.
     pub local_metadata: RwLock<MetaData<TSpec>>,
     /// The current gossipsub topic subscriptions.
@@ -119,6 +119,14 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             .peer_info(peer_id)
             .map(|info| info.client().clone())
             .unwrap_or_default()
+    }
+
+    pub fn peers<'a>(&'a self) -> impl std::ops::Deref<Target = PeerDB<TSpec>> + 'a {
+        self.peers.read()
+    }
+
+    pub fn peers_mut<'a>(&'a self) -> impl std::ops::DerefMut<Target = PeerDB<TSpec>> + 'a {
+        self.peers.write()
     }
 
     /// Updates the syncing state of the node.
