@@ -219,8 +219,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             BackFillState::Paused => {
                 if self
                     .network_globals
-                    .peers
-                    .read()
+                    .peers()
                     .synced_peers()
                     .next()
                     .is_some()
@@ -921,8 +920,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let new_peer = {
             let mut priorized_peers = self
                 .network_globals
-                .peers
-                .read()
+                .peers()
                 .synced_peers()
                 .map(|peer| {
                     (
@@ -1041,8 +1039,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let mut rng = rand::thread_rng();
         let mut idle_peers = self
             .network_globals
-            .peers
-            .read()
+            .peers()
             .synced_peers()
             .filter(|peer_id| {
                 self.active_requests

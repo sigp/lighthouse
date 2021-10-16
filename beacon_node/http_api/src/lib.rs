@@ -1633,7 +1633,7 @@ pub fn serve<T: BeaconChainTypes>(
                         warp_utils::reject::custom_bad_request("invalid peer id.".to_string())
                     })?;
 
-                    if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
+                    if let Some(peer_info) = network_globals.peers().peer_info(&peer_id) {
                         let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
                             let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
                             addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
@@ -1676,8 +1676,7 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let mut peers: Vec<api_types::PeerData> = Vec::new();
                     network_globals
-                        .peers
-                        .read()
+                        .peers()
                         .peers()
                         .for_each(|(peer_id, peer_info)| {
                             let address =
@@ -1744,8 +1743,7 @@ pub fn serve<T: BeaconChainTypes>(
                 let mut disconnecting: u64 = 0;
 
                 network_globals
-                    .peers
-                    .read()
+                    .peers()
                     .peers()
                     .for_each(|(_, peer_info)| {
                         let state = api_types::PeerState::from_peer_connection_status(
@@ -2224,8 +2222,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
                 Ok(network_globals
-                    .peers
-                    .read()
+                    .peers()
                     .peers()
                     .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
                         peer_id: peer_id.to_string(),
@@ -2244,8 +2241,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
                 Ok(network_globals
-                    .peers
-                    .read()
+                    .peers()
                     .connected_peers()
                     .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
                         peer_id: peer_id.to_string(),

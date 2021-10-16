@@ -659,11 +659,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // Drop the write lock
         let update_sync_status = self
             .network_globals
-            .peers
-            .write()
+            .peers_mut()
             .update_sync_status(peer_id, new_state.clone());
         if let Some(was_updated) = update_sync_status {
-            let is_connected = self.network_globals.peers.read().is_connected(peer_id);
+            let is_connected = self.network_globals.peers().is_connected(peer_id);
             if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
                     "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
@@ -712,7 +711,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
                         let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
-                        let peers = self.network_globals.peers.read();
+                        let peers = self.network_globals.peers();
                         if current_slot >= head
                             && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
                             && head > 0

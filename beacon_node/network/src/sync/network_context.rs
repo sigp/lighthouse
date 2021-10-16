@@ -51,12 +51,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
 
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals
-            .peers
-            .read()
-            .peer_info(peer_id)
-            .map(|info| info.client().clone())
-            .unwrap_or_default()
+        self.network_globals.client(peer_id)
     }
 
     pub fn status_peers<U: BeaconChainTypes>(

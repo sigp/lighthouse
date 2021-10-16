@@ -154,7 +154,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
     /// A new RPC request has been received from the network.
     fn handle_rpc_request(&mut self, peer_id: PeerId, id: PeerRequestId, request: Request) {
-        if !self.network_globals.peers.read().is_connected(&peer_id) {
+        if !self.network_globals.peers().is_connected(&peer_id) {
             debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?request);
             return;
         }
