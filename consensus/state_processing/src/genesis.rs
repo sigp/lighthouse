@@ -48,6 +48,8 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // https://github.com/ethereum/eth2.0-specs/pull/2323
     if spec.fork_name_at_epoch(state.current_epoch()) == ForkName::Altair {
         upgrade_to_altair(&mut state, spec)?;
+
+        state.fork_mut().previous_version = spec.altair_fork_version;
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
