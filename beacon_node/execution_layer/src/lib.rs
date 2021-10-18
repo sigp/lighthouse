@@ -1437,6 +1437,19 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_forked_terminal_block() {
+        let (mock, block_hash) = MockExecutionLayer::default_params()
+            .move_to_terminal_block()
+            .produce_forked_pow_block();
+        assert!(mock
+            .el
+            .is_valid_terminal_pow_block_hash(block_hash)
+            .await
+            .unwrap()
+            .unwrap());
+    }
+
+    #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
         let runtime = TestRuntime::default();
         MockExecutionLayer::default_params(runtime.task_executor.clone())
