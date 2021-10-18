@@ -215,10 +215,29 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             parent_hash,
         )?;
 
+        let _ = self.insert_block(Block::PoW(block))?;
+        Ok(())
+    }
+
+    pub fn insert_pow_block_by_hash(&mut self, parent_hash: Hash256) -> Result<Hash256, String> {
+        let parent_block = self.block_by_hash(parent_hash).ok_or_else(|| {
+            format!(
+                "Block corresponding to parent hash does not exist: {}",
+                parent_hash
+            )
+        })?;
+        let block = generate_pow_block(
+            self.terminal_total_difficulty,
+            self.terminal_block_number,
+            parent_block.block_number() + 1,
+            parent_hash,
+        )?;
+
         self.insert_block(Block::PoW(block))
     }
 
-    pub fn insert_block(&mut self, block: Block<T>) -> Result<(), String> {
+    pub fn insert_block(&mut self, block: Block<T>) -> Result<Hash256, String> {
+        let hash = block.block_hash();
         if self.blocks.contains_key(&block.block_hash()) {
             return Err(format!("{:?} is already known", block.block_hash()));
         } else if block.parent_hash() != Hash256::zero()
@@ -234,7 +253,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
         self.blocks.insert(block.block_hash(), block);
 
-        Ok(())
+        Ok(hash)
     }
 
     pub fn prepare_payload(&mut self, payload: JsonPreparePayloadRequest) -> Result<u64, String> {
@@ -308,7 +327,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .ok_or_else(|| format!("no pending payload for {:?}", block_hash))?;
 
         match status {
-            ConsensusStatus::Valid => self.insert_block(Block::PoS(payload)),
+            ConsensusStatus::Valid => {
+                let _ = self.insert_block(Block::PoS(payload))?;
+                Ok(())
+            }
             ConsensusStatus::Invalid => Ok(()),
         }
     }
@@ -361,7 +383,7 @@ pub fn generate_pow_block(
 
     let mut block = PoWBlock {
         block_number,
-        block_hash: Hash256::zero(),
+        block_hash: Hash256::random(),
         parent_hash,
         total_difficulty,
     };
