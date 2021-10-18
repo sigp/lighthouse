@@ -78,7 +78,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Common database
      */
     blocks: HashMap<Hash256, Block<T>>,
-    block_hashes: HashMap<u64, Hash256>,
+    block_hashes: HashMap<u64, Vec<Hash256>>,
     /*
      * PoW block parameters
      */
@@ -115,14 +115,22 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         gen
     }
 
+    pub fn max_difficulty_block(&self, hashes: &[Hash256]) -> Option<Block<T>> {
+        let blocks: Option<Vec<Block<T>>> = hashes
+            .into_iter()
+            .map(|hash| self.block_by_hash(*hash))
+            .collect();
+        blocks?
+            .into_iter()
+            .max_by_key(|block| block.total_difficulty())
+    }
+
     pub fn latest_block(&self) -> Option<Block<T>> {
-        let hash = *self
-            .block_hashes
+        self.block_hashes
             .iter()
             .max_by_key(|(number, _)| *number)
-            .map(|(_, hash)| hash)?;
-
-        self.block_by_hash(hash)
+            .map(|(_, hashes)| self.max_difficulty_block(hashes))
+            .flatten()
     }
 
     pub fn latest_execution_block(&self) -> Option<ExecutionBlock> {
@@ -131,8 +139,17 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn block_by_number(&self, number: u64) -> Option<Block<T>> {
-        let hash = *self.block_hashes.get(&number)?;
-        self.block_by_hash(hash)
+        let mut latest_block = self.latest_block()?;
+        loop {
+            let block_number = latest_block.block_number();
+            if block_number < number {
+                return None;
+            }
+            if block_number == number {
+                return Some(latest_block);
+            }
+            latest_block = self.block_by_hash(latest_block.parent_hash())?;
+        }
     }
 
     pub fn execution_block_by_number(&self, number: u64) -> Option<ExecutionBlock> {
@@ -182,8 +199,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
         let parent_hash = if block_number == 0 {
             Hash256::zero()
-        } else if let Some(hash) = self.block_hashes.get(&(block_number - 1)) {
-            *hash
+        } else if let Some(block) = self.block_by_number(block_number - 1) {
+            block.block_hash()
         } else {
             return Err(format!(
                 "parent with block number {} not found",
@@ -204,19 +221,17 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn insert_block(&mut self, block: Block<T>) -> Result<(), String> {
         if self.blocks.contains_key(&block.block_hash()) {
             return Err(format!("{:?} is already known", block.block_hash()));
-        } else if self.block_hashes.contains_key(&block.block_number()) {
-            return Err(format!(
-                "block {} is already known, forking is not supported",
-                block.block_number()
-            ));
         } else if block.parent_hash() != Hash256::zero()
             && !self.blocks.contains_key(&block.parent_hash())
         {
             return Err(format!("parent block {:?} is unknown", block.parent_hash()));
+        } else if let Some(hashes) = self.block_hashes.get_mut(&block.block_number()) {
+            hashes.push(block.block_hash());
+        } else {
+            self.block_hashes
+                .insert(block.block_number(), vec![block.block_hash()]);
         }
 
-        self.block_hashes
-            .insert(block.block_number(), block.block_hash());
         self.blocks.insert(block.block_hash(), block);
 
         Ok(())
