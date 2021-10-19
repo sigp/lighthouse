@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::fs::File;
 use std::path::PathBuf;
 mod cli;
-mod config;
+pub mod config;
 mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
