@@ -56,7 +56,7 @@ impl From<ArithError> for Error {
 }
 
 /// Neatly joins the server-generated `AttesterData` with the locally-generated `selection_proof`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DutyAndProof {
     pub duty: AttesterData,
     /// This value is only set to `Some` if the proof indicates that the validator is an aggregator.
@@ -676,6 +676,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     // Update the duties service with the new `DutyAndProof` messages.
     let mut attesters = duties_service.attesters.write();
+    info!(log, "attesters before: {:?}", attesters.len());
     let mut already_warned = Some(());
     for result in duty_and_proof_results {
         let duty_and_proof = match result {
@@ -693,6 +694,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         };
 
         let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
+        info!(log, "attester_map before: {:?}", attester_map);
 
         if let Some((prior_dependent_root, _)) =
             attester_map.insert(epoch, (dependent_root, duty_and_proof))
@@ -708,7 +710,10 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                 )
             }
         }
+        info!(log, "attester_map after: {:?}", attester_map);
+
     }
+    info!(log, "attesters after: {:?}", attesters.len());
     drop(attesters);
 
     Ok(())

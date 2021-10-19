@@ -8,7 +8,7 @@ use crate::{
 };
 use bls::Hash256;
 use environment::RuntimeContext;
-use slog::{crit, error, info, trace, warn};
+use slog::{crit, error, info, trace, warn, Logger};
 use futures::future::join_all;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -164,10 +164,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let interval_fut = async move {
             loop {
+                //TODO: issue here is that we are looping 15ish seconds each time, so skipping duties
+                // should start at 1/3 through next slot (or 1/3 through this slot?) and then sleep every 12 seconds
                 if let (Some(duration_to_next_slot), Some(current_slot)) = (
                     self.slot_clock.duration_to_next_slot(),
                     self.slot_clock.now(),
                 ) {
+                    info!(log,"duration_to_next_slot: {:?}",duration_to_next_slot);
+                    info!(log,"current_slot: {:?}",current_slot);
+                    info!(log,"sleep_time: {:?}", (duration_to_next_slot + slot_duration / 3));
                     let log = self.context.log();
                     let attestation_slot = current_slot + 1;
 
@@ -180,14 +185,17 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 info!(log, "Head event received"; "head_root" => ?root);
                                 SignMessageEvent::Head{root, slot: attestation_slot}
                             },
-                            _ = sleep(duration_to_next_slot + slot_duration / 3) => SignMessageEvent::Time(attestation_slot),
+                            _ = sleep(duration_to_next_slot + slot_duration / 3) => {
+                                info!(log, "Head event not received");
+                                SignMessageEvent::Time(attestation_slot)
+                            },
                         }
                     } else {
                         sleep(duration_to_next_slot + slot_duration / 3).await;
                         SignMessageEvent::Time(attestation_slot)
                     };
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, event) {
+                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, event, log) {
                         crit!(
                             log,
                             "Failed to spawn attestation tasks";
@@ -218,8 +226,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         &self,
         slot_duration: Duration,
         event: SignMessageEvent,
+        log: &Logger,
     ) -> Result<(), String> {
-        let slot = event.slot();
+        let slot = self.slot_clock.now().ok_or("Unable to determine current slot")?;
+
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_slot(slot + 1)
@@ -232,6 +242,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
+        info!(log, "Attesters: {}", self.duties_service.attesters(slot).len());
+        info!(log, "slot: {}", slot);
+        info!(log, "aggregate_production_instant: {:?}", aggregate_production_instant);
+
         let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
             .duties_service
             .attesters(slot)
@@ -242,6 +256,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     .push(duty_and_proof);
                 map
             });
+
+        info!(log, "Here1");
+        info!(log, "duties_by_committee_index: {:?}", duties_by_committee_index.len());
+
 
         // For each committee index for this slot:
         //
@@ -262,10 +280,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 );
             });
 
+        info!(log, "Here2");
+
+
         // Schedule pruning of the slashing protection database once all unaggregated
         // attestations have (hopefully) been signed, i.e. at the same time as aggregate
         // production.
         self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
+        info!(log, "Here3");
 
         Ok(())
     }
@@ -709,310 +731,26 @@ mod tests {
     use tokio::runtime::Runtime;
     use types::{Checkpoint, ConfigAndPreset, Domain, Epoch, MainnetEthSpec, SignedRoot};
     use validator_dir::insecure_keys::build_deterministic_validator_dirs;
+    use mock_beacon::MockBeacon;
+    use task_executor::ShutdownReason;
 
-    /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
-    /// trigger.
-    #[tokio::test]
-    async fn delay_triggers_when_in_the_past() {
-        let in_the_past = Instant::now() - Duration::from_secs(2);
-        let state_1 = Arc::new(RwLock::new(in_the_past));
-        let state_2 = state_1.clone();
-
-        sleep_until(in_the_past)
-            .map(move |()| *state_1.write() = Instant::now())
-            .await;
-
-        assert!(
-            *state_2.read() > in_the_past,
-            "state should have been updated"
-        );
-    }
-
-    struct MockBeacon {
-        server: MockServer,
-        spec: ChainSpec,
-    }
-
-    impl MockBeacon {
-        fn url(&self) -> SensitiveUrl {
-            SensitiveUrl::parse(self.server.url("").as_str()).unwrap()
-        }
-
-        fn new(spec: &ChainSpec) -> Self {
-            let server = MockServer::start();
-            Self {
-                server,
-                spec: spec.clone()
-            }
-        }
-
-        fn default<E: EthSpec>(spec: &ChainSpec) -> Self {
-            Self::new(spec).immediate_genesis().online().valid_config::<E>().synced()
-        }
-
-        fn immediate_genesis(self) -> Self {
-            // Start a beacon node mock HTTP server.
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            let genesis_data = GenericResponse::from(GenesisData {
-                genesis_time: now.as_secs(),
-                genesis_validators_root: Hash256::zero(),
-                genesis_fork_version: self.spec.genesis_fork_version,
-            });
-            let genesis_data_body =
-                serde_json::to_string(&genesis_data).expect("should serialize genesis data");
-            // Create a mock on the server.
-            let genesis_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/beacon/genesis");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(genesis_data_body.as_str());
-            });
-            self
-        }
-
-        fn valid_version(self) -> Self {
-            self.online()
-        }
-
-        fn online(self) -> Self {
-            let version = GenericResponse::from(VersionData {
-                version: "".to_string(),
-            });
-            let version_body =  serde_json::to_string(&version).expect("should serialize version data");
-            let version_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/node/version");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(&version_body);
-            });
-            self
-        }
-
-        fn invalid_version(self) -> Self {
-            self.offline()
-        }
-
-        fn offline(self) -> Self {
-            let version_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/node/version");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body("{}");
-            });
-            self
-        }
-
-        fn validators_exist<E: EthSpec>(self, validator_ids: &[(usize, PublicKeyBytes)]) -> Self {
-            // .push("beacon")
-            //     .push("states")
-            //     .push(&state_id.to_string())
-            //     .push("validators")
-            //     .push(&validator_id.to_string());
-            for (index, pubkey) in validator_ids {
-                let val = Validator {
-                    pubkey: *pubkey,
-                    withdrawal_credentials: Hash256::zero(),
-                    effective_balance: E::default_spec().min_deposit_amount,
-                    slashed: false,
-                    activation_eligibility_epoch: Epoch::new(0),
-                    activation_epoch: Epoch::new(0),
-                    exit_epoch: Epoch::new(u64::MAX),
-                    withdrawable_epoch: Epoch::new(0),
-                };
-
-                let val_data = ValidatorData {
-                    index: *index as u64,
-                    // default balance
-                    balance: E::default_spec().min_deposit_amount,
-                    status: ValidatorStatus::Active,
-                    validator: val,
-                };
-
-
-                let version_mock = self.server.mock(|when, then| {
-                    when.method(GET).path(format!("/eth/v1/beacon/states/head/validators/{}", pubkey));
-                    then.status(200)
-                        .header("content-type", "application/json")
-                        .body("{}");
-                });
-            }
-            self
-        }
-
-        fn valid_config<E: EthSpec>(self) -> Self {
-            let config = GenericResponse::from(ConfigAndPreset::from_chain_spec::<E>(&self.spec));
-            let config_body =
-                serde_json::to_string(&config).expect("should serialize genesis data");
-            let config_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/config/spec");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(config_body);
-            });
-            self
-        }
-
-        fn invalid_config(self) -> Self {
-            let config_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/config/spec");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body("{}}");
-            });
-            self
-        }
-
-        fn synced(self) -> Self {
-            let sync_data = GenericResponse::from(SyncingData {
-                is_syncing: false,
-                head_slot: Slot::new(0),
-                sync_distance: Slot::new(0),
-            });
-            let sync_data_body =
-                serde_json::to_string(&sync_data).expect("should serialize genesis data");
-            let sync_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/node/syncing");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(sync_data_body);
-            });
-            self
-        }
-
-        fn not_synced(self) -> Self {
-            let sync_data = SyncingData {
-                is_syncing: true,
-                head_slot: Slot::new(0),
-                sync_distance: Slot::new(10),
-            };
-            let sync_data_body =
-                serde_json::to_string(&sync_data).expect("should serialize genesis data");
-
-            let sync_mock = self.server.mock(|when, then| {
-                when.method(GET).path("/eth/v1/node/syncing");
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(sync_data_body);
-            });
-            self
-        }
-
-        fn attestation_duties(&self, epoch: Epoch, return_data: Vec<usize>) {
-            let epoch = Epoch::new(0);
-            let hello_mock = self.server.mock(|when, then| {
-                when.method(POST)
-                    .path(format!("/eth/v1/validator/duties/attester/{}",epoch));
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body("\"{\"dependent_root\": \"0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2\",\"data\": []}");
-            });
-        }
-
-        fn proposer_duties(&self, epoch: Epoch, validator_indices: Vec<usize>) {
-            let epoch = Epoch::new(0);
-            let hello_mock = self.server.mock(|when, then| {
-                when.method(GET)
-                    .path(format!("/eth/v1/validator/duties/proposer/{}",epoch));
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body("\"{\"dependent_root\": \"0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2\",\"data\": []}");
-            });
-        }
-
-        fn sync_duties(&self, epoch: Epoch, validator_indices: Vec<usize>) {
-            let epoch = Epoch::new(0);
-            let hello_mock = self.server.mock(|when, then| {
-                when.method(POST)
-                    .path(format!("/eth/v1/validator/duties/sync/{}", epoch));
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body("\"{\"data\": []}");
-            });
-        }
-
-        // get attestation data
-        fn attestation_data(&self, slot: Slot, committee_index: u64) {
-            let source = Checkpoint {
-                epoch: Epoch::new(0),
-                root: Hash256::zero(),
-            };
-            let target = Checkpoint {
-                epoch: Epoch::new(1),
-                root: Hash256::zero(),
-            };
-            let att_data = AttestationData {
-                slot,
-                index: committee_index,
-                beacon_block_root: Hash256::zero(),
-                source,
-                target,
-            };
-            let att_data_body =
-                serde_json::to_string(&att_data).expect("should serialize genesis data");
-
-            let hello_mock = self.server.mock(|when, then| {
-                when.method(GET)
-                    .path("/eth/v1/validator/attestation_data")
-                    .query_param("slot", format!("{}", slot).as_str())
-                    .query_param("committee_index", format!("{}", committee_index).as_str());
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(att_data_body);
-            });
-        }
-
-        // get aggregate data
-        fn aggregate_data(&self, slot: Slot, committee_index: u64) {
-            let source = Checkpoint {
-                epoch: Epoch::new(0),
-                root: Hash256::zero(),
-            };
-            let target = Checkpoint {
-                epoch: Epoch::new(1),
-                root: Hash256::zero(),
-            };
-            let att_data = AttestationData {
-                slot,
-                index: committee_index,
-                beacon_block_root: Hash256::zero(),
-                source,
-                target,
-            };
-            let domain = self.spec.get_domain(
-                att_data.target.epoch,
-                Domain::BeaconAttester,
-                &self.spec.fork_at_epoch(Epoch::new(1)),
-                Hash256::zero(),
-            );
-
-            let attestation_data_root = att_data.signing_root(domain);
-            let attestation: Attestation<MainnetEthSpec> = Attestation {
-                aggregation_bits: BitList::with_capacity(self.spec.target_committee_size).unwrap(),
-                data: att_data,
-                signature: AggregateSignature::empty(),
-            };
-
-            let attestation_body =
-                serde_json::to_string(&attestation).expect("should serialize genesis data");
-
-            let hello_mock = self.server.mock(|when, then| {
-                when.method(GET)
-                    .path("/eth/v1/validator/aggregate_attestation")
-                    .query_param(
-                        "attestation_data_root",
-                        format!("{}", attestation_data_root).as_str(),
-                    )
-                    .query_param("slot", format!("{}", slot).as_str());
-                then.status(200)
-                    .header("content-type", "application/json")
-                    .body(attestation_body);
-            });
-        }
-
-        // post attestation data
-
-        // post aggregate
-    }
+    // /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
+    // /// trigger.
+    // #[tokio::test]
+    // async fn delay_triggers_when_in_the_past() {
+    //     let in_the_past = Instant::now() - Duration::from_secs(2);
+    //     let state_1 = Arc::new(RwLock::new(in_the_past));
+    //     let state_2 = state_1.clone();
+    //
+    //     sleep_until(in_the_past)
+    //         .map(move |()| *state_1.write() = Instant::now())
+    //         .await;
+    //
+    //     assert!(
+    //         *state_2.read() > in_the_past,
+    //         "state should have been updated"
+    //     );
+    // }
 
     // Builds a runtime to be used in the testing configuration.
     fn build_runtime() -> Arc<Runtime> {
@@ -1024,8 +762,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn validator_enabling() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn validator_enabling() {
         let validators_per_node = 20;
         // Generate the directories and keystores required for the validator clients.
         let indices = (0..validators_per_node).collect::<Vec<_>>();
@@ -1066,8 +804,10 @@ mod tests {
 
         info!(log, "Secrets dir"; "secrets_dir" => ?secrets_dir);
         info!(log, "Datadir"; "datadir" => ?datadir);
-        let _ = env_logger::try_init();
-        let mock_beacon = MockBeacon::default::<MainnetEthSpec>(&context.eth2_config.spec);
+        let mock_server = MockServer::start();
+        let spec = context.eth2_config.spec.clone();
+
+        let mut mock_beacon : MockBeacon<MainnetEthSpec> = MockBeacon::default(&mock_server, &spec);
 
         let mut config = Config {
             init_slashing_protection: true,
@@ -1080,13 +820,16 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::channel(10);
         let spec = context.eth2_config.spec.clone();
 
-        env.runtime().block_on(async move {
+        async move {
             //TODO: add timeout to VC initialization
+            let mut shutdown_sender = context.executor.shutdown_sender();
+            let exit = context.executor.exit();
             let validator = ProductionValidatorClient::new(context, config).await.unwrap();
+            let slot_clock = validator.duties_service.slot_clock.clone();
 
             //TODO: check if indices are ordered and start at 0
             let index_pubkey = validator.validator_store.initialized_validators().read().iter_voting_pubkeys().cloned().enumerate().collect::<Vec<_>>();
-            mock_beacon.validators_exist::<MainnetEthSpec>(index_pubkey.as_slice());
+            let mock_beacon = mock_beacon.slot_clock(slot_clock).validators_exist(index_pubkey.as_slice());
 
             let duration_to_next_slot = validator.duties_service.slot_clock.duration_to_next_slot().unwrap();
             sleep(duration_to_next_slot).await;
@@ -1096,8 +839,10 @@ mod tests {
             let (_,mut rx) = broadcast::channel(10);
             validator.attestation_service.start_update_service(&spec, Some(rx));
 
-            sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+            sleep(Duration::from_secs(2 * spec.seconds_per_slot)).await;
+            shutdown_sender.try_send(ShutdownReason::Success("Ending test"));
+            exit.await;
+        }.await;
 
-        });
     }
 }

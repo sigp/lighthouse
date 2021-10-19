@@ -2881,6 +2881,7 @@ dependencies = [
  "basic-cookies",
  "crossbeam-utils",
  "difference",
+ "env_logger 0.9.0",
  "form_urlencoded",
  "futures-util",
  "hyper",
@@ -4205,6 +4206,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9f1c5b025cda876f66ef43a113f91ebc9f4ccef34843000e0adf6ebbab84e21"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "mock_beacon"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "dirs",
+ "env_logger 0.9.0",
+ "eth2",
+ "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "exit-future",
+ "futures",
+ "futures-util",
+ "hex",
+ "httpmock",
+ "hyper",
+ "itertools",
+ "lazy_static",
+ "libc",
+ "libsecp256k1 0.6.0",
+ "parking_lot",
+ "rand 0.7.3",
+ "rayon",
+ "reqwest",
+ "ring",
+ "scrypt",
+ "sensitive_url",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_yaml",
+ "slog",
+ "slog-async",
+ "slog-term",
+ "slot_clock",
+ "tempfile",
+ "tokio",
+ "tree_hash",
+ "types",
+ "url",
 ]
 
 [[package]]
@@ -7247,6 +7292,7 @@ dependencies = [
  "lighthouse_version",
  "lockfile",
  "logging",
+ "mock_beacon",
  "monitoring_api",
  "parking_lot",
  "rand 0.7.3",

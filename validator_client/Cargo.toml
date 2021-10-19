@@ -14,6 +14,7 @@ deposit_contract = { path = "../common/deposit_contract" }
 httpmock = { version = "0.6.2" }
 validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
 env_logger = "0.9.0"
+mock_beacon = {path = "../testing/mock_beacon"}
 
 [dependencies]
 futures-util = "0.3.16"

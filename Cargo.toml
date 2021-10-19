@@ -70,7 +70,7 @@ members = [
 
     "slasher",
     "slasher/service",
-
+    "testing/mock_beacon",
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/node_test_rig",
