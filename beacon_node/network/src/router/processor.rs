@@ -1,5 +1,5 @@
 use crate::beacon_processor::{
-    BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+    BeaconProcessor, DuplicateCache, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
@@ -55,6 +55,8 @@ impl<T: BeaconChainTypes> Processor<T> {
             sync_logger,
         );
 
+        let (duplicate_cache_tx, duplicate_cache_rx) = mpsc::channel(10);
+
         BeaconProcessor {
             beacon_chain: Arc::downgrade(&beacon_chain),
             network_tx: network_send.clone(),
@@ -63,10 +65,10 @@ impl<T: BeaconChainTypes> Processor<T> {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
-            importing_blocks: Default::default(),
+            importing_blocks: DuplicateCache::new(duplicate_cache_tx),
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_receive, None);
+        .spawn_manager(beacon_processor_receive, duplicate_cache_rx, None);
 
         Processor {
             chain: beacon_chain,

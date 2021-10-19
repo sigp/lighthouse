@@ -37,7 +37,8 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let block_root = block.canonical_root();
         // Checks if the block is already being imported through another source
-        if duplicate_cache.check_and_insert(block_root) {
+        let handle = duplicate_cache.check_and_insert(block_root);
+        if handle.inserted {
             let slot = block.slot();
             let block_result = self.chain.process_block(block);
 
@@ -67,7 +68,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             if result_tx.send(block_result).is_err() {
                 crit!(self.log, "Failed return sync block result");
             }
-            duplicate_cache.remove(&block_root);
+            // Drop the handle to remove the entry from the cache
+            drop(handle);
         } else {
             debug!(
                 self.log,

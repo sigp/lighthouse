@@ -633,20 +633,20 @@ impl<T: BeaconChainTypes> Worker<T> {
         if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
             message_id,
             peer_id,
-            peer_client,
+            peer_client.clone(),
             block,
             reprocess_tx.clone(),
             seen_duration,
         ) {
             let block_root = gossip_verified_block.block_root;
-            if duplicate_cache.check_and_insert(block_root) {
+            let handle = duplicate_cache.check_and_insert(block_root);
+            if handle.inserted {
                 self.process_gossip_verified_block(
                     peer_id,
                     gossip_verified_block,
                     reprocess_tx,
                     seen_duration,
                 );
-                duplicate_cache.remove(&block_root);
             } else {
                 debug!(
                     self.log,
@@ -654,6 +654,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block_root" => %block_root,
                 );
             }
+            // Drop the handle to remove the entry from the cache
+            drop(handle);
         }
     }
 

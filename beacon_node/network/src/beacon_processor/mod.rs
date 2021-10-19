@@ -285,21 +285,52 @@ impl<T> LifoQueue<T> {
     }
 }
 
+/// A handle that sends a message on the provided channel to a receiver when it gets dropped.
+///
+/// The receiver task is responsible for removing the provided `entry` from the `DuplicateCache`
+/// and perform any other necessary cleanup.
+pub struct DuplicateCacheHandle {
+    pub inserted: bool,
+    entry: Hash256,
+    tx: mpsc::Sender<Hash256>,
+}
+
+impl Drop for DuplicateCacheHandle {
+    fn drop(&mut self) {
+        self.tx.blocking_send(self.entry)
+    }
+}
+
 /// A simple  cache for detecting duplicate block roots across multiple threads.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct DuplicateCache {
     inner: Arc<Mutex<HashSet<Hash256>>>,
+    tx: mpsc::Sender<Hash256>,
 }
 
 impl DuplicateCache {
+    pub fn new(tx: mpsc::Sender<Hash256>) -> Self {
+        Self {
+            inner: Default::default(),
+            tx,
+        }
+    }
     /// Checks if the given block_root exists and inserts it into the cache if
     /// it doesn't exist.
     ///
-    /// Returns `true` if the block_root was successfully inserted and `false` if
-    /// the block root already existed in the cache.
-    pub fn check_and_insert(&self, block_root: Hash256) -> bool {
+    /// Returns a `DuplicateCacheHandle` that returns `true` if the block_root was successfully
+    /// inserted and `false` if the block root already existed in the cache.
+    ///
+    /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
+    /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
+    pub fn check_and_insert(&self, block_root: Hash256) -> DuplicateCacheHandle {
         let mut inner = self.inner.lock();
-        inner.insert(block_root)
+        let inserted = inner.insert(block_root);
+        DuplicateCacheHandle {
+            inserted,
+            entry: block_root,
+            tx: self.tx.clone(),
+        }
     }
 
     /// Remove the given block_root from the cache.
@@ -831,6 +862,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     pub fn spawn_manager(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<T>>,
+        mut duplicate_cache_rx: mpsc::Receiver<Hash256>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
     ) {
         // Used by workers to communicate that they are finished a task.
@@ -891,6 +923,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         };
 
         let executor = self.executor.clone();
+        let duplicate_cache = self.importing_blocks.clone();
+        let dup_cache_future = async move {
+            loop {
+                if let Some(block_root) = duplicate_cache_rx.recv().await {
+                    duplicate_cache.remove(&block_root);
+                }
+            }
+        };
+
+        executor.spawn(dup_cache_future, "duplicate_cache_rx");
 
         // The manager future will run on the core executor and delegate tasks to worker
         // threads on the blocking executor.
