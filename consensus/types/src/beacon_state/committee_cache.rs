@@ -327,7 +327,7 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
-impl arbitrary::Arbitrary for CommitteeCache {
+impl arbitrary::Arbitrary<'_> for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())
     }

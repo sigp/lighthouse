@@ -119,7 +119,7 @@ impl Interchange {
                     }
                 }
                 (None, None) => {}
-                _ => return Err(InterchangeError::MinAndMaxInconsistent),
+                _ => return Err(InterchangeError::MaxInconsistent),
             };
 
             // Find maximum block slot.

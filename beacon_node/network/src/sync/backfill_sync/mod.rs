@@ -14,8 +14,8 @@ use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::types::{BackFillState, NetworkGlobals};
-use eth2_libp2p::{PeerAction, PeerId};
+use lighthouse_network::types::{BackFillState, NetworkGlobals};
+use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, warn};
 use std::collections::{

@@ -7,9 +7,11 @@ use super::RequestId as SyncRequestId;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
-use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use fnv::FnvHashMap;
+use lighthouse_network::rpc::{
+    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId,
+};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;

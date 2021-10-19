@@ -644,7 +644,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Fixed<N>> {
+impl<N: 'static + Unsigned> arbitrary::Arbitrary<'_> for Bitfield<Fixed<N>> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let size = N::to_usize();
         let mut vec: Vec<u8> = vec![0u8; size];
@@ -654,7 +654,7 @@ impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Fixed<N>> {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<N: 'static + Unsigned> arbitrary::Arbitrary for Bitfield<Variable<N>> {
+impl<N: 'static + Unsigned> arbitrary::Arbitrary<'_> for Bitfield<Variable<N>> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let max_size = N::to_usize();
         let rand = usize::arbitrary(u)?;

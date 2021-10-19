@@ -14,8 +14,8 @@ serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.0"
 hex = "0.4.2"
 eth2_hashing = "0.2.0"
-ethereum-types = "0.11.0"
-arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
+ethereum-types = "0.12.1"
+arbitrary = { version = "1.0", features = ["derive"], optional = true }
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 blst = "0.3.3"
 

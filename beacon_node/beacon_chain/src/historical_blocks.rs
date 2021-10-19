@@ -1,4 +1,4 @@
-use crate::{errors::BeaconChainError as Error, BeaconChain, BeaconChainTypes};
+use crate::{errors::BeaconChainError as Error, metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use slog::debug;
 use state_processing::{
@@ -136,6 +136,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
         // possible. For each block fetch the parent root from its successor. Slicing from index 1
         // is safe because we've already checked that `blocks_to_import` is non-empty.
+        let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
+        let setup_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_SETUP_TIMES);
         let pubkey_cache = self
             .validator_pubkey_cache
             .try_read_for(PUBKEY_CACHE_LOCK_TIMEOUT)
@@ -156,17 +158,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block.message().proposer_index(),
                     &self.spec.fork_at_epoch(block.message().epoch()),
                     self.genesis_validators_root,
-                    |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                    |validator_index| pubkey_cache.get(validator_index).cloned().map(Cow::Owned),
                     &self.spec,
                 )
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(HistoricalBlockError::SignatureSet)
             .map(ParallelSignatureSets::from)?;
+        drop(pubkey_cache);
+        drop(setup_timer);
+
+        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
         if !signature_set.verify() {
             return Err(HistoricalBlockError::InvalidSignature.into());
         }
-        drop(pubkey_cache);
+        drop(verify_timer);
+        drop(sig_timer);
 
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
