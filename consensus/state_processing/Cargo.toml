@@ -22,7 +22,7 @@ rayon = "1.4.1"
 eth2_hashing = "0.2.0"
 int_to_bytes = { path = "../int_to_bytes" }
 smallvec = "1.6.1"
-arbitrary = { version = "0.4.6", features = ["derive"], optional = true }
+arbitrary = { version = "1.0", features = ["derive"], optional = true }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics", optional = true }
 lazy_static = { version = "1.4.0", optional = true }
 

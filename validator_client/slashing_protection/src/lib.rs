@@ -35,6 +35,7 @@ pub enum NotSafe {
     IOError(ErrorKind),
     SQLError(String),
     SQLPoolError(String),
+    ConsistencyError,
 }
 
 /// The attestation or block is safe to sign, and will not cause the signer to be slashed.
@@ -54,7 +55,7 @@ pub struct SigningRoot(Hash256);
 
 impl PartialEq for SigningRoot {
     fn eq(&self, other: &Self) -> bool {
-        !self.0.is_zero() && self.0 == other.0
+        !self.is_null() && self.0 == other.0
     }
 }
 
@@ -71,18 +72,26 @@ impl Into<Hash256> for SigningRoot {
 }
 
 impl SigningRoot {
-    fn to_hash256(self) -> Hash256 {
+    fn is_null(&self) -> bool {
+        self.0.is_zero()
+    }
+
+    fn to_hash256_raw(self) -> Hash256 {
         self.into()
+    }
+
+    fn to_hash256(self) -> Option<Hash256> {
+        Some(self.0).filter(|_| !self.is_null())
     }
 }
 
-/// Safely parse a `Hash256` from the given `column` of an SQLite `row`.
-fn hash256_from_row(column: usize, row: &rusqlite::Row) -> rusqlite::Result<Hash256> {
+/// Safely parse a `SigningRoot` from the given `column` of an SQLite `row`.
+fn signing_root_from_row(column: usize, row: &rusqlite::Row) -> rusqlite::Result<SigningRoot> {
     use rusqlite::{types::Type, Error};
 
     let bytes: Vec<u8> = row.get(column)?;
     if bytes.len() == 32 {
-        Ok(Hash256::from_slice(&bytes))
+        Ok(SigningRoot::from(Hash256::from_slice(&bytes)))
     } else {
         Err(Error::FromSqlConversionFailure(
             column,

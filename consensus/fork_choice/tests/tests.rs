@@ -14,11 +14,10 @@ use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
     SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
 };
-use store::{MemoryStore, StoreConfig};
+use store::MemoryStore;
 use types::{
-    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    BeaconBlock, BeaconBlockRef, BeaconState, Checkpoint, Epoch, EthSpec, Hash256,
-    IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
+    test_utils::generate_deterministic_keypair, BeaconBlock, BeaconBlockRef, BeaconState,
+    Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -48,25 +47,23 @@ impl fmt::Debug for ForkChoiceTest {
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
-        let harness = BeaconChainHarness::new_with_store_config(
-            MainnetEthSpec,
-            None,
-            generate_deterministic_keypairs(VALIDATOR_COUNT),
-            StoreConfig::default(),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .default_spec()
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .build();
 
         Self { harness }
     }
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
-        let harness = BeaconChainHarness::new_with_chain_config(
-            MainnetEthSpec,
-            None,
-            generate_deterministic_keypairs(VALIDATOR_COUNT),
-            StoreConfig::default(),
-            chain_config,
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .default_spec()
+            .chain_config(chain_config)
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .build();
 
         Self { harness }
     }

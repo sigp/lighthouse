@@ -18,7 +18,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use types::{test_utils::generate_deterministic_keypairs, ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
 pub const UDP_PORT: u16 = 42;
@@ -47,11 +47,11 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        let harness = BeaconChainHarness::new(
-            E::default(),
-            spec,
-            generate_deterministic_keypairs(validator_count),
-        );
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec_or_default(spec)
+            .deterministic_keypairs(validator_count)
+            .fresh_ephemeral_store()
+            .build();
 
         let ApiServer {
             server,

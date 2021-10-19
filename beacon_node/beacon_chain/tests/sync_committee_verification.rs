@@ -28,11 +28,11 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
-    let harness = BeaconChainHarness::new(
-        MainnetEthSpec,
-        Some(spec),
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     harness.advance_slot();
 

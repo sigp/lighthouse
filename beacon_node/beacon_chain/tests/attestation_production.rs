@@ -5,7 +5,6 @@ extern crate lazy_static;
 
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
-use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
 
@@ -25,12 +24,11 @@ fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
     let additional_slots_tested = MainnetEthSpec::slots_per_epoch() * 3;
 
-    let harness = BeaconChainHarness::new_with_store_config(
-        MainnetEthSpec,
-        None,
-        KEYPAIRS[..].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     let chain = &harness.chain;
 

@@ -163,8 +163,10 @@ curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: applicatio
 
 ```
 ### Connecting a validator client
-In order to connect a validator client to a beacon node over TLS, we need to
-add the certificate to the trust store of our operating system.
+In order to connect a validator client to a beacon node over TLS, the validator
+client needs to be aware of the certificate.
+There are two ways to do this:
+#### Option 1: Add the certificate to the operating system trust store
 The process for this will vary depending on your operating system.
 Below are the instructions for Ubuntu and Arch Linux:
 
@@ -183,6 +185,13 @@ sudo trust extract-compat
 Now the validator client can be connected to the beacon node by running:
 ```bash
 lighthouse vc --beacon-nodes https://localhost:5052
+```
+
+#### Option 2: Specify the certificate via CLI
+You can also specify any custom certificates via the validator client CLI like
+so:
+```bash
+lighthouse vc --beacon-nodes https://localhost:5052 --beacon-nodes-tls-certs cert.pem
 ```
 
 ## Troubleshooting

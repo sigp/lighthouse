@@ -202,6 +202,33 @@ fn use_long_timeouts_flag() {
         .with_config(|config| assert!(config.use_long_timeouts));
 }
 
+#[test]
+fn beacon_nodes_tls_certs_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag(
+            "beacon-nodes-tls-certs",
+            Some(
+                vec![
+                    dir.path().join("certificate.crt").to_str().unwrap(),
+                    dir.path().join("certificate2.crt").to_str().unwrap(),
+                ]
+                .join(",")
+                .as_str(),
+            ),
+        )
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_nodes_tls_certs,
+                Some(vec![
+                    dir.path().join("certificate.crt"),
+                    dir.path().join("certificate2.crt")
+                ])
+            )
+        });
+}
+
 // Tests for Graffiti flags.
 #[test]
 fn graffiti_flag() {
