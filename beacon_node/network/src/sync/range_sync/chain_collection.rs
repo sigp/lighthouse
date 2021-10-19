@@ -480,7 +480,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
                 if let Err(remove_reason) = chain.add_peer(network, peer) {
                     if remove_reason.is_critical() {
-                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                        crit!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     } else {
                         error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     }
