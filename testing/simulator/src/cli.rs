@@ -13,7 +13,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     simulation using a local `ganache-cli` instance (you must have `ganache-cli` \
                     installed and avaliable on your path). All beacon nodes independently listen \
                     for genesis from the deposit contract, then start operating. \
-
+                    \
                     As the simulation runs, there are checks made to ensure that all components \
                     are running correctly. If any of these checks fail, the simulation will \
                     exit immediately.",
