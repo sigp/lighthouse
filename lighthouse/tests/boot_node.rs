@@ -2,8 +2,8 @@ use boot_node::config::BootNodeConfig;
 
 mod common;
 use common::exec::{CommandLineTestExec, CompletedTest};
-use eth2_libp2p::discovery::ENR_FILENAME;
-use eth2_libp2p::Enr;
+use lighthouse_network::discovery::ENR_FILENAME;
+use lighthouse_network::Enr;
 use std::fs::File;
 use std::io::Write;
 use std::net::{Ipv4Addr, UdpSocket};
