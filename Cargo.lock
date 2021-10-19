@@ -3610,6 +3610,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "malloc_utils",
+ "serde",
  "serde_json",
  "slashing_protection",
  "slog",
