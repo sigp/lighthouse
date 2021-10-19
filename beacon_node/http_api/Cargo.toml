@@ -16,7 +16,7 @@ beacon_chain = { path = "../beacon_chain" }
 eth2 = { path = "../../common/eth2", features = ["lighthouse"] }
 slog = "2.5.2"
 network = { path = "../network" }
-eth2_libp2p = { path = "../eth2_libp2p" }
+lighthouse_network = { path = "../lighthouse_network" }
 eth1 = { path = "../eth1" }
 state_processing = { path = "../../consensus/state_processing" }
 lighthouse_version = { path = "../../common/lighthouse_version" }

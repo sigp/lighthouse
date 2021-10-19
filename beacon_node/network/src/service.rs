@@ -7,17 +7,17 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::{
+use futures::future::OptionFuture;
+use futures::prelude::*;
+use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
     Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
-use eth2_libp2p::{
+use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
-use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
-use futures::future::OptionFuture;
-use futures::prelude::*;
+use lighthouse_network::{MessageAcceptance, Service as LibP2PService};
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -102,7 +102,7 @@ pub enum NetworkMessage<T: EthSpec> {
     },
 }
 
-/// Service that handles communication between internal services and the `eth2_libp2p` network service.
+/// Service that handles communication between internal services and the `lighthouse_network` network service.
 pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
@@ -469,7 +469,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 return;
                             }
                             let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                            for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter() {
+                            for topic_kind in lighthouse_network::types::CORE_TOPICS.iter() {
                                 for fork_digest in service.required_gossip_fork_digests() {
                                     let topic = GossipTopic::new(topic_kind.clone(), GossipEncoding::default(), fork_digest);
                                     if service.libp2p.swarm.behaviour_mut().subscribe(topic.clone()) {

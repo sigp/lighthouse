@@ -45,7 +45,7 @@ malloc_utils = { path = "../common/malloc_utils" }
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
-eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
+lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 
 [[test]]
 name = "lighthouse_tests"

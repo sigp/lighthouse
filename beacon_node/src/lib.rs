@@ -158,7 +158,7 @@ impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
 #[derive(Clone)]
 struct Discv5Executor(task_executor::TaskExecutor);
 
-impl eth2_libp2p::discv5::Executor for Discv5Executor {
+impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
     }

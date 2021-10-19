@@ -7,7 +7,7 @@ use beacon_chain::{
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
-use eth2_libp2p::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
