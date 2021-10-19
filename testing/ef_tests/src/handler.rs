@@ -423,6 +423,48 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct ForkChoiceGetHeadHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceGetHeadHandler<E> {
+    // Reuse the blocks case runner.
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice"
+    }
+
+    fn handler_name(&self) -> String {
+        "get_head".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct ForkChoiceOnBlockHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceOnBlockHandler<E> {
+    // Reuse the blocks case runner.
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice"
+    }
+
+    fn handler_name(&self) -> String {
+        "on_block".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
