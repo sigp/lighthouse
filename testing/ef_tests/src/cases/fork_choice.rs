@@ -1,13 +1,19 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
-use beacon_chain::test_utils::BeaconChainHarness;
+use beacon_chain::{
+    attestation_verification::{
+        obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
+    },
+    test_utils::{BeaconChainHarness, EphemeralHarnessType},
+    BeaconChainTypes, HeadInfo,
+};
 use serde_derive::Deserialize;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, EthSpec, ForkName, Hash256, Signature,
-    SignedBeaconBlock, Slot,
+    Attestation, BeaconBlock, BeaconState, Checkpoint, EthSpec, ForkName, Hash256,
+    IndexedAttestation, Signature, SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct Head {
     slot: Slot,
@@ -93,8 +99,209 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         self.description.clone()
     }
 
-    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        // TODO(paul): run tests
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        let genesis_time = self.anchor_state.genesis_time();
+        let spec = testing_spec::<E>(fork_name);
+        let genesis_state = {
+            let mut state = self.anchor_state.clone();
+            *state.slot_mut() = spec.genesis_slot;
+            state
+        };
+        let signed_anchor_block =
+            SignedBeaconBlock::from_block(self.anchor_block.clone(), Signature::empty());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.clone())
+            .keypairs(vec![])
+            .checkpoint_sync_ephemeral_store(
+                self.anchor_state.clone(),
+                signed_anchor_block,
+                genesis_state,
+            )
+            .build();
+
+        let tick_to_slot = |tick: u64| {
+            let since_genesis = tick
+                .checked_sub(genesis_time)
+                .ok_or_else(|| Error::FailedToParseTest("tick is prior to genesis".into()))?;
+            let slots_since_genesis = since_genesis / spec.seconds_per_slot;
+            Ok(spec.genesis_slot + slots_since_genesis)
+        };
+
+        let find_head = || -> Result<HeadInfo, Error> {
+            harness
+                .chain
+                .fork_choice()
+                .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
+            harness
+                .chain
+                .head_info()
+                .map_err(|e| Error::InternalError(format!("failed to read head with {:?}", e)))
+        };
+
+        for step in &self.steps {
+            match step {
+                Step::Tick { tick } => {
+                    let slot = tick_to_slot(*tick)?;
+                    harness.set_current_slot(slot);
+                    harness
+                        .chain
+                        .fork_choice
+                        .write()
+                        .update_time(slot)
+                        .map_err(|e| {
+                            Error::InternalError(format!(
+                                "setting tick to {} failed with {:?}",
+                                tick, e
+                            ))
+                        })?;
+                }
+                Step::ValidBlock { block } => {
+                    harness.chain.process_block(block.clone()).map_err(|e| {
+                        Error::InternalError(format!(
+                            "valid block {} failed import with {:?}",
+                            block.canonical_root(),
+                            e
+                        ))
+                    })?;
+                }
+                Step::MaybeValidBlock { block, valid } => {
+                    let result = harness.chain.process_block(block.clone());
+                    if result.is_ok() != *valid {
+                        return Err(Error::DidntFail(format!(
+                            "block with root {} should be invalid",
+                            block.canonical_root(),
+                        )));
+                    }
+                    // TODO(paul) try apply directly to fork choice?
+                }
+                Step::Attestation { attestation } => {
+                    let (indexed_attestation, _) =
+                        obtain_indexed_attestation_and_committees_per_slot(
+                            &harness.chain,
+                            attestation,
+                        )
+                        .map_err(|e| {
+                            Error::InternalError(format!(
+                                "attestation indexing failed with {:?}",
+                                e
+                            ))
+                        })?;
+                    let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
+                        ManuallyVerifiedAttestation {
+                            attestation,
+                            indexed_attestation,
+                        };
+
+                    harness
+                        .chain
+                        .apply_attestation_to_fork_choice(&verified_attestation)
+                        .map_err(|e| {
+                            Error::InternalError(format!("attestation import failed with {:?}", e))
+                        })?;
+                }
+                Step::Checks { checks } => {
+                    let Checks {
+                        head,
+                        time,
+                        genesis_time,
+                        justified_checkpoint,
+                        justified_checkpoint_root,
+                        finalized_checkpoint,
+                        best_justified_checkpoint,
+                    } = checks;
+
+                    if let Some(expected_head) = head {
+                        let chain_head = find_head().map(|head| Head {
+                            slot: head.slot,
+                            root: head.block_root,
+                        })?;
+
+                        check_equal("head", chain_head, *expected_head)?;
+                    }
+
+                    if let Some(expected_time) = time {
+                        let slot = harness.chain.slot().map_err(|e| {
+                            Error::InternalError(format!(
+                                "reading current slot failed with {:?}",
+                                e
+                            ))
+                        })?;
+                        let expected_slot = tick_to_slot(*expected_time)?;
+                        check_equal("time", slot, expected_slot)?;
+                    }
+
+                    if let Some(expected_genesis_time) = genesis_time {
+                        let genesis_time = harness.chain.slot_clock.genesis_duration().as_secs();
+                        check_equal("genesis_time", genesis_time, *expected_genesis_time)?;
+                    }
+
+                    if let Some(expected_justified_checkpoint) = justified_checkpoint {
+                        let chain_head = find_head()?;
+                        check_equal(
+                            "justified_checkpoint",
+                            chain_head.current_justified_checkpoint,
+                            *expected_justified_checkpoint,
+                        )?;
+                    }
+
+                    if let Some(expected_justified_checkpoint_root) = justified_checkpoint_root {
+                        let chain_head = find_head()?;
+                        check_equal(
+                            "justified_checkpoint_root",
+                            chain_head.current_justified_checkpoint.root,
+                            *expected_justified_checkpoint_root,
+                        )?;
+                    }
+
+                    if let Some(expected_finalized_checkpoint) = finalized_checkpoint {
+                        let chain_head = find_head()?;
+                        check_equal(
+                            "finalized_checkpoint",
+                            chain_head.finalized_checkpoint,
+                            *expected_finalized_checkpoint,
+                        )?;
+                    }
+
+                    if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
+                        let best_justified_checkpoint =
+                            harness.chain.fork_choice.read().best_justified_checkpoint();
+                        check_equal(
+                            "best_justified_checkpoint",
+                            best_justified_checkpoint,
+                            *expected_best_justified_checkpoint,
+                        )?;
+                    }
+                }
+            }
+        }
+
         Ok(())
+    }
+}
+
+fn check_equal<T: Debug + PartialEq>(check: &str, result: T, expected: T) -> Result<(), Error> {
+    if result == expected {
+        Ok(())
+    } else {
+        Err(Error::NotEqual(format!(
+            "{} check failed: Got {:?} | Expected {:?}",
+            check, result, expected
+        )))
+    }
+}
+
+pub struct ManuallyVerifiedAttestation<'a, T: BeaconChainTypes> {
+    #[allow(dead_code)]
+    attestation: &'a Attestation<T::EthSpec>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'a, T> {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        self.attestation
+    }
+
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
     }
 }

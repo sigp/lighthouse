@@ -182,6 +182,31 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
     }
+
+    pub fn checkpoint_sync_ephemeral_store(
+        mut self,
+        weak_subj_state: BeaconState<E>,
+        weak_subj_block: SignedBeaconBlock<E>,
+        genesis_state: BeaconState<E>,
+    ) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(
+                self.store_config.clone().unwrap_or_default(),
+                spec.clone(),
+                self.log.clone(),
+            )
+            .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .weak_subjectivity_state(weak_subj_state, weak_subj_block, genesis_state)
+                .expect("should build using weak subj state")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
 }
 
 impl<E: EthSpec> Builder<DiskHarnessType<E>> {

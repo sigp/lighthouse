@@ -797,6 +797,16 @@ where
         *self.fc_store.finalized_checkpoint()
     }
 
+    /// Return the best justified checkpoint.
+    ///
+    /// ## Warning
+    ///
+    /// This is distinct to the "justified checkpoint" or the "current justified checkpoint". This
+    /// "best justified checkpoint" value should only be used internally or for testing.
+    pub fn best_justified_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.best_justified_checkpoint()
+    }
+
     /// Returns the latest message for a given validator, if any.
     ///
     /// Returns `(block_root, block_slot)`.
