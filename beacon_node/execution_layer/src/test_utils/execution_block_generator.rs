@@ -77,6 +77,8 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * Common database
      */
+    head_block: Option<Block<T>>,
+    finalized_block_hash: Option<Hash256>,
     blocks: HashMap<Hash256, Block<T>>,
     block_hashes: HashMap<u64, Vec<Hash256>>,
     /*
@@ -100,6 +102,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: Hash256,
     ) -> Self {
         let mut gen = Self {
+            head_block: <_>::default(),
+            finalized_block_hash: <_>::default(),
             blocks: <_>::default(),
             block_hashes: <_>::default(),
             terminal_total_difficulty,
@@ -126,11 +130,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn latest_block(&self) -> Option<Block<T>> {
-        self.block_hashes
-            .iter()
-            .max_by_key(|(number, _)| *number)
-            .map(|(_, hashes)| self.max_difficulty_block(hashes))
-            .flatten()
+        self.head_block.clone()
     }
 
     pub fn latest_execution_block(&self) -> Option<ExecutionBlock> {
@@ -215,7 +215,22 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             parent_hash,
         )?;
 
-        let _ = self.insert_block(Block::PoW(block))?;
+        // Insert block into block tree
+        let _ = self.insert_block(Block::PoW(block.clone()))?;
+
+        // Set head if required
+        if let Some(head_total_difficulty) = self
+            .head_block
+            .as_ref()
+            .map(|b| b.total_difficulty())
+            .flatten()
+        {
+            if block.total_difficulty >= head_total_difficulty {
+                self.head_block = Some(Block::PoW(block));
+            }
+        } else {
+            self.head_block = Some(Block::PoW(block));
+        }
         Ok(())
     }
 
@@ -233,7 +248,21 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             parent_hash,
         )?;
 
-        self.insert_block(Block::PoW(block))
+        let hash = self.insert_block(Block::PoW(block.clone()))?;
+        // Set head if required
+        if let Some(head_total_difficulty) = self
+            .head_block
+            .as_ref()
+            .map(|b| b.total_difficulty())
+            .flatten()
+        {
+            if block.total_difficulty >= head_total_difficulty {
+                self.head_block = Some(Block::PoW(block));
+            }
+        } else {
+            self.head_block = Some(Block::PoW(block));
+        }
+        Ok(hash)
     }
 
     pub fn insert_block(&mut self, block: Block<T>) -> Result<Hash256, String> {
@@ -352,6 +381,11 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 finalized_block_hash
             ));
         }
+
+        self.head_block = Some(self.blocks.get(&block_hash).unwrap().clone());
+
+        // TODO: Should we update if finalized_block_hash == Hash265::zero()?
+        self.finalized_block_hash = Some(finalized_block_hash);
 
         Ok(())
     }
