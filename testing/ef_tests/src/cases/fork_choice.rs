@@ -239,7 +239,6 @@ impl<E: EthSpec> Tester<E> {
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
         let result = self.harness.chain.process_block(block.clone());
-        // TODO(paul) try apply directly to fork choice?
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} should be invalid",
