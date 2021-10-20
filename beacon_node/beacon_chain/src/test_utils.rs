@@ -183,12 +183,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store_mutator(Box::new(mutator))
     }
 
-    pub fn checkpoint_sync_ephemeral_store(
-        mut self,
-        weak_subj_state: BeaconState<E>,
-        weak_subj_block: SignedBeaconBlock<E>,
-        genesis_state: BeaconState<E>,
-    ) -> Self {
+    pub fn genesis_state_ephemeral_store(mut self, genesis_state: BeaconState<E>) -> Self {
         let spec = self.spec.as_ref().expect("cannot build without spec");
 
         let store = Arc::new(
@@ -201,8 +196,8 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
-                .weak_subjectivity_state(weak_subj_state, weak_subj_block, genesis_state)
-                .expect("should build using weak subj state")
+                .genesis_state(genesis_state)
+                .expect("should build state using recent genesis")
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
