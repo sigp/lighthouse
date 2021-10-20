@@ -6,14 +6,16 @@ use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNE
 use crate::peer_manager::{
     peerdb::score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent,
 };
+use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
-use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
-use crate::{rpc::*, SyncStatus};
+use crate::{
+    error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, SyncStatus, TopicHash,
+};
 use futures::prelude::*;
 use libp2p::{
     core::{
