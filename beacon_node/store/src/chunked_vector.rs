@@ -150,11 +150,7 @@ pub trait Field<E: EthSpec>: Copy {
 
                 new_chunk.values[i] = vector_value;
             } else {
-                new_chunk.values[i] = existing_chunk
-                    .values
-                    .get(i)
-                    .cloned()
-                    .unwrap_or_else(Self::Value::default);
+                new_chunk.values[i] = existing_chunk.values.get(i).cloned().unwrap_or_default();
             }
         }
 
@@ -407,7 +403,7 @@ where
         let chunk_key = &chunk_key(chunk_index)[..];
 
         let existing_chunk =
-            Chunk::<F::Value>::load(store, F::column(), chunk_key)?.unwrap_or_else(Chunk::default);
+            Chunk::<F::Value>::load(store, F::column(), chunk_key)?.unwrap_or_default();
 
         let new_chunk = F::get_updated_chunk(
             &existing_chunk,

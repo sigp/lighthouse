@@ -3,13 +3,13 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use eth2_libp2p::{
+use http_api::{Config, Context};
+use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
-use http_api::{Config, Context};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;

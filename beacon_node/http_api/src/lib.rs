@@ -24,7 +24,7 @@ use beacon_chain::{
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
-use eth2_libp2p::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
 use serde::{Deserialize, Serialize};
@@ -1635,8 +1635,10 @@ pub fn serve<T: BeaconChainTypes>(
 
                     if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
                         let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
-                            let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
-                            addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(socket_addr.port()));
+                            let mut addr = lighthouse_network::Multiaddr::from(socket_addr.ip());
+                            addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
+                                socket_addr.port(),
+                            ));
                             addr.to_string()
                         } else if let Some(addr) = peer_info.listening_addresses().first() {
                             addr.to_string()
@@ -1682,8 +1684,9 @@ pub fn serve<T: BeaconChainTypes>(
                         .for_each(|(peer_id, peer_info)| {
                             let address =
                                 if let Some(socket_addr) = peer_info.seen_addresses().next() {
-                                    let mut addr = eth2_libp2p::Multiaddr::from(socket_addr.ip());
-                                    addr.push(eth2_libp2p::multiaddr::Protocol::Tcp(
+                                    let mut addr =
+                                        lighthouse_network::Multiaddr::from(socket_addr.ip());
+                                    addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
                                         socket_addr.port(),
                                     ));
                                     addr.to_string()

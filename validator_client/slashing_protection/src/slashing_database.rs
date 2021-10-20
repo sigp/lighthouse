@@ -129,6 +129,19 @@ impl SlashingDatabase {
         Ok(())
     }
 
+    /// Execute a database transaction as a closure, committing if `f` returns `Ok`.
+    pub fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: FnOnce(&Transaction) -> Result<T, E>,
+        E: From<NotSafe>,
+    {
+        let mut conn = self.conn_pool.get().map_err(NotSafe::from)?;
+        let txn = conn.transaction().map_err(NotSafe::from)?;
+        let value = f(&txn)?;
+        txn.commit().map_err(NotSafe::from)?;
+        Ok(value)
+    }
+
     /// Register a validator with the slashing protection database.
     ///
     /// This allows the validator to record their signatures in the database, and check
@@ -142,11 +155,7 @@ impl SlashingDatabase {
         &self,
         public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<(), NotSafe> {
-        let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction()?;
-        self.register_validators_in_txn(public_keys, &txn)?;
-        txn.commit()?;
-        Ok(())
+        self.with_transaction(|txn| self.register_validators_in_txn(public_keys, txn))
     }
 
     /// Register multiple validators inside the given transaction.
@@ -175,6 +184,23 @@ impl SlashingDatabase {
         let txn = conn.transaction()?;
         public_keys
             .try_for_each(|public_key| self.get_validator_id_in_txn(&txn, public_key).map(|_| ()))
+    }
+
+    /// List the internal validator ID and public key of every registered validator.
+    pub fn list_all_registered_validators(
+        &self,
+        txn: &Transaction,
+    ) -> Result<Vec<(i64, PublicKeyBytes)>, InterchangeError> {
+        txn.prepare("SELECT id, public_key FROM validators ORDER BY id ASC")?
+            .query_and_then(params![], |row| {
+                let validator_id = row.get(0)?;
+                let pubkey_str: String = row.get(1)?;
+                let pubkey = pubkey_str
+                    .parse()
+                    .map_err(InterchangeError::InvalidPubkey)?;
+                Ok((validator_id, pubkey))
+            })?
+            .collect()
     }
 
     /// Get the database-internal ID for a validator.
@@ -694,79 +720,99 @@ impl SlashingDatabase {
         }
     }
 
-    pub fn export_interchange_info(
+    pub fn export_all_interchange_info(
         &self,
         genesis_validators_root: Hash256,
     ) -> Result<Interchange, InterchangeError> {
-        use std::collections::BTreeMap;
+        self.export_interchange_info(genesis_validators_root, None)
+    }
 
+    pub fn export_interchange_info(
+        &self,
+        genesis_validators_root: Hash256,
+        selected_pubkeys: Option<&[PublicKeyBytes]>,
+    ) -> Result<Interchange, InterchangeError> {
         let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction()?;
+        let txn = &conn.transaction()?;
 
-        // Map from internal validator pubkey to blocks and attestation for that pubkey.
-        let mut data: BTreeMap<String, (Vec<InterchangeBlock>, Vec<InterchangeAttestation>)> =
-            BTreeMap::new();
-
-        txn.prepare(
-            "SELECT public_key, slot, signing_root
-             FROM signed_blocks, validators
-             WHERE signed_blocks.validator_id = validators.id
-             ORDER BY slot ASC",
-        )?
-        .query_and_then(params![], |row| {
-            let validator_pubkey: String = row.get(0)?;
-            let slot = row.get(1)?;
-            let signing_root = signing_root_from_row(2, row)?.to_hash256();
-            let signed_block = InterchangeBlock { slot, signing_root };
-            data.entry(validator_pubkey)
-                .or_insert_with(|| (vec![], vec![]))
-                .0
-                .push(signed_block);
-            Ok(())
-        })?
-        .collect::<Result<_, InterchangeError>>()?;
-
-        txn.prepare(
-            "SELECT public_key, source_epoch, target_epoch, signing_root
-             FROM signed_attestations, validators
-             WHERE signed_attestations.validator_id = validators.id
-             ORDER BY source_epoch ASC, target_epoch ASC",
-        )?
-        .query_and_then(params![], |row| {
-            let validator_pubkey: String = row.get(0)?;
-            let source_epoch = row.get(1)?;
-            let target_epoch = row.get(2)?;
-            let signing_root = signing_root_from_row(3, row)?.to_hash256();
-            let signed_attestation = InterchangeAttestation {
-                source_epoch,
-                target_epoch,
-                signing_root,
-            };
-            data.entry(validator_pubkey)
-                .or_insert_with(|| (vec![], vec![]))
-                .1
-                .push(signed_attestation);
-            Ok(())
-        })?
-        .collect::<Result<_, InterchangeError>>()?;
-
-        let metadata = InterchangeMetadata {
-            interchange_format_version: SUPPORTED_INTERCHANGE_FORMAT_VERSION,
-            genesis_validators_root,
+        // Determine the validator IDs and public keys to export data for.
+        let to_export = if let Some(selected_pubkeys) = selected_pubkeys {
+            selected_pubkeys
+                .iter()
+                .map(|pubkey| {
+                    let id = self.get_validator_id_in_txn(txn, pubkey)?;
+                    Ok((id, *pubkey))
+                })
+                .collect::<Result<_, InterchangeError>>()?
+        } else {
+            self.list_all_registered_validators(txn)?
         };
 
-        let data = data
+        let data = to_export
             .into_iter()
-            .map(|(pubkey, (signed_blocks, signed_attestations))| {
+            .map(|(validator_id, pubkey)| {
+                let signed_blocks =
+                    self.export_interchange_blocks_for_validator(validator_id, txn)?;
+                let signed_attestations =
+                    self.export_interchange_attestations_for_validator(validator_id, txn)?;
                 Ok(InterchangeData {
-                    pubkey: pubkey.parse().map_err(InterchangeError::InvalidPubkey)?,
+                    pubkey,
                     signed_blocks,
                     signed_attestations,
                 })
             })
             .collect::<Result<_, InterchangeError>>()?;
 
+        let metadata = InterchangeMetadata {
+            interchange_format_version: SUPPORTED_INTERCHANGE_FORMAT_VERSION,
+            genesis_validators_root,
+        };
+
         Ok(Interchange { metadata, data })
+    }
+
+    fn export_interchange_blocks_for_validator(
+        &self,
+        validator_id: i64,
+        txn: &Transaction,
+    ) -> Result<Vec<InterchangeBlock>, InterchangeError> {
+        txn.prepare(
+            "SELECT slot, signing_root
+             FROM signed_blocks
+             WHERE signed_blocks.validator_id = ?1
+             ORDER BY slot ASC",
+        )?
+        .query_and_then(params![validator_id], |row| {
+            let slot = row.get(0)?;
+            let signing_root = signing_root_from_row(1, row)?.to_hash256();
+            Ok(InterchangeBlock { slot, signing_root })
+        })?
+        .collect()
+    }
+
+    fn export_interchange_attestations_for_validator(
+        &self,
+        validator_id: i64,
+        txn: &Transaction,
+    ) -> Result<Vec<InterchangeAttestation>, InterchangeError> {
+        txn.prepare(
+            "SELECT source_epoch, target_epoch, signing_root
+             FROM signed_attestations
+             WHERE signed_attestations.validator_id = ?1
+             ORDER BY source_epoch ASC, target_epoch ASC",
+        )?
+        .query_and_then(params![validator_id], |row| {
+            let source_epoch = row.get(0)?;
+            let target_epoch = row.get(1)?;
+            let signing_root = signing_root_from_row(2, row)?.to_hash256();
+            let signed_attestation = InterchangeAttestation {
+                source_epoch,
+                target_epoch,
+                signing_root,
+            };
+            Ok(signed_attestation)
+        })?
+        .collect()
     }
 
     /// Remove all blocks for `public_key` with slots less than `new_min_slot`.

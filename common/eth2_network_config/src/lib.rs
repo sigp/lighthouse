@@ -178,7 +178,7 @@ impl Eth2NetworkConfig {
                     .and_then(|file| {
                         serde_yaml::from_reader(file)
                             .map_err(|e| format!("Unable to parse {}: {:?}", $file, e))
-                    })?;
+                    })?
             };
         }
 

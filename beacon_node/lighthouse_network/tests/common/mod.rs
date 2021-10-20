@@ -1,10 +1,10 @@
 #![cfg(test)]
-use eth2_libp2p::Enr;
-use eth2_libp2p::EnrExt;
-use eth2_libp2p::Multiaddr;
-use eth2_libp2p::Service as LibP2PService;
-use eth2_libp2p::{Libp2pEvent, NetworkConfig};
 use libp2p::gossipsub::GossipsubConfigBuilder;
+use lighthouse_network::Enr;
+use lighthouse_network::EnrExt;
+use lighthouse_network::Multiaddr;
+use lighthouse_network::Service as LibP2PService;
+use lighthouse_network::{Libp2pEvent, NetworkConfig};
 use slog::{debug, error, o, Drain};
 use std::net::{TcpListener, UdpSocket};
 use std::sync::Arc;

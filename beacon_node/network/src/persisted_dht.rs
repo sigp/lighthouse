@@ -1,4 +1,4 @@
-use eth2_libp2p::Enr;
+use lighthouse_network::Enr;
 use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};
 use types::{EthSpec, Hash256};
@@ -60,7 +60,7 @@ impl StoreItem for PersistedDht {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eth2_libp2p::Enr;
+    use lighthouse_network::Enr;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use store::config::StoreConfig;
