@@ -39,7 +39,7 @@ pub enum Step<B, A> {
     ValidBlock { block: B },
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
-    Checks { checks: Checks },
+    Checks { checks: Box<Checks> },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,7 +119,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint_root,
                         finalized_checkpoint,
                         best_justified_checkpoint,
-                    } = checks;
+                    } = checks.as_ref();
 
                     if let Some(expected_head) = head {
                         tester.check_head(*expected_head)?;
