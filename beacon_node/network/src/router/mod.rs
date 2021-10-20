@@ -10,11 +10,11 @@ mod processor;
 use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{
+use futures::prelude::*;
+use lighthouse_network::{
     rpc::RequestId, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
     Response,
 };
-use futures::prelude::*;
 use processor::Processor;
 use slog::{debug, o, trace};
 use std::sync::Arc;

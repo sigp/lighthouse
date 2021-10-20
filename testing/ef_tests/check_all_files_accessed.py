@@ -43,6 +43,9 @@ excluded_paths = [
     "tests/minimal/phase0/fork_choice",
     "tests/mainnet/altair/fork_choice",
     "tests/minimal/altair/fork_choice",
+    # Merkle-proof tests for light clients
+    "tests/mainnet/altair/merkle/single_proof/pyspec_tests/",
+    "tests/minimal/altair/merkle/single_proof/pyspec_tests/"
 ]
 
 def normalize_path(path):

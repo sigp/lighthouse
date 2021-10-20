@@ -16,8 +16,8 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
-use eth2_libp2p::NetworkGlobals;
 use genesis::{interop_genesis_state, Eth1GenesisService};
+use lighthouse_network::NetworkGlobals;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;

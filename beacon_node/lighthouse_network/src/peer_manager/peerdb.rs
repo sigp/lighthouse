@@ -782,15 +782,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             }
 
             /* Handle the transition to the disconnecting state */
-            (
-                PeerConnectionStatus::Banned { .. } | PeerConnectionStatus::Disconnected { .. },
-                NewConnectionState::Disconnecting { to_ban },
-            ) => {
-                error!(self.log, "Disconnecting from an already disconnected peer"; "peer_id" => %peer_id);
+            (PeerConnectionStatus::Banned { .. }, NewConnectionState::Disconnecting { to_ban }) => {
+                error!(self.log, "Disconnecting from a banned peer"; "peer_id" => %peer_id);
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
             }
             (_, NewConnectionState::Disconnecting { to_ban }) => {
                 // We overwrite all states and set this peer to be disconnecting.
+                // NOTE: A peer can be in the disconnected state and transition straight to a
+                // disconnected state. This occurs when a disconnected peer dials us, we have too
+                // many peers and we transition them straight to the disconnecting state.
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
             }
 

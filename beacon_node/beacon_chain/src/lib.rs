@@ -55,4 +55,5 @@ pub use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
+pub use timeout_rw_lock::TimeoutRwLock;
 pub use types;

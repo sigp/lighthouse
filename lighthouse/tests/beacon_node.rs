@@ -1,6 +1,6 @@
 use beacon_node::ClientConfig as Config;
 
-use eth2_libp2p::PeerId;
+use lighthouse_network::PeerId;
 use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;
@@ -175,6 +175,21 @@ fn max_skip_slots_flag() {
         .flag("max-skip-slots", Some("10"))
         .run()
         .with_config(|config| assert_eq!(config.chain.import_max_skip_slots, Some(10)));
+}
+
+#[test]
+fn enable_lock_timeouts_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.chain.enable_lock_timeouts));
+}
+
+#[test]
+fn disable_lock_timeouts_flag() {
+    CommandLineTest::new()
+        .flag("disable-lock-timeouts", None)
+        .run()
+        .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
 }
 
 #[test]

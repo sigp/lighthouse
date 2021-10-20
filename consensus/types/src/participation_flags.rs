@@ -9,6 +9,7 @@ use tree_hash::{TreeHash, TreeHashType};
 #[serde(transparent)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct ParticipationFlags {
+    #[serde(with = "eth2_serde_utils::quoted_u8")]
     bits: u8,
 }
 

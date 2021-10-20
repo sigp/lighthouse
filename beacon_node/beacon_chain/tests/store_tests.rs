@@ -61,12 +61,11 @@ fn get_harness(
     store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
     validator_count: usize,
 ) -> TestHarness {
-    let harness = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        None,
-        store,
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store)
+        .build();
     harness.advance_slot();
     harness
 }
@@ -365,12 +364,11 @@ fn delete_blocks_and_states() {
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        None,
-        store.clone(),
-        validators_keypairs,
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store.clone())
+        .build();
 
     let unforked_blocks: u64 = 4 * E::slots_per_epoch();
 
@@ -492,8 +490,11 @@ fn multi_epoch_fork_valid_blocks_test(
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness =
-        BeaconChainHarness::new_with_disk_store(MinimalEthSpec, None, store, validators_keypairs);
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .build();
 
     let num_fork1_blocks: u64 = num_fork1_blocks_.try_into().unwrap();
     let num_fork2_blocks: u64 = num_fork2_blocks_.try_into().unwrap();
@@ -783,7 +784,11 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
 
@@ -888,7 +893,11 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1013,7 +1022,11 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
 
@@ -1103,7 +1116,11 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
     // Fill up 0th epoch with canonical chain blocks
@@ -1241,7 +1258,11 @@ fn prunes_skipped_slots_states() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
@@ -1360,7 +1381,11 @@ fn finalizes_non_epoch_start_slot() {
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
     let adversarial_validators: Vec<usize> = (HONEST_VALIDATOR_COUNT..VALIDATOR_COUNT).collect();
-    let rig = BeaconChainHarness::new(MinimalEthSpec, None, validators_keypairs);
+    let rig = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_ephemeral_store()
+        .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
     let canonical_slots_zeroth_epoch: Vec<Slot> =
@@ -1923,12 +1948,11 @@ fn finalizes_after_resuming_from_db() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    let harness = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        None,
-        store.clone(),
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store.clone())
+        .build();
 
     harness.advance_slot();
 
@@ -1967,12 +1991,11 @@ fn finalizes_after_resuming_from_db() {
 
     let original_chain = harness.chain;
 
-    let resumed_harness = BeaconChainHarness::resume_from_disk_store(
-        MinimalEthSpec,
-        None,
-        store,
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let resumed_harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .resumed_disk_store(store)
+        .build();
 
     assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);
 
@@ -2037,22 +2060,20 @@ fn revert_minority_fork_on_resume() {
     // Chain with no fork epoch configured.
     let db_path1 = tempdir().unwrap();
     let store1 = get_store_with_spec(&db_path1, spec1.clone());
-    let harness1 = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        Some(spec1),
-        store1,
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness1 = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec1)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store1)
+        .build();
 
     // Chain with fork epoch configured.
     let db_path2 = tempdir().unwrap();
     let store2 = get_store_with_spec(&db_path2, spec2.clone());
-    let harness2 = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        Some(spec2.clone()),
-        store2,
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness2 = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec2.clone())
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store2)
+        .build();
 
     // Apply the same blocks to both chains initially.
     let mut state = harness1.get_current_state();
@@ -2130,13 +2151,12 @@ fn revert_minority_fork_on_resume() {
     // the beacon chain builder loads the head block.
     drop(harness1);
     let resume_store = get_store_with_spec(&db_path1, spec2.clone());
-    let resumed_harness = BeaconChainHarness::new_with_mutator(
-        MinimalEthSpec,
-        spec2,
-        resume_store,
-        KEYPAIRS[0..validator_count].to_vec(),
-        ChainConfig::default(),
-        |mut builder| {
+
+    let resumed_harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec2)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .resumed_disk_store(resume_store)
+        .override_store_mutator(Box::new(move |mut builder| {
             builder = builder
                 .resume_from_db()
                 .unwrap()
@@ -2147,8 +2167,8 @@ fn revert_minority_fork_on_resume() {
                 .unwrap()
                 .set_slot(end_slot.as_u64());
             builder
-        },
-    );
+        }))
+        .build();
 
     // Head should now be just before the fork.
     resumed_harness.chain.fork_choice().unwrap();

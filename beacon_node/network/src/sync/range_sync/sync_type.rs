@@ -2,7 +2,7 @@
 //! of a remote.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::SyncInfo;
+use lighthouse_network::SyncInfo;
 use std::sync::Arc;
 
 /// The type of Range sync that should be done relative to our current state.

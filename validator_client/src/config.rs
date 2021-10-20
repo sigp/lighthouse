@@ -55,6 +55,9 @@ pub struct Config {
     /// Note: We publish validator specific metrics for low validator counts without this flag
     /// (<= 64 validators)
     pub enable_high_validator_count_metrics: bool,
+    /// A list of custom certificates that the validator client will additionally use when
+    /// connecting to a beacon node over SSL/TLS.
+    pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
 }
 
 impl Default for Config {
@@ -86,6 +89,7 @@ impl Default for Config {
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
+            beacon_nodes_tls_certs: None,
         }
     }
 }
@@ -197,6 +201,10 @@ impl Config {
 
                 config.graffiti = Some(graffiti.into());
             }
+        }
+
+        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
+            config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
         }
 
         /*

@@ -1,6 +1,6 @@
 use crate::metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{types::SyncState, NetworkGlobals};
+use lighthouse_network::{types::SyncState, NetworkGlobals};
 use parking_lot::Mutex;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;

@@ -568,4 +568,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PATH")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("disable-lock-timeouts")
+                .long("disable-lock-timeouts")
+                .help("Disable the timeouts applied to some internal locks by default. This can \
+                       lead to less spurious failures on slow hardware but is considered \
+                       experimental as it may obscure performance issues.")
+                .takes_value(false)
+        )
 }
