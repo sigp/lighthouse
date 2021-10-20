@@ -200,6 +200,24 @@ impl ValidatorClientHttpClient {
         Ok(())
     }
 
+    /// Perform a HTTP DELETE request.
+    async fn delete<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<V, Error> {
+        let response = self
+            .client
+            .delete(url)
+            .headers(self.headers()?)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::Reqwest)?;
+        let response = ok_or_error(response).await?;
+        self.signed_json(response).await
+    }
+
     /// `GET lighthouse/version`
     pub async fn get_lighthouse_version(&self) -> Result<GenericResponse<VersionData>, Error> {
         let mut path = self.server.full.clone();
@@ -344,6 +362,40 @@ impl ValidatorClientHttpClient {
             .push(&voting_pubkey.to_string());
 
         self.patch(path, &ValidatorPatchRequest { enabled }).await
+    }
+
+    fn make_keystores_url(&self) -> Result<Url, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("keystores");
+        Ok(url)
+    }
+
+    /// `GET eth/v1/keystores`
+    pub async fn get_keystores(&self) -> Result<ListKeystoresResponse, Error> {
+        let url = self.make_keystores_url()?;
+        self.get(url).await
+    }
+
+    /// `POST eth/v1/keystores`
+    pub async fn post_keystores(
+        &self,
+        req: &ImportKeystoresRequest,
+    ) -> Result<ImportKeystoresResponse, Error> {
+        let url = self.make_keystores_url()?;
+        self.post(url, req).await
+    }
+
+    /// `DELETE eth/v1/keystores`
+    pub async fn delete_keystores(
+        &self,
+        req: &DeleteKeystoresRequest,
+    ) -> Result<DeleteKeystoresResponse, Error> {
+        let url = self.make_keystores_url()?;
+        self.delete(url, req).await
     }
 }
 

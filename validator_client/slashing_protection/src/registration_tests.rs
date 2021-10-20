@@ -30,3 +30,5 @@ fn double_register_validators() {
     assert_eq!(slashing_db.num_validator_rows().unwrap(), num_validators);
     assert_eq!(validator_ids, get_validator_ids());
 }
+
+// FIXME(sproul): test de-registration/re-registration with `enabled`=false/true/etc
