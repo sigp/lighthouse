@@ -186,6 +186,14 @@ impl<E: EthSpec> Tester<E> {
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .build();
 
+        if harness.chain.genesis_block_root != case.anchor_block.canonical_root() {
+            // This check will need to be removed if/when the fork-choice tests use a non-genesis
+            // anchor state.
+            return Err(Error::FailedToParseTest(
+                "anchor block differs from locally-generated genesis block".into(),
+            ));
+        }
+
         assert_eq!(
             harness.chain.slot_clock.genesis_duration().as_secs(),
             genesis_time

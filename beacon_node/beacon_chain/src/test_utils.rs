@@ -183,6 +183,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store_mutator(Box::new(mutator))
     }
 
+    /// Create a new ephemeral store that uses the specified `genesis_state`.
     pub fn genesis_state_ephemeral_store(mut self, genesis_state: BeaconState<E>) -> Self {
         let spec = self.spec.as_ref().expect("cannot build without spec");
 
