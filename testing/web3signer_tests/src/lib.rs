@@ -556,13 +556,7 @@ mod tests {
         test_base_types("mainnet", 4242).await
     }
 
-    /* The Altair fork for mainnet has not been announced, so this test will always fail.
-     *
-     * If this test starts failing, it's likely that the fork has been decided and we should remove
-     * the `#[should_panic]`
-     */
     #[tokio::test]
-    #[should_panic]
     async fn mainnet_altair_types() {
         test_altair_types("mainnet", 4243).await
     }
