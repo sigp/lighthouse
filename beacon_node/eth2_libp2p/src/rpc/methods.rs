@@ -145,9 +145,6 @@ pub enum GoodbyeReason {
     /// The IP address the peer is using is banned.
     BannedIP = 252,
 
-    /// Protocol Not Supported
-    ProtocolNotSupported = 253,
-
     /// Unknown reason.
     Unknown = 0,
 }
@@ -163,7 +160,6 @@ impl From<u64> for GoodbyeReason {
             250 => GoodbyeReason::BadScore,
             251 => GoodbyeReason::Banned,
             252 => GoodbyeReason::BannedIP,
-            253 => GoodbyeReason::ProtocolNotSupported,
             _ => GoodbyeReason::Unknown,
         }
     }
@@ -406,7 +402,6 @@ impl std::fmt::Display for GoodbyeReason {
             GoodbyeReason::BadScore => write!(f, "Bad Score"),
             GoodbyeReason::Banned => write!(f, "Banned"),
             GoodbyeReason::BannedIP => write!(f, "BannedIP"),
-            GoodbyeReason::ProtocolNotSupported => write!(f, "Gossipsub not supported"),
             GoodbyeReason::Unknown => write!(f, "Unknown Reason"),
         }
     }
