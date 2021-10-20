@@ -53,14 +53,13 @@ pub struct ForkChoiceTest<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let description = format!(
-            "{}",
-            path.iter()
-                .last()
-                .expect("path must be non-empty")
-                .to_str()
-                .expect("path must be valid OsStr")
-        );
+        let description = path
+            .iter()
+            .last()
+            .expect("path must be non-empty")
+            .to_str()
+            .expect("path must be valid OsStr")
+            .to_string();
         let spec = &testing_spec::<E>(fork_name);
         let steps: Vec<Step<String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
