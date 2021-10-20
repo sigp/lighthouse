@@ -38,7 +38,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         store::scrape_for_metrics(db_path, freezer_db_path);
     }
 
-    eth2_libp2p::scrape_discovery_metrics();
+    lighthouse_network::scrape_discovery_metrics();
 
     warp_utils::metrics::scrape_health_metrics();
 

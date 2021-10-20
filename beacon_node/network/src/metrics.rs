@@ -2,12 +2,12 @@ use beacon_chain::{
     attestation_verification::Error as AttnError,
     sync_committee_verification::Error as SyncCommitteeError,
 };
-use eth2_libp2p::PubsubMessage;
-use eth2_libp2p::{
-    types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
-};
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
+use lighthouse_network::PubsubMessage;
+use lighthouse_network::{
+    types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
+};
 use std::{collections::HashMap, sync::Arc};
 use strum::AsStaticRef;
 use types::{

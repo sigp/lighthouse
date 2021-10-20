@@ -1,7 +1,7 @@
 //! The main bootnode server execution.
 
 use super::BootNodeConfig;
-use eth2_libp2p::{
+use lighthouse_network::{
     discv5::{enr::NodeId, Discv5, Discv5Event},
     EnrExt, Eth2Enr,
 };

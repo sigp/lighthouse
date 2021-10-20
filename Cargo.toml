@@ -6,7 +6,7 @@ members = [
     "beacon_node/beacon_chain",
     "beacon_node/client",
     "beacon_node/eth1",
-    "beacon_node/eth2_libp2p",
+    "beacon_node/lighthouse_network",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
     "beacon_node/network",
