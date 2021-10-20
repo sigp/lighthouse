@@ -797,6 +797,11 @@ where
         *self.fc_store.finalized_checkpoint()
     }
 
+    /// Return the justified checkpoint.
+    pub fn justified_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.justified_checkpoint()
+    }
+
     /// Return the best justified checkpoint.
     ///
     /// ## Warning

@@ -102,11 +102,23 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let genesis_time = self.anchor_state.genesis_time();
         let spec = testing_spec::<E>(fork_name);
+
+        assert_eq!(self.anchor_state.slot(), spec.genesis_slot);
+
         let genesis_state = {
             let mut state = self.anchor_state.clone();
             *state.slot_mut() = spec.genesis_slot;
             state
         };
+
+        let genesis_block_root = if self.anchor_block.slot() == spec.genesis_slot {
+            self.anchor_block.canonical_root()
+        } else if let Ok(root) = self.anchor_state.get_block_root(spec.genesis_slot) {
+            *root
+        } else {
+            Hash256::zero()
+        };
+
         let signed_anchor_block =
             SignedBeaconBlock::from_block(self.anchor_block.clone(), Signature::empty());
         let harness = BeaconChainHarness::builder(E::default())
@@ -236,10 +248,16 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     }
 
                     if let Some(expected_justified_checkpoint) = justified_checkpoint {
-                        let chain_head = find_head()?;
+                        let mut current_justified_checkpoint =
+                            find_head()?.current_justified_checkpoint;
+
+                        if current_justified_checkpoint == Checkpoint::default() {
+                            current_justified_checkpoint.root = genesis_block_root;
+                        }
+
                         check_equal(
                             "justified_checkpoint",
-                            chain_head.current_justified_checkpoint,
+                            current_justified_checkpoint,
                             *expected_justified_checkpoint,
                         )?;
                     }
@@ -254,10 +272,15 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     }
 
                     if let Some(expected_finalized_checkpoint) = finalized_checkpoint {
-                        let chain_head = find_head()?;
+                        let mut finalized_checkpoint = find_head()?.finalized_checkpoint;
+
+                        if finalized_checkpoint == Checkpoint::default() {
+                            finalized_checkpoint.root = genesis_block_root;
+                        }
+
                         check_equal(
                             "finalized_checkpoint",
-                            chain_head.finalized_checkpoint,
+                            finalized_checkpoint,
                             *expected_finalized_checkpoint,
                         )?;
                     }
