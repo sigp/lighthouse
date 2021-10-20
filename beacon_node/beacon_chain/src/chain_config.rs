@@ -14,6 +14,8 @@ pub struct ChainConfig {
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
     pub reconstruct_historic_states: bool,
+    /// Whether timeouts on `TimeoutRwLock`s are enabled or not.
+    pub enable_lock_timeouts: bool,
 }
 
 impl Default for ChainConfig {
@@ -22,6 +24,7 @@ impl Default for ChainConfig {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             reconstruct_historic_states: false,
+            enable_lock_timeouts: true,
         }
     }
 }

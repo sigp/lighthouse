@@ -12,7 +12,7 @@ serde = { version = "1.0.116", features = ["derive"] }
 slog = "2.5.2"
 beacon_chain = { path = "../beacon_chain" }
 store = { path = "../store" }
-eth2_libp2p = { path = "../eth2_libp2p" }
+lighthouse_network = { path = "../lighthouse_network" }
 slot_clock = { path = "../../common/slot_clock" }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lighthouse_version = { path = "../../common/lighthouse_version" }

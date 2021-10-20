@@ -9,7 +9,7 @@ use beacon_chain::{
     StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use eth2::types::{self as api_types};
-use eth2_libp2p::PubsubMessage;
+use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{error, warn, Logger};
 use slot_clock::SlotClock;

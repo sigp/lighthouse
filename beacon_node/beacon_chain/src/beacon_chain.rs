@@ -2761,7 +2761,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header().canonical_root()
         };
 
-        let (proposer_slashings, attester_slashings) = self.op_pool.get_slashings(&state);
+        let (proposer_slashings, attester_slashings, voluntary_exits) =
+            self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain
@@ -2821,7 +2822,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
-        let voluntary_exits = self.op_pool.get_voluntary_exits(&state, &self.spec).into();
 
         // Closure to fetch a sync aggregate in cases where it is required.
         let get_sync_aggregate = || -> Result<SyncAggregate<_>, BlockProductionError> {
@@ -2853,7 +2853,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attester_slashings: attester_slashings.into(),
                     attestations,
                     deposits,
-                    voluntary_exits,
+                    voluntary_exits: voluntary_exits.into(),
                 },
             }),
             BeaconState::Altair(_) => {
@@ -2871,7 +2871,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         attester_slashings: attester_slashings.into(),
                         attestations,
                         deposits,
-                        voluntary_exits,
+                        voluntary_exits: voluntary_exits.into(),
                         sync_aggregate,
                     },
                 })

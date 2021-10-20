@@ -12,8 +12,8 @@ use slog::{debug, error, o, trace, warn};
 
 use super::SubnetServiceMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{NetworkConfig, Subnet, SubnetDiscovery};
 use hashset_delay::HashSetDelay;
+use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
 use types::{Epoch, EthSpec, SyncCommitteeSubscription, SyncSubnetId};
 

@@ -6,7 +6,8 @@ use slashing_protection::{
 };
 use std::fs::File;
 use std::path::PathBuf;
-use types::{BeaconState, Epoch, EthSpec, Slot};
+use std::str::FromStr;
+use types::{BeaconState, Epoch, EthSpec, PublicKeyBytes, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -16,6 +17,7 @@ pub const IMPORT_FILE_ARG: &str = "IMPORT-FILE";
 pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 
 pub const MINIFY_FLAG: &str = "minify";
+pub const PUBKEYS_FLAG: &str = "pubkeys";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -48,6 +50,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .value_name("FILE")
                         .help("The filename to export the interchange file to"),
+                )
+                .arg(
+                    Arg::with_name(PUBKEYS_FLAG)
+                        .long(PUBKEYS_FLAG)
+                        .takes_value(true)
+                        .value_name("PUBKEYS")
+                        .help(
+                            "List of public keys to export history for. Keys should be 0x-prefixed, \
+                             comma-separated. All known keys will be exported if omitted",
+                        ),
                 )
                 .arg(
                     Arg::with_name(MINIFY_FLAG)
@@ -203,6 +215,19 @@ pub fn cli_run<T: EthSpec>(
             let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
             let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
 
+            let selected_pubkeys = if let Some(pubkeys) =
+                clap_utils::parse_optional::<String>(matches, PUBKEYS_FLAG)?
+            {
+                let pubkeys = pubkeys
+                    .split(',')
+                    .map(PublicKeyBytes::from_str)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| format!("Invalid --{} value: {:?}", PUBKEYS_FLAG, e))?;
+                Some(pubkeys)
+            } else {
+                None
+            };
+
             if !slashing_protection_db_path.exists() {
                 return Err(format!(
                     "No slashing protection database exists at: {}",
@@ -220,7 +245,7 @@ pub fn cli_run<T: EthSpec>(
                 })?;
 
             let mut interchange = slashing_protection_database
-                .export_interchange_info(genesis_validators_root)
+                .export_interchange_info(genesis_validators_root, selected_pubkeys.as_deref())
                 .map_err(|e| format!("Error during export: {:?}", e))?;
 
             if minify {

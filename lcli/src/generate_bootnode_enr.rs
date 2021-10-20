@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use eth2_libp2p::{
+use lighthouse_network::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
     NetworkConfig, NETWORK_KEY_FILENAME,
 };

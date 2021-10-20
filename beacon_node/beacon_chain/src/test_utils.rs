@@ -26,6 +26,7 @@ use slot_clock::TestingSlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
@@ -126,11 +127,8 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
                 FORK_NAME_ENV_VAR, e
             )
         });
-        let fork = match fork_name.as_str() {
-            "base" => ForkName::Base,
-            "altair" => ForkName::Altair,
-            other => panic!("unknown FORK_NAME: {}", other),
-        };
+        let fork = ForkName::from_str(fork_name.as_str())
+            .unwrap_or_else(|()| panic!("unknown FORK_NAME: {}", fork_name));
         fork.make_genesis_spec(E::default_spec())
     } else {
         E::default_spec()

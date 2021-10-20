@@ -5,7 +5,7 @@
 #![cfg(test)]
 use crate::types::GossipEncoding;
 use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
-use eth2_libp2p::*;
+use lighthouse_network::*;
 use slog::{debug, Level};
 
 type E = MinimalEthSpec;

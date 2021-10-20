@@ -1,6 +1,6 @@
 use crate::sync::RequestId;
-use eth2_libp2p::rpc::methods::BlocksByRangeRequest;
-use eth2_libp2p::PeerId;
+use lighthouse_network::rpc::methods::BlocksByRangeRequest;
+use lighthouse_network::PeerId;
 use ssz::Encode;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
