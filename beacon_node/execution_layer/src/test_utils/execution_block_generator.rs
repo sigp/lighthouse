@@ -119,16 +119,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         gen
     }
 
-    pub fn max_difficulty_block(&self, hashes: &[Hash256]) -> Option<Block<T>> {
-        let blocks: Option<Vec<Block<T>>> = hashes
-            .into_iter()
-            .map(|hash| self.block_by_hash(*hash))
-            .collect();
-        blocks?
-            .into_iter()
-            .max_by_key(|block| block.total_difficulty())
-    }
-
     pub fn latest_block(&self) -> Option<Block<T>> {
         self.head_block.clone()
     }
