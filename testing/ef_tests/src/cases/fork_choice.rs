@@ -14,7 +14,7 @@ use types::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub struct Head {
     slot: Slot,
     root: Hash256,
@@ -40,6 +40,12 @@ pub enum Step<B, A> {
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
     Checks { checks: Box<Checks> },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Meta {
+    description: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,6 +96,18 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
         let anchor_block = ssz_decode_file_with(&path.join("anchor_block.ssz_snappy"), |bytes| {
             BeaconBlock::from_ssz_bytes(bytes, spec)
         })?;
+
+        // None of the tests have a `meta.yaml` file, except the altair/genesis tests. For those
+        // tests, the meta file has an irrelevant comment as the `description` field. If the meta
+        // file is present, we parse it for two reasons:
+        //
+        // - To satisfy the `check_all_files_accessed.py` check.
+        // - To ensure that the `meta.yaml` only contains a description field and nothing else that
+        //   might be useful.
+        let meta_path = path.join("meta.yaml");
+        if meta_path.exists() {
+            let _meta: Meta = yaml_decode_file(&meta_path)?;
+        }
 
         Ok(Self {
             description,
