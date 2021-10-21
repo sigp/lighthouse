@@ -2797,6 +2797,7 @@ checksum = "bc633605454125dec4b66843673f01c7df2b89479b32e0ed634e43a91cff62a5"
 dependencies = [
  "autocfg 1.0.1",
  "hashbrown",
+ "serde",
 ]
 
 [[package]]
@@ -3567,12 +3568,14 @@ dependencies = [
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_network_config",
  "futures",
+ "indexmap",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
  "malloc_utils",
  "serde_json",
+ "serde_yaml",
  "slashing_protection",
  "slog",
  "sloggers",

@@ -9,9 +9,11 @@ use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use indexmap::IndexMap;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
+use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
@@ -37,9 +39,20 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
+    let version = VERSION.replace("Lighthouse/", "");
+    let long_version = format!(
+        "{}\n\
+                 BLS library: {}\n\
+                 SHA256 hardware acceleration: {}\n\
+                 Specs: mainnet (true), minimal ({})",
+        version,
+        bls_library_name(),
+        have_sha_extensions(),
+        cfg!(feature = "spec-minimal"),
+    );
     // Parse the CLI parameters.
-    let matches = App::new("Lighthouse")
-        .version(VERSION.replace("Lighthouse/", "").as_str())
+    let app = App::new("Lighthouse")
+        .version(version.as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
@@ -47,16 +60,7 @@ fn main() {
              node, a validator client and utilities for managing validator accounts.",
         )
         .long_version(
-            format!(
-                "{}\n\
-                 BLS library: {}\n\
-                 SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({})",
-                 VERSION.replace("Lighthouse/", ""),
-                 bls_library_name(),
-                 have_sha_extensions(),
-                 cfg!(feature = "spec-minimal"),
-            ).as_str()
+            long_version.as_str()
         )
         .arg(
             Arg::with_name("spec")
@@ -165,19 +169,71 @@ fn main() {
                 )
                 .global(true),
         )
-        .subcommand(beacon_node::cli_app())
+        .arg(
+            Arg::with_name("config-file")
+                .long("config-file")
+                .help(
+                    "The filepath to a YAML file with flag values. To override any options in \
+                    the config file, specify the same option in the command line."
+                )
+                .takes_value(true)
+                .global(true),
+        );
+    let app_clone = app.clone();
+
+    let app = app.subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
-        .subcommand(account_manager::cli_app())
-        .get_matches();
+        .subcommand(account_manager::cli_app());
+
+    let app_clone = app_clone.subcommand(beacon_node::cli_app())
+        .subcommand(boot_node::cli_app())
+        .subcommand(validator_client::cli_app())
+        .subcommand(account_manager::cli_app());
+
+    let mut cli_matches = app.get_matches();
+    eprintln!("cli matches first: {:?}",cli_matches);
+
+
+    if let Some(file_name) = cli_matches.value_of("config-file") {
+        // Use an `IndexMap` to preserve order.
+        let yaml_config: Result<IndexMap<String, String>, _> = fs::read_to_string(file_name)
+            .map_err(|e| e.to_string())
+            .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()));
+        match yaml_config {
+            Ok(yaml) => {
+                let file_matches = app_clone.get_matches_from(
+                    yaml.into_iter()
+                        .map(|entry| {
+                            eprintln!("entry: {:?}",entry);
+                            vec![format!("--{}",entry.0), entry.1]
+                        })
+                        .flatten(),
+                );
+                eprintln!("file matches: {:?}",file_matches);
+                for (key, value) in file_matches.args {
+                    if !cli_matches.is_present(key) {
+                        eprintln!("k,v: {:?}, {:?}",key, value);
+                        eprintln!("cli matches before: {:?}",cli_matches);
+                        cli_matches.args.insert(key, value);
+                        eprintln!("cli matches after: {:?}",cli_matches);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Unable read config from file: {}", e);
+                exit(1);
+            }
+        }
+    }
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
     //
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
-    let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+    let is_beacon_node = cli_matches.subcommand_name() == Some("beacon_node");
+    if is_beacon_node && !cli_matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
         if let Err(e) = configure_memory_allocator() {
             eprintln!(
                 "Unable to configure the memory allocator: {} \n\
@@ -189,17 +245,17 @@ fn main() {
     }
 
     // Debugging output for libp2p and external crates.
-    if matches.is_present("env_log") {
+    if cli_matches.is_present("env_log") {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = get_eth2_network_config(&matches).and_then(|testnet_config| {
+    let result = get_eth2_network_config(&cli_matches).and_then(|testnet_config| {
         let eth_spec_id = testnet_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
-        if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
+        if let Some(bootnode_matches) = cli_matches.subcommand_matches("boot_node") {
             // The bootnode uses the main debug-level flag
-            let debug_info = matches
+            let debug_info = cli_matches
                 .value_of("debug-level")
                 .expect("Debug-level must be present")
                 .into();
@@ -210,9 +266,9 @@ fn main() {
         }
 
         match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &cli_matches, testnet_config),
             #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &cli_matches, testnet_config),
             #[cfg(not(feature = "spec-minimal"))]
             other => {
                 eprintln!(
@@ -226,7 +282,7 @@ fn main() {
     });
 
     // `std::process::exit` does not run destructors so we drop manually.
-    drop(matches);
+    drop(cli_matches);
 
     // Return the appropriate error code.
     match result {
