@@ -48,8 +48,7 @@ pub struct Meta {
     description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[derive(Debug)]
 pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
     pub anchor_state: BeaconState<E>,
