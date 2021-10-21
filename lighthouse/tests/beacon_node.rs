@@ -16,7 +16,7 @@ use types::{Checkpoint, Epoch, Hash256};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
-/// Returns the `lighthouse beacon_node --immediate-shutdown` command.
+/// Returns the `lighthouse beacon_node` command.
 fn base_cmd() -> Command {
     let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
     let path = lighthouse_bin
