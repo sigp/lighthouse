@@ -10,14 +10,12 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
-    SAFE_SLOTS_TO_UPDATE_JUSTIFIED,
-};
+use fork_choice::{ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation};
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, BeaconBlockRef, BeaconState,
-    Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, Slot, SubnetId,
+    ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, Slot,
+    SubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -232,7 +230,7 @@ impl ForkChoiceTest {
 
     /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
     pub fn move_outside_safe_to_update(self) -> Self {
-        while is_safe_to_update(self.harness.chain.slot().unwrap()) {
+        while is_safe_to_update(self.harness.chain.slot().unwrap(), &self.harness.chain.spec) {
             self.harness.advance_slot()
         }
         self
@@ -240,7 +238,7 @@ impl ForkChoiceTest {
 
     /// Moves to the next slot that is *inside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
     pub fn move_inside_safe_to_update(self) -> Self {
-        while !is_safe_to_update(self.harness.chain.slot().unwrap()) {
+        while !is_safe_to_update(self.harness.chain.slot().unwrap(), &self.harness.chain.spec) {
             self.harness.advance_slot()
         }
         self
@@ -270,7 +268,13 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .on_block(current_slot, &block, block.canonical_root(), &state)
+            .on_block(
+                current_slot,
+                &block,
+                block.canonical_root(),
+                &state,
+                &self.harness.chain.spec,
+            )
             .unwrap();
         self
     }
@@ -305,7 +309,13 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .on_block(current_slot, &block, block.canonical_root(), &state)
+            .on_block(
+                current_slot,
+                &block,
+                block.canonical_root(),
+                &state,
+                &self.harness.chain.spec,
+            )
             .err()
             .expect("on_block did not return an error");
         comparison_func(err);
@@ -458,8 +468,8 @@ impl ForkChoiceTest {
     }
 }
 
-fn is_safe_to_update(slot: Slot) -> bool {
-    slot % E::slots_per_epoch() < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
+fn is_safe_to_update(slot: Slot, spec: &ChainSpec) -> bool {
+    slot % E::slots_per_epoch() < spec.safe_slots_to_update_justified
 }
 
 /// - The new justified checkpoint descends from the current.
