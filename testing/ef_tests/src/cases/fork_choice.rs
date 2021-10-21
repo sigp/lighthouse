@@ -125,12 +125,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
-        match self.description.as_str() {
-            "new_justified_is_later_than_store_justified"
-            | "new_finalized_slot_is_justified_checkpoint_ancestor" => {
-                return Err(Error::SkippedKnownFailure)
-            }
-            _ => (),
+        if self.description == "new_finalized_slot_is_justified_checkpoint_ancestor" {
+            return Err(Error::SkippedKnownFailure);
         };
 
         for step in &self.steps {
