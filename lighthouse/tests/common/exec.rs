@@ -20,11 +20,11 @@ pub trait CommandLineTestExec {
         self
     }
 
-    /// Executes a `Command` with temporary data directory, dumps the configuration and shuts down
-    /// immediately.
+    /// Executes the `Command` returned by `Self::cmd_mut` with temporary data directory, dumps
+    /// the configuration and shuts down immediately.
     ///
     /// Options `--datadir`, `--dump-config` and `--immediate-shutdown` must not be set on the
-    /// command returned by `cmd_mut`.
+    /// command.
     fn run(&mut self) -> CompletedTest<Self::Config> {
         // Setup temp directory.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
@@ -35,6 +35,34 @@ pub trait CommandLineTestExec {
         cmd.arg("--datadir")
             .arg(tmp_dir.path().as_os_str())
             .arg(format!("--{}", "--dump-config"))
+            .arg(tmp_config_path.as_os_str())
+            .arg("--immediate-shutdown");
+
+        // Run the command.
+        let output = output_result(cmd);
+        if let Err(e) = output {
+            panic!("{:?}", e);
+        }
+
+        // Grab the config.
+        let config_file = File::open(tmp_config_path).expect("Unable to open dumped config");
+        let config: Self::Config = from_reader(config_file).expect("Unable to deserialize config");
+
+        CompletedTest::new(config, tmp_dir)
+    }
+
+    /// Executes the `Command` returned by `Self::cmd_mut` dumps the configuration and
+    /// shuts down immediately.
+    ///
+    /// Options `--dump-config` and `--immediate-shutdown` must not be set on the command.
+    fn run_with_no_datadir(&mut self) -> CompletedTest<Self::Config> {
+        // Setup temp directory.
+        let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
+        let tmp_config_path: PathBuf = tmp_dir.path().join("config.json");
+
+        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
+        let cmd = self.cmd_mut();
+        cmd.arg(format!("--{}", "--dump-config"))
             .arg(tmp_config_path.as_os_str())
             .arg("--immediate-shutdown");
 
