@@ -127,7 +127,7 @@ pub fn per_block_processing<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-    process_randao(state, block, verify_signatures, spec)?;
+    process_randao(state, block, VerifySignatures::True, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 

@@ -2889,7 +2889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             None,
-            BlockSignatureStrategy::VerifyIndividual,
+            BlockSignatureStrategy::NoVerification,
             &self.spec,
         )?;
         drop(process_timer);
