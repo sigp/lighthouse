@@ -2407,7 +2407,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             fork_choice
-                .on_block(current_slot, &block, block_root, &state)
+                .on_block(current_slot, &block, block_root, &state, &self.spec)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
