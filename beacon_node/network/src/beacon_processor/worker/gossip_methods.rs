@@ -647,6 +647,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     reprocess_tx,
                     seen_duration,
                 );
+                // Drop the handle to remove the entry from the cache
+                drop(handle);
             } else {
                 debug!(
                     self.log,
@@ -654,8 +656,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block_root" => %block_root,
                 );
             }
-            // Drop the handle to remove the entry from the cache
-            drop(handle);
         }
     }
 
