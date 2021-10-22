@@ -37,8 +37,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let block_root = block.canonical_root();
         // Checks if the block is already being imported through another source
-        let handle = duplicate_cache.check_and_insert(block_root);
-        if handle.inserted {
+        if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
             let slot = block.slot();
             let block_result = self.chain.process_block(block);
 

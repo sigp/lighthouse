@@ -290,14 +290,13 @@ impl<T> LifoQueue<T> {
 /// The receiver task is responsible for removing the provided `entry` from the `DuplicateCache`
 /// and perform any other necessary cleanup.
 pub struct DuplicateCacheHandle {
-    pub inserted: bool,
     entry: Hash256,
     tx: mpsc::Sender<Hash256>,
 }
 
 impl Drop for DuplicateCacheHandle {
     fn drop(&mut self) {
-        self.tx.blocking_send(self.entry);
+        let _ = self.tx.blocking_send(self.entry);
     }
 }
 
@@ -318,18 +317,20 @@ impl DuplicateCache {
     /// Checks if the given block_root exists and inserts it into the cache if
     /// it doesn't exist.
     ///
-    /// Returns a `DuplicateCacheHandle` that returns `true` if the block_root was successfully
-    /// inserted and `false` if the block root already existed in the cache.
+    /// Returns a `Some(DuplicateCacheHandle)` if the block_root was successfully
+    /// inserted and `None` if the block root already existed in the cache.
     ///
     /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
     /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
-    pub fn check_and_insert(&self, block_root: Hash256) -> DuplicateCacheHandle {
+    pub fn check_and_insert(&self, block_root: Hash256) -> Option<DuplicateCacheHandle> {
         let mut inner = self.inner.lock();
-        let inserted = inner.insert(block_root);
-        DuplicateCacheHandle {
-            inserted,
-            entry: block_root,
-            tx: self.tx.clone(),
+        if inner.insert(block_root) {
+            Some(DuplicateCacheHandle {
+                entry: block_root,
+                tx: self.tx.clone(),
+            })
+        } else {
+            None
         }
     }
 

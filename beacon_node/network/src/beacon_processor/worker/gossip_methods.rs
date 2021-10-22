@@ -633,14 +633,13 @@ impl<T: BeaconChainTypes> Worker<T> {
         if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
             message_id,
             peer_id,
-            peer_client.clone(),
+            peer_client,
             block,
             reprocess_tx.clone(),
             seen_duration,
         ) {
             let block_root = gossip_verified_block.block_root;
-            let handle = duplicate_cache.check_and_insert(block_root);
-            if handle.inserted {
+            if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
                     peer_id,
                     gossip_verified_block,
