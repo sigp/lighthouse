@@ -1150,7 +1150,6 @@ dependencies = [
  "clap",
  "clap_utils",
  "eth2_network_config",
- "tempfile",
 ]
 
 [[package]]

@@ -280,7 +280,7 @@ impl SlashingDatabase {
         self.get_validator_id_in_txn(&txn, public_key)
     }
 
-    fn get_validator_id_in_txn(
+    pub fn get_validator_id_in_txn(
         &self,
         txn: &Transaction,
         public_key: &PublicKeyBytes,
