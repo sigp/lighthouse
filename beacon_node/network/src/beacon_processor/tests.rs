@@ -193,6 +193,8 @@ impl TestRig {
 
         let (work_journal_tx, work_journal_rx) = mpsc::channel(16_364);
 
+        let (duplicate_cache_tx, duplicate_cache_rx) = mpsc::channel(10);
+
         BeaconProcessor {
             beacon_chain: Arc::downgrade(&chain),
             network_tx,
@@ -201,10 +203,10 @@ impl TestRig {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
-            importing_blocks: Default::default(),
+            importing_blocks: DuplicateCache::new(duplicate_cache_tx),
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_rx, Some(work_journal_tx));
+        .spawn_manager(beacon_processor_rx, Some(work_journal_tx), duplicate_cache_rx);
 
         Self {
             chain,
