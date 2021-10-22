@@ -7,17 +7,17 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::{
+use futures::future::OptionFuture;
+use futures::prelude::*;
+use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
     Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
-use eth2_libp2p::{
+use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
-use eth2_libp2p::{MessageAcceptance, Service as LibP2PService};
-use futures::future::OptionFuture;
-use futures::prelude::*;
+use lighthouse_network::{MessageAcceptance, Service as LibP2PService};
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -102,7 +102,7 @@ pub enum NetworkMessage<T: EthSpec> {
     },
 }
 
-/// Service that handles communication between internal services and the `eth2_libp2p` network service.
+/// Service that handles communication between internal services and the `lighthouse_network` network service.
 pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
@@ -469,7 +469,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 return;
                             }
                             let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                            for topic_kind in eth2_libp2p::types::CORE_TOPICS.iter() {
+                            for topic_kind in lighthouse_network::types::CORE_TOPICS.iter() {
                                 for fork_digest in service.required_gossip_fork_digests() {
                                     let topic = GossipTopic::new(topic_kind.clone(), GossipEncoding::default(), fork_digest);
                                     if service.libp2p.swarm.behaviour_mut().subscribe(topic.clone()) {
@@ -706,6 +706,9 @@ fn spawn_service<T: BeaconChainTypes>(
                         // Set the next_unsubscribe delay.
                         let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
                         let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY_EPOCHS * epoch_duration);
+
+                        // Update the `next_fork_subscriptions` timer if the next fork is known.
+                        service.next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&service.beacon_chain).into());
                         service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
                         info!(service.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
                     } else {
@@ -725,11 +728,11 @@ fn spawn_service<T: BeaconChainTypes>(
                         let fork_digest = ChainSpec::compute_fork_digest(fork_version, service.beacon_chain.genesis_validators_root);
                         info!(service.log, "Subscribing to new fork topics");
                         service.libp2p.swarm.behaviour_mut().subscribe_new_fork_topics(fork_digest);
+                        service.next_fork_subscriptions = Box::pin(None.into());
                     }
                     else {
                         error!(service.log, "Fork subscription scheduled but no fork scheduled");
                     }
-                    service.next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&service.beacon_chain).into());
                 }
             }
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());

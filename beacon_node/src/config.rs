@@ -2,8 +2,9 @@ use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
-use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use http_api::TlsConfig;
+use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
@@ -109,6 +110,21 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("http-disable-legacy-spec") {
         client_config.http_api.serve_legacy_spec = false;
+    }
+
+    if cli_args.is_present("http-enable-tls") {
+        client_config.http_api.tls_config = Some(TlsConfig {
+            cert: cli_args
+                .value_of("http-tls-cert")
+                .ok_or("--http-tls-cert was not provided.")?
+                .parse::<PathBuf>()
+                .map_err(|_| "http-tls-cert is not a valid path name.")?,
+            key: cli_args
+                .value_of("http-tls-key")
+                .ok_or("--http-tls-key was not provided.")?
+                .parse::<PathBuf>()
+                .map_err(|_| "http-tls-key is not a valid path name.")?,
+        });
     }
 
     /*
@@ -486,6 +502,10 @@ pub fn get_config<E: EthSpec>(
         client_config
             .validator_monitor_pubkeys
             .extend_from_slice(&pubkeys);
+    }
+
+    if cli_args.is_present("disable-lock-timeouts") {
+        client_config.chain.enable_lock_timeouts = false;
     }
 
     Ok(client_config)

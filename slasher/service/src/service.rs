@@ -2,7 +2,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use directory::size_of_dir;
-use eth2_libp2p::PubsubMessage;
+use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slasher::{
     metrics::{self, SLASHER_DATABASE_SIZE, SLASHER_RUN_TIME},

@@ -1,6 +1,6 @@
 use beacon_node::ClientConfig as Config;
 
-use eth2_libp2p::PeerId;
+use lighthouse_network::PeerId;
 use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;
@@ -175,6 +175,21 @@ fn max_skip_slots_flag() {
         .flag("max-skip-slots", Some("10"))
         .run()
         .with_config(|config| assert_eq!(config.chain.import_max_skip_slots, Some(10)));
+}
+
+#[test]
+fn enable_lock_timeouts_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.chain.enable_lock_timeouts));
+}
+
+#[test]
+fn disable_lock_timeouts_flag() {
+    CommandLineTest::new()
+        .flag("disable-lock-timeouts", None)
+        .run()
+        .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
 }
 
 #[test]
@@ -572,6 +587,30 @@ fn http_allow_origin_all_flag() {
         .flag("http-allow-origin", Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+}
+#[test]
+fn http_tls_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("http-enable-tls", None)
+        .flag(
+            "http-tls-cert",
+            dir.path().join("certificate.crt").as_os_str().to_str(),
+        )
+        .flag(
+            "http-tls-key",
+            dir.path().join("private.key").as_os_str().to_str(),
+        )
+        .run()
+        .with_config(|config| {
+            let tls_config = config
+                .http_api
+                .tls_config
+                .as_ref()
+                .expect("tls_config was empty.");
+            assert_eq!(tls_config.cert, dir.path().join("certificate.crt"));
+            assert_eq!(tls_config.key, dir.path().join("private.key"));
+        });
 }
 
 // Tests for Metrics flags.

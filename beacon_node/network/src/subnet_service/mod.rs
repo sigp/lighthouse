@@ -1,7 +1,7 @@
 pub mod attestation_subnets;
 pub mod sync_subnets;
 
-use eth2_libp2p::{Subnet, SubnetDiscovery};
+use lighthouse_network::{Subnet, SubnetDiscovery};
 
 pub use attestation_subnets::AttestationService;
 pub use sync_subnets::SyncCommitteeService;

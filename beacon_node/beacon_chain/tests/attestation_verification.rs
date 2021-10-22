@@ -14,7 +14,6 @@ use int_to_bytes::int_to_bytes32;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
-use store::config::StoreConfig;
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
@@ -41,12 +40,11 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     // not all.
     spec.target_aggregators_per_committee = 4;
 
-    let harness = BeaconChainHarness::new_with_store_config(
-        MainnetEthSpec,
-        Some(spec),
-        KEYPAIRS[0..validator_count].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     harness.advance_slot();
 

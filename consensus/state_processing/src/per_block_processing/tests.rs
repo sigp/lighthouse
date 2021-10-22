@@ -7,7 +7,6 @@ use crate::per_block_processing::errors::{
     ProposerSlashingInvalid,
 };
 use crate::{per_block_processing::process_operations, BlockSignatureStrategy, VerifySignatures};
-use beacon_chain::store::StoreConfig;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
 use ssz_types::Bitfield;
@@ -32,12 +31,11 @@ fn get_harness<E: EthSpec>(
     // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
-    let harness = BeaconChainHarness::new_with_store_config(
-        E::default(),
-        None,
-        KEYPAIRS[0..num_validators].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .keypairs(KEYPAIRS[0..num_validators].to_vec())
+        .fresh_ephemeral_store()
+        .build();
     let state = harness.get_current_state();
     if last_slot_of_epoch > Slot::new(0) {
         harness.add_attested_blocks_at_slots(

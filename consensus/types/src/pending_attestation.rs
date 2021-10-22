@@ -20,7 +20,7 @@ pub struct PendingAttestation<T: EthSpec> {
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
-impl<T: EthSpec> arbitrary::Arbitrary for PendingAttestation<T> {
+impl<T: EthSpec> arbitrary::Arbitrary<'_> for PendingAttestation<T> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self {
             aggregation_bits: <BitList<T::MaxValidatorsPerCommittee>>::arbitrary(u)?,

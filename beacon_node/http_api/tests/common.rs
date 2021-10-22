@@ -3,13 +3,13 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use eth2_libp2p::{
+use http_api::{Config, Context};
+use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
-use http_api::{Config, Context};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
@@ -18,7 +18,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use types::{test_utils::generate_deterministic_keypairs, ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
 pub const UDP_PORT: u16 = 42;
@@ -47,11 +47,11 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        let harness = BeaconChainHarness::new(
-            E::default(),
-            spec,
-            generate_deterministic_keypairs(validator_count),
-        );
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec_or_default(spec)
+            .deterministic_keypairs(validator_count)
+            .fresh_ephemeral_store()
+            .build();
 
         let ApiServer {
             server,
@@ -131,6 +131,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
             listen_port: 0,
             allow_origin: None,
             serve_legacy_spec: true,
+            tls_config: None,
         },
         chain: Some(chain.clone()),
         network_tx: Some(network_tx),

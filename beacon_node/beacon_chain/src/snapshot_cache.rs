@@ -280,19 +280,17 @@ impl<T: EthSpec> SnapshotCache<T> {
 mod test {
     use super::*;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use store::StoreConfig;
     use types::{
         test_utils::generate_deterministic_keypair, BeaconBlock, Epoch, MainnetEthSpec,
         SignedBeaconBlock, Slot,
     };
 
     fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
-        let harness = BeaconChainHarness::new_with_store_config(
-            MainnetEthSpec,
-            None,
-            types::test_utils::generate_deterministic_keypairs(1),
-            StoreConfig::default(),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .default_spec()
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 

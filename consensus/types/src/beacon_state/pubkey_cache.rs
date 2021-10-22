@@ -43,7 +43,7 @@ impl PubkeyCache {
 }
 
 #[cfg(feature = "arbitrary-fuzz")]
-impl arbitrary::Arbitrary for PubkeyCache {
+impl arbitrary::Arbitrary<'_> for PubkeyCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())
     }

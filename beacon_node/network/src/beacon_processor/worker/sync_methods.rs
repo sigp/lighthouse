@@ -7,7 +7,7 @@ use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
-use eth2_libp2p::PeerId;
+use lighthouse_network::PeerId;
 use slog::{crit, debug, error, info, trace, warn};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};

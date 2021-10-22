@@ -4,8 +4,10 @@ use crate::beacon_processor::{
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::rpc::*;
-use eth2_libp2p::{Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
+use lighthouse_network::rpc::*;
+use lighthouse_network::{
+    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
+};
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;

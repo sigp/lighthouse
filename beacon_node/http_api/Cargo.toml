@@ -6,7 +6,7 @@ edition = "2018"
 autotests = false # using a single test binary compiles faster
 
 [dependencies]
-warp = { git = "https://github.com/paulhauner/warp ", branch = "cors-wildcard" }
+warp = { git = "https://github.com/macladson/warp", rev ="dfa259e", features = ["tls"] }
 serde = { version = "1.0.116", features = ["derive"] }
 tokio = { version = "1.10.0", features = ["macros","sync"] }
 tokio-stream = { version = "0.1.3", features = ["sync"] }
@@ -16,7 +16,7 @@ beacon_chain = { path = "../beacon_chain" }
 eth2 = { path = "../../common/eth2", features = ["lighthouse"] }
 slog = "2.5.2"
 network = { path = "../network" }
-eth2_libp2p = { path = "../eth2_libp2p" }
+lighthouse_network = { path = "../lighthouse_network" }
 eth1 = { path = "../eth1" }
 state_processing = { path = "../../consensus/state_processing" }
 lighthouse_version = { path = "../../common/lighthouse_version" }

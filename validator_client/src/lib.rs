@@ -38,11 +38,15 @@ use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
+use reqwest::Certificate;
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
+use std::fs::File;
+use std::io::Read;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sync_committee_service::SyncCommitteeService;
@@ -246,7 +250,17 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map(|(i, url)| {
                 let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
-                let beacon_node_http_client = ClientBuilder::new()
+                let mut beacon_node_http_client_builder = ClientBuilder::new();
+
+                // Add new custom root certificates if specified.
+                if let Some(certificates) = &config.beacon_nodes_tls_certs {
+                    for cert in certificates {
+                        beacon_node_http_client_builder = beacon_node_http_client_builder
+                            .add_root_certificate(load_pem_certificate(cert)?);
+                    }
+                }
+
+                let beacon_node_http_client = beacon_node_http_client_builder
                     // Set default timeout to be the full slot duration.
                     .timeout(slot_duration)
                     .build()
@@ -656,4 +670,13 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 
         sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
+}
+
+pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, String> {
+    let mut buf = Vec::new();
+    File::open(&pem_path)
+        .map_err(|e| format!("Unable to open certificate path: {}", e))?
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Unable to read certificate file: {}", e))?;
+    Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
 }

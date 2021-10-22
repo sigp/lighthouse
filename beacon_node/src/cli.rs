@@ -217,6 +217,29 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disable serving of legacy data on the /config/spec endpoint. May be \
                        disabled by default in a future release.")
         )
+        .arg(
+            Arg::with_name("http-enable-tls")
+                .long("http-enable-tls")
+                .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
+                    experimental.")
+                .takes_value(false)
+                .requires("http-tls-cert")
+                .requires("http-tls-key")
+        )
+        .arg(
+            Arg::with_name("http-tls-cert")
+                .long("http-tls-cert")
+                .help("The path of the certificate to be used when serving the HTTP API server \
+                    over TLS.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("http-tls-key")
+                .long("http-tls-key")
+                .help("The path of the private key to be used when serving the HTTP API server \
+                    over TLS. Must not be password-protected.")
+                .takes_value(true)
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
@@ -544,5 +567,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     contained within a file at the given path.")
                 .value_name("PATH")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("disable-lock-timeouts")
+                .long("disable-lock-timeouts")
+                .help("Disable the timeouts applied to some internal locks by default. This can \
+                       lead to less spurious failures on slow hardware but is considered \
+                       experimental as it may obscure performance issues.")
+                .takes_value(false)
         )
 }
