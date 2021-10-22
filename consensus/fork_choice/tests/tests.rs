@@ -602,7 +602,7 @@ macro_rules! assert_invalid_block {
                 $err,
                 $( ForkChoiceError::InvalidBlock($error) ) |+ $( if $guard )?
             ),
-        );
+        )
     };
 }
 
@@ -710,7 +710,7 @@ macro_rules! assert_invalid_attestation {
             ),
             "{:?}",
             $err
-        );
+        )
     };
 }
 
