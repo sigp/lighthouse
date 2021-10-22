@@ -173,7 +173,7 @@ fn invalid_randao_reveal_signature() {
         &mut state,
         &signed_block,
         None,
-        BlockSignatureStrategy::VerifyIndividual,
+        BlockSignatureStrategy::VerifyRandao,
         &spec,
     );
 
