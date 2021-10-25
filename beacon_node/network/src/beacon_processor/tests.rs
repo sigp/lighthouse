@@ -206,7 +206,11 @@ impl TestRig {
             importing_blocks: DuplicateCache::new(duplicate_cache_tx),
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_rx, Some(work_journal_tx), duplicate_cache_rx);
+        .spawn_manager(
+            beacon_processor_rx,
+            Some(work_journal_tx),
+            duplicate_cache_rx,
+        );
 
         Self {
             chain,
