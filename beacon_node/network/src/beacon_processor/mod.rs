@@ -296,7 +296,7 @@ pub struct DuplicateCacheHandle {
 
 impl Drop for DuplicateCacheHandle {
     fn drop(&mut self) {
-        let _ = self.tx.blocking_send(self.entry);
+        let _ = self.tx.try_send(self.entry);
     }
 }
 
