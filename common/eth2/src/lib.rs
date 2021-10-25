@@ -10,14 +10,17 @@
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
 pub mod lighthouse_vc;
+pub mod mixin;
 pub mod types;
 
+use self::mixin::{RequestAccept, ResponseForkName, ResponseOptional};
 use self::types::{Error as ResponseError, *};
+use ::types::map_fork_name_with;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
 pub use reqwest;
-use reqwest::{IntoUrl, Response};
+use reqwest::{IntoUrl, RequestBuilder, Response};
 pub use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
@@ -28,6 +31,8 @@ use std::time::Duration;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
+
+pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 
 #[derive(Debug)]
 pub enum Error {
@@ -53,6 +58,12 @@ pub enum Error {
     InvalidServerSentEvent(String),
     /// The server returned an invalid SSZ response.
     InvalidSsz(ssz::DecodeError),
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(error: reqwest::Error) -> Self {
+        Error::Reqwest(error)
+    }
 }
 
 impl Error {
@@ -161,12 +172,18 @@ impl BeaconNodeHttpClient {
 
     /// Perform a HTTP GET request.
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
-        ok_or_error(response)
-            .await?
-            .json()
-            .await
-            .map_err(Error::Reqwest)
+        let response = self.get_response(url, |b| b).await?;
+        Ok(response.json().await?)
+    }
+
+    /// Perform an HTTP GET request, returning the `Response` for processing.
+    pub async fn get_response<U: IntoUrl>(
+        &self,
+        url: U,
+        builder: impl FnOnce(RequestBuilder) -> RequestBuilder,
+    ) -> Result<Response, Error> {
+        let response = builder(self.client.get(url)).send().await?;
+        ok_or_error(response).await
     }
 
     /// Perform a HTTP GET request with a custom timeout.
@@ -176,31 +193,16 @@ impl BeaconNodeHttpClient {
         timeout: Duration,
     ) -> Result<T, Error> {
         let response = self
-            .client
-            .get(url)
-            .timeout(timeout)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
-        ok_or_error(response)
-            .await?
-            .json()
-            .await
-            .map_err(Error::Reqwest)
+            .get_response(url, |builder| builder.timeout(timeout))
+            .await?;
+        Ok(response.json().await?)
     }
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
-        match ok_or_error(response).await {
-            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
-            Err(err) => {
-                if err.status() == Some(StatusCode::NOT_FOUND) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            }
+        match self.get_response(url, |b| b).await.optional()? {
+            Some(response) => Ok(Some(response.json().await?)),
+            None => Ok(None),
         }
     }
 
@@ -210,22 +212,13 @@ impl BeaconNodeHttpClient {
         url: U,
         timeout: Duration,
     ) -> Result<Option<T>, Error> {
-        let response = self
-            .client
-            .get(url)
-            .timeout(timeout)
-            .send()
+        let opt_response = self
+            .get_response(url, |b| b.timeout(timeout))
             .await
-            .map_err(Error::Reqwest)?;
-        match ok_or_error(response).await {
-            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
-            Err(err) => {
-                if err.status() == Some(StatusCode::NOT_FOUND) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            }
+            .optional()?;
+        match opt_response {
+            Some(response) => Ok(Some(response.json().await?)),
+            None => Ok(None),
         }
     }
 
@@ -235,28 +228,13 @@ impl BeaconNodeHttpClient {
         url: U,
         accept_header: Accept,
     ) -> Result<Option<Vec<u8>>, Error> {
-        let response = self
-            .client
-            .get(url)
-            .header(ACCEPT, accept_header.to_string())
-            .send()
+        let opt_response = self
+            .get_response(url, |b| b.accept(accept_header))
             .await
-            .map_err(Error::Reqwest)?;
-        match ok_or_error(response).await {
-            Ok(resp) => Ok(Some(
-                resp.bytes()
-                    .await
-                    .map_err(Error::Reqwest)?
-                    .into_iter()
-                    .collect::<Vec<_>>(),
-            )),
-            Err(err) => {
-                if err.status() == Some(StatusCode::NOT_FOUND) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            }
+            .optional()?;
+        match opt_response {
+            Some(resp) => Ok(Some(resp.bytes().await?.into_iter().collect::<Vec<_>>())),
+            None => Ok(None),
         }
     }
 
@@ -315,7 +293,7 @@ impl BeaconNodeHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
+        let response = builder.json(body).send().await?;
         ok_or_error(response).await
     }
 
@@ -607,6 +585,17 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// Path for `v2/beacon/blocks`
+    pub fn get_beacon_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.eth_path(V2)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
     /// `GET v2/beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -614,15 +603,30 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
     ) -> Result<Option<ForkVersionedResponse<SignedBeaconBlock<T>>>, Error> {
-        let mut path = self.eth_path(V2)?;
+        let path = self.get_beacon_blocks_path(block_id)?;
+        let response = match self.get_response(path, |b| b).await.optional()? {
+            Some(res) => res,
+            None => return Ok(None),
+        };
 
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("blocks")
-            .push(&block_id.to_string());
-
-        self.get_opt(path).await
+        // If present, use the fork provided in the headers to decode the block. Gracefully handle
+        // missing and malformed fork names by falling back to regular deserialisation.
+        let (block, version) = match response.fork_name_from_header() {
+            Ok(Some(fork_name)) => {
+                map_fork_name_with!(fork_name, SignedBeaconBlock, {
+                    let ForkVersionedResponse { version, data } = response.json().await?;
+                    (data, version)
+                })
+            }
+            Ok(None) | Err(_) => {
+                let ForkVersionedResponse { version, data } = response.json().await?;
+                (data, version)
+            }
+        };
+        Ok(Some(ForkVersionedResponse {
+            version,
+            data: block,
+        }))
     }
 
     /// `GET v1/beacon/blocks` (LEGACY)
@@ -651,13 +655,7 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
         spec: &ChainSpec,
     ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
-        let mut path = self.eth_path(V2)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("blocks")
-            .push(&block_id.to_string());
+        let path = self.get_beacon_blocks_path(block_id)?;
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz)
             .await?
@@ -966,13 +964,7 @@ impl BeaconNodeHttpClient {
             .push("node")
             .push("health");
 
-        let status = self
-            .client
-            .get(path)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?
-            .status();
+        let status = self.client.get(path).send().await?.status();
         if status == StatusCode::OK || status == StatusCode::PARTIAL_CONTENT {
             Ok(status)
         } else {
@@ -1042,11 +1034,8 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET v2/debug/beacon/states/{state_id}`
-    pub async fn get_debug_beacon_states<T: EthSpec>(
-        &self,
-        state_id: StateId,
-    ) -> Result<Option<ForkVersionedResponse<BeaconState<T>>>, Error> {
+    /// URL path for `v2/debug/beacon/states/{state_id}`.
+    pub fn get_debug_beacon_states_path(&self, state_id: StateId) -> Result<Url, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1055,7 +1044,15 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("states")
             .push(&state_id.to_string());
+        Ok(path)
+    }
 
+    /// `GET v2/debug/beacon/states/{state_id}`
+    pub async fn get_debug_beacon_states<T: EthSpec>(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ForkVersionedResponse<BeaconState<T>>>, Error> {
+        let path = self.get_debug_beacon_states_path(state_id)?;
         self.get_opt(path).await
     }
 
@@ -1083,14 +1080,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         spec: &ChainSpec,
     ) -> Result<Option<BeaconState<T>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("debug")
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string());
+        let path = self.get_debug_beacon_states_path(state_id)?;
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz)
             .await?
@@ -1343,8 +1333,7 @@ impl BeaconNodeHttpClient {
             .client
             .get(path)
             .send()
-            .await
-            .map_err(Error::Reqwest)?
+            .await?
             .bytes_stream()
             .map(|next| match next {
                 Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),

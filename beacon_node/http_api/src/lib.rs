@@ -47,7 +47,10 @@ use types::{
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
-use version::{fork_versioned_response, unsupported_version_rejection, V1};
+use version::{
+    add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
+    unsupported_version_rejection, V1,
+};
 use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
@@ -1003,6 +1006,9 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 blocking_task(move || {
                     let block = block_id.block(&chain)?;
+                    let fork_name = block
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1014,12 +1020,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => {
-                            let fork_name = block.fork_name(&chain.spec).ok();
-                            fork_versioned_response(endpoint_version, fork_name, block)
-                                .map(|res| warp::reply::json(&res).into_response())
-                        }
+                        _ => fork_versioned_response(endpoint_version, fork_name, block)
+                            .map(|res| warp::reply::json(&res).into_response()),
                     }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         );
@@ -1459,10 +1463,14 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_task(move || match accept_header {
                     Some(api_types::Accept::Ssz) => {
                         let state = state_id.state(&chain)?;
+                        let fork_name = state
+                            .fork_name(&chain.spec)
+                            .map_err(inconsistent_fork_rejection)?;
                         Response::builder()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .body(state.as_ssz_bytes().into())
+                            .map(|resp| add_consensus_version_header(resp, fork_name))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1471,9 +1479,14 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                     }
                     _ => state_id.map_state(&chain, |state| {
-                        let fork_name = state.fork_name(&chain.spec).ok();
+                        let fork_name = state
+                            .fork_name(&chain.spec)
+                            .map_err(inconsistent_fork_rejection)?;
                         let res = fork_versioned_response(endpoint_version, fork_name, &state)?;
-                        Ok(warp::reply::json(&res).into_response())
+                        Ok(add_consensus_version_header(
+                            warp::reply::json(&res).into_response(),
+                            fork_name,
+                        ))
                     }),
                 })
             },
@@ -1821,7 +1834,10 @@ pub fn serve<T: BeaconChainTypes>(
                     let (block, _) = chain
                         .produce_block(randao_reveal, slot, query.graffiti.map(Into::into))
                         .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block.to_ref().fork_name(&chain.spec).ok();
+                    let fork_name = block
+                        .to_ref()
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
                     fork_versioned_response(endpoint_version, fork_name, block)
                 })
             },
