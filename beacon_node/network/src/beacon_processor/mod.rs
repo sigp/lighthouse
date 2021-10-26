@@ -291,29 +291,22 @@ impl<T> LifoQueue<T> {
 /// and perform any other necessary cleanup.
 pub struct DuplicateCacheHandle {
     entry: Hash256,
-    tx: mpsc::Sender<Hash256>,
+    cache: DuplicateCache,
 }
 
 impl Drop for DuplicateCacheHandle {
     fn drop(&mut self) {
-        let _ = self.tx.try_send(self.entry);
+        self.cache.remove(&self.entry);
     }
 }
 
 /// A simple  cache for detecting duplicate block roots across multiple threads.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DuplicateCache {
     inner: Arc<Mutex<HashSet<Hash256>>>,
-    tx: mpsc::Sender<Hash256>,
 }
 
 impl DuplicateCache {
-    pub fn new(tx: mpsc::Sender<Hash256>) -> Self {
-        Self {
-            inner: Default::default(),
-            tx,
-        }
-    }
     /// Checks if the given block_root exists and inserts it into the cache if
     /// it doesn't exist.
     ///
@@ -327,7 +320,7 @@ impl DuplicateCache {
         if inner.insert(block_root) {
             Some(DuplicateCacheHandle {
                 entry: block_root,
-                tx: self.tx.clone(),
+                cache: self.clone(),
             })
         } else {
             None
@@ -863,7 +856,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     pub fn spawn_manager(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<T>>,
-        mut duplicate_cache_rx: mpsc::Receiver<Hash256>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
     ) {
         // Used by workers to communicate that they are finished a task.
@@ -924,16 +916,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         };
 
         let executor = self.executor.clone();
-        let duplicate_cache = self.importing_blocks.clone();
-        let dup_cache_future = async move {
-            loop {
-                if let Some(block_root) = duplicate_cache_rx.recv().await {
-                    duplicate_cache.remove(&block_root);
-                }
-            }
-        };
-
-        executor.spawn(dup_cache_future, "duplicate_cache_rx");
 
         // The manager future will run on the core executor and delegate tasks to worker
         // threads on the blocking executor.
