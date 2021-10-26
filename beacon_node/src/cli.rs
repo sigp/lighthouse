@@ -1,11 +1,11 @@
 use clap::{App, Arg};
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new("beacon_node")
         .visible_aliases(&["b", "bn", "beacon"])
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .setting(clap::AppSettings::ColoredHelp)
+        // .setting(clap::AppSettings::ColoredHelp)
         .about("The primary component which connects to the Ethereum 2.0 P2P network and \
                 downloads, verifies and stores blocks. Provides a HTTP API for querying \
                 the beacon chain and publishing messages to the network.")
@@ -61,7 +61,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("zero-ports")
                 .long("zero-ports")
-                .short("z")
+                .short('z')
                 .help("Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
                        arbitrary free ports.")
                 .takes_value(false),
@@ -145,14 +145,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("enr-match")
-                .short("e")
+                .short('e')
                 .long("enr-match")
                 .help("Sets the local ENR IP address and port to match those set for lighthouse. \
                 Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port.")
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")
-                .short("x")
+                .short('x')
                 .long("disable-enr-auto-update")
                 .help("Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot."),

@@ -15,7 +15,7 @@ pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 pub fn run<T: EthSpec>(
     mut env: Environment<T>,
     testnet_dir: PathBuf,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> Result<(), String> {
     let endpoints = matches
         .value_of("eth1-endpoint")

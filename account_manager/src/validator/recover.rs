@@ -16,7 +16,7 @@ pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about(
             "Recovers validator private keys given a BIP-39 mnemonic phrase. \

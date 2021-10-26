@@ -38,21 +38,21 @@ fn main() {
 
     let matches = cli_app().get_matches();
     match matches.subcommand() {
-        ("eth1-sim", Some(matches)) => match eth1_sim::run_eth1_sim(matches) {
+        Some(("eth1-sim", matches)) => match eth1_sim::run_eth1_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
                 std::process::exit(1)
             }
         },
-        ("no-eth1-sim", Some(matches)) => match no_eth1_sim::run_no_eth1_sim(matches) {
+        Some(("no-eth1-sim", matches)) => match no_eth1_sim::run_no_eth1_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
                 std::process::exit(1)
             }
         },
-        ("syncing-sim", Some(matches)) => match sync_sim::run_syncing_sim(matches) {
+        Some(("syncing-sim", matches)) => match sync_sim::run_syncing_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);

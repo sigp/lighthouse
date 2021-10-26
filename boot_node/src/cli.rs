@@ -3,14 +3,14 @@
 use clap::{App, Arg};
 
 // TODO: Add DOS prevention CLI params
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new("boot_node")
         .about("Start a special Lighthouse process that only serves as a discv5 boot-node. This \
         process will *not* import blocks or perform most typical beacon node functions. Instead, it \
         will simply run the discv5 service and assist nodes on the network to discover each other. \
         This is the recommended way to provide a network boot-node since it has a reduced attack \
         surface compared to a full beacon node.")
-        .settings(&[clap::AppSettings::ColoredHelp])
+        // .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
             Arg::with_name("enr-address")
                 .value_name("IP-ADDRESS")
@@ -55,7 +55,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("enable-enr-auto-update")
-                .short("x")
+                .short('x')
                 .long("enable-enr-auto-update")
                 .help("Discovery can automatically update the node's local ENR with an external IP address and port as seen by other peers on the network. \
                 This enables this feature.")

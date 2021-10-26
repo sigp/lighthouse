@@ -20,7 +20,7 @@ beacon_chain = { path = "beacon_chain" }
 types = { path = "../consensus/types" }
 store = { path = "./store" }
 client = { path = "client" }
-clap = "2.33.3"
+clap = { git = "https://github.com/realbigsean/clap", rev = "ca21cbd3fba8de71f2e48c9b6983d090a2df0ad0"}
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 dirs = "3.0.1"
 directory = {path = "../common/directory"}

@@ -4,7 +4,7 @@ use types::EthSpec;
 
 use web3::{transports::Http, Web3};
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let eth1_http: String = clap_utils::parse_required(matches, "eth1-http")?;
     let confirmations: usize = clap_utils::parse_required(matches, "confirmations")?;
     let validator_count: Option<usize> = clap_utils::parse_optional(matches, "validator-count")?;

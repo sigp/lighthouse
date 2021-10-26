@@ -127,7 +127,7 @@ async fn get_epoch_committee_data<T: EthSpec>(
     Ok((committee_data, committee_info))
 }
 
-pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
+pub async fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     const SECONDS_PER_SLOT: Duration = Duration::from_secs(12);
     let output_path: PathBuf = clap_utils::parse_required(matches, "output")?;
     let start_epoch: Epoch = clap_utils::parse_required(matches, "start-epoch")?;

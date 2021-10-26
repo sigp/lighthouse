@@ -26,7 +26,7 @@ pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about(
             "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \

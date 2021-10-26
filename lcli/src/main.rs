@@ -32,7 +32,7 @@ fn main() {
         .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
             Arg::with_name("spec")
-                .short("s")
+                .short('s')
                 .long("spec")
                 .value_name("STRING")
                 .takes_value(true)
@@ -43,7 +43,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("testnet-dir")
-                .short("d")
+                .short('d')
                 .long("testnet-dir")
                 .value_name("PATH")
                 .takes_value(true)
@@ -109,7 +109,7 @@ fn main() {
                 .about("Parses SSZ-encoded data from a file")
                 .arg(
                     Arg::with_name("format")
-                        .short("f")
+                        .short('f')
                         .long("format")
                         .value_name("FORMAT")
                         .takes_value(true)
@@ -141,7 +141,7 @@ fn main() {
                 .arg(
                     Arg::with_name("eth1-http")
                         .long("eth1-http")
-                        .short("e")
+                        .short('e')
                         .value_name("ETH1_HTTP_PATH")
                         .help("Path to an Eth1 JSON-RPC IPC endpoint")
                         .takes_value(true)
@@ -170,7 +170,7 @@ fn main() {
                 .about("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
                     Arg::with_name("eth1-endpoint")
-                        .short("e")
+                        .short('e')
                         .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
@@ -204,7 +204,7 @@ fn main() {
                 .arg(
                     Arg::with_name("genesis-time")
                         .long("genesis-time")
-                        .short("t")
+                        .short('t')
                         .value_name("UNIX_EPOCH")
                         .takes_value(true)
                         .help("The value for state.genesis_time. Defaults to now."),
@@ -280,7 +280,7 @@ fn main() {
                 .arg(
                     Arg::with_name("force")
                         .long("force")
-                        .short("f")
+                        .short('f')
                         .takes_value(false)
                         .help("Overwrites any previous testnet configurations"),
                 )
@@ -509,7 +509,7 @@ fn main() {
                 .arg(
                     Arg::with_name("endpoint")
                         .long("endpoint")
-                        .short("e")
+                        .short('e')
                         .takes_value(true)
                         .default_value("http://localhost:5052")
                         .help(
@@ -519,7 +519,7 @@ fn main() {
                 .arg(
                     Arg::with_name("output")
                         .long("output")
-                        .short("o")
+                        .short('o')
                         .takes_value(true)
                         .help("The path of the output data in CSV file.")
                         .required(true),
@@ -579,7 +579,7 @@ fn main() {
 
 fn run<T: EthSpec>(
     env_builder: EnvironmentBuilder<T>,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
@@ -596,41 +596,42 @@ fn run<T: EthSpec>(
     )?;
 
     match matches.subcommand() {
-        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(testnet_dir, matches)
+        Some(("transition-blocks", matches)) => run_transition_blocks::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to transition blocks: {}", e)),
-        ("skip-slots", Some(matches)) => skip_slots::run::<T>(testnet_dir, matches)
+        Some(("skip-slots", matches)) => skip_slots::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to skip slots: {}", e)),
-        ("pretty-ssz", Some(matches)) => {
+        Some(("pretty-ssz", matches)) => {
             run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
-        ("deploy-deposit-contract", Some(matches)) => {
+        Some(("deploy-deposit-contract", matches)) => {
             deploy_deposit_contract::run::<T>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
-        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
+        Some(("eth1-genesis", matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
-        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, matches)
+        Some(("interop-genesis", matches)) => interop_genesis::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
-        ("change-genesis-time", Some(matches)) => {
+        Some(("change-genesis-time", matches)) => {
             change_genesis_time::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
-        ("replace-state-pubkeys", Some(matches)) => {
+        Some(("replace-state-pubkeys", matches)) => {
             replace_state_pubkeys::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
-        ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
+        Some(("new-testnet", matches)) => new_testnet::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
-        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
+        Some(("check-deposit-data", matches)) => check_deposit_data::run::<T>(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
-        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
+        Some(("generate-bootnode-enr", matches)) => generate_bootnode_enr::run::<T>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
-        ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
+        Some(("insecure-validators", matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
-        ("etl-block-efficiency", Some(matches)) => env
+        Some(("etl-block-efficiency", matches)) => env
             .runtime()
             .block_on(etl::block_efficiency::run::<T>(matches))
             .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
-        (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
+        Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
     }
 }

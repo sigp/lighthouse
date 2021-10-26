@@ -13,7 +13,7 @@ use types::{EthSpec, EthSpecId};
 const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
-pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String) {
+pub fn run(matches: &ArgMatches, eth_spec_id: EthSpecId, debug_level: String) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
@@ -56,7 +56,7 @@ pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String
     }
 }
 
-fn main<T: EthSpec>(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
+fn main<T: EthSpec>(matches: &ArgMatches, log: slog::Logger) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

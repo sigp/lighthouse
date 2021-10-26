@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub const CMD: &str = "recover";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(

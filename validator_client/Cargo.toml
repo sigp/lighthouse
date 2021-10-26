@@ -13,7 +13,7 @@ tokio = { version = "1.10.0", features = ["time", "rt-multi-thread", "macros"] }
 
 [dependencies]
 tree_hash = "0.4.0"
-clap = "2.33.3"
+clap = { git = "https://github.com/realbigsean/clap", rev = "ca21cbd3fba8de71f2e48c9b6983d090a2df0ad0"}
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
 types = { path = "../consensus/types" }

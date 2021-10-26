@@ -24,7 +24,7 @@ sloggers = "2.0.2"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 eth2_hashing = "0.2.0"
-clap = "2.33.3"
+clap = { git = "https://github.com/realbigsean/clap", rev = "ca21cbd3fba8de71f2e48c9b6983d090a2df0ad0"}
 env_logger = "0.9.0"
 environment = { path = "./environment" }
 boot_node = { path = "../boot_node" }

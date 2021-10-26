@@ -10,7 +10,7 @@ pub const DISABLE: &str = "disable";
 pub const PUBKEY_FLAG: &str = "pubkey";
 pub const ALL: &str = "all";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Modify validator status in validator_definitions.yml.")
         .subcommand(
@@ -55,14 +55,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     // `true` implies we are setting `validator_definition.enabled = true` and
     // vice versa.
     let (enabled, sub_matches) = match matches.subcommand() {
-        (ENABLE, Some(sub_matches)) => (true, sub_matches),
-        (DISABLE, Some(sub_matches)) => (false, sub_matches),
-        (unknown, _) => {
+        Some((ENABLE, sub_matches)) => (true, sub_matches),
+        Some((DISABLE, sub_matches)) => (false, sub_matches),
+        Some((unknown, _)) => {
             return Err(format!(
                 "{} does not have a {} command. See --help",
                 CMD, unknown
             ))
-        }
+        },
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
     };
     let mut defs = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
         format!(

@@ -22,10 +22,10 @@ pub struct BootNodeConfig<T: EthSpec> {
     phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
+impl<T: EthSpec> TryFrom<&ArgMatches> for BootNodeConfig<T> {
     type Error = String;
 
-    fn try_from(matches: &ArgMatches<'_>) -> Result<Self, Self::Error> {
+    fn try_from(matches: &ArgMatches) -> Result<Self, Self::Error> {
         let data_dir = get_data_dir(matches);
 
         // Try and grab network config from input CLI params

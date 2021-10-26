@@ -15,7 +15,7 @@ use types::EthSpec;
 
 pub const CMD: &str = "validator";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Provides commands for managing Eth2 validators.")
         .arg(
@@ -48,18 +48,19 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
     eprintln!("validator-dir path: {:?}", validator_base_dir);
 
     match matches.subcommand() {
-        (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env, validator_base_dir),
-        (modify::CMD, Some(matches)) => modify::cli_run(matches, validator_base_dir),
-        (import::CMD, Some(matches)) => import::cli_run(matches, validator_base_dir),
-        (list::CMD, Some(_)) => list::cli_run(validator_base_dir),
-        (recover::CMD, Some(matches)) => recover::cli_run(matches, validator_base_dir),
-        (slashing_protection::CMD, Some(matches)) => {
+        Some((create::CMD, matches)) => create::cli_run::<T>(matches, env, validator_base_dir),
+        Some((modify::CMD, matches)) => modify::cli_run(matches, validator_base_dir),
+        Some((import::CMD, matches)) => import::cli_run(matches, validator_base_dir),
+        Some((list::CMD, _)) => list::cli_run(validator_base_dir),
+        Some((recover::CMD, matches)) => recover::cli_run(matches, validator_base_dir),
+        Some((slashing_protection::CMD, matches)) => {
             slashing_protection::cli_run(matches, env, validator_base_dir)
         }
-        (exit::CMD, Some(matches)) => exit::cli_run(matches, env),
-        (unknown, _) => Err(format!(
+        Some((exit::CMD, matches)) => exit::cli_run(matches, env),
+        Some((unknown, _)) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown
         )),
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
     }
 }

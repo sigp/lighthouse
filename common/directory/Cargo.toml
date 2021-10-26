@@ -7,6 +7,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33.3"
+clap = { git = "https://github.com/realbigsean/clap", rev = "ca21cbd3fba8de71f2e48c9b6983d090a2df0ad0"}
 clap_utils = {path = "../clap_utils"}
 eth2_network_config = { path = "../eth2_network_config" }

@@ -1,9 +1,9 @@
 use clap::{App, Arg};
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new("validator_client")
         .visible_aliases(&["v", "vc", "validator"])
-        .setting(clap::AppSettings::ColoredHelp)
+        // .setting(clap::AppSettings::ColoredHelp)
         .about(
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",

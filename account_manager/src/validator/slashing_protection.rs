@@ -19,7 +19,7 @@ pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 pub const MINIFY_FLAG: &str = "minify";
 pub const PUBKEYS_FLAG: &str = "pubkeys";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Import or export slashing protection data to or from another client")
         .subcommand(
@@ -76,7 +76,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
     env: Environment<T>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
@@ -97,7 +97,7 @@ pub fn cli_run<T: EthSpec>(
         })?;
 
     match matches.subcommand() {
-        (IMPORT_CMD, Some(matches)) => {
+        Some((IMPORT_CMD, matches)) => {
             let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
             let minify: Option<bool> = clap_utils::parse_optional(matches, MINIFY_FLAG)?;
             let import_file = File::open(&import_filename).map_err(|e| {
@@ -211,7 +211,7 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        (EXPORT_CMD, Some(matches)) => {
+        Some((EXPORT_CMD, matches)) => {
             let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
             let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
 
@@ -266,7 +266,8 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        ("", _) => Err("No subcommand provided, see --help for options".to_string()),
-        (command, _) => Err(format!("No such subcommand `{}`", command)),
+        Some(("", _)) => Err("No subcommand provided, see --help for options".to_string()),
+        Some((command, _)) => Err(format!("No such subcommand `{}`", command)),
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
     }
 }

@@ -51,10 +51,10 @@ fn main() {
         cfg!(feature = "spec-minimal"),
     );
     // Parse the CLI parameters.
-    let app = App::new("Lighthouse")
+    let mut app = App::new("Lighthouse")
         .version(version.as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .setting(clap::AppSettings::ColoredHelp)
+        //.setting(clap::AppSettings::ColoredHelp)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
@@ -63,8 +63,17 @@ fn main() {
             long_version.as_str()
         )
         .arg(
+        Arg::with_name("config-file")
+            .long("config-file")
+            .help(
+                "The filepath to a YAML file with flag values. To override any options in \
+                    the config file, specify the same option in the command line."
+            )
+            .takes_value(true)
+            .global(true),
+        ).arg(
             Arg::with_name("spec")
-                .short("s")
+                .short('s')
                 .long("spec")
                 .value_name("DEPRECATED")
                 .help("This flag is deprecated, it will be disallowed in a future release. This \
@@ -74,7 +83,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("env_log")
-                .short("l")
+                .short('l')
                 .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
@@ -109,7 +118,7 @@ fn main() {
         .arg(
             Arg::with_name("datadir")
                 .long("datadir")
-                .short("d")
+                .short('d')
                 .value_name("DIR")
                 .global(true)
                 .help(
@@ -120,7 +129,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("testnet-dir")
-                .short("t")
+                .short('t')
                 .long("testnet-dir")
                 .value_name("DIR")
                 .help(
@@ -169,63 +178,70 @@ fn main() {
                 )
                 .global(true),
         )
-        .arg(
-            Arg::with_name("config-file")
-                .long("config-file")
-                .help(
-                    "The filepath to a YAML file with flag values. To override any options in \
-                    the config file, specify the same option in the command line."
-                )
-                .takes_value(true)
-                .global(true),
-        );
-    let app_clone = app.clone();
+        .subcommand(beacon_node::cli_app());
+        // .subcommand(boot_node::cli_app())
+        // .subcommand(validator_client::cli_app())
+        // .subcommand(account_manager::cli_app());
 
-    let app = app.subcommand(beacon_node::cli_app())
-        .subcommand(boot_node::cli_app())
-        .subcommand(validator_client::cli_app())
-        .subcommand(account_manager::cli_app());
-
-    let app_clone = app_clone.subcommand(beacon_node::cli_app())
-        .subcommand(boot_node::cli_app())
-        .subcommand(validator_client::cli_app())
-        .subcommand(account_manager::cli_app());
+    let mut app_clone = app.clone();
+    let mut app_clone_2 = app.clone();
 
     let mut cli_matches = app.get_matches();
+
     eprintln!("cli matches first: {:?}",cli_matches);
 
+    let file_name_opt = cli_matches.value_of("config-file");
 
-    if let Some(file_name) = cli_matches.value_of("config-file") {
+    let file_matches = if let Some(file_name) = file_name_opt {
         // Use an `IndexMap` to preserve order.
         let yaml_config: Result<IndexMap<String, String>, _> = fs::read_to_string(file_name)
             .map_err(|e| e.to_string())
             .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()));
         match yaml_config {
             Ok(yaml) => {
-                let file_matches = app_clone.get_matches_from(
-                    yaml.into_iter()
-                        .map(|entry| {
-                            eprintln!("entry: {:?}",entry);
-                            vec![format!("--{}",entry.0), entry.1]
-                        })
-                        .flatten(),
-                );
-                eprintln!("file matches: {:?}",file_matches);
-                for (key, value) in file_matches.args {
-                    if !cli_matches.is_present(key) {
-                        eprintln!("k,v: {:?}, {:?}",key, value);
-                        eprintln!("cli matches before: {:?}",cli_matches);
-                        cli_matches.args.insert(key, value);
-                        eprintln!("cli matches after: {:?}",cli_matches);
-                    }
-                }
+                let banana = yaml.into_iter()
+                    .map(|entry| {
+                        eprintln!("entry: {:?}", entry);
+                        vec![format!("--{}", entry.1), entry.0]
+                    })
+                    .flatten().collect::<Vec<_>>();
+                eprintln!("banana: {:?}", banana);
+                Some(app_clone.get_matches_from_mut(
+                    banana
+                ))
             }
+            //     eprintln!("file matches: {:?}",file_matches);
+            //     for (key, value) in file_matches.args {
+            //         if !cli_matches.is_present(key) {
+            //             eprintln!("k,v: {:?}, {:?}",key, value);
+            //             eprintln!("cli matches before: {:?}",cli_matches);
+            //             cli_matches.args.insert(key, value);
+            //             eprintln!("cli matches after: {:?}",cli_matches);
+            //         }
+            //     }
+            // }
             Err(e) => {
                 eprintln!("Unable read config from file: {}", e);
                 exit(1);
             }
         }
-    }
+    } else {
+        None
+    };
+
+    eprintln!("Unable read config from file: {:?}", file_matches);
+
+    //TODO: think we're close here
+
+    app_clone.get_arguments().map(|arg|{
+        if !file_matches.unwrap().is_present(arg.get_name()) {
+            app_clone_2.mut_arg(arg.get_name(), |arg| arg.default_value(""))
+        }
+        if !cli_matches.is_present(arg.get_name()) {
+            cli_matches.
+        }
+    })
+    // file_matches.unwrap().args.iter().map(||)
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
@@ -387,7 +403,7 @@ fn run<E: EthSpec>(
     );
 
     match matches.subcommand() {
-        ("beacon_node", Some(matches)) => {
+        Some(("beacon_node", matches)) => {
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
@@ -423,7 +439,7 @@ fn run<E: EthSpec>(
                 "beacon_node",
             );
         }
-        ("validator_client", Some(matches)) => {
+        Some(("validator_client", matches)) => {
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();

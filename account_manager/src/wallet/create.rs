@@ -33,7 +33,7 @@ pub const NEW_WALLET_PASSWORD_PROMPT: &str =
     "Enter a password for your new wallet that is at least 12 characters long:";
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
         .arg(

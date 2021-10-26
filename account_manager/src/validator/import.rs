@@ -24,7 +24,7 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter t
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
                                           ANOTHER CLIENT, OR YOU WILL GET SLASHED.";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
+pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about(
             "Imports one or more EIP-2335 passwords into a Lighthouse VC directory, \
