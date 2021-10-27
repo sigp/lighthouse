@@ -129,7 +129,7 @@ pub fn per_block_processing<T: EthSpec>(
     let verify_randao = if let BlockSignatureStrategy::VerifyRandao = block_signature_strategy {
         VerifySignatures::True
     } else {
-        VerifySignatures::False
+        verify_signatures
     };
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
