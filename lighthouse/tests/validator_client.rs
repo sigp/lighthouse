@@ -1,8 +1,7 @@
 use validator_client::Config;
 
+use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
-mod common;
-use common::exec::CommandLineTestExec;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;

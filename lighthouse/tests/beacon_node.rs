@@ -1,7 +1,6 @@
 use beacon_node::ClientConfig as Config;
 
-mod common;
-use common::exec::{CommandLineTestExec, CompletedTest};
+use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;

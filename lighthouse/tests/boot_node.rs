@@ -1,7 +1,6 @@
 use boot_node::config::BootNodeConfig;
 
-mod common;
-use common::exec::{CommandLineTestExec, CompletedTest};
+use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::discovery::ENR_FILENAME;
 use lighthouse_network::Enr;
 use std::fs::File;
