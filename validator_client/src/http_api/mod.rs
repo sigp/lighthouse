@@ -6,10 +6,13 @@ mod tests;
 use crate::ValidatorStore;
 use account_utils::mnemonic_from_phrase;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
-use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
+use eth2::lighthouse_vc::{
+    std_types::AuthResponse,
+    types::{self as api_types, PublicKey, PublicKeyBytes},
+};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -126,7 +129,20 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     }
 
     let authorization_header_filter = ctx.api_secret.authorization_header_filter();
-    let api_token_path = ctx.api_secret.api_token_path();
+    let mut api_token_path = ctx.api_secret.api_token_path();
+
+    // Attempt to convert the path to an absolute path, but don't error if it fails.
+    match api_token_path.canonicalize() {
+        Ok(abs_path) => api_token_path = abs_path,
+        Err(e) => {
+            warn!(
+                log,
+                "Error canonicalizing token path";
+                "error" => ?e,
+            );
+        }
+    };
+
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
 
@@ -160,6 +176,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
+
+    let api_token_path_inner = api_token_path.clone();
+    let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
 
     // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
@@ -501,7 +520,20 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // Standard key-manager endpoints.
     let eth_v1 = warp::path("eth").and(warp::path("v1"));
+    let std_auth = eth_v1.and(warp::path("auth").and(warp::path::end()));
     let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
+
+    // GET /eth/v1/auth
+    let get_std_auth = std_auth
+        .and(signer.clone())
+        .and(api_token_path_filter)
+        .and_then(|signer, token_path: PathBuf| {
+            blocking_signed_json_task(signer, move || {
+                Ok(AuthResponse {
+                    token_path: format!("{}", token_path.display()),
+                })
+            })
+        });
 
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
@@ -566,6 +598,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 .or(warp::patch().and(patch_validators))
                 .or(warp::delete().and(delete_std_keystores)),
         )
+        // The auth route is the only route that is allowed to be accessed without the API token.
+        .or(warp::get().and(get_std_auth))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

@@ -27,6 +27,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -58,6 +59,12 @@ pub enum Error {
     InvalidServerSentEvent(String),
     /// The server returned an invalid SSZ response.
     InvalidSsz(ssz::DecodeError),
+    /// An I/O error occurred while loading an API token from disk.
+    TokenReadError(PathBuf, std::io::Error),
+    /// The client has been configured without a server pubkey, but requires one for this request.
+    NoServerPubkey,
+    /// The client has been configured without an API token, but requires one for this request.
+    NoToken,
 }
 
 impl From<reqwest::Error> for Error {
@@ -81,6 +88,8 @@ impl Error {
             Error::InvalidJson(_) => None,
             Error::InvalidServerSentEvent(_) => None,
             Error::InvalidSsz(_) => None,
+            Error::TokenReadError(..) => None,
+            Error::NoServerPubkey | Error::NoToken => None,
         }
     }
 }
@@ -88,6 +97,12 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(error: reqwest::Error) -> Self {
+        Error::Reqwest(error)
     }
 }
 

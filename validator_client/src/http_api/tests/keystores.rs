@@ -1,10 +1,11 @@
 use super::*;
 use account_utils::random_password_string;
-use eth2::lighthouse_vc::std_types::*;
+use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient as HttpClient, std_types::*};
 use eth2_keystore::Keystore;
 use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::collections::HashMap;
+use std::path::Path;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();
@@ -77,6 +78,21 @@ fn check_delete_response<'a>(
             status.message
         );
     }
+}
+
+#[test]
+fn get_auth_no_token() {
+    run_test(|mut tester| async move {
+        tester.client.send_authorization_header(false);
+        let auth_response = tester.client.get_auth().await.unwrap();
+
+        // Load the file from the returned path.
+        let token_path = Path::new(&auth_response.token_path);
+        let token = HttpClient::load_api_token_from_file(token_path).unwrap();
+
+        // The token should match the one that the client was originally initialised with.
+        assert!(tester.client.api_token() == Some(&token));
+    })
 }
 
 #[test]

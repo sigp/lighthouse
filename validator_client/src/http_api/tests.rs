@@ -612,6 +612,9 @@ fn routes_with_invalid_auth() {
                     .await
             })
             .await
+            // FIXME(sproul): more of these
+            .test_with_invalid_auth(|client| async move { client.get_keystores().await })
+            .await
     });
 }
 

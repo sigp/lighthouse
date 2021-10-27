@@ -5,6 +5,11 @@ use slashing_protection::interchange::Interchange;
 use types::PublicKeyBytes;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct AuthResponse {
+    pub token_path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct ListKeystoresResponse {
     pub keystores: Vec<SingleKeystoreResponse>,
 }
