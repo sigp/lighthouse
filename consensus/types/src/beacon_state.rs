@@ -1627,6 +1627,22 @@ impl<T: EthSpec> BeaconState<T> {
         };
         Ok(sync_committee)
     }
+
+    /// Find the dependent roots for a given beacon state. These are the block roots that determine
+    /// shuffling. If one of these roots is updated, it means proposer and/or attester duties must be
+    /// recalculated.
+    ///
+    /// Returns a tuple `(dependent_root, previous_dependent_root)` where:
+    /// -  `dependent_root` is block root at the slot before the start slot of `state.current_epoch`.
+    /// -  `previous_dependent_root` is the block root at the slot before the start slot of `state.previous_epoch`.
+    pub fn get_dependent_roots(&self) -> Result<(Hash256, Hash256), Error> {
+        let dependent_root_slot = self.current_epoch().start_slot(T::slots_per_epoch()) - 1;
+        let prev_dependent_root_slot = self.previous_epoch().start_slot(T::slots_per_epoch()) - 1;
+        Ok((
+            *self.get_block_root(dependent_root_slot)?,
+            *self.get_block_root(prev_dependent_root_slot)?,
+        ))
+    }
 }
 
 impl From<RelativeEpochError> for Error {

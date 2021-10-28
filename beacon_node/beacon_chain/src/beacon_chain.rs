@@ -3050,14 +3050,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // These fields are used for server-sent events.
         let state_root = new_head.beacon_state_root();
         let head_slot = new_head.beacon_state.slot();
-        let target_epoch_start_slot = new_head
-            .beacon_state
-            .current_epoch()
-            .start_slot(T::EthSpec::slots_per_epoch());
-        let prev_target_epoch_start_slot = new_head
-            .beacon_state
-            .previous_epoch()
-            .start_slot(T::EthSpec::slots_per_epoch());
         let head_proposer_index = new_head.beacon_block.message().proposer_index();
         let proposer_graffiti = new_head
             .beacon_block
@@ -3067,6 +3059,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_utf8_lossy();
 
         drop(lag_timer);
+
+        // Find the dependent roots associated with this head before updating the snapshot. This
+        // is to ensure consistency when sending server sent events later in this method.
+        let dependent_roots = new_head.beacon_state.get_dependent_roots();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -3210,12 +3206,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Register a server-sent event if necessary
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_head_subscribers() {
-                if let Ok(Some(current_duty_dependent_root)) =
-                    self.block_root_at_slot(target_epoch_start_slot - 1, WhenSlotSkipped::Prev)
-                {
-                    if let Ok(Some(previous_duty_dependent_root)) = self
-                        .block_root_at_slot(prev_target_epoch_start_slot - 1, WhenSlotSkipped::Prev)
-                    {
+                match dependent_roots {
+                    Ok((current_duty_dependent_root, previous_duty_dependent_root)) => {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,
                             block: beacon_block_root,
@@ -3224,17 +3216,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
                         }));
-                    } else {
+                    }
+                    Err(e) => {
                         warn!(
                             self.log,
-                            "Unable to find previous target root, cannot register head event"
+                            "Unable to find dependent roots, cannot register head event";
+                            "error" => ?e
                         );
                     }
-                } else {
-                    warn!(
-                        self.log,
-                        "Unable to find current target root, cannot register head event"
-                    );
                 }
             }
 
