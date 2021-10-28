@@ -1,6 +1,7 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover};
+use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
 use std::collections::HashMap;
 use types::{BeaconBlockRef, BeaconState, EthSpec, Hash256, RelativeEpoch};
 
@@ -61,7 +62,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let prev_epoch_total = prev_epoch_rewards.values().sum::<u64>();
         let curr_epoch_total = curr_epoch_rewards.values().sum::<u64>();
-        let total = prev_epoch_total + curr_epoch_total;
+        let attestation_total = prev_epoch_total + curr_epoch_total;
 
         // Drop the covers.
         let per_attestation_rewards = per_attestation_rewards
@@ -70,13 +71,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect();
 
         let attestation_rewards = AttestationRewards {
-            total,
+            total: attestation_total,
             prev_epoch_total,
             curr_epoch_total,
             prev_epoch_rewards,
             curr_epoch_rewards,
             per_attestation_rewards,
         };
+
+        // Sync committee rewards.
+        let sync_committee_rewards = if let Some(sync_aggregate) = block.body().sync_aggregate() {
+            // FIXME(sproul): errors
+            let (_, proposer_reward_per_bit) =
+                compute_sync_aggregate_rewards(state, &self.spec).unwrap();
+            sync_aggregate.sync_committee_bits.num_set_bits() as u64 * proposer_reward_per_bit
+        } else {
+            0
+        };
+
+        // Total, metadata
+        let total = attestation_total + sync_committee_rewards;
 
         let meta = BlockRewardMeta {
             slot: block.slot(),
@@ -86,9 +100,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok(BlockReward {
+            total,
             block_root,
             meta,
             attestation_rewards,
+            sync_committee_rewards,
         })
     }
 }

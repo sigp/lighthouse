@@ -10,12 +10,16 @@ use types::{Hash256, Slot};
 /// to include information on slashings and sync committee aggregates too.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BlockReward {
+    /// Sum of all reward components.
+    pub total: u64,
     /// Block root of the block that these rewards are for.
     pub block_root: Hash256,
     /// Metadata about the block, particularly reward-relevant metadata.
     pub meta: BlockRewardMeta,
     /// Rewards due to attestations.
     pub attestation_rewards: AttestationRewards,
+    /// Sum of rewards due to sync committee signatures.
+    pub sync_committee_rewards: u64,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
