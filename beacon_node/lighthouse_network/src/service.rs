@@ -365,16 +365,13 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 SwarmEvent::BannedPeer { peer_id, .. } => {
                     debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
                 }
-                SwarmEvent::OutgoingConnectionError {
-                    peer_id,
-                    error,
-                } => {
+                SwarmEvent::OutgoingConnectionError { peer_id, error } => {
                     debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
                     if let Some(peer_id) = peer_id {
-                    self.swarm
-                        .behaviour_mut()
-                        .peer_manager_mut()
-                        .inject_dial_failure(&peer_id);
+                        self.swarm
+                            .behaviour_mut()
+                            .peer_manager_mut()
+                            .inject_dial_failure(&peer_id);
                     }
                 }
                 SwarmEvent::ExpiredListenAddr { address, .. } => {

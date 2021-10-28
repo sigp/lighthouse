@@ -4,7 +4,8 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    peerdb::score::ReportSource, ConnectionDirection, PeerManager, PeerManagerEvent, peerdb::score::PeerAction,
+    peerdb::score::PeerAction, peerdb::score::ReportSource, ConnectionDirection, PeerManager,
+    PeerManagerEvent,
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
@@ -26,8 +27,8 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
-        AddressScore, DialPeerCondition, NetworkBehaviourAction as NBAction,
-        NetworkBehaviourEventProcess, PollParameters, NetworkBehaviour
+        AddressScore, DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NetworkBehaviourEventProcess, PollParameters,
     },
     NetworkBehaviour, PeerId,
 };
@@ -121,7 +122,11 @@ enum InternalBehaviourMessage {
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "BehaviourEvent<TSpec>", poll_method = "poll", event_process = true)]
+#[behaviour(
+    out_event = "BehaviourEvent<TSpec>",
+    poll_method = "poll",
+    event_process = true
+)]
 pub struct Behaviour<TSpec: EthSpec> {
     /* Sub-Behaviours */
     /// The routing pub-sub mechanism for eth2.
@@ -191,10 +196,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             IdentifyConfig::new(
                 "".into(),
                 local_key.public(), // Still send legitimate public key
-            ).with_cache_size(0)
+            )
+            .with_cache_size(0)
         } else {
             IdentifyConfig::new("eth2/1.0.0".into(), local_key.public())
-                .with_agent_version(lighthouse_version::version_with_platform()).with_cache_size(0)
+                .with_agent_version(lighthouse_version::version_with_platform())
+                .with_cache_size(0)
         };
 
         // Build and start the discovery sub-behaviour
@@ -1044,7 +1051,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<BehaviourEvent<TSpec>, <Behaviour<TSpec> as NetworkBehaviour>::ProtocolsHandler>,> {
+    ) -> Poll<
+        NBAction<BehaviourEvent<TSpec>, <Behaviour<TSpec> as NetworkBehaviour>::ProtocolsHandler>,
+    > {
         if let Some(waker) = &self.waker {
             if waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
