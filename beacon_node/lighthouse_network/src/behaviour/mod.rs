@@ -191,10 +191,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             IdentifyConfig::new(
                 "".into(),
                 local_key.public(), // Still send legitimate public key
-            )
+            ).with_cache_size(0)
         } else {
             IdentifyConfig::new("eth2/1.0.0".into(), local_key.public())
-                .with_agent_version(lighthouse_version::version_with_platform())
+                .with_agent_version(lighthouse_version::version_with_platform()).with_cache_size(0)
         };
 
         // Build and start the discovery sub-behaviour

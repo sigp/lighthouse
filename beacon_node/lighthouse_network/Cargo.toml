@@ -40,10 +40,8 @@ strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.2.0"
 
 [dependencies.libp2p]
-# version = "0.39.1"
+version = "0.40.0-rc.3"
 default-features = false
-git = "https://github.com/libp2p/rust-libp2p"
-rev = "40c5335e3bd6afaea46c9c8116ba8ff16a6bdf91" # Current libp2p/master
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
