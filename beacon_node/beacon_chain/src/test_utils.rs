@@ -370,7 +370,7 @@ pub type HarnessAttestations<E> = Vec<(
 
 pub type HarnessSyncContributions<E> = Vec<(
     Vec<(SyncCommitteeMessage, usize)>,
-    Option<SignedContributionAndProof<E>>,
+    Vec<SignedContributionAndProof<E>>,
 )>;
 
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
@@ -805,11 +805,12 @@ where
         block_hash: Hash256,
         slot: Slot,
         relative_sync_committee: RelativeSyncCommittee,
+        num_aggregates_per_subcommittee: usize,
     ) -> HarnessSyncContributions<E> {
         let sync_messages =
             self.make_sync_committee_messages(state, block_hash, slot, relative_sync_committee);
 
-        let sync_contributions: Vec<Option<SignedContributionAndProof<E>>> = sync_messages
+        let sync_contributions: Vec<Vec<SignedContributionAndProof<E>>> = sync_messages
             .iter()
             .enumerate()
             .map(|(subnet_id, committee_messages)| {
@@ -820,11 +821,11 @@ where
                         .expect("should be called on altair beacon state")
                         .clone();
 
-                    let aggregator_index = sync_committee
-                        .get_subcommittee_pubkeys(subnet_id)
-                        .unwrap()
+                    let sync_committee_pubkeys =
+                        sync_committee.get_subcommittee_pubkeys(subnet_id).unwrap();
+                    let aggregator_indices = sync_committee_pubkeys
                         .iter()
-                        .find_map(|pubkey| {
+                        .filter_map(|pubkey| {
                             let validator_index = self
                                 .chain
                                 .validator_index(pubkey)
@@ -844,7 +845,8 @@ where
                                 .is_aggregator::<E>()
                                 .expect("should determine aggregator")
                                 .then(|| validator_index)
-                        })?;
+                        })
+                        .take(num_aggregates_per_subcommittee);
 
                     let default = SyncCommitteeContribution::from_message(
                         sync_message,
@@ -867,19 +869,21 @@ where
                         },
                     );
 
-                    let signed_aggregate = SignedContributionAndProof::from_aggregate(
-                        aggregator_index as u64,
-                        aggregate,
-                        None,
-                        &self.validator_keypairs[aggregator_index].sk,
-                        &state.fork(),
-                        state.genesis_validators_root(),
-                        &self.spec,
-                    );
-
-                    Some(signed_aggregate)
+                    aggregator_indices
+                        .map(|aggregator_index| {
+                            SignedContributionAndProof::from_aggregate(
+                                aggregator_index as u64,
+                                aggregate.clone(),
+                                None,
+                                &self.validator_keypairs[aggregator_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect()
                 } else {
-                    None
+                    vec![]
                 }
             })
             .collect();

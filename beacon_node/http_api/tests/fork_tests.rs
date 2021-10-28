@@ -169,6 +169,7 @@ async fn sync_contributions_across_fork_with_skip_slots() {
         *fork_state.get_block_root(fork_slot - 1).unwrap(),
         fork_slot,
         RelativeSyncCommittee::Current,
+        1,
     );
 
     let sync_committee_messages = sync_messages
@@ -184,7 +185,7 @@ async fn sync_contributions_across_fork_with_skip_slots() {
 
     let signed_contributions = sync_messages
         .into_iter()
-        .filter_map(|(_, op_aggregate)| op_aggregate)
+        .flat_map(|(_, aggregates)| aggregates)
         .collect::<Vec<_>>();
     assert!(!signed_contributions.is_empty());
 

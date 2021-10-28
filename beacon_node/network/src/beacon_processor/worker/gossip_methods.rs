@@ -1302,23 +1302,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            AttnError::AttestationAlreadyKnown { .. } => {
-                /*
-                 * The aggregate attestation has already been observed on the network or in
-                 * a block.
-                 *
-                 * The peer is not necessarily faulty.
-                 */
-                trace!(
-                    self.log,
-                    "Attestation already known";
-                    "peer_id" => %peer_id,
-                    "block" => ?beacon_block_root,
-                    "type" => ?attestation_type,
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return;
-            }
             AttnError::AggregatorAlreadyKnown(_) => {
                 /*
                  * There has already been an aggregate attestation seen from this
@@ -1687,8 +1670,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
             }
-            SyncCommitteeError::SyncContributionAlreadyKnown(_)
-            | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
+            SyncCommitteeError::AggregatorAlreadyKnown(_) => {
                 /*
                  * The sync committee message already been observed on the network or in
                  * a block.

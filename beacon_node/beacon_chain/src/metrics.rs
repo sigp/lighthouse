@@ -52,10 +52,6 @@ lazy_static! {
         "beacon_block_processing_db_write_seconds",
         "Time spent writing a newly processed block and state to DB"
     );
-    pub static ref BLOCK_PROCESSING_ATTESTATION_OBSERVATION: Result<Histogram> = try_create_histogram(
-        "beacon_block_processing_attestation_observation_seconds",
-        "Time spent hashing and remembering all the attestations in the block"
-    );
     pub static ref BLOCK_SYNC_AGGREGATE_SET_BITS: Result<IntGauge> = try_create_int_gauge(
         "block_sync_aggregate_set_bits",
         "The number of true bits in the last sync aggregate in a block"

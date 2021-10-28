@@ -5,7 +5,6 @@ use crate::eth1_chain::Error as Eth1ChainError;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
-use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use futures::channel::mpsc::TrySendError;
@@ -91,7 +90,6 @@ pub enum BeaconChainError {
     ValidatorPubkeyUnknown(PublicKeyBytes),
     OpPoolError(OpPoolError),
     NaiveAggregationError(NaiveAggregationError),
-    ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     AttesterCacheError(AttesterCacheError),
@@ -144,7 +142,6 @@ easy_from_to!(AttesterSlashingValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
 easy_from_to!(OpPoolError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);
-easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(AttesterCacheError, BeaconChainError);

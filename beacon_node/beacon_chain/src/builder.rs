@@ -717,10 +717,6 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             naive_sync_aggregation_pool: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
-            observed_attestations: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
-            observed_sync_contributions: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
             observed_gossip_attesters: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_attesters: <_>::default(),

@@ -146,9 +146,10 @@ impl ApiTester {
                     head_state_root,
                     harness.chain.slot().unwrap(),
                     RelativeSyncCommittee::Current,
+                    1,
                 )
                 .into_iter()
-                .filter_map(|(_, contribution)| contribution)
+                .flat_map(|(_, contribution)| contribution)
                 .collect::<Vec<_>>()
         } else {
             vec![]

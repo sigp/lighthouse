@@ -1472,10 +1472,12 @@ mod release_tests {
             block_root,
             state.slot() - Slot::new(1),
             RelativeSyncCommittee::Current,
+            1,
         );
 
-        for (_, contribution_and_proof) in contributions {
-            let contribution = contribution_and_proof
+        for (_, mut contribution_and_proofs) in contributions {
+            let contribution = contribution_and_proofs
+                .pop()
                 .expect("contribution exists for committee")
                 .message
                 .contribution;
@@ -1531,10 +1533,12 @@ mod release_tests {
             block_root,
             state.slot() - Slot::new(1),
             RelativeSyncCommittee::Current,
+            1,
         );
 
-        for (_, contribution_and_proof) in contributions {
-            let contribution = contribution_and_proof
+        for (_, mut contribution_and_proofs) in contributions {
+            let contribution = contribution_and_proofs
+                .pop()
                 .expect("contribution exists for committee")
                 .message
                 .contribution;
@@ -1568,20 +1572,22 @@ mod release_tests {
             block_root,
             state.slot() - Slot::new(1),
             RelativeSyncCommittee::Current,
+            1,
         );
 
         let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
         let mut first_contribution = contributions[0]
             .1
-            .as_ref()
+            .first()
             .unwrap()
             .message
             .contribution
             .clone();
 
         // Add all contributions, but unset the first two bits of each.
-        for (_, contribution_and_proof) in contributions {
-            let mut contribution_fewer_bits = contribution_and_proof
+        for (_, mut contribution_and_proofs) in contributions {
+            let mut contribution_fewer_bits = contribution_and_proofs
+                .pop()
                 .expect("contribution exists for committee")
                 .message
                 .contribution;
@@ -1648,20 +1654,22 @@ mod release_tests {
             block_root,
             state.slot() - Slot::new(1),
             RelativeSyncCommittee::Current,
+            1,
         );
 
         let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
         let mut first_contribution = contributions[0]
             .1
-            .as_ref()
+            .first()
             .unwrap()
             .message
             .contribution
             .clone();
 
         // Add all contributions, but unset the first two bits of each.
-        for (_, contribution_and_proof) in contributions {
-            let mut contribution_fewer_bits = contribution_and_proof
+        for (_, mut contribution_and_proofs) in contributions {
+            let mut contribution_fewer_bits = contribution_and_proofs
+                .pop()
                 .expect("contribution exists for committee")
                 .message
                 .contribution;

@@ -19,8 +19,7 @@ use beacon_chain::{
     attestation_verification::VerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    WhenSlotSkipped,
+    BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -2009,13 +2008,6 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 verified_aggregates.push((index, verified_aggregate));
                             }
-                            // If we already know the attestation, don't broadcast it or attempt to
-                            // further verify it. Return success.
-                            //
-                            // It's reasonably likely that two different validators produce
-                            // identical aggregates, especially if they're using the same beacon
-                            // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";

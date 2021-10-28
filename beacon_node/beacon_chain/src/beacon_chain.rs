@@ -22,9 +22,6 @@ use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
     SyncContributionAggregateMap,
 };
-use crate::observed_aggregates::{
-    Error as AttestationObservationError, ObservedAggregateAttestations, ObservedSyncContributions,
-};
 use crate::observed_attesters::{
     ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
 };
@@ -246,10 +243,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// a method to get an aggregated `SyncCommitteeContribution` for some `SyncCommitteeContributionData`.
     pub naive_sync_aggregation_pool:
         RwLock<NaiveAggregationPool<SyncContributionAggregateMap<T::EthSpec>>>,
-    /// Contains a store of attestations which have been observed by the beacon chain.
-    pub(crate) observed_attestations: RwLock<ObservedAggregateAttestations<T::EthSpec>>,
-    /// Contains a store of sync contributions which have been observed by the beacon chain.
-    pub(crate) observed_sync_contributions: RwLock<ObservedSyncContributions<T::EthSpec>>,
     /// Maintains a record of which validators have been seen to publish gossip attestations in
     /// recent epochs.
     pub observed_gossip_attesters: RwLock<ObservedAttesters<T::EthSpec>>,
@@ -2288,24 +2281,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let mut ops = fully_verified_block.confirmation_db_batch;
-
-        let attestation_observation_timer =
-            metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);
-
-        // Iterate through the attestations in the block and register them as an "observed
-        // attestation". This will stop us from propagating them on the gossip network.
-        for a in signed_block.message().body().attestations() {
-            match self.observed_attestations.write().observe_item(a, None) {
-                // If the observation was successful or if the slot for the attestation was too
-                // low, continue.
-                //
-                // We ignore `SlotTooLow` since this will be very common whilst syncing.
-                Ok(_) | Err(AttestationObservationError::SlotTooLow { .. }) => {}
-                Err(e) => return Err(BlockError::BeaconChainError(e.into())),
-            }
-        }
-
-        metrics::stop_timer(attestation_observation_timer);
 
         // If a slasher is configured, provide the attestations from the block.
         if let Some(slasher) = self.slasher.as_ref() {

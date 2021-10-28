@@ -14,7 +14,6 @@ use int_to_bytes::int_to_bytes32;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
-use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
     BitList, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
@@ -106,6 +105,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
 fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: Attestation<T::EthSpec>,
+    filter: impl Fn(usize) -> bool,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
     let state = &chain.head().expect("should get head").beacon_state;
     let current_slot = chain.slot().expect("should get slot");
@@ -119,6 +119,10 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         .committee
         .iter()
         .find_map(|&val_index| {
+            if !filter(val_index) {
+                return None;
+            }
+
             let aggregator_sk = generate_deterministic_keypair(val_index).sk;
 
             let proof = SelectionProof::new::<T::EthSpec>(
@@ -198,7 +202,7 @@ struct GossipTester {
     attester_sk: SecretKey,
     attestation_subnet_id: SubnetId,
     /*
-     * Valid unaggregated attestation for batch testing
+     * Invalid unaggregated attestation for batch testing
      */
     invalid_attestation: Attestation<E>,
     /*
@@ -208,7 +212,14 @@ struct GossipTester {
     aggregator_validator_index: usize,
     aggregator_sk: SecretKey,
     /*
-     * Another valid aggregate for batch testing
+     * Second valid aggregate with the same underlying attestation signed by a different aggregator.
+     *
+     * This exists to regression test the removal of attestation duplicate checking:
+     * https://github.com/ethereum/consensus-specs/pull/2225
+     */
+    duplicate_aggregate: SignedAggregateAndProof<E>,
+    /*
+     * An invalid aggregate for batch testing
      */
     invalid_aggregate: SignedAggregateAndProof<E>,
 }
@@ -236,13 +247,27 @@ impl GossipTester {
         ) = get_valid_unaggregated_attestation(&harness.chain);
 
         let (valid_aggregate, aggregator_validator_index, aggregator_sk) =
-            get_valid_aggregated_attestation(&harness.chain, valid_attestation.clone());
+            get_valid_aggregated_attestation(&harness.chain, valid_attestation.clone(), |_| true);
+
+        let (duplicate_aggregate, _, _) = get_valid_aggregated_attestation(
+            &harness.chain,
+            valid_attestation.clone(),
+            |validator_index| validator_index != aggregator_validator_index,
+        );
+        assert_eq!(
+            valid_aggregate.message.aggregate,
+            duplicate_aggregate.message.aggregate
+        );
+        assert_ne!(
+            valid_aggregate.message.aggregator_index,
+            duplicate_aggregate.message.aggregator_index
+        );
 
         let mut invalid_attestation = valid_attestation.clone();
         invalid_attestation.data.beacon_block_root = Hash256::repeat_byte(13);
 
         let (mut invalid_aggregate, _, _) =
-            get_valid_aggregated_attestation(&harness.chain, invalid_attestation.clone());
+            get_valid_aggregated_attestation(&harness.chain, invalid_attestation.clone(), |_| true);
         invalid_aggregate.message.aggregator_index = invalid_aggregate
             .message
             .aggregator_index
@@ -260,6 +285,7 @@ impl GossipTester {
             valid_aggregate,
             aggregator_validator_index,
             aggregator_sk,
+            duplicate_aggregate,
             invalid_aggregate,
         }
     }
@@ -291,6 +317,17 @@ impl GossipTester {
                 .verify_aggregated_attestation_for_gossip(&self.valid_aggregate)
                 .is_ok(),
             "valid aggregate should be verified"
+        );
+        self
+    }
+
+    pub fn import_valid_duplicate_aggregate(self) -> Self {
+        assert!(
+            self.harness
+                .chain
+                .verify_aggregated_attestation_for_gossip(&self.duplicate_aggregate)
+                .is_ok(),
+            "second valid aggregate should be verified"
         );
         self
     }
@@ -632,24 +669,8 @@ fn aggregated_gossip_verification() {
         // NOTE: from here on, the tests are stateful, and rely on the valid attestation having
         // been seen.
         .import_valid_aggregate()
-        /*
-         * The following test ensures:
-         *
-         * The valid aggregate attestation defined by hash_tree_root(aggregate) has not already been
-         * seen (via aggregate gossip, within a block, or through the creation of an equivalent
-         * aggregate locally).
-         */
-        .inspect_aggregate_err(
-            "aggregate that has already been seen",
-            |_, _| {},
-            |tester, err| {
-                assert!(matches!(
-                    err,
-                    AttnError::AttestationAlreadyKnown(hash)
-                    if hash == tester.valid_aggregate.message.aggregate.tree_hash_root()
-                ))
-            },
-        )
+        // Regression test for https://github.com/ethereum/consensus-specs/pull/2225
+        .import_valid_duplicate_aggregate()
         /*
          * The following test ensures:
          *
@@ -1018,7 +1039,7 @@ fn verify_aggregate_for_gossip_doppelganger_detection() {
     let (valid_attestation, _attester_index, _attester_committee_index, _, _) =
         get_valid_unaggregated_attestation(&harness.chain);
     let (valid_aggregate, _, _) =
-        get_valid_aggregated_attestation(&harness.chain, valid_attestation);
+        get_valid_aggregated_attestation(&harness.chain, valid_attestation, |_| true);
 
     harness
         .chain

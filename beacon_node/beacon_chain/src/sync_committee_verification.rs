@@ -29,9 +29,7 @@
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
     beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
-    metrics,
-    observed_aggregates::ObserveOutcome,
-    BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::{verify_signature_sets, PublicKeyBytes};
 use derivative::Derivative;
@@ -46,14 +44,13 @@ use state_processing::signature_sets::{
 use std::borrow::Cow;
 use std::collections::HashMap;
 use strum::AsRefStr;
-use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee::Error as SyncCommitteeError;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, BeaconStateError,
-    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    EthSpec, SignedContributionAndProof, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
@@ -110,14 +107,6 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
-    /// The sync contribution has been seen before; either in a block, on the gossip network or from a
-    /// local validator.
-    ///
-    /// ## Peer scoring
-    ///
-    /// It's unclear if this sync contribution is valid, however we have already observed it and do not
-    /// need to observe it again.
-    SyncContributionAlreadyKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -300,17 +289,6 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             return Err(Error::AggregatorNotInCommittee { aggregator_index });
         };
 
-        // Ensure the valid sync contribution has not already been seen locally.
-        let contribution_root = contribution.tree_hash_root();
-        if chain
-            .observed_sync_contributions
-            .write()
-            .is_known(contribution, contribution_root)
-            .map_err(|e| Error::BeaconChainError(e.into()))?
-        {
-            return Err(Error::SyncContributionAlreadyKnown(contribution_root));
-        }
-
         // Ensure there has been no other observed aggregate for the given `aggregator_index`.
         //
         // Note: do not observe yet, only observe once the sync contribution has been verified.
@@ -357,19 +335,6 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
 
         let contribution = &signed_aggregate.message.contribution;
         let aggregator_index = signed_aggregate.message.aggregator_index;
-
-        // Observe the valid sync contribution so we do not re-process it.
-        //
-        // It's important to double check that the contribution is not already known, otherwise two
-        // contribution processed at the same time could be published.
-        if let ObserveOutcome::AlreadyKnown = chain
-            .observed_sync_contributions
-            .write()
-            .observe_item(contribution, Some(contribution_root))
-            .map_err(|e| Error::BeaconChainError(e.into()))?
-        {
-            return Err(Error::SyncContributionAlreadyKnown(contribution_root));
-        }
 
         // Observe the aggregator so we don't process another aggregate from them.
         //

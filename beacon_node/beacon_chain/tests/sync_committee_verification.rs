@@ -8,7 +8,6 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, Relativ
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
-use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
     AggregateSignature, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
@@ -74,10 +73,12 @@ fn get_valid_sync_committee_message(
     )
 }
 
-fn get_valid_sync_contribution(
+/// Get `count` valid sync contributions for testing.
+fn get_valid_sync_contributions(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     relative_sync_committee: RelativeSyncCommittee,
-) -> (SignedContributionAndProof<E>, usize, SecretKey) {
+    count: usize,
+) -> Vec<(SignedContributionAndProof<E>, usize, SecretKey)> {
     let head_state = harness
         .chain
         .head_beacon_state()
@@ -88,28 +89,34 @@ fn get_valid_sync_contribution(
         .head()
         .expect("should get head state")
         .beacon_block_root;
-    let sync_contributions = harness.make_sync_contributions(
+    let all_sync_contributions = harness.make_sync_contributions(
         &head_state,
         head_block_root,
         head_state.slot(),
         relative_sync_committee,
+        count,
     );
 
-    let (_, contribution_opt) = sync_contributions
-        .get(0)
-        .expect("sync contributions should exist");
-    let contribution = contribution_opt
-        .as_ref()
-        .cloned()
-        .expect("signed contribution and proof should exist");
+    // Find a subnet with at least `count` aggregates.
+    let sync_contributions = all_sync_contributions
+        .into_iter()
+        .find_map(|(_messages, contributions)| {
+            (contributions.len() == count).then(|| contributions)
+        })
+        .expect("should find at least one subnet with `count` aggregates");
 
-    let aggregator_index = contribution.message.aggregator_index as usize;
+    sync_contributions
+        .into_iter()
+        .map(|contribution| {
+            let aggregator_index = contribution.message.aggregator_index as usize;
 
-    (
-        contribution,
-        aggregator_index,
-        harness.validator_keypairs[aggregator_index].sk.clone(),
-    )
+            (
+                contribution,
+                aggregator_index,
+                harness.validator_keypairs[aggregator_index].sk.clone(),
+            )
+        })
+        .collect()
 }
 
 /// Returns a proof and index for a validator that is **not** an aggregator for the current sync period.
@@ -177,8 +184,14 @@ fn aggregated_gossip_verification() {
 
     let current_slot = harness.chain.slot().expect("should get slot");
 
-    let (valid_aggregate, aggregator_index, aggregator_sk) =
-        get_valid_sync_contribution(&harness, RelativeSyncCommittee::Current);
+    let mut valid_sync_contributions =
+        get_valid_sync_contributions(&harness, RelativeSyncCommittee::Current, 2);
+    let (duplicate_aggregate, duplicate_aggregator_index, _) = valid_sync_contributions
+        .pop()
+        .expect("should have at least 1 aggregator");
+    let (valid_aggregate, aggregator_index, aggregator_sk) = valid_sync_contributions
+        .pop()
+        .expect("should have 2 aggregators");
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
@@ -426,19 +439,20 @@ fn aggregated_gossip_verification() {
         .expect("should verify sync contribution");
 
     /*
-     * The following test ensures:
+     * Observe a second valid aggregate for the same contribution.
      *
-     * The sync committee contribution is the first valid contribution received for the aggregator
-     * with index contribution_and_proof.aggregator_index for the slot contribution.slot and
-     * subcommittee index contribution.subcommittee_index.
+     * This is similar to the regression test for attestations, and was fixed at the same time.
+     * See: https://github.com/ethereum/consensus-specs/pull/2225
      */
-
-    assert_invalid!(
-        "aggregate that has already been seen",
-        valid_aggregate.clone(),
-        SyncCommitteeError::SyncContributionAlreadyKnown(hash)
-        if hash == valid_aggregate.message.contribution.tree_hash_root()
+    assert_ne!(aggregator_index, duplicate_aggregator_index);
+    assert_eq!(
+        valid_aggregate.message.contribution,
+        duplicate_aggregate.message.contribution
     );
+    harness
+        .chain
+        .verify_sync_contribution_for_gossip(duplicate_aggregate)
+        .expect("should verify duplicate sync contribution");
 
     /*
      * The following test ensures:
@@ -479,7 +493,9 @@ fn aggregated_gossip_verification() {
 
     // **Incorrectly** create a sync contribution using the current sync committee
     let (next_valid_contribution, _, _) =
-        get_valid_sync_contribution(&harness, RelativeSyncCommittee::Current);
+        get_valid_sync_contributions(&harness, RelativeSyncCommittee::Current, 1)
+            .pop()
+            .unwrap();
 
     assert_invalid!(
         "sync contribution created with incorrect sync committee",

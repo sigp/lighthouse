@@ -273,9 +273,6 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
 
                 verified_contributions.push((index, verified_contribution));
             }
-            // If we already know the contribution, don't broadcast it or attempt to
-            // further verify it. Return success.
-            Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
             Err(e) => {
                 error!(
                     log,
