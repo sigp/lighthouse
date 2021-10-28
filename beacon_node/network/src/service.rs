@@ -706,6 +706,9 @@ fn spawn_service<T: BeaconChainTypes>(
                         // Set the next_unsubscribe delay.
                         let epoch_duration = service.beacon_chain.spec.seconds_per_slot * T::EthSpec::slots_per_epoch();
                         let unsubscribe_delay = Duration::from_secs(UNSUBSCRIBE_DELAY_EPOCHS * epoch_duration);
+
+                        // Update the `next_fork_subscriptions` timer if the next fork is known.
+                        service.next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&service.beacon_chain).into());
                         service.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
                         info!(service.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
                     } else {
@@ -725,11 +728,11 @@ fn spawn_service<T: BeaconChainTypes>(
                         let fork_digest = ChainSpec::compute_fork_digest(fork_version, service.beacon_chain.genesis_validators_root);
                         info!(service.log, "Subscribing to new fork topics");
                         service.libp2p.swarm.behaviour_mut().subscribe_new_fork_topics(fork_digest);
+                        service.next_fork_subscriptions = Box::pin(None.into());
                     }
                     else {
                         error!(service.log, "Fork subscription scheduled but no fork scheduled");
                     }
-                    service.next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&service.beacon_chain).into());
                 }
             }
             metrics::update_bandwidth_metrics(service.libp2p.bandwidth.clone());
