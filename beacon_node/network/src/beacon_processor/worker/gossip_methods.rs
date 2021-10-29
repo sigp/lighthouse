@@ -1649,7 +1649,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
 
                 // We tolerate messages that were just one slot late.
-                if *message_slot + 1 > *earliest_permissible_slot {
+                if *message_slot + 1 < *earliest_permissible_slot {
                     self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
                 }
 
