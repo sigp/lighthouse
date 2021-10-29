@@ -129,6 +129,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn block_by_number(&self, number: u64) -> Option<Block<T>> {
+        // Get the latest canonical head block
         let mut latest_block = self.latest_block()?;
         loop {
             let block_number = latest_block.block_number();
@@ -187,6 +188,12 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
+        if let Some(finalized_block_hash) = self.finalized_block_hash {
+            return Err(format!(
+                "terminal block {} has been finalized. PoW chain has stopped building",
+                finalized_block_hash
+            ));
+        }
         let parent_hash = if block_number == 0 {
             Hash256::zero()
         } else if let Some(block) = self.block_by_number(block_number - 1) {
@@ -208,12 +215,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         // Insert block into block tree
         let _ = self.insert_block(Block::PoW(block.clone()))?;
 
-        // Set head if required
-        if let Some(head_total_difficulty) = self
-            .head_block
-            .as_ref()
-            .map(|b| b.total_difficulty())
-            .flatten()
+        // Set head
+        if let Some(head_total_difficulty) =
+            self.head_block.as_ref().and_then(|b| b.total_difficulty())
         {
             if block.total_difficulty >= head_total_difficulty {
                 self.head_block = Some(Block::PoW(block));
@@ -224,6 +228,11 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(())
     }
 
+    /// Insert a PoW block given the parent hash.
+    ///
+    /// Returns `Ok(hash)` of the inserted block.
+    /// Returns an error if the `parent_hash` does not exist in the block tree or
+    /// if the parent block is the terminal block.
     pub fn insert_pow_block_by_hash(&mut self, parent_hash: Hash256) -> Result<Hash256, String> {
         let parent_block = self.block_by_hash(parent_hash).ok_or_else(|| {
             format!(
@@ -239,12 +248,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         )?;
 
         let hash = self.insert_block(Block::PoW(block.clone()))?;
-        // Set head if required
-        if let Some(head_total_difficulty) = self
-            .head_block
-            .as_ref()
-            .map(|b| b.total_difficulty())
-            .flatten()
+        // Set head
+        if let Some(head_total_difficulty) =
+            self.head_block.as_ref().and_then(|b| b.total_difficulty())
         {
             if block.total_difficulty >= head_total_difficulty {
                 self.head_block = Some(Block::PoW(block));
@@ -374,8 +380,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
         self.head_block = Some(self.blocks.get(&block_hash).unwrap().clone());
 
-        // TODO: Should we update if finalized_block_hash == Hash265::zero()?
-        self.finalized_block_hash = Some(finalized_block_hash);
+        if finalized_block_hash != Hash256::zero() {
+            self.finalized_block_hash = Some(finalized_block_hash);
+        }
 
         Ok(())
     }
