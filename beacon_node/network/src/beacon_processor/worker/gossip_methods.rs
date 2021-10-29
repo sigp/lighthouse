@@ -1612,7 +1612,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         match &error {
             SyncCommitteeError::FutureSlot { .. } => {
                 /*
-                 * These errors can be triggered by a mismatch between our slot and the peer.
+                 * This error can be triggered by a mismatch between our slot and the peer.
                  *
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
@@ -1636,7 +1636,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 earliest_permissible_slot,
             } => {
                 /*
-                 * These errors can be triggered by a mismatch between our slot and the peer.
+                 * This error can be triggered by a mismatch between our slot and the peer.
                  *
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
