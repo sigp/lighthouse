@@ -36,10 +36,18 @@ impl<'a> Matches<'a> {
     }
 
     pub fn value_of(&self, name: &str) -> Option<&str> {
-        self.cli.value_of(name).or_else(|| self
+        let occurrences = self.cli.occurrences_of(name);
+        let fallback_value = self
             .file
             .as_ref()
-            .and_then(|file| file.get(name).map(String::as_str)))
+            .and_then(|file| file.get(name).map(String::as_str));
+
+        // Check the number of occurrences to prioritize values from file over default values.
+        if occurrences == 0 {
+            fallback_value
+        } else {
+            self.cli.value_of(name)
+        }
     }
 
     pub fn subcommand_name(&self) -> Option<&str> {
@@ -47,13 +55,20 @@ impl<'a> Matches<'a> {
     }
 
     pub fn is_present(&self, name: &str) -> bool {
-        if !self.cli.is_present(name) {
-            self.file
-                .as_ref()
-                .map(|file| file.contains_key(name))
-                .unwrap_or(false)
+        let occurrences = self.cli.occurrences_of(name);
+        let fallback_value = self
+            .file
+            .as_ref()
+            .map(|file| file.contains_key(name))
+            .unwrap_or(false);
+
+        // Check the number of occurrences to prioritize values from file over default values.
+        if occurrences == 0 {
+            fallback_value
+        } else if !self.cli.is_present(name) {
+            fallback_value
         } else {
-            true
+            false
         }
     }
 
