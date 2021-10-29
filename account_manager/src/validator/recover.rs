@@ -5,7 +5,8 @@ use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::SECRETS_DIR_FLAG;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
+use clap_utils::matches::Matches as ArgMatches;
 use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
@@ -80,14 +81,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
     let secrets_dir = if matches.value_of("datadir").is_some() {
-        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
+        let path: PathBuf = clap_utils::parse_required(&matches, "datadir")?;
         path.join(DEFAULT_SECRET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+        parse_path_or_default_with_flag(&matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
     };
-    let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
-    let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
-    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+    let first_index: u32 = clap_utils::parse_required(&matches, FIRST_INDEX_FLAG)?;
+    let count: u32 = clap_utils::parse_required(&matches, COUNT_FLAG)?;
+    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(&matches, MNEMONIC_FLAG)?;
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
 
     eprintln!("secrets-dir path: {:?}", secrets_dir);

@@ -14,7 +14,8 @@ mod replace_state_pubkeys;
 mod skip_slots;
 mod transition_blocks;
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{App, Arg, SubCommand};
+use clap_utils::matches::{Matches as ArgMatches, Matches};
 use clap_utils::parse_path_with_default_in_home_dir;
 use environment::EnvironmentBuilder;
 use parse_ssz::run_parse_ssz;
@@ -27,7 +28,7 @@ use types::{EthSpec, EthSpecId};
 fn main() {
     env_logger::init();
 
-    let matches = App::new("Lighthouse CLI Tool")
+    let cli_matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
@@ -559,14 +560,17 @@ fn main() {
         )
         .get_matches();
 
-    let result = matches
-        .value_of("spec")
-        .ok_or_else(|| "Missing --spec flag".to_string())
-        .and_then(FromStr::from_str)
-        .and_then(|eth_spec_id| match eth_spec_id {
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
-        });
+    let file_name_opt = cli_matches.value_of("config-file");
+    let result = Matches::new(&cli_matches, file_name_opt).and_then(|matches| {
+        matches
+            .value_of("spec")
+            .ok_or_else(|| "Missing --spec flag".to_string())
+            .and_then(FromStr::from_str)
+            .and_then(|eth_spec_id| match eth_spec_id {
+                EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
+                EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
+            })
+    });
 
     match result {
         Ok(()) => process::exit(0),
@@ -596,40 +600,40 @@ fn run<T: EthSpec>(
     )?;
 
     match matches.subcommand() {
-        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(testnet_dir, matches)
+        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(testnet_dir, &matches)
             .map_err(|e| format!("Failed to transition blocks: {}", e)),
-        ("skip-slots", Some(matches)) => skip_slots::run::<T>(testnet_dir, matches)
+        ("skip-slots", Some(matches)) => skip_slots::run::<T>(testnet_dir, &matches)
             .map_err(|e| format!("Failed to skip slots: {}", e)),
         ("pretty-ssz", Some(matches)) => {
-            run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
+            run_parse_ssz::<T>(&matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
         ("deploy-deposit-contract", Some(matches)) => {
-            deploy_deposit_contract::run::<T>(env, matches)
+            deploy_deposit_contract::run::<T>(env, &matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
-        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
+        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, &matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
-        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, matches)
+        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, &matches)
             .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
         ("change-genesis-time", Some(matches)) => {
-            change_genesis_time::run::<T>(testnet_dir, matches)
+            change_genesis_time::run::<T>(testnet_dir, &matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
         ("replace-state-pubkeys", Some(matches)) => {
-            replace_state_pubkeys::run::<T>(testnet_dir, matches)
+            replace_state_pubkeys::run::<T>(testnet_dir, &matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
-        ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
+        ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, &matches)
             .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
-        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
+        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(&matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
-        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
+        ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(&matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
-        ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
+        ("insecure-validators", Some(matches)) => insecure_validators::run(&matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         ("etl-block-efficiency", Some(matches)) => env
             .runtime()
-            .block_on(etl::block_efficiency::run::<T>(matches))
+            .block_on(etl::block_efficiency::run::<T>(&matches))
             .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }

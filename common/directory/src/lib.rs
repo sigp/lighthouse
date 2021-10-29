@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};

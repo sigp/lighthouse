@@ -1,5 +1,5 @@
 use account_utils::{eth2_keystore::keypair_from_secret, mnemonic_from_phrase};
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};

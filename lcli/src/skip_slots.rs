@@ -1,5 +1,5 @@
 use crate::transition_blocks::load_from_ssz_with;
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::per_slot_processing;

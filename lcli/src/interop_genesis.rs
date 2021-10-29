@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use clap_utils::parse_ssz_optional;
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::interop_genesis_state;

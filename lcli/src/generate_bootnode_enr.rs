@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use lighthouse_network::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
     NetworkConfig, NETWORK_KEY_FILENAME,

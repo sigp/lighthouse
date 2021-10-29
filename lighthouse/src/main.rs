@@ -3,8 +3,9 @@
 mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::matches::Matches;
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
@@ -38,7 +39,7 @@ fn main() {
     }
 
     // Parse the CLI parameters.
-    let matches = App::new("Lighthouse")
+    let cli_matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
@@ -57,8 +58,17 @@ fn main() {
                  have_sha_extensions(),
                  cfg!(feature = "spec-minimal"),
             ).as_str()
-        )
-        .arg(
+        ).arg(
+        Arg::with_name("config-file")
+            .long("config-file")
+            .help(
+                "The filepath to a YAML or TOML file with flag values. To override any options \
+                in the config file, specify the same option in the command line. The file must \
+                have the extension `.toml` or `.yaml`"
+            )
+            .takes_value(true)
+            .global(true),
+        ).arg(
             Arg::with_name("spec")
                 .short("s")
                 .long("spec")
@@ -171,6 +181,15 @@ fn main() {
         .subcommand(account_manager::cli_app())
         .get_matches();
 
+    let file_name_opt = cli_matches.value_of("config-file");
+    let matches = match Matches::new(&cli_matches, file_name_opt) {
+        Ok(matches) => matches,
+        Err(e) => {
+            eprintln!("Unable read config from file: {}", e);
+            exit(1);
+        }
+    };
+
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
     //
@@ -204,7 +223,7 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(bootnode_matches, eth_spec_id, debug_info);
+            boot_node::run(&bootnode_matches, eth_spec_id, debug_info);
 
             return Ok(());
         }
@@ -241,7 +260,7 @@ fn main() {
 
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
-    matches: &ArgMatches,
+    matches: &Matches,
     testnet_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
@@ -317,7 +336,7 @@ fn run<E: EthSpec>(
     if let Some(sub_matches) = matches.subcommand_matches("account_manager") {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(sub_matches, environment)?;
+        account_manager::run(&sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
@@ -336,12 +355,12 @@ fn run<E: EthSpec>(
             let log = context.log().clone();
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(
-                matches,
+                &matches,
                 &context.eth2_config().spec,
                 context.log().clone(),
             )?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
+            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(&matches, "dump-config")?
             {
                 let mut file = File::create(dump_path)
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
@@ -371,10 +390,10 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(matches, context.log())
+            let config = validator_client::Config::from_cli(&matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
+            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(&matches, "dump-config")?
             {
                 let mut file = File::create(dump_path)
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;

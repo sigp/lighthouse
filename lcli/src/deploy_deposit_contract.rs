@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use environment::Environment;
 use types::EthSpec;
 

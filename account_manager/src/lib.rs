@@ -3,7 +3,7 @@ pub mod validator;
 pub mod wallet;
 
 use clap::App;
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use environment::Environment;
 use types::EthSpec;
 
@@ -23,8 +23,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 /// Run the account manager, returning an error if the operation did not succeed.
 pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
     match matches.subcommand() {
-        (wallet::CMD, Some(matches)) => wallet::cli_run(matches)?,
-        (validator::CMD, Some(matches)) => validator::cli_run(matches, env)?,
+        (wallet::CMD, Some(matches)) => wallet::cli_run(&matches)?,
+        (validator::CMD, Some(matches)) => validator::cli_run(&matches, env)?,
         (unknown, _) => {
             return Err(format!(
                 "{} is not a valid {} command. See --help.",

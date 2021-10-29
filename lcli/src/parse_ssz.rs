@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use clap_utils::parse_required;
 use serde::Serialize;
 use ssz::Decode;

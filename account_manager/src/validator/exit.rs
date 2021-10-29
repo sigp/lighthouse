@@ -1,6 +1,7 @@
 use crate::wallet::create::STDIN_INPUTS_FLAG;
 use bls::{Keypair, PublicKey};
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
+use clap_utils::matches::Matches as ArgMatches;
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},

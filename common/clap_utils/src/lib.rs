@@ -1,12 +1,13 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
-use clap::ArgMatches;
+use crate::matches::Matches;
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 pub mod flags;
+pub mod matches;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \
@@ -16,7 +17,7 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 /// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
 /// the path cannot be found or the testnet dir is invalid.
 pub fn parse_testnet_dir(
-    matches: &ArgMatches,
+    matches: &Matches,
     name: &'static str,
 ) -> Result<Option<Eth2NetworkConfig>, String> {
     let path = parse_required::<PathBuf>(matches, name)?;
@@ -28,7 +29,7 @@ pub fn parse_testnet_dir(
 /// Attempts to load a hardcoded network config if `name` is in `matches`, returning an error if
 /// the name is not a valid network name.
 pub fn parse_hardcoded_network(
-    matches: &ArgMatches,
+    matches: &Matches,
     name: &str,
 ) -> Result<Option<Eth2NetworkConfig>, String> {
     let network_name = parse_required::<String>(matches, name)?;
@@ -38,7 +39,7 @@ pub fn parse_hardcoded_network(
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
 /// home directory and appends `default` to it.
 pub fn parse_path_with_default_in_home_dir(
-    matches: &ArgMatches,
+    matches: &Matches,
     name: &'static str,
     default: PathBuf,
 ) -> Result<PathBuf, String> {
@@ -57,7 +58,7 @@ pub fn parse_path_with_default_in_home_dir(
 
 /// Returns the value of `name` or an error if it is not in `matches` or does not parse
 /// successfully using `std::string::FromStr`.
-pub fn parse_required<T>(matches: &ArgMatches, name: &str) -> Result<T, String>
+pub fn parse_required<T>(matches: &Matches, name: &str) -> Result<T, String>
 where
     T: FromStr,
     <T as FromStr>::Err: std::fmt::Display,
@@ -67,7 +68,7 @@ where
 
 /// Returns the value of `name` (if present) or an error if it does not parse successfully using
 /// `std::string::FromStr`.
-pub fn parse_optional<T>(matches: &ArgMatches, name: &str) -> Result<Option<T>, String>
+pub fn parse_optional<T>(matches: &Matches, name: &str) -> Result<Option<T>, String>
 where
     T: FromStr,
     <T as FromStr>::Err: std::fmt::Display,
@@ -85,10 +86,7 @@ where
 /// successfully using `ssz::Decode`.
 ///
 /// Expects the value of `name` to be 0x-prefixed ASCII-hex.
-pub fn parse_ssz_required<T: Decode>(
-    matches: &ArgMatches,
-    name: &'static str,
-) -> Result<T, String> {
+pub fn parse_ssz_required<T: Decode>(matches: &Matches, name: &'static str) -> Result<T, String> {
     parse_ssz_optional(matches, name)?.ok_or_else(|| format!("{} not specified", name))
 }
 
@@ -97,7 +95,7 @@ pub fn parse_ssz_required<T: Decode>(
 ///
 /// Expects the value of `name` (if any) to be 0x-prefixed ASCII-hex.
 pub fn parse_ssz_optional<T: Decode>(
-    matches: &ArgMatches,
+    matches: &Matches,
     name: &'static str,
 ) -> Result<Option<T>, String> {
     matches

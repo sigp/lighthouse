@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use eth2::types::*;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use log::{error, info};

@@ -4,7 +4,8 @@ use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
 };
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
+use clap_utils::matches::Matches as ArgMatches;
 use directory::{
     ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
 };

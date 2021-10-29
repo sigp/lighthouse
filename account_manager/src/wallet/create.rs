@@ -3,7 +3,8 @@ use crate::WALLETS_DIR_FLAG;
 use account_utils::{
     is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
 };
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
+use clap_utils::matches::Matches as ArgMatches;
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
@@ -103,12 +104,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
-    let mnemonic_output_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+    let mnemonic_output_path: Option<PathBuf> =
+        clap_utils::parse_optional(&matches, MNEMONIC_FLAG)?;
 
     // Create a new random mnemonic.
     //
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
-    let mnemonic_length = clap_utils::parse_required(matches, MNEMONIC_LENGTH_FLAG)?;
+    let mnemonic_length = clap_utils::parse_required(&matches, MNEMONIC_LENGTH_FLAG)?;
     let mnemonic = Mnemonic::new(
         MnemonicType::for_word_count(mnemonic_length).expect("Mnemonic length already validated"),
         Language::English,

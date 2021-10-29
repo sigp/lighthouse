@@ -1,6 +1,7 @@
 use account_utils::validator_definitions::ValidatorDefinitions;
 use bls::PublicKey;
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
+use clap_utils::matches::Matches as ArgMatches;
 use std::{collections::HashSet, path::PathBuf};
 
 pub const CMD: &str = "modify";
@@ -76,7 +77,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .map(|def| def.voting_public_key.clone())
             .collect::<HashSet<_>>()
     } else {
-        let public_key: PublicKey = clap_utils::parse_required(sub_matches, PUBKEY_FLAG)?;
+        let public_key: PublicKey = clap_utils::parse_required(&sub_matches, PUBKEY_FLAG)?;
         std::iter::once(public_key).collect::<HashSet<PublicKey>>()
     };
 

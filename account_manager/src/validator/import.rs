@@ -8,7 +8,8 @@ use account_utils::{
     },
     ZeroizeString,
 };
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg};
+use clap_utils::matches::Matches as ArgMatches;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
@@ -83,12 +84,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
-    let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
-    let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
+    let keystore: Option<PathBuf> = clap_utils::parse_optional(&matches, KEYSTORE_FLAG)?;
+    let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(&matches, DIR_FLAG)?;
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
     let keystore_password_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
+        clap_utils::parse_optional(&matches, PASSWORD_FLAG)?;
 
     let mut defs = ValidatorDefinitions::open_or_create(&validator_dir)
         .map_err(|e| format!("Unable to open {}: {:?}", CONFIG_FILENAME, e))?;

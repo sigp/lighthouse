@@ -10,7 +10,7 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
     TimeoutRwLock,
 };
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, get_eth2_network_config, set_network_config};

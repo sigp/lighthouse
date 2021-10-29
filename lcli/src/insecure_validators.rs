@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use std::fs;
 use std::path::PathBuf;
 use validator_dir::Builder as ValidatorBuilder;

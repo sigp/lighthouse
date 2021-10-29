@@ -1,4 +1,4 @@
-use clap::ArgMatches;
+use clap_utils::matches::Matches as ArgMatches;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::{Eth1Config, Eth1GenesisService};
