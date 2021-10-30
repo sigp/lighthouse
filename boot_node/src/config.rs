@@ -2,7 +2,7 @@ use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
-    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, Keypair},
+    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -13,28 +13,14 @@ use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
-#[derive(Serialize, Deserialize)]
 pub struct BootNodeConfig<T: EthSpec> {
     pub listen_socket: SocketAddr,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
-    // CombinedKey is skipped by serde as it is defined in a different crate and
-    // does not implement Serialize and Deserialize.
-    // Despite skip a default is needed to enable BootNodeConfig's
-    // Deserialization (CombinedKey has no default value).
-    #[serde(skip, default = "generate_local_key")]
     pub local_key: CombinedKey,
-    #[serde(skip)]
     pub discv5_config: Discv5Config,
     phantom: PhantomData<T>,
-}
-
-/// Generates a new `secp256k1` key.
-fn generate_local_key() -> CombinedKey {
-    // Currently discv5 supports only secp256k1 keys.
-    let private_key = Keypair::generate_secp256k1();
-    CombinedKey::from_libp2p(&private_key).unwrap()
 }
 
 impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
@@ -143,5 +129,28 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             discv5_config: network_config.discv5_config,
             phantom: PhantomData,
         })
+    }
+}
+
+/// The set of configuration parameters that can safely be (de)serialized.
+///
+/// Its fields are a subset of the fields of `BootNodeConfig`.
+#[derive(Serialize, Deserialize)]
+pub struct BootNodeConfigSerialization {
+    pub listen_socket: SocketAddr,
+    // TODO: Generalise to multiaddr
+    pub boot_nodes: Vec<Enr>,
+    pub local_enr: Enr,
+}
+
+impl BootNodeConfigSerialization {
+    /// Returns a `BootNodeConfigSerialization` obtained from cloning the
+    /// relevant fields of `config`
+    pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
+        BootNodeConfigSerialization {
+            listen_socket: config.listen_socket.clone(),
+            boot_nodes: config.boot_nodes.clone(),
+            local_enr: config.local_enr.clone(),
+        }
     }
 }

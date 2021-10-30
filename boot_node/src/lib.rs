@@ -9,7 +9,7 @@ mod cli;
 pub mod config;
 mod server;
 pub use cli::cli_app;
-use config::BootNodeConfig;
+use config::{BootNodeConfig, BootNodeConfigSerialization};
 use types::{EthSpec, EthSpecId};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
@@ -85,9 +85,10 @@ fn main<T: EthSpec>(
 
     // Dump config if config_dump is provided
     if let Some(dump_path) = config_dump {
+        let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
         let mut file = File::create(dump_path)
             .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-        serde_json::to_writer(&mut file, &config)
+        serde_json::to_writer(&mut file, &config_sz)
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
 

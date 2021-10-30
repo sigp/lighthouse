@@ -1,4 +1,4 @@
-use boot_node::config::BootNodeConfig;
+use boot_node::config::BootNodeConfigSerialization;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::discovery::ENR_FILENAME;
@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use tempfile::TempDir;
-use types::MainnetEthSpec;
 
 const IP_ADDRESS: &str = "192.168.2.108";
 
@@ -36,14 +35,14 @@ impl CommandLineTest {
         CommandLineTest { cmd: base_cmd }
     }
 
-    fn run_with_ip(&mut self) -> CompletedTest<BootNodeConfig<MainnetEthSpec>> {
+    fn run_with_ip(&mut self) -> CompletedTest<BootNodeConfigSerialization> {
         self.cmd.arg(IP_ADDRESS);
         self.run()
     }
 }
 
 impl CommandLineTestExec for CommandLineTest {
-    type Config = BootNodeConfig<MainnetEthSpec>;
+    type Config = BootNodeConfigSerialization;
 
     fn cmd_mut(&mut self) -> &mut Command {
         &mut self.cmd
