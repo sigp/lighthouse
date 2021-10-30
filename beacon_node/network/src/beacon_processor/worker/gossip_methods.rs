@@ -25,6 +25,7 @@ use super::{
     },
     Worker,
 };
+use crate::beacon_processor::DuplicateCache;
 
 /// An attestation that has been validated by the `BeaconChain`.
 ///
@@ -190,7 +191,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Creates a log if there is an internal error.
     /// Propagates the result of the validation for the given message to the network. If the result
     /// is valid the message gets forwarded to other peers.
-    fn propagate_validation_result(
+    pub(crate) fn propagate_validation_result(
         &self,
         message_id: MessageId,
         propagation_source: PeerId,
@@ -618,6 +619,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///   be downloaded.
     ///
     /// Raises a log if there are errors.
+    #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_block(
         self,
         message_id: MessageId,
@@ -625,8 +627,50 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_client: Client,
         block: SignedBeaconBlock<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        duplicate_cache: DuplicateCache,
         seen_duration: Duration,
     ) {
+        if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
+            message_id,
+            peer_id,
+            peer_client,
+            block,
+            reprocess_tx.clone(),
+            seen_duration,
+        ) {
+            let block_root = gossip_verified_block.block_root;
+            if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
+                self.process_gossip_verified_block(
+                    peer_id,
+                    gossip_verified_block,
+                    reprocess_tx,
+                    seen_duration,
+                );
+                // Drop the handle to remove the entry from the cache
+                drop(handle);
+            } else {
+                debug!(
+                    self.log,
+                    "RPC block is being imported";
+                    "block_root" => %block_root,
+                );
+            }
+        }
+    }
+
+    /// Process the beacon block received from the gossip network and
+    /// if it passes gossip propagation criteria, tell the network thread to forward it.
+    ///
+    /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
+    pub fn process_gossip_unverified_block(
+        &self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        block: SignedBeaconBlock<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        seen_duration: Duration,
+    ) -> Option<GossipVerifiedBlock<T>> {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
@@ -687,7 +731,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "root" => ?block.canonical_root()
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
-                return;
+                return None;
             }
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
@@ -700,7 +744,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return;
+                return None;
             }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
@@ -720,7 +764,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
-                return;
+                return None;
             }
         };
 
@@ -786,13 +830,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "location" => "block gossip"
                     )
                 }
+                None
             }
-            Ok(_) => self.process_gossip_verified_block(
-                peer_id,
-                verified_block,
-                reprocess_tx,
-                seen_duration,
-            ),
+            Ok(_) => Some(verified_block),
             Err(e) => {
                 error!(
                     self.log,
@@ -801,7 +841,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block_slot" => %block_slot,
                     "block_root" => ?block_root,
                     "location" => "block gossip"
-                )
+                );
+                None
             }
         }
     }
