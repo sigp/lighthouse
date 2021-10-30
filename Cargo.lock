@@ -479,6 +479,7 @@ version = "2.0.1"
 dependencies = [
  "beacon_node",
  "clap",
+ "clap_utils",
  "eth2_ssz",
  "hex",
  "lighthouse_network",

@@ -16,11 +16,10 @@ const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(
-    matches: &ArgMatches<'_>,
+    lh_matches: &ArgMatches<'_>,
+    bn_matches: &ArgMatches<'_>,
     eth_spec_id: EthSpecId,
-    config_dump: Option<PathBuf>,
     debug_level: String,
-    immediate_shutdown: bool,
 ) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
@@ -57,22 +56,17 @@ pub fn run(
     let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
-        EthSpecId::Minimal => {
-            main::<types::MinimalEthSpec>(matches, config_dump, log, immediate_shutdown)
-        }
-        EthSpecId::Mainnet => {
-            main::<types::MainnetEthSpec>(matches, config_dump, log, immediate_shutdown)
-        }
+        EthSpecId::Minimal => main::<types::MinimalEthSpec>(lh_matches, bn_matches, log),
+        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(lh_matches, bn_matches, log),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }
 }
 
 fn main<T: EthSpec>(
-    matches: &ArgMatches<'_>,
-    config_dump: Option<PathBuf>,
+    lh_matches: &ArgMatches<'_>,
+    bn_matches: &ArgMatches<'_>,
     log: slog::Logger,
-    immediate_shutdown: bool,
 ) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -81,10 +75,11 @@ fn main<T: EthSpec>(
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
     // Parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::try_from(matches)?;
+    let config: BootNodeConfig<T> = BootNodeConfig::try_from(bn_matches)?;
 
-    // Dump config if config_dump is provided
-    if let Some(dump_path) = config_dump {
+    // Dump config if `dump-config` flag is set
+    let dump_config = clap_utils::parse_optional::<PathBuf>(&lh_matches, "dump-config")?;
+    if let Some(dump_path) = dump_config {
         let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
         let mut file = File::create(dump_path)
             .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
@@ -93,7 +88,7 @@ fn main<T: EthSpec>(
     }
 
     // Run the boot node
-    if !immediate_shutdown {
+    if !lh_matches.is_present("immediate-shutdown") {
         runtime.block_on(server::run(config, log));
     }
     Ok(())

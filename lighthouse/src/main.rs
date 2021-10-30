@@ -204,13 +204,7 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(
-                bootnode_matches,
-                eth_spec_id,
-                clap_utils::parse_optional::<PathBuf>(&matches, "dump-config")?,
-                debug_info,
-                matches.is_present("immediate-shutdown"),
-            );
+            boot_node::run(&matches, bootnode_matches, eth_spec_id, debug_info);
 
             return Ok(());
         }
