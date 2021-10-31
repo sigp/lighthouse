@@ -365,6 +365,10 @@ lazy_static! {
      */
     pub static ref OP_POOL_NUM_ATTESTATIONS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_attestations_total", "Count of attestations in the op pool");
+    pub static ref OP_POOL_NUM_ATTESTATION_DATA: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attestation_data_total", "Count of attestation data in the op pool");
+    pub static ref OP_POOL_MAX_AGGREGATES_PER_DATA: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_max_aggregates_per_data", "Max aggregates per AttestationData");
     pub static ref OP_POOL_NUM_ATTESTER_SLASHINGS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_attester_slashings_total", "Count of attester slashings in the op pool");
     pub static ref OP_POOL_NUM_PROPOSER_SLASHINGS: Result<IntGauge> =
@@ -886,9 +890,19 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         scrape_sync_committee_observation(slot, beacon_chain);
     }
 
+    let attestation_stats = beacon_chain.op_pool.attestation_stats();
+
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTATIONS,
-        beacon_chain.op_pool.num_attestations(),
+        attestation_stats.num_attestations,
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTATION_DATA,
+        attestation_stats.num_attestation_data,
+    );
+    set_gauge_by_usize(
+        &OP_POOL_MAX_AGGREGATES_PER_DATA,
+        attestation_stats.max_aggregates_per_data,
     );
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTER_SLASHINGS,
