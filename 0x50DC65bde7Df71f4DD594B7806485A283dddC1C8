@@ -1,1 +1,21 @@
 
+Raw traces
+[
+  {
+    "result": {
+      "output": "0x01",
+      "gasUsed": "0x90e2"
+    },
+    "traceAddress": [],
+    "action": {
+      "input": "0xa9059cbb000000000000000000000000c11ccf20906f43b3bc5d231f363a468032bbe3700000000000000000000000000000000000000000000000000000000074e48070",
+      "gas": "0x145c0",
+      "from": "0xe93381fb4c4f14bda253907b18fad305d799241a",
+      "to": "0xdf574c24545e5ffecb9a659c229253d4111d87e1",
+      "value": "0x0",
+      "callType": "call"
+    },
+    "type": "call",
+    "subtraces": 0
+  }
+]
