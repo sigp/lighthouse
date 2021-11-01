@@ -1,6 +1,8 @@
 use boot_node::config::BootNodeConfigSerialization;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
+use beacon_node::get_eth2_network_config;
+use clap::ArgMatches;
 use lighthouse_network::discovery::ENR_FILENAME;
 use lighthouse_network::Enr;
 use std::fs::File;
@@ -90,17 +92,39 @@ fn listen_address_flag() {
 
 #[test]
 fn boot_nodes_flag() {
+    // Get hardcoded boot-nodes to verify they end up in the config.
+    // Pass empty `ArgMatches` to `get_eth2_network_config` as we want to
+    // receive the default `Eth2NetworkConfig`.
+    let empty_args = ArgMatches::default();
+    let default_enr = get_eth2_network_config(&empty_args)
+        .unwrap()
+        .boot_enr
+        .unwrap();
+    let default_enr: Vec<String> = default_enr.iter().map(|enr| enr.to_base64()).collect();
+
     // Nodes passed via `--boot-nodes` are added to the local routing table.
     let extra_nodes = "enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8,enr:-LK4QFOFWca5ABQzxiCRcy37G7wy1K6zD4qMYBSN5ozzanwze_XVvXVhCk9JvF0cHXOBZrHK1E4vU7Gn-a0bHVczoDU6h2F0dG5ldHOIAAAAAAAAAACEZXRoMpA7CIeVAAAgCf__________gmlkgnY0gmlwhNIy-4iJc2VjcDI1NmsxoQJA3AXQJ6M3NpBWtJS3HPtbXG14t7qHjXuIaL6IOz89T4N0Y3CCIyiDdWRwgiMo";
     let extra_enr: Vec<&str> = extra_nodes.split(",").collect();
+
+    // Construct vector of enr expected in config.
+    let default_enr_str: Vec<&str> = default_enr.iter().map(|s| s.as_str()).collect();
+    let mut expect_enr = Vec::new();
+    expect_enr.extend_from_slice(&default_enr_str);
+    expect_enr.extend_from_slice(&extra_enr);
+
     CommandLineTest::new()
         .flag("boot-nodes", Some(extra_nodes))
         .run_with_ip()
         .with_config(|config| {
-            let num_nodes = config.boot_nodes.len();
-            assert!(num_nodes >= extra_enr.len());
-            assert_eq!(config.boot_nodes[num_nodes - 2].to_base64(), extra_enr[0]);
-            assert_eq!(config.boot_nodes[num_nodes - 1].to_base64(), extra_enr[1]);
+            assert_eq!(config.boot_nodes.len(), expect_enr.len());
+            for (i, enr) in config.boot_nodes.iter().enumerate() {
+                assert_eq!(
+                    enr.to_base64(),
+                    expect_enr[i],
+                    "ENR missmatch at index [{}]",
+                    i
+                );
+            }
         })
 }
 
