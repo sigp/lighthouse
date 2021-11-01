@@ -78,7 +78,7 @@ fn main<T: EthSpec>(
     let config: BootNodeConfig<T> = BootNodeConfig::try_from(bn_matches)?;
 
     // Dump config if `dump-config` flag is set
-    let dump_config = clap_utils::parse_optional::<PathBuf>(&lh_matches, "dump-config")?;
+    let dump_config = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-config")?;
     if let Some(dump_path) = dump_config {
         let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
         let mut file = File::create(dump_path)

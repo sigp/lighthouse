@@ -144,11 +144,11 @@ pub struct BootNodeConfigSerialization {
 }
 
 impl BootNodeConfigSerialization {
-    /// Returns a `BootNodeConfigSerialization` obtained from cloning the
+    /// Returns a `BootNodeConfigSerialization` obtained from copying resp. cloning the
     /// relevant fields of `config`
     pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
         BootNodeConfigSerialization {
-            listen_socket: config.listen_socket.clone(),
+            listen_socket: config.listen_socket,
             boot_nodes: config.boot_nodes.clone(),
             local_enr: config.local_enr.clone(),
         }
