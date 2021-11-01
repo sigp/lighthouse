@@ -176,16 +176,13 @@ impl<T: EthSpec> PartialBeaconState<T> {
         )?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
 
-        if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
-        {
-            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 
     /// Prepare the partial state for storage in the KV database.

@@ -1,6 +1,6 @@
 use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
-use crate::beacon_processor::BlockResultSender;
+use crate::beacon_processor::{BlockResultSender, DuplicateCache};
 use crate::metrics;
 use crate::sync::manager::{SyncMessage, SyncRequestType};
 use crate::sync::{BatchProcessResult, ChainId};
@@ -33,35 +33,61 @@ impl<T: BeaconChainTypes> Worker<T> {
         block: SignedBeaconBlock<T::EthSpec>,
         result_tx: BlockResultSender<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        duplicate_cache: DuplicateCache,
     ) {
-        let slot = block.slot();
-        let block_result = self.chain.process_block(block);
+        let block_root = block.canonical_root();
+        // Checks if the block is already being imported through another source
+        if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
+            let slot = block.slot();
+            let block_result = self.chain.process_block(block);
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+            metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
-        if let Ok(root) = &block_result {
-            info!(
+            if let Ok(root) = &block_result {
+                info!(
+                    self.log,
+                    "New RPC block received";
+                    "slot" => slot,
+                    "hash" => %root
+                );
+
+                if reprocess_tx
+                    .try_send(ReprocessQueueMessage::BlockImported(*root))
+                    .is_err()
+                {
+                    error!(
+                        self.log,
+                        "Failed to inform block import";
+                        "source" => "rpc",
+                        "block_root" => %root,
+                    )
+                };
+            }
+
+            if result_tx.send(block_result).is_err() {
+                crit!(self.log, "Failed return sync block result");
+            }
+            // Drop the handle to remove the entry from the cache
+            drop(handle);
+        } else {
+            debug!(
                 self.log,
-                "New RPC block received";
-                "slot" => slot,
-                "hash" => %root
+                "Gossip block is being imported";
+                "block_root" => %block_root,
             );
+            // The gossip block that is being imported should eventually
+            // trigger reprocessing of queued attestations once it is imported.
+            // If the gossip block fails import, then it will be downscored
+            // appropriately in `process_gossip_block`.
 
-            if reprocess_tx
-                .try_send(ReprocessQueueMessage::BlockImported(*root))
+            // Here, we assume that the block will eventually be imported and
+            // send a `BlockIsAlreadyKnown` message to sync.
+            if result_tx
+                .send(Err(BlockError::BlockIsAlreadyKnown))
                 .is_err()
             {
-                error!(
-                    self.log,
-                    "Failed to inform block import";
-                    "source" => "rpc",
-                    "block_root" => %root,
-                )
-            };
-        }
-
-        if result_tx.send(block_result).is_err() {
-            crit!(self.log, "Failed return sync block result");
+                crit!(self.log, "Failed return sync block result");
+            }
         }
     }
 

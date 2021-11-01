@@ -18,4 +18,9 @@ lazy_static! {
         "Time taken by blocking tasks",
         &["blocking_task_hist"]
     );
+    pub static ref TASKS_HISTOGRAM: Result<HistogramVec> = try_create_histogram_vec(
+        "async_tasks_time_histogram",
+        "Time taken by async tasks",
+        &["async_task_hist"]
+    );
 }
