@@ -3058,11 +3058,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .graffiti()
             .as_utf8_lossy();
 
-        drop(lag_timer);
-
         // Find the dependent roots associated with this head before updating the snapshot. This
         // is to ensure consistency when sending server sent events later in this method.
-        let dependent_roots = new_head.beacon_state.get_dependent_roots();
+        let dependent_root = new_head
+            .beacon_state
+            .proposer_shuffling_decision_root(self.genesis_block_root);
+        let prev_dependent_root = new_head
+            .beacon_state
+            .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
+
+        drop(lag_timer);
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -3206,8 +3211,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Register a server-sent event if necessary
         if let Some(event_handler) = self.event_handler.as_ref() {
             if event_handler.has_head_subscribers() {
-                match dependent_roots {
-                    Ok((current_duty_dependent_root, previous_duty_dependent_root)) => {
+                match (dependent_root, prev_dependent_root) {
+                    (Ok(current_duty_dependent_root), Ok(previous_duty_dependent_root)) => {
                         event_handler.register(EventKind::Head(SseHead {
                             slot: head_slot,
                             block: beacon_block_root,
@@ -3217,7 +3222,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             epoch_transition: is_epoch_transition,
                         }));
                     }
-                    Err(e) => {
+                    (Err(e), _) | (_, Err(e)) => {
                         warn!(
                             self.log,
                             "Unable to find dependent roots, cannot register head event";
