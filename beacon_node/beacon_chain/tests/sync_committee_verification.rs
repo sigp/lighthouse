@@ -97,7 +97,8 @@ fn get_valid_sync_contributions(
         count,
     );
 
-    // Find a subnet with at least `count` aggregates.
+    // Find a subnet with exactly `count` aggregates. The `count` passed to
+    // `make_sync_contributions` is a maximum, so we need to enforce the minimum here.
     let sync_contributions = all_sync_contributions
         .into_iter()
         .find_map(|(_messages, contributions)| {
