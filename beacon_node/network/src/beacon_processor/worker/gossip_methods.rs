@@ -1610,9 +1610,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::register_sync_committee_error(&error);
 
         match &error {
-            SyncCommitteeError::FutureSlot { .. } | SyncCommitteeError::PastSlot { .. } => {
+            SyncCommitteeError::FutureSlot { .. } => {
                 /*
-                 * These errors can be triggered by a mismatch between our slot and the peer.
+                 * This error can be triggered by a mismatch between our slot and the peer.
                  *
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
@@ -1627,6 +1627,31 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Unlike attestations, we have a zero slot buffer in case of sync committee messages,
                 // so we don't penalize heavily.
                 self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+
+                // Do not propagate these messages.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            SyncCommitteeError::PastSlot {
+                message_slot,
+                earliest_permissible_slot,
+            } => {
+                /*
+                 * This error can be triggered by a mismatch between our slot and the peer.
+                 *
+                 *
+                 * The peer has published an invalid consensus message, _only_ if we trust our own clock.
+                 */
+                trace!(
+                    self.log,
+                    "Sync committee message is not within the last MAXIMUM_GOSSIP_CLOCK_DISPARITY slots";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
+
+                // We tolerate messages that were just one slot late.
+                if *message_slot + 1 < *earliest_permissible_slot {
+                    self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                }
 
                 // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);

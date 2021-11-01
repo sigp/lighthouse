@@ -259,6 +259,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let randao_reveal_ref = &randao_reveal;
         let self_ref = &self;
+        let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
         let signed_block = self
             .beacon_nodes
@@ -273,6 +274,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
                     .data;
                 drop(get_timer);
+
+                if proposer_index != Some(block.proposer_index()) {
+                    return Err(
+                        "Proposer index does not match block proposer. Beacon chain re-orged"
+                            .to_string(),
+                    );
+                }
 
                 let signed_block = self_ref
                     .validator_store
