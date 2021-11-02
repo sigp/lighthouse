@@ -1,4 +1,3 @@
-use crate::proto_array::LegacyProtoNode;
 use crate::{
     proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
@@ -9,42 +8,13 @@ use types::{Epoch, Hash256};
 
 #[derive(Encode, Decode)]
 pub struct SszContainer {
-    votes: Vec<VoteTracker>,
-    balances: Vec<u64>,
-    prune_threshold: usize,
-    justified_epoch: Epoch,
-    finalized_epoch: Epoch,
-    nodes: Vec<ProtoNode>,
-    indices: Vec<(Hash256, usize)>,
-}
-
-/// Only used for SSZ deserialization of the persisted fork choice during the database migration
-/// from schema 5 to schema 6.
-#[derive(Encode, Decode)]
-pub struct LegacySszContainer {
-    votes: Vec<VoteTracker>,
-    balances: Vec<u64>,
-    prune_threshold: usize,
-    justified_epoch: Epoch,
-    finalized_epoch: Epoch,
-    nodes: Vec<LegacyProtoNode>,
-    indices: Vec<(Hash256, usize)>,
-}
-
-impl Into<SszContainer> for LegacySszContainer {
-    fn into(self) -> SszContainer {
-        let nodes = self.nodes.into_iter().map(Into::into).collect();
-
-        SszContainer {
-            votes: self.votes,
-            balances: self.balances,
-            prune_threshold: self.prune_threshold,
-            justified_epoch: self.justified_epoch,
-            finalized_epoch: self.finalized_epoch,
-            nodes,
-            indices: self.indices,
-        }
-    }
+    pub votes: Vec<VoteTracker>,
+    pub balances: Vec<u64>,
+    pub prune_threshold: usize,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
+    pub nodes: Vec<ProtoNode>,
+    pub indices: Vec<(Hash256, usize)>,
 }
 
 impl From<&ProtoArrayForkChoice> for SszContainer {

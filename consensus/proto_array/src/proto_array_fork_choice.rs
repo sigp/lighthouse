@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::proto_array::ProtoArray;
-use crate::ssz_container::{LegacySszContainer, SszContainer};
+use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -293,22 +293,6 @@ impl ProtoArrayForkChoice {
         SszContainer::from_ssz_bytes(bytes)
             .map(Into::into)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
-    }
-
-    /// Only used for SSZ deserialization of the persisted fork choice during the database migration
-    /// from schema 5 to schema 6.
-    pub fn from_bytes_legacy(bytes: &[u8]) -> Result<Self, String> {
-        LegacySszContainer::from_ssz_bytes(bytes)
-            .map(|legacy_container| {
-                let container: SszContainer = legacy_container.into();
-                container.into()
-            })
-            .map_err(|e| {
-                format!(
-                    "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
-                    e
-                )
-            })
     }
 
     /// Returns a read-lock to core `ProtoArray` struct.

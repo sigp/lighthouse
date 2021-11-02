@@ -30,59 +30,14 @@ pub struct ProtoNode {
     pub parent: Option<usize>,
     pub justified_epoch: Epoch,
     pub finalized_epoch: Epoch,
-    weight: u64,
+    pub weight: u64,
     #[ssz(with = "four_byte_option_usize")]
-    best_child: Option<usize>,
+    pub best_child: Option<usize>,
     #[ssz(with = "four_byte_option_usize")]
-    best_descendant: Option<usize>,
+    pub best_descendant: Option<usize>,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
     /// block hash.
     pub execution_status: ExecutionStatus,
-}
-
-/// Only used for SSZ deserialization of the persisted fork choice during the database migration
-/// from schema 4 to schema 5.
-#[derive(Encode, Decode)]
-pub struct LegacyProtoNode {
-    pub slot: Slot,
-    pub state_root: Hash256,
-    pub target_root: Hash256,
-    pub current_epoch_shuffling_id: AttestationShufflingId,
-    pub next_epoch_shuffling_id: AttestationShufflingId,
-    pub root: Hash256,
-    #[ssz(with = "four_byte_option_usize")]
-    pub parent: Option<usize>,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
-    weight: u64,
-    #[ssz(with = "four_byte_option_usize")]
-    best_child: Option<usize>,
-    #[ssz(with = "four_byte_option_usize")]
-    best_descendant: Option<usize>,
-}
-
-impl Into<ProtoNode> for LegacyProtoNode {
-    fn into(self) -> ProtoNode {
-        ProtoNode {
-            slot: self.slot,
-            state_root: self.state_root,
-            target_root: self.target_root,
-            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
-            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
-            root: self.root,
-            parent: self.parent,
-            justified_epoch: self.justified_epoch,
-            finalized_epoch: self.finalized_epoch,
-            weight: self.weight,
-            best_child: self.best_child,
-            best_descendant: self.best_descendant,
-            // We set the following execution value as if the block is a pre-merge-fork block. This
-            // is safe as long as we never import a merge block with the old version of proto-array.
-            // This will be safe since we can't actually process merge blocks until we've made this
-            // change to fork choice.
-            execution_status: ExecutionStatus::irrelevant(),
-        }
-    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]

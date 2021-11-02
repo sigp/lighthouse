@@ -3,8 +3,9 @@ use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
-use proto_array::ProtoArrayForkChoice;
+use proto_array::{ProtoArrayForkChoice, core::ProtoNode, core::SszContainer, core::VoteTracker};
 use ssz::{Decode, Encode};
+use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::fs;
 use std::path::Path;
@@ -13,6 +14,9 @@ use store::config::OnDiskStoreConfig;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
 use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
+use crate::types::{Epoch, Hash256};
+use proto_array::ExecutionStatus;
+use crate::types::{AttestationShufflingId, Slot};
 
 const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
@@ -100,7 +104,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             let fork_choice_opt = db
                 .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
                 .map(|mut persisted_fork_choice| {
-                    let fork_choice = ProtoArrayForkChoice::from_bytes_legacy(
+                    let fork_choice = proto_array_from_legacy_bytes(
                         &persisted_fork_choice.fork_choice.proto_array_bytes,
                     )?;
                     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
@@ -144,5 +148,100 @@ impl StoreItem for OnDiskStoreConfigV4 {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+// Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
+// selector.
+four_byte_option_impl!(four_byte_option_usize, usize);
+
+/// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// from schema 4 to schema 5.
+pub fn proto_array_from_legacy_bytes(bytes: &[u8]) -> Result<ProtoArrayForkChoice, String> {
+    LegacySszContainer::from_ssz_bytes(bytes)
+        .map(|legacy_container| {
+            let container: SszContainer = legacy_container.into();
+            container.into()
+        })
+        .map_err(|e| {
+            format!(
+                "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
+                e
+            )
+        })
+}
+
+// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// from schema 4 to schema 5.
+#[derive(Encode, Decode)]
+pub struct LegacySszContainer {
+    votes: Vec<VoteTracker>,
+    balances: Vec<u64>,
+    prune_threshold: usize,
+    justified_epoch: Epoch,
+    finalized_epoch: Epoch,
+    nodes: Vec<LegacyProtoNode>,
+    indices: Vec<(Hash256, usize)>,
+}
+
+
+impl Into<SszContainer> for LegacySszContainer {
+    fn into(self) -> SszContainer {
+        let nodes = self.nodes.into_iter().map(Into::into).collect();
+
+        SszContainer {
+            votes: self.votes,
+            balances: self.balances,
+            prune_threshold: self.prune_threshold,
+            justified_epoch: self.justified_epoch,
+            finalized_epoch: self.finalized_epoch,
+            nodes,
+            indices: self.indices,
+        }
+    }
+}
+
+/// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// from schema 4 to schema 5.
+#[derive(Encode, Decode)]
+pub struct LegacyProtoNode {
+    pub slot: Slot,
+    pub state_root: Hash256,
+    pub target_root: Hash256,
+    pub current_epoch_shuffling_id: AttestationShufflingId,
+    pub next_epoch_shuffling_id: AttestationShufflingId,
+    pub root: Hash256,
+    #[ssz(with = "four_byte_option_usize")]
+    pub parent: Option<usize>,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
+    weight: u64,
+    #[ssz(with = "four_byte_option_usize")]
+    best_child: Option<usize>,
+    #[ssz(with = "four_byte_option_usize")]
+    best_descendant: Option<usize>,
+}
+
+impl Into<ProtoNode> for LegacyProtoNode {
+    fn into(self) -> ProtoNode {
+        ProtoNode {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_epoch: self.justified_epoch,
+            finalized_epoch: self.finalized_epoch,
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            // We set the following execution value as if the block is a pre-merge-fork block. This
+            // is safe as long as we never import a merge block with the old version of proto-array.
+            // This will be safe since we can't actually process merge blocks until we've made this
+            // change to fork choice.
+            execution_status: ExecutionStatus::irrelevant(),
+        }
     }
 }
