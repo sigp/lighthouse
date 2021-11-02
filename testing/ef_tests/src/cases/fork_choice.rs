@@ -8,6 +8,7 @@ use beacon_chain::{
     BeaconChainTypes, HeadInfo,
 };
 use serde_derive::Deserialize;
+use state_processing::state_advance::complete_state_advance;
 use types::{
     Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
     IndexedAttestation, SignedBeaconBlock, Slot,
@@ -271,14 +272,58 @@ impl<E: EthSpec> Tester<E> {
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
         let result = self.harness.chain.process_block(block.clone());
+        let block_root = block.canonical_root();
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
-                "block with root {} should be invalid",
-                block.canonical_root(),
+                "block with root {} was valid={} whilst test expects valid={}",
+                block_root,
+                result.is_ok(),
+                valid
             )));
-        } else {
-            Ok(())
         }
+
+        // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
+        // that the block is being rejected by `on_block`, not just some upstream block processing
+        // function.
+        if !valid {
+            // A missing parent block whilst `valid == false` means the test should pass.
+            if let Some(parent_block) = self.harness.chain.get_block(&block.parent_root()).unwrap()
+            {
+                let parent_state_root = parent_block.state_root();
+                let mut state = self
+                    .harness
+                    .chain
+                    .get_state(&parent_state_root, Some(parent_block.slot()))
+                    .unwrap()
+                    .unwrap();
+
+                complete_state_advance(
+                    &mut state,
+                    Some(parent_state_root),
+                    block.slot(),
+                    &self.harness.chain.spec,
+                )
+                .unwrap();
+
+                let (block, _) = block.deconstruct();
+                let result = self.harness.chain.fork_choice.write().on_block(
+                    self.harness.chain.slot().unwrap(),
+                    &block,
+                    block_root,
+                    &state,
+                    &self.harness.chain.spec,
+                );
+
+                if result.is_ok() {
+                    return Err(Error::DidntFail(format!(
+                        "block with root {} should fail on_block",
+                        block_root,
+                    )));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
