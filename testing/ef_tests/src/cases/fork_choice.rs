@@ -125,6 +125,11 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
+        // The reason for this failure is documented here:
+        //
+        // https://github.com/sigp/lighthouse/issues/2741
+        //
+        // We should eventually solve the above issue and remove this `SkippedKnownFailure`.
         if self.description == "new_finalized_slot_is_justified_checkpoint_ancestor" {
             return Err(Error::SkippedKnownFailure);
         };
