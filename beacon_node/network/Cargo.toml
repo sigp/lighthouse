@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dev-dependencies]
-sloggers = "2.0.2"
+sloggers = { git = "https://github.com/macladson/sloggers", rev = "c962164" }
 genesis = { path = "../genesis" }
 matches = "0.1.8"
 exit-future = "0.2.0"

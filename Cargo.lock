@@ -3189,6 +3189,7 @@ dependencies = [
  "boot_node",
  "clap",
  "clap_utils",
+ "directory",
  "env_logger 0.9.0",
  "environment",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5343,8 +5344,7 @@ dependencies = [
 [[package]]
 name = "sloggers"
 version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ffcb984e952de7fdb085aa7bebcd4575e9d0c79630640a359a38578f0c18fd3"
+source = "git+https://github.com/macladson/sloggers?rev=c962164#c96216411cdf7462324ffa21111bbbf7d9a24c28"
 dependencies = [
  "chrono",
  "libc",
@@ -5359,6 +5359,8 @@ dependencies = [
  "slog-stdlog",
  "slog-term",
  "trackable",
+ "winapi",
+ "windows-acl",
 ]
 
 [[package]]
