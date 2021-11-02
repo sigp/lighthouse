@@ -1394,7 +1394,6 @@ dependencies = [
  "eth2_config",
  "eth2_network_config",
  "exit-future",
- "filesystem",
  "futures",
  "logging",
  "slog",
