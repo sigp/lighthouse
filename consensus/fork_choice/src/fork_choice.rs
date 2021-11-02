@@ -292,9 +292,8 @@ where
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
             finalized_block_state_root,
-            fc_store.justified_checkpoint().epoch,
-            fc_store.finalized_checkpoint().epoch,
-            fc_store.finalized_checkpoint().root,
+            *fc_store.justified_checkpoint(),
+            *fc_store.finalized_checkpoint(),
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
@@ -384,9 +383,8 @@ where
 
         self.proto_array
             .find_head(
-                store.justified_checkpoint().epoch,
-                store.justified_checkpoint().root,
-                store.finalized_checkpoint().epoch,
+                *store.justified_checkpoint(),
+                *store.finalized_checkpoint(),
                 store.justified_balances(),
             )
             .map_err(Into::into)
@@ -623,8 +621,8 @@ where
             )
             .map_err(Error::BeaconStateError)?,
             state_root: block.state_root(),
-            justified_epoch: state.current_justified_checkpoint().epoch,
-            finalized_epoch: state.finalized_checkpoint().epoch,
+            justified_checkpoint: state.current_justified_checkpoint(),
+            finalized_checkpoint: state.finalized_checkpoint(),
             execution_status,
         })?;
 

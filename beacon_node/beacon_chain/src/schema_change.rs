@@ -1,5 +1,5 @@
 //! Utilities for managing database schema changes.
-use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
@@ -10,11 +10,12 @@ use ssz_derive::{Decode, Encode};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use fork_choice::ForkChoice;
 use store::config::OnDiskStoreConfig;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
 use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
-use crate::types::{Epoch, Hash256};
+use crate::types::{Checkpoint, Epoch, Hash256};
 use proto_array::ExecutionStatus;
 use crate::types::{AttestationShufflingId, Slot};
 
@@ -99,13 +100,16 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
+        //TODO: udpate comment
         // Migration for adding `is_merge_complete` field to the fork choice store.
         (SchemaVersion(5), SchemaVersion(6)) => {
             let fork_choice_opt = db
                 .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
                 .map(|mut persisted_fork_choice| {
-                    let fork_choice = proto_array_from_legacy_bytes(
+
+                    let fork_choice = proto_array_from_legacy_bytes::<T>(
                         &persisted_fork_choice.fork_choice.proto_array_bytes,
+                        db.clone()
                     )?;
                     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
                     Ok::<_, String>(persisted_fork_choice)
@@ -113,6 +117,9 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 .transpose()
                 .map_err(StoreError::SchemaMigrationError)?;
             if let Some(fork_choice) = fork_choice_opt {
+                //TODO: get anchor block, block root, state (snapshot components)
+                // ForkChoice::from_anchor(fork_choice.fork_choice_store, )
+
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &fork_choice)?;
             }
@@ -157,7 +164,11 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
 /// from schema 4 to schema 5.
-pub fn proto_array_from_legacy_bytes(bytes: &[u8]) -> Result<ProtoArrayForkChoice, String> {
+pub fn proto_array_from_legacy_bytes<T: BeaconChainTypes>(bytes: &[u8], db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>) -> Result<ProtoArrayForkChoice, String> {
+    // let persisted_beacon_chain = db.get_state();
+    // if let Some(beacon_chain)  = persisted_beacon_chain {
+    //     beacon_chain.ssz_head_tracker
+    // };
     LegacySszContainer::from_ssz_bytes(bytes)
         .map(|legacy_container| {
             let container: SszContainer = legacy_container.into();
@@ -171,7 +182,7 @@ pub fn proto_array_from_legacy_bytes(bytes: &[u8]) -> Result<ProtoArrayForkChoic
         })
 }
 
-// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// Only used for SSZ deserialization of the persisted fork choice during the database migration
 /// from schema 4 to schema 5.
 #[derive(Encode, Decode)]
 pub struct LegacySszContainer {
@@ -180,10 +191,9 @@ pub struct LegacySszContainer {
     prune_threshold: usize,
     justified_epoch: Epoch,
     finalized_epoch: Epoch,
-    nodes: Vec<LegacyProtoNode>,
+    pub nodes: Vec<LegacyProtoNode>,
     indices: Vec<(Hash256, usize)>,
 }
-
 
 impl Into<SszContainer> for LegacySszContainer {
     fn into(self) -> SszContainer {
@@ -193,8 +203,15 @@ impl Into<SszContainer> for LegacySszContainer {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
-            justified_epoch: self.justified_epoch,
-            finalized_epoch: self.finalized_epoch,
+            //TODO: fix
+            justified_checkpoint: Checkpoint {
+                epoch: self.justified_epoch,
+                root: Hash256::zero(),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: self.finalized_epoch,
+                root: Hash256::zero(),
+            },
             nodes,
             indices: self.indices,
         }
@@ -232,8 +249,15 @@ impl Into<ProtoNode> for LegacyProtoNode {
             next_epoch_shuffling_id: self.next_epoch_shuffling_id,
             root: self.root,
             parent: self.parent,
-            justified_epoch: self.justified_epoch,
-            finalized_epoch: self.finalized_epoch,
+            //TODO: fix
+            justified_checkpoint: Checkpoint {
+                epoch: self.justified_epoch,
+                root: Hash256::zero(),
+            },
+            finalized_checkpoint: Checkpoint {
+                epoch: self.finalized_epoch,
+                root: Hash256::zero(),
+            },
             weight: self.weight,
             best_child: self.best_child,
             best_descendant: self.best_descendant,

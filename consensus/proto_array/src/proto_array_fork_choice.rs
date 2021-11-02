@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Epoch, Hash256, Slot};
+use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -63,8 +63,8 @@ pub struct Block {
     pub target_root: Hash256,
     pub current_epoch_shuffling_id: AttestationShufflingId,
     pub next_epoch_shuffling_id: AttestationShufflingId,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
     /// block hash.
     pub execution_status: ExecutionStatus,
@@ -109,33 +109,32 @@ impl ProtoArrayForkChoice {
     pub fn new(
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
-        finalized_root: Hash256,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
-            justified_epoch,
-            finalized_epoch,
+            justified_checkpoint,
+            finalized_checkpoint,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
         };
 
         let block = Block {
             slot: finalized_block_slot,
-            root: finalized_root,
+            root: finalized_checkpoint.root,
             parent_root: None,
             state_root: finalized_block_state_root,
             // We are using the finalized_root as the target_root, since it always lies on an
             // epoch boundary.
-            target_root: finalized_root,
+            target_root: finalized_checkpoint.root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
-            justified_epoch,
-            finalized_epoch,
+            justified_checkpoint,
+            finalized_checkpoint,
             execution_status,
         };
 
@@ -178,9 +177,8 @@ impl ProtoArrayForkChoice {
 
     pub fn find_head(
         &mut self,
-        justified_epoch: Epoch,
-        justified_root: Hash256,
-        finalized_epoch: Epoch,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
         justified_state_balances: &[u64],
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
@@ -196,13 +194,13 @@ impl ProtoArrayForkChoice {
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
         self.proto_array
-            .apply_score_changes(deltas, justified_epoch, finalized_epoch)
+            .apply_score_changes(deltas, justified_checkpoint, finalized_checkpoint)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *old_balances = new_balances.to_vec();
 
         self.proto_array
-            .find_head(&justified_root)
+            .find_head(&justified_checkpoint.root)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -244,8 +242,8 @@ impl ProtoArrayForkChoice {
             target_root: block.target_root,
             current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
             next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-            justified_epoch: block.justified_epoch,
-            finalized_epoch: block.finalized_epoch,
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
             execution_status: block.execution_status,
         })
     }
@@ -396,12 +394,16 @@ mod test_compute_deltas {
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let execution_status = ExecutionStatus::irrelevant();
 
+        let genesis_checkpoint = Checkpoint {
+            epoch: genesis_epoch,
+            root: finalized_root,
+        };
+
         let mut fc = ProtoArrayForkChoice::new(
             genesis_slot,
             state_root,
-            genesis_epoch,
-            genesis_epoch,
-            finalized_root,
+            genesis_checkpoint,
+            genesis_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
@@ -418,8 +420,8 @@ mod test_compute_deltas {
                 target_root: finalized_root,
                 current_epoch_shuffling_id: junk_shuffling_id.clone(),
                 next_epoch_shuffling_id: junk_shuffling_id.clone(),
-                justified_epoch: genesis_epoch,
-                finalized_epoch: genesis_epoch,
+                justified_checkpoint: genesis_checkpoint,
+                finalized_checkpoint: genesis_checkpoint,
                 execution_status,
             })
             .unwrap();
@@ -434,8 +436,8 @@ mod test_compute_deltas {
                 target_root: finalized_root,
                 current_epoch_shuffling_id: junk_shuffling_id.clone(),
                 next_epoch_shuffling_id: junk_shuffling_id,
-                justified_epoch: genesis_epoch,
-                finalized_epoch: genesis_epoch,
+                justified_checkpoint: genesis_checkpoint,
+                finalized_checkpoint: genesis_checkpoint,
                 execution_status,
             })
             .unwrap();

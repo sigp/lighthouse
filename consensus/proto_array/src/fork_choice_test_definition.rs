@@ -4,7 +4,7 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
-use types::{AttestationShufflingId, Epoch, Hash256, Slot};
+use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 
 pub use ffg_updates::*;
 pub use no_votes::*;
@@ -13,24 +13,22 @@ pub use votes::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Operation {
     FindHead {
-        justified_epoch: Epoch,
-        justified_root: Hash256,
-        finalized_epoch: Epoch,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
         justified_state_balances: Vec<u64>,
         expected_head: Hash256,
     },
     InvalidFindHead {
-        justified_epoch: Epoch,
-        justified_root: Hash256,
-        finalized_epoch: Epoch,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
         justified_state_balances: Vec<u64>,
     },
     ProcessBlock {
         slot: Slot,
         root: Hash256,
         parent_root: Hash256,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
     },
     ProcessAttestation {
         validator_index: usize,
@@ -48,6 +46,7 @@ pub enum Operation {
 pub struct ForkChoiceTestDefinition {
     pub finalized_block_slot: Slot,
     pub justified_epoch: Epoch,
+    pub justified_root: Hash256,
     pub finalized_epoch: Epoch,
     pub finalized_root: Hash256,
     pub operations: Vec<Operation>,
@@ -61,9 +60,14 @@ impl ForkChoiceTestDefinition {
         let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
-            self.justified_epoch,
-            self.finalized_epoch,
-            self.finalized_root,
+            Checkpoint {
+                epoch: self.justified_epoch,
+                root: self.justified_root,
+            },
+            Checkpoint {
+                epoch: self.finalized_epoch,
+                root: self.finalized_root,
+            },
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             execution_status,
@@ -73,19 +77,21 @@ impl ForkChoiceTestDefinition {
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
                 Operation::FindHead {
-                    justified_epoch,
-                    justified_root,
-                    finalized_epoch,
+                    justified_checkpoint,
+                    finalized_checkpoint,
                     justified_state_balances,
                     expected_head,
                 } => {
                     let head = fork_choice
                         .find_head(
-                            justified_epoch,
-                            justified_root,
-                            finalized_epoch,
+                            justified_checkpoint,
+                            finalized_checkpoint,
                             &justified_state_balances,
                         )
+                        .map_err(|e| {
+                            dbg!(&e);
+                            e
+                        })
                         .unwrap_or_else(|_| {
                             panic!("find_head op at index {} returned error", op_index)
                         });
@@ -98,15 +104,13 @@ impl ForkChoiceTestDefinition {
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::InvalidFindHead {
-                    justified_epoch,
-                    justified_root,
-                    finalized_epoch,
+                    justified_checkpoint,
+                    finalized_checkpoint,
                     justified_state_balances,
                 } => {
                     let result = fork_choice.find_head(
-                        justified_epoch,
-                        justified_root,
-                        finalized_epoch,
+                        justified_checkpoint,
+                        finalized_checkpoint,
                         &justified_state_balances,
                     );
 
@@ -122,8 +126,8 @@ impl ForkChoiceTestDefinition {
                     slot,
                     root,
                     parent_root,
-                    justified_epoch,
-                    finalized_epoch,
+                    justified_checkpoint,
+                    finalized_checkpoint,
                 } => {
                     let block = Block {
                         slot,
@@ -139,8 +143,8 @@ impl ForkChoiceTestDefinition {
                             Epoch::new(0),
                             Hash256::zero(),
                         ),
-                        justified_epoch,
-                        finalized_epoch,
+                        justified_checkpoint,
+                        finalized_checkpoint,
                         execution_status,
                     };
                     fork_choice.process_block(block).unwrap_or_else(|e| {
@@ -194,6 +198,15 @@ impl ForkChoiceTestDefinition {
 /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
 fn get_hash(i: u64) -> Hash256 {
     Hash256::from_low_u64_be(i)
+}
+
+/// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::max_value)`.
+/// `Epoch` will always equal `i + 1`.
+fn get_checkpoint(i: u64) -> Checkpoint {
+    Checkpoint {
+        epoch: Epoch::new(i),
+        root: get_hash(i),
+    }
 }
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {

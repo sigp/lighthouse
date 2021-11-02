@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Epoch, Hash256, Slot};
+use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -28,8 +28,8 @@ pub struct ProtoNode {
     pub root: Hash256,
     #[ssz(with = "four_byte_option_usize")]
     pub parent: Option<usize>,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     pub weight: u64,
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
@@ -45,8 +45,8 @@ pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
     /// simply waste time.
     pub prune_threshold: usize,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
 }
@@ -68,8 +68,8 @@ impl ProtoArray {
     pub fn apply_score_changes(
         &mut self,
         mut deltas: Vec<i64>,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -78,9 +78,12 @@ impl ProtoArray {
             });
         }
 
-        if justified_epoch != self.justified_epoch || finalized_epoch != self.finalized_epoch {
-            self.justified_epoch = justified_epoch;
-            self.finalized_epoch = finalized_epoch;
+        //TODO: should this too be updated to check the checkpoint rather than epoch?
+        if justified_checkpoint != self.justified_checkpoint
+            || finalized_checkpoint != self.finalized_checkpoint
+        {
+            self.justified_checkpoint = justified_checkpoint;
+            self.finalized_checkpoint = finalized_checkpoint;
         }
 
         // Iterate backwards through all indices in `self.nodes`.
@@ -176,8 +179,8 @@ impl ProtoArray {
             parent: block
                 .parent_root
                 .and_then(|parent| self.indices.get(&parent).copied()),
-            justified_epoch: block.justified_epoch,
-            finalized_epoch: block.finalized_epoch,
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
             weight: 0,
             best_child: None,
             best_descendant: None,
@@ -272,13 +275,19 @@ impl ProtoArray {
         if !self.node_is_viable_for_head(best_node) {
             return Err(Error::InvalidBestNode {
                 start_root: *justified_root,
-                justified_epoch: self.justified_epoch,
-                finalized_epoch: self.finalized_epoch,
+                justified_checkpoint: self.justified_checkpoint,
+                finalized_checkpoint: self.finalized_checkpoint,
                 head_root: justified_node.root,
-                head_justified_epoch: justified_node.justified_epoch,
-                head_finalized_epoch: justified_node.finalized_epoch,
+                head_justified_checkpoint: justified_node.justified_checkpoint,
+                head_finalized_checkpoint: justified_node.finalized_checkpoint,
             });
         }
+
+        dbg!(&best_node.slot);
+        dbg!(&best_node.finalized_checkpoint.epoch);
+        dbg!(&best_node.finalized_checkpoint.root);
+        dbg!(&best_node.justified_checkpoint.epoch);
+        dbg!(&best_node.justified_checkpoint.root);
 
         Ok(best_node.root)
     }
@@ -478,9 +487,10 @@ impl ProtoArray {
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
     fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
-        (node.justified_epoch == self.justified_epoch || self.justified_epoch == Epoch::new(0))
-            && (node.finalized_epoch == self.finalized_epoch
-                || self.finalized_epoch == Epoch::new(0))
+        (node.justified_checkpoint == self.justified_checkpoint
+            || self.justified_checkpoint.epoch == Epoch::new(0))
+            && (node.finalized_checkpoint == self.finalized_checkpoint
+                || self.finalized_checkpoint.epoch == Epoch::new(0))
     }
 
     /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.
