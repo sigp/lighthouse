@@ -4,7 +4,7 @@ use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::types::SyncState;
 use crate::{error, metrics, Gossipsub};
-use crate::{NetworkConfig, NetworkGlobals, PeerId};
+use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use futures::prelude::*;
@@ -35,16 +35,7 @@ use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
-
-/// The time in seconds between re-status's peers.
-const STATUS_INTERVAL: u64 = 300;
-/// The time in seconds between PING events. We do not send a ping if the other peer has PING'd us
-/// within this time frame (Seconds)
-/// This is asymmetric to avoid simultaneous pings.
-/// The interval for outbound connections.
-const PING_INTERVAL_OUTBOUND: u64 = 15;
-/// The interval for inbound connections.
-const PING_INTERVAL_INBOUND: u64 = 20;
+pub mod config;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
@@ -118,23 +109,31 @@ pub enum PeerManagerEvent {
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
     pub async fn new(
-        config: &NetworkConfig,
+        cfg: config::Config,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {
+        let config::Config {
+            discovery_enabled,
+            target_peer_count,
+            status_interval,
+            ping_interval_inbound,
+            ping_interval_outbound,
+        } = cfg;
+
         // Set up the peer manager heartbeat interval
         let heartbeat = tokio::time::interval(tokio::time::Duration::from_secs(HEARTBEAT_INTERVAL));
 
         Ok(PeerManager {
             network_globals,
             events: SmallVec::new(),
-            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_INBOUND)),
-            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(PING_INTERVAL_OUTBOUND)),
-            status_peers: HashSetDelay::new(Duration::from_secs(STATUS_INTERVAL)),
-            target_peers: config.target_peers,
+            inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
+            outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
+            status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
+            target_peers: target_peer_count,
             sync_committee_subnets: Default::default(),
             heartbeat,
-            discovery_enabled: !config.disable_discovery,
+            discovery_enabled,
             log: log.clone(),
         })
     }
@@ -1056,22 +1055,11 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discovery::enr::build_enr;
     use crate::discovery::enr_ext::CombinedKeyExt;
     use crate::rpc::methods::{MetaData, MetaDataV2};
-    use crate::Enr;
     use discv5::enr::CombinedKey;
     use slog::{o, Drain};
-    use std::net::UdpSocket;
-    use types::{EnrForkId, MinimalEthSpec};
-
-    type E = MinimalEthSpec;
-
-    pub fn unused_port() -> u16 {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
-        let local_addr = socket.local_addr().expect("should read udp socket");
-        local_addr.port()
-    }
+    use types::MinimalEthSpec as E;
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1085,29 +1073,31 @@ mod tests {
         }
     }
 
-    async fn build_peer_manager(target: usize) -> PeerManager<E> {
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let config = NetworkConfig {
-            discovery_port: unused_port(),
-            target_peers: target,
+    async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
+        let config = config::Config {
+            target_peer_count,
+            discovery_enabled: false,
             ..Default::default()
         };
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new(
-            enr,
-            9000,
-            9000,
-            MetaData::V2(MetaDataV2 {
-                seq_number: 0,
-                attnets: Default::default(),
-                syncnets: Default::default(),
-            }),
-            vec![],
-            &log,
-        );
-        PeerManager::new(&config, Arc::new(globals), &log)
+        let globals = {
+            let keypair = libp2p::identity::Keypair::generate_secp256k1();
+            let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
+            let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
+            NetworkGlobals::new(
+                enr,
+                9000,
+                9000,
+                MetaData::V2(MetaDataV2 {
+                    seq_number: 0,
+                    attnets: Default::default(),
+                    syncnets: Default::default(),
+                }),
+                vec![],
+                &log,
+            )
+        };
+        PeerManager::new(config, Arc::new(globals), &log)
             .await
             .unwrap()
     }

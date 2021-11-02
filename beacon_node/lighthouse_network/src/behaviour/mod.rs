@@ -4,8 +4,8 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 use crate::config::gossipsub_config;
 use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
 use crate::peer_manager::{
-    peerdb::score::PeerAction, peerdb::score::ReportSource, ConnectionDirection, PeerManager,
-    PeerManagerEvent,
+    config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
+    ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
 use crate::service::METADATA_FILENAME;
@@ -265,6 +265,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .with_peer_score(params, thresholds)
             .expect("Valid score params and thresholds");
 
+        let peer_manager_cfg = PeerManagerCfg {
+            discovery_enabled: !config.disable_discovery,
+            target_peer_count: config.target_peers,
+            ..Default::default()
+        };
+
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
@@ -272,7 +278,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
-            peer_manager: PeerManager::new(&config, network_globals.clone(), log).await?,
+            peer_manager: PeerManager::new(peer_manager_cfg, network_globals.clone(), log).await?,
             events: VecDeque::new(),
             internal_events: VecDeque::new(),
             network_globals,

@@ -8,7 +8,7 @@ use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
+    ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
 };
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
@@ -106,8 +106,8 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     ));
 
     // Only a peer manager can add peers, so we create a dummy manager.
-    let network_config = NetworkConfig::default();
-    let mut pm = PeerManager::new(&network_config, network_globals.clone(), &log)
+    let config = lighthouse_network::peer_manager::config::Config::default();
+    let mut pm = PeerManager::new(config, network_globals.clone(), &log)
         .await
         .unwrap();
 
