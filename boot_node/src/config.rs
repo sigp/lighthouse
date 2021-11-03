@@ -147,10 +147,19 @@ impl BootNodeConfigSerialization {
     /// Returns a `BootNodeConfigSerialization` obtained from copying resp. cloning the
     /// relevant fields of `config`
     pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
+        let BootNodeConfig {
+            listen_socket,
+            boot_nodes,
+            local_enr,
+            local_key: _,
+            discv5_config: _,
+            phantom: _,
+        } = config;
+
         BootNodeConfigSerialization {
-            listen_socket: config.listen_socket,
-            boot_nodes: config.boot_nodes.clone(),
-            local_enr: config.local_enr.clone(),
+            listen_socket: *listen_socket,
+            boot_nodes: boot_nodes.clone(),
+            local_enr: local_enr.clone(),
         }
     }
 }
