@@ -538,16 +538,11 @@ fn http_tls_flags() {
 fn metrics_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
-<<<<<<< HEAD
         .run_with_zero_port()
-        .with_config(|config| assert!(config.http_metrics.enabled));
-=======
-        .run()
         .with_config(|config| {
             assert!(config.http_metrics.enabled);
             assert!(config.network.metrics_enabled);
         });
->>>>>>> upstream/unstable
 }
 #[test]
 fn metrics_address_flag() {
