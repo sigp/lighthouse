@@ -795,6 +795,28 @@ fn slasher_update_period_flag() {
         });
 }
 #[test]
+fn slasher_slot_offset() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-slot-offset", Some("11.25"))
+        .run()
+        .with_config(|config| {
+            if let Some(slasher_config) = &config.slasher {
+                assert_eq!(slasher_config.update_period, 11.25);
+            } else {
+                panic!("Slasher config was parsed incorrectly");
+            }
+        });
+}
+#[test]
+#[should_panic]
+fn slasher_slot_offset_nan() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-slot-offset", Some("NaN"))
+        .run();
+}
+#[test]
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)

@@ -1,4 +1,8 @@
-use crate::{database::CURRENT_SCHEMA_VERSION, Config, Error, SlasherDB};
+use crate::{
+    config::{DEFAULT_BROADCAST, DEFAULT_SLOT_OFFSET},
+    database::CURRENT_SCHEMA_VERSION,
+    Config, Error, SlasherDB,
+};
 use lmdb::RwTransaction;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -25,8 +29,9 @@ impl Into<ConfigV2> for ConfigV1 {
             validator_chunk_size: self.validator_chunk_size,
             history_length: self.history_length,
             update_period: self.update_period,
+            slot_offset: DEFAULT_SLOT_OFFSET,
             max_db_size_mbs: self.max_db_size_mbs,
-            broadcast: false,
+            broadcast: DEFAULT_BROADCAST,
         }
     }
 }

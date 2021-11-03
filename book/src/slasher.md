@@ -102,6 +102,31 @@ If the `time_taken` is substantially longer than the update period then it indic
 struggling under the load, and you should consider increasing the update period or lowering the
 resource requirements by tweaking the history length.
 
+The update period should almost always be set to a multiple of the slot duration (12
+seconds), or in rare cases a divisor (e.g. 4 seconds).
+
+### Slot Offset
+
+* Flag: `--slasher-slot-offset SECONDS`
+* Argument: number of seconds (decimal allowed)
+* Default: 10.5 seconds
+
+Set the offset from the start of the slot at which slasher processing should run. The default
+value of 10.5 seconds is chosen so that de-duplication can be maximally effective. The slasher
+will de-duplicate attestations from the same batch by storing only the attestations necessary
+to cover all seen validators. In other words, it will store aggregated attestations rather than
+unaggregated attestations if given the opportunity.
+
+Aggregated attestations are published 8 seconds into the slot, so the default allows 2.5 seconds for
+them to arrive, and 1.5 seconds for them to be processed before a potential block proposal at the
+start of the next slot. If the batch processing time on your machine is significantly longer than
+1.5 seconds then you may want to lengthen the update period to 24 seconds, or decrease the slot
+offset to a value in the range 8.5-10.5s (lower values may result in more data being stored).
+
+The slasher will run every `update-period` seconds after the first `slot_start + slot-offset`, which
+means the `slot-offset` will be ineffective if the `update-period` is not a multiple (or divisor) of
+the slot duration.
+
 ### Chunk Size and Validator Chunk Size
 
 * Flags: `--slasher-chunk-size EPOCHS`, `--slasher-validator-chunk-size NUM_VALIDATORS`

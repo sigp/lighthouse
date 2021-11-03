@@ -452,6 +452,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("slasher-slot-offset")
+                .long("slasher-slot-offset")
+                .help(
+                    "Set the delay from the start of the slot at which the slasher should ingest \
+                     attestations. Only effective if the slasher-update-period is a multiple of the \
+                     slot duration."
+                )
+                .value_name("SECONDS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slasher-history-length")
                 .long("slasher-history-length")
                 .help(
