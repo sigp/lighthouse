@@ -123,20 +123,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         // Check to make sure the peer is not supposed to be banned
-        match self.ban_status(&peer_id) {
+        match self.ban_status(peer_id) {
             // TODO: directly emit the ban event?
             BanResult::BadScore => {
                 // This is a faulty state
                 error!(self.log, "Connecteded to a banned peer, re-banning"; "peer_id" => %peer_id);
                 // Reban the peer
-                self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
+                self.goodbye_peer(peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
                 return;
             }
             BanResult::BannedIp(ip_addr) => {
                 // A good peer has connected to us via a banned IP address. We ban the peer and
                 // prevent future connections.
                 debug!(self.log, "Peer connected via banned IP. Banning"; "peer_id" => %peer_id, "banned_ip" => %ip_addr);
-                self.goodbye_peer(&peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
+                self.goodbye_peer(peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
                 return;
             }
             BanResult::NotBanned => {}
@@ -148,7 +148,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 .network_globals
                 .peers
                 .read()
-                .peer_info(&peer_id)
+                .peer_info(peer_id)
                 .map_or(true, |peer| !peer.has_future_duty())
         {
             // Gracefully disconnect the peer.
@@ -162,12 +162,12 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // let enr
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
-                self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), None);
+                self.inject_connect_ingoing(peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(*peer_id));
             }
             ConnectedPoint::Dialer { address } => {
-                self.inject_connect_outgoing(&peer_id, address.clone(), None);
+                self.inject_connect_outgoing(peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(*peer_id));
             }
@@ -187,7 +187,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             .network_globals
             .peers
             .read()
-            .is_connected_or_disconnecting(&peer_id)
+            .is_connected_or_disconnecting(peer_id)
         {
             // We are disconnecting the peer or the peer has already been connected.
             // Both these cases, the peer has been previously registered by the peer manager and
@@ -202,7 +202,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 .network_globals
                 .peers
                 .read()
-                .peer_info(&peer_id)
+                .peer_info(peer_id)
                 .map(|info| info.client().kind.clone())
             {
                 if let Some(v) =
@@ -216,7 +216,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
         // here and the peer manager has no knowledge of its connection. We insert it here for
         // reference so that peer manager can track this peer.
-        self.inject_disconnect(&peer_id);
+        self.inject_disconnect(peer_id);
 
         let connected_peers = self.network_globals.connected_peers() as i64;
 
