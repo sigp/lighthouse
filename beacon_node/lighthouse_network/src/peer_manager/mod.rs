@@ -2,22 +2,17 @@
 
 use crate::discovery::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
-use crate::types::SyncState;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
-use futures::prelude::*;
-use futures::Stream;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
-    pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
     time::{Duration, Instant},
 };
 use types::{EthSpec, SyncSubnetId};
@@ -831,70 +826,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         for peer_id in disconnecting_peers {
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
         }
-    }
-}
-
-impl<TSpec: EthSpec> Stream for PeerManager<TSpec> {
-    type Item = PeerManagerEvent;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // perform the heartbeat when necessary
-        while self.heartbeat.poll_tick(cx).is_ready() {
-            self.heartbeat();
-        }
-
-        // poll the timeouts for pings and status'
-        loop {
-            match self.inbound_ping_peers.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    self.inbound_ping_peers.insert(peer_id);
-                    self.events.push(PeerManagerEvent::Ping(peer_id));
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for inbound peers to ping"; "error" => e.to_string())
-                }
-                Poll::Ready(None) | Poll::Pending => break,
-            }
-        }
-
-        loop {
-            match self.outbound_ping_peers.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(peer_id))) => {
-                    self.outbound_ping_peers.insert(peer_id);
-                    self.events.push(PeerManagerEvent::Ping(peer_id));
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for outbound peers to ping"; "error" => e.to_string())
-                }
-                Poll::Ready(None) | Poll::Pending => break,
-            }
-        }
-
-        if !matches!(
-            self.network_globals.sync_state(),
-            SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
-        ) {
-            loop {
-                match self.status_peers.poll_next_unpin(cx) {
-                    Poll::Ready(Some(Ok(peer_id))) => {
-                        self.status_peers.insert(peer_id);
-                        self.events.push(PeerManagerEvent::Status(peer_id))
-                    }
-                    Poll::Ready(Some(Err(e))) => {
-                        error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
-                    }
-                    Poll::Ready(None) | Poll::Pending => break,
-                }
-            }
-        }
-
-        if !self.events.is_empty() {
-            return Poll::Ready(Some(self.events.remove(0)));
-        } else {
-            self.events.shrink_to_fit();
-        }
-
-        Poll::Pending
     }
 }
 

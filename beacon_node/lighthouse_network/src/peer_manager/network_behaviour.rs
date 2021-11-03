@@ -1,5 +1,6 @@
 use std::task::{Context, Poll};
 
+use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::protocols_handler::DummyProtocolsHandler;
@@ -12,6 +13,7 @@ use types::EthSpec;
 
 use crate::metrics;
 use crate::rpc::GoodbyeReason;
+use crate::types::SyncState;
 
 use super::peerdb::BanResult;
 use super::{PeerManager, PeerManagerEvent, ReportSource};
@@ -41,7 +43,63 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         cx: &mut Context<'_>,
         params: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
-        todo!()
+        // perform the heartbeat when necessary
+        while self.heartbeat.poll_tick(cx).is_ready() {
+            self.heartbeat();
+        }
+
+        // poll the timeouts for pings and status'
+        loop {
+            match self.inbound_ping_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.inbound_ping_peers.insert(peer_id);
+                    self.events.push(PeerManagerEvent::Ping(peer_id));
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for inbound peers to ping"; "error" => e.to_string())
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+
+        loop {
+            match self.outbound_ping_peers.poll_next_unpin(cx) {
+                Poll::Ready(Some(Ok(peer_id))) => {
+                    self.outbound_ping_peers.insert(peer_id);
+                    self.events.push(PeerManagerEvent::Ping(peer_id));
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    error!(self.log, "Failed to check for outbound peers to ping"; "error" => e.to_string())
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+
+        if !matches!(
+            self.network_globals.sync_state(),
+            SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. }
+        ) {
+            loop {
+                match self.status_peers.poll_next_unpin(cx) {
+                    Poll::Ready(Some(Ok(peer_id))) => {
+                        self.status_peers.insert(peer_id);
+                        self.events.push(PeerManagerEvent::Status(peer_id))
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
+                    }
+                    Poll::Ready(None) | Poll::Pending => break,
+                }
+            }
+        }
+
+        if !self.events.is_empty() {
+            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+        } else {
+            self.events.shrink_to_fit();
+        }
+
+        Poll::Pending
     }
 
     /* Overwritten trait members */
