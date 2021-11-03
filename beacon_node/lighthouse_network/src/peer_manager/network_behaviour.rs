@@ -41,7 +41,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-        params: &mut impl PollParameters,
+        _params: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
@@ -107,9 +107,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn inject_connection_established(
         &mut self,
         peer_id: &PeerId,
-        connection_id: &ConnectionId,
+        _connection_id: &ConnectionId,
         endpoint: &ConnectedPoint,
-        failed_addresses: Option<&Vec<Multiaddr>>,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
         // Log the connection
         match &endpoint {
@@ -258,8 +258,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        handler: DummyProtocolsHandler,
-        error: &DialError,
+        _handler: DummyProtocolsHandler,
+        _error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
             if !self.network_globals.peers.read().is_connected(&peer_id) {

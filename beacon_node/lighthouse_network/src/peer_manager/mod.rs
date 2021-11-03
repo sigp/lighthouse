@@ -30,7 +30,6 @@ pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap};
 use std::net::IpAddr;
 pub mod config;
-#[allow(unused)]
 mod network_behaviour;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
