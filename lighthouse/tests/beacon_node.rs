@@ -619,7 +619,10 @@ fn metrics_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
         .run()
-        .with_config(|config| assert!(config.http_metrics.enabled));
+        .with_config(|config| {
+            assert!(config.http_metrics.enabled);
+            assert!(config.network.metrics_enabled);
+        });
 }
 #[test]
 fn metrics_address_flag() {
