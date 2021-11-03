@@ -705,6 +705,10 @@ pub fn set_network_config(
         config.private = true;
     }
 
+    if cli_args.is_present("metrics") {
+        config.metrics_enabled = true;
+    }
+
     Ok(())
 }
 

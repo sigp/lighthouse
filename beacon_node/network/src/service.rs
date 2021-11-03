@@ -137,6 +137,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     subscribe_all_subnets: bool,
     /// Shutdown beacon node after sync is complete.
     shutdown_after_sync: bool,
+    /// Whether metrics are enabled or not.
+    metrics_enabled: bool,
     /// A timer for updating various network metrics.
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
@@ -263,6 +265,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             next_unsubscribe,
             subscribe_all_subnets: config.subscribe_all_subnets,
             shutdown_after_sync: config.shutdown_after_sync,
+            metrics_enabled: config.metrics_enabled,
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
@@ -325,7 +328,7 @@ fn spawn_service<T: BeaconChainTypes>(
         loop {
             // build the futures to check simultaneously
             tokio::select! {
-                _ = service.metrics_update.tick() => {
+                _ = service.metrics_update.tick(), if service.metrics_enabled => {
                     // update various network metrics
                     metric_update_counter +=1;
                     if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
