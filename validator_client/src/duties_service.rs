@@ -671,12 +671,21 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                 if duties_service.per_validator_metrics() {
                     let validator_index = duty.validator_index;
                     let slot = duty.slot;
-                    if let Some(existing_slot) =
+                    if let Some(existing_slot_gauge) =
                         get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
                     {
-                        let existing = Slot::new(existing_slot.get() as u64);
-                        if existing < current_slot || slot < existing {
-                            existing_slot.set(slot.as_u64() as i64);
+                        let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
+                        let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
+
+                        // First condition ensures that we switch to the next epoch duty slot
+                        // once the current epoch duty slot passes.
+                        // Second condition is to ensure that next epoch duties don't override
+                        // current epoch duties.
+                        if existing_slot < current_slot
+                            || (slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                                && slot != existing_slot)
+                        {
+                            existing_slot_gauge.set(slot.as_u64() as i64);
                         }
                     } else {
                         set_int_gauge(
