@@ -97,6 +97,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Altair(value), extra_data)
             }
+            ForkName::Merge => {
+                let (value, extra_data) = $body;
+                ($t::Merge(value), extra_data)
+            }
         }
     };
 }
