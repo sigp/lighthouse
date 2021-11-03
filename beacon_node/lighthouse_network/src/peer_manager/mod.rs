@@ -83,6 +83,7 @@ pub struct PeerManager<TSpec: EthSpec> {
 }
 
 /// The events that the `PeerManager` outputs (requests).
+#[derive(Debug)]
 pub enum PeerManagerEvent {
     /// A peer has dialed us.
     PeerConnectedIncoming(PeerId),
