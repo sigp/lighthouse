@@ -170,26 +170,43 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 
     fn inject_address_change(
         &mut self,
-        peer_id: &PeerId,
-        connection_id: &ConnectionId,
+        _peer_id: &PeerId,
+        _connection_id: &ConnectionId,
         old: &ConnectedPoint,
         new: &ConnectedPoint,
     ) {
+        debug_assert!(
+            matches!(
+                (old, new),
+                (
+                    // inbound remains inbound
+                    ConnectedPoint::Listener { .. },
+                    ConnectedPoint::Listener { .. }
+                ) | (
+                    // outbound remains outbound
+                    ConnectedPoint::Dialer { .. },
+                    ConnectedPoint::Dialer { .. }
+                )
+            ),
+            "A peer has changed between inbound and outbound"
+        )
     }
 
+    /// A dial attempt has failed.
+    ///
+    /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
+    /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
+    /// the peer is not already connected.
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
         handler: DummyProtocolsHandler,
         error: &DialError,
     ) {
-    }
-
-    fn inject_listen_failure(
-        &mut self,
-        local_addr: &Multiaddr,
-        send_back_addr: &Multiaddr,
-        handler: DummyProtocolsHandler,
-    ) {
+        if let Some(peer_id) = peer_id {
+            if !self.network_globals.peers.read().is_connected(&peer_id) {
+                self.inject_disconnect(&peer_id);
+            }
+        }
     }
 }

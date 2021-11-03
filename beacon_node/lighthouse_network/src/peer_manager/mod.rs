@@ -10,7 +10,6 @@ use discv5::Enr;
 use futures::prelude::*;
 use futures::Stream;
 use hashset_delay::HashSetDelay;
-use libp2p::core::ConnectedPoint;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
 use slog::{debug, error, warn};
@@ -342,17 +341,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     // A peer is being dialed.
     pub fn inject_dialing(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
         self.inject_peer_connection(peer_id, ConnectingType::Dialing, enr);
-    }
-
-    /// A dial attempt has failed.
-    ///
-    /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
-    /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
-    /// the peer is not already connected.
-    pub fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        if !self.network_globals.peers.read().is_connected(peer_id) {
-            self.inject_disconnect(peer_id);
-        }
     }
 
     /// Reports if a peer is banned or not.
