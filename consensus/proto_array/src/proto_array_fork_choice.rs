@@ -117,8 +117,8 @@ impl ProtoArrayForkChoice {
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
-            justified_checkpoint,
-            finalized_checkpoint,
+            justified_checkpoint: Some(justified_checkpoint),
+            finalized_checkpoint: Some(finalized_checkpoint),
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
         };
@@ -242,8 +242,8 @@ impl ProtoArrayForkChoice {
             target_root: block.target_root,
             current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
             next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-            justified_checkpoint: block.justified_checkpoint,
-            finalized_checkpoint: block.finalized_checkpoint,
+            justified_checkpoint: block.justified_checkpoint.unwrap(),
+            finalized_checkpoint: block.finalized_checkpoint.unwrap(),
             execution_status: block.execution_status,
         })
     }
@@ -298,6 +298,13 @@ impl ProtoArrayForkChoice {
     /// Should only be used when encoding/decoding during troubleshooting.
     pub fn core_proto_array(&self) -> &ProtoArray {
         &self.proto_array
+    }
+
+    /// Returns a mutable reference to core `ProtoArray` struct.
+    ///
+    /// Should only be used during database schema migrations.
+    pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
+        &mut self.proto_array
     }
 }
 

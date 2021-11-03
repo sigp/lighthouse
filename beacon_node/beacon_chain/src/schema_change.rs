@@ -1,23 +1,31 @@
 //! Utilities for managing database schema changes.
-use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_chain::{
+    BeaconChainTypes, BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
+};
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::types::{AttestationShufflingId, EthSpec, Slot};
+use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use fork_choice::ForkChoice;
+use futures::FutureExt;
+use itertools::process_results;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
-use proto_array::{ProtoArrayForkChoice, core::ProtoNode, core::SszContainer, core::VoteTracker};
-use ssz::{Decode, Encode};
+use proto_array::ExecutionStatus;
+use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, ProtoArrayForkChoice};
+use safe_arith::SafeArith;
 use ssz::four_byte_option_impl;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::collections::HashMap;
 use std::fs;
+use std::iter::{Chain, Once};
 use std::path::Path;
 use std::sync::Arc;
-use fork_choice::ForkChoice;
 use store::config::OnDiskStoreConfig;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
+use store::iter::BlockRootsIterator;
 use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
 use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
-use crate::types::{Checkpoint, Epoch, Hash256};
-use proto_array::ExecutionStatus;
-use crate::types::{AttestationShufflingId, Slot};
 
 const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
@@ -106,20 +114,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             let fork_choice_opt = db
                 .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
                 .map(|mut persisted_fork_choice| {
-
-                    let fork_choice = proto_array_from_legacy_bytes::<T>(
-                        &persisted_fork_choice.fork_choice.proto_array_bytes,
-                        db.clone()
-                    )?;
+                    let fork_choice =
+                        proto_array_from_legacy_persisted::<T>(&persisted_fork_choice, db.clone())?;
                     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
                     Ok::<_, String>(persisted_fork_choice)
                 })
                 .transpose()
                 .map_err(StoreError::SchemaMigrationError)?;
             if let Some(fork_choice) = fork_choice_opt {
-                //TODO: get anchor block, block root, state (snapshot components)
-                // ForkChoice::from_anchor(fork_choice.fork_choice_store, )
-
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &fork_choice)?;
             }
@@ -164,22 +166,140 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
 /// from schema 4 to schema 5.
-pub fn proto_array_from_legacy_bytes<T: BeaconChainTypes>(bytes: &[u8], db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>) -> Result<ProtoArrayForkChoice, String> {
-    // let persisted_beacon_chain = db.get_state();
-    // if let Some(beacon_chain)  = persisted_beacon_chain {
-    //     beacon_chain.ssz_head_tracker
-    // };
-    LegacySszContainer::from_ssz_bytes(bytes)
-        .map(|legacy_container| {
-            let container: SszContainer = legacy_container.into();
-            container.into()
+pub fn proto_array_from_legacy_persisted<T: BeaconChainTypes>(
+    persisted_fork_choice: &PersistedForkChoice,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+) -> Result<ProtoArrayForkChoice, String> {
+    let legacy_container =
+        LegacySszContainer::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
+            .map_err(|e| {
+                format!(
+                    "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
+                    e
+                )
+            })?;
+
+    // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`.
+    let legacy_nodes = legacy_container.nodes.clone();
+
+    // These transformations instantiate `node.justified_checkpoint` to `None`.
+    let container: SszContainer = legacy_container.into_ssz_container();
+    let mut fork_choice: ProtoArrayForkChoice = container.into();
+
+    let finalized_root = persisted_fork_choice
+        .fork_choice_store
+        .finalized_checkpoint
+        .root;
+
+    let mappy = find_justified_roots::<T>(db, finalized_root, &legacy_nodes, &fork_choice)?;
+
+    // Update `node.justified_checkpoint` to the correct value for each node.
+    for (index, justified_root) in mappy {
+        let mut node = fork_choice
+            .core_proto_array_mut()
+            .nodes
+            .get_mut(index)
+            .unwrap();
+        node.justified_checkpoint = Some(Checkpoint {
+            epoch: legacy_nodes.get(index).unwrap().justified_epoch,
+            root: justified_root.unwrap(),
         })
-        .map_err(|e| {
-            format!(
-                "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
-                e
-            )
+    }
+
+    Ok(fork_choice)
+}
+
+fn find_justified_roots<T: BeaconChainTypes>(
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    finalized_root: Hash256,
+    legacy_nodes: &[LegacyProtoNode],
+    fork_choice: &ProtoArrayForkChoice,
+) -> Result<HashMap<usize, Option<Hash256>>, String> {
+    let heads = fork_choice
+        .core_proto_array()
+        .nodes
+        .iter()
+        .cloned()
+        .enumerate()
+        .filter(|(node_index, node)| {
+            node.best_descendant.is_none() && fork_choice.is_descendant(finalized_root, node.root)
         })
+        .collect::<Vec<_>>();
+
+    let mut justified_roots_by_index: HashMap<usize, _> = HashMap::new();
+
+    for (head_index, head) in heads {
+        // instantiate iterator
+        let mut iter = std::iter::once(Ok((head.root, head.slot))).chain(
+            BlockRootsIterator::from_block(db.clone(), head.root)
+                .map_err(|_| "todo: fix".to_string())?,
+        );
+
+        find_justified_root::<_, T::EthSpec>(
+            &legacy_nodes,
+            &mut justified_roots_by_index,
+            head_index,
+            &mut iter,
+        )?;
+
+        // repeat for all parents
+        let mut parent_index = head.parent;
+        let mut parent = parent_index.and_then(|index| legacy_nodes.get(index));
+
+        while let Some(parent_ref) = parent {
+            if parent_ref.root == finalized_root {
+                break;
+            }
+
+            find_justified_root::<_, T::EthSpec>(
+                &legacy_nodes,
+                &mut justified_roots_by_index,
+                parent_index.unwrap(),
+                &mut iter,
+            )?;
+
+            parent_index = parent_ref.parent;
+            parent = parent_index.and_then(|index| legacy_nodes.get(index));
+        }
+    }
+
+    Ok(justified_roots_by_index)
+}
+
+fn find_justified_root<U, E: EthSpec>(
+    legacy_nodes: &[LegacyProtoNode],
+    justified_roots_by_index: &mut HashMap<usize, Option<Hash256>>,
+    head_index: usize,
+    itera: &mut U,
+) -> Result<(), String>
+where
+    U: Iterator<Item = Result<(Hash256, Slot), store::Error>>,
+{
+    let justified_root_slot = legacy_nodes
+        .get(head_index)
+        .unwrap()
+        .justified_epoch
+        .start_slot(E::slots_per_epoch())
+        .safe_sub(1)
+        .map_err(|_| "todo: fix".to_string())?;
+
+    // iter block roots until justified epoch, then update node
+    let justified_root = itera
+        .find_map(|banana| {
+            if let Ok((root, slot)) = banana {
+                if slot == justified_root_slot {
+                    return Some(Ok(root));
+                }
+            } else {
+                return Some(Err("todo: fix".to_string()));
+            }
+            None
+        })
+        .transpose()?;
+
+    // cache root to update later
+    justified_roots_by_index.insert(head_index, justified_root);
+    Ok(())
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
@@ -195,23 +315,16 @@ pub struct LegacySszContainer {
     indices: Vec<(Hash256, usize)>,
 }
 
-impl Into<SszContainer> for LegacySszContainer {
-    fn into(self) -> SszContainer {
+impl LegacySszContainer {
+    fn into_ssz_container(self) -> SszContainer {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
         SszContainer {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
-            //TODO: fix
-            justified_checkpoint: Checkpoint {
-                epoch: self.justified_epoch,
-                root: Hash256::zero(),
-            },
-            finalized_checkpoint: Checkpoint {
-                epoch: self.finalized_epoch,
-                root: Hash256::zero(),
-            },
+            justified_checkpoint: None,
+            finalized_checkpoint: None,
             nodes,
             indices: self.indices,
         }
@@ -220,7 +333,7 @@ impl Into<SszContainer> for LegacySszContainer {
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
 /// from schema 4 to schema 5.
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct LegacyProtoNode {
     pub slot: Slot,
     pub state_root: Hash256,
@@ -249,15 +362,8 @@ impl Into<ProtoNode> for LegacyProtoNode {
             next_epoch_shuffling_id: self.next_epoch_shuffling_id,
             root: self.root,
             parent: self.parent,
-            //TODO: fix
-            justified_checkpoint: Checkpoint {
-                epoch: self.justified_epoch,
-                root: Hash256::zero(),
-            },
-            finalized_checkpoint: Checkpoint {
-                epoch: self.finalized_epoch,
-                root: Hash256::zero(),
-            },
+            justified_checkpoint: None,
+            finalized_checkpoint: None,
             weight: self.weight,
             best_child: self.best_child,
             best_descendant: self.best_descendant,

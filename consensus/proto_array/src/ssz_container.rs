@@ -2,17 +2,24 @@ use crate::{
     proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
 };
+use ssz::{four_byte_option_impl, Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Checkpoint, Epoch, Hash256};
+
+// Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
+// selector.
+four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 #[derive(Encode, Decode)]
 pub struct SszContainer {
     pub votes: Vec<VoteTracker>,
     pub balances: Vec<u64>,
     pub prune_threshold: usize,
-    pub justified_checkpoint: Checkpoint,
-    pub finalized_checkpoint: Checkpoint,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub justified_checkpoint: Option<Checkpoint>,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub finalized_checkpoint: Option<Checkpoint>,
     pub nodes: Vec<ProtoNode>,
     pub indices: Vec<(Hash256, usize)>,
 }
