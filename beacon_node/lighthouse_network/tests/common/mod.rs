@@ -13,6 +13,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
 
+pub mod behaviours;
+
 type E = MinimalEthSpec;
 use tempfile::Builder as TempBuilder;
 
@@ -237,4 +239,12 @@ pub async fn build_linear(rt: Weak<Runtime>, log: slog::Logger, n: usize) -> Vec
         };
     }
     nodes
+}
+
+pub fn local_multiaddr() -> Multiaddr {
+    let ip_addr: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+    let port = unused_port("tcp").expect("gets a port");
+    let mut m = Multiaddr::from(ip_addr);
+    m.push(lighthouse_network::multiaddr::Protocol::Tcp(port));
+    m
 }
