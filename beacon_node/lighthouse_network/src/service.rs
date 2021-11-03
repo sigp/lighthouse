@@ -323,17 +323,11 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     concurrent_dial_errors: _,
                 } => {}
                 SwarmEvent::ConnectionClosed {
-                    peer_id,
+                    peer_id: _,
                     cause: _,
-                    endpoint,
-                    num_established,
-                } => {
-                    // Inform the peer manager.
-                    self.swarm
-                        .behaviour_mut()
-                        .peer_manager_mut()
-                        .inject_connection_closed(peer_id, endpoint, num_established);
-                }
+                    endpoint: _,
+                    num_established: _,
+                } => {}
                 SwarmEvent::NewListenAddr { address, .. } => {
                     return Libp2pEvent::NewListenAddr(address)
                 }

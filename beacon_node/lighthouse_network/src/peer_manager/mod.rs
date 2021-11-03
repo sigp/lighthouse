@@ -344,58 +344,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inject_peer_connection(peer_id, ConnectingType::Dialing, enr);
     }
 
-    pub fn inject_connection_closed(
-        &mut self,
-        peer_id: PeerId,
-        _endpoint: ConnectedPoint,
-        num_established: u32,
-    ) {
-        if num_established == 0 {
-            // There are no more connections
-            if self
-                .network_globals
-                .peers
-                .read()
-                .is_connected_or_disconnecting(&peer_id)
-            {
-                // We are disconnecting the peer or the peer has already been connected.
-                // Both these cases, the peer has been previously registered by the peer manager and
-                // potentially the application layer.
-                // Inform the application.
-                self.events
-                    .push(PeerManagerEvent::PeerDisconnected(peer_id));
-                debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
-
-                // Decrement the PEERS_PER_CLIENT metric
-                if let Some(kind) = self
-                    .network_globals
-                    .peers
-                    .read()
-                    .peer_info(&peer_id)
-                    .map(|info| info.client().kind.clone())
-                {
-                    if let Some(v) =
-                        metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                    {
-                        v.dec()
-                    };
-                }
-            }
-
-            // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
-            // here and the peer manager has no knowledge of its connection. We insert it here for
-            // reference so that peer manager can track this peer.
-            self.inject_disconnect(&peer_id);
-
-            let connected_peers = self.network_globals.connected_peers() as i64;
-
-            // Update the prometheus metrics
-            metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-            metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-            metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
-        }
-    }
-
     /// A dial attempt has failed.
     ///
     /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
