@@ -1087,6 +1087,7 @@ impl BanResult {
     }
 }
 
+#[derive(Default)]
 pub struct BannedPeersCount {
     /// The number of banned peers in the database.
     banned_peers: usize,
