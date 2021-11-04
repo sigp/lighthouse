@@ -31,14 +31,11 @@ pub fn slash_validator<T: EthSpec>(
             .safe_add(validator_effective_balance)?,
     )?;
 
-    let min_slashing_penalty_quotient = match state {
-        BeaconState::Base(_) => spec.min_slashing_penalty_quotient,
-        BeaconState::Altair(_) | BeaconState::Merge(_) => spec.min_slashing_penalty_quotient_altair,
-    };
     decrease_balance(
         state,
         slashed_index,
-        validator_effective_balance.safe_div(min_slashing_penalty_quotient)?,
+        validator_effective_balance
+            .safe_div(spec.min_slashing_penalty_quotient_for_state(state))?,
     )?;
 
     // Apply proposer and whistleblower rewards
