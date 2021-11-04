@@ -49,6 +49,7 @@ slog-term = "2.6.0"
 slog-async = "2.5.0"
 tempfile = "3.1.0"
 exit-future = "0.2.0"
+libp2p = { version = "0.40.0-rc.3", default-features = false, features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "tcp-async-io", "dns-async-std"] }
 
 [features]
 libp2p-websocket = []

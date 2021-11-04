@@ -1,7 +1,3 @@
-//! Test the PeerManager's NetworkBehaviour implementation. This attempts to isolate problems in
-//! the peer_manager's impl vs external calls done to the peer manager by other components.
-//! It also attempts to test the peer_manager's ability to maintain consistency with the swarm in the
-//! presence of another behaviour.
 use std::collections::{HashMap, VecDeque};
 
 use futures::task::{Context, Poll};
@@ -13,6 +9,7 @@ use libp2p::PeerId;
 use lighthouse_network::{ConnectedPoint, Multiaddr};
 
 pub use libp2p::swarm::NetworkBehaviourAction as NBAction;
+
 /// Calls the swarm makes to the Behaviour.
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub enum MethodCall {
@@ -65,7 +62,9 @@ impl NetworkBehaviour for PuppetBehaviour {
     /* Required members */
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyProtocolsHandler::default()
+        DummyProtocolsHandler {
+            keep_alive: libp2p::swarm::KeepAlive::Yes,
+        }
     }
 
     fn inject_event(
