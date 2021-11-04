@@ -250,7 +250,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             gas_used: GAS_USED,
             timestamp: payload.timestamp,
             extra_data: "block gen was here".as_bytes().to_vec().into(),
-            base_fee_per_gas: Hash256::from_low_u64_le(1),
+            base_fee_per_gas: Uint256::one(),
             block_hash: Hash256::zero(),
             transactions: vec![].into(),
         };
