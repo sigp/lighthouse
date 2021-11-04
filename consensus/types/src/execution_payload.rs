@@ -29,6 +29,8 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    #[serde(serialize_with = "serialize_u256")]
+    #[serde(deserialize_with = "deserialize_u256")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
