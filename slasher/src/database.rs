@@ -13,12 +13,17 @@ use types::{
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
-pub const CURRENT_SCHEMA_VERSION: u64 = 2;
+pub const CURRENT_SCHEMA_VERSION: u64 = 3;
 
 /// Metadata about the slashing database itself.
 const METADATA_DB: &str = "metadata";
 /// Map from `(target_epoch, validator_index)` to `AttesterRecord`.
 const ATTESTERS_DB: &str = "attesters";
+/// Companion database for the attesters DB mapping `validator_index` to largest `target_epoch`
+/// stored for that validator in the attesters DB.
+///
+/// Used to implement wrap-around semantics for target epochs modulo the history length.
+const ATTESTERS_MAX_TARGETS_DB: &str = "attesters_max_targets";
 /// Map from `(target_epoch, indexed_attestation_hash)` to `IndexedAttestation`.
 const INDEXED_ATTESTATION_DB: &str = "indexed_attestations";
 /// Table of minimum targets for every source epoch within range.
@@ -33,14 +38,14 @@ const CURRENT_EPOCHS_DB: &str = "current_epochs";
 const PROPOSERS_DB: &str = "proposers";
 
 /// The number of DBs for LMDB to use (equal to the number of DBs defined above).
-const LMDB_MAX_DBS: u32 = 7;
+const LMDB_MAX_DBS: u32 = 8;
 
 /// Constant key under which the schema version is stored in the `metadata_db`.
 const METADATA_VERSION_KEY: &[u8] = &[0];
 /// Constant key under which the slasher configuration is stored in the `metadata_db`.
 const METADATA_CONFIG_KEY: &[u8] = &[1];
 
-const ATTESTER_KEY_SIZE: usize = 16;
+const ATTESTER_KEY_SIZE: usize = 7;
 const PROPOSER_KEY_SIZE: usize = 16;
 const CURRENT_EPOCH_KEY_SIZE: usize = 8;
 const INDEXED_ATTESTATION_KEY_SIZE: usize = 40;
@@ -51,6 +56,7 @@ pub struct SlasherDB<E: EthSpec> {
     pub(crate) env: Environment,
     pub(crate) indexed_attestation_db: Database,
     pub(crate) attesters_db: Database,
+    pub(crate) attesters_max_targets_db: Database,
     pub(crate) min_targets_db: Database,
     pub(crate) max_targets_db: Database,
     pub(crate) current_epochs_db: Database,
@@ -64,27 +70,27 @@ pub struct SlasherDB<E: EthSpec> {
 ///
 /// Stored as big-endian `(target_epoch, validator_index)` to enable efficient iteration
 /// while pruning.
+///
+/// The target epoch is stored in 2 bytes modulo the `history_length`.
+///
+/// The validator index is stored in 5 bytes (validator registry limit is 2^40).
 #[derive(Debug)]
 pub struct AttesterKey {
     data: [u8; ATTESTER_KEY_SIZE],
 }
 
 impl AttesterKey {
-    pub fn new(validator_index: u64, target_epoch: Epoch) -> Self {
+    pub fn new(validator_index: u64, target_epoch: Epoch, config: &Config) -> Self {
         let mut data = [0; ATTESTER_KEY_SIZE];
-        data[0..8].copy_from_slice(&target_epoch.as_u64().to_be_bytes());
-        data[8..ATTESTER_KEY_SIZE].copy_from_slice(&validator_index.to_be_bytes());
-        AttesterKey { data }
-    }
 
-    pub fn parse(data: &[u8]) -> Result<(Epoch, u64), Error> {
-        if data.len() == ATTESTER_KEY_SIZE {
-            let target_epoch = Epoch::new(BigEndian::read_u64(&data[..8]));
-            let validator_index = BigEndian::read_u64(&data[8..]);
-            Ok((target_epoch, validator_index))
-        } else {
-            Err(Error::AttesterKeyCorrupt { length: data.len() })
-        }
+        BigEndian::write_uint(
+            &mut data[..2],
+            target_epoch.as_u64() % config.history_length as u64,
+            2,
+        );
+        BigEndian::write_uint(&mut data[2..], validator_index, 5);
+
+        AttesterKey { data }
     }
 }
 
@@ -189,6 +195,8 @@ impl<E: EthSpec> SlasherDB<E> {
         let indexed_attestation_db =
             env.create_db(Some(INDEXED_ATTESTATION_DB), Self::db_flags())?;
         let attesters_db = env.create_db(Some(ATTESTERS_DB), Self::db_flags())?;
+        let attesters_max_targets_db =
+            env.create_db(Some(ATTESTERS_MAX_TARGETS_DB), Self::db_flags())?;
         let min_targets_db = env.create_db(Some(MIN_TARGETS_DB), Self::db_flags())?;
         let max_targets_db = env.create_db(Some(MAX_TARGETS_DB), Self::db_flags())?;
         let current_epochs_db = env.create_db(Some(CURRENT_EPOCHS_DB), Self::db_flags())?;
@@ -208,6 +216,7 @@ impl<E: EthSpec> SlasherDB<E> {
             env,
             indexed_attestation_db,
             attesters_db,
+            attesters_max_targets_db,
             min_targets_db,
             max_targets_db,
             current_epochs_db,
@@ -290,6 +299,55 @@ impl<E: EthSpec> SlasherDB<E> {
         Ok(())
     }
 
+    pub fn get_attester_max_target(
+        &self,
+        validator_index: u64,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<Option<Epoch>, Error> {
+        Ok(txn
+            .get(
+                self.attesters_max_targets_db,
+                &CurrentEpochKey::new(validator_index),
+            )
+            .optional()?
+            .map(Epoch::from_ssz_bytes)
+            .transpose()?)
+    }
+
+    pub fn update_attester_max_target(
+        &self,
+        validator_index: u64,
+        previous_max_target: Epoch,
+        max_target: Epoch,
+        txn: &mut RwTransaction<'_>,
+    ) -> Result<(), Error> {
+        // Zero out attester DB entries which are now older than the history length.
+        // Avoid writing the whole array on initialization (previous_max_target == 0), and
+        // avoid overwriting the entire attesters array more than once.
+        if previous_max_target != 0 {
+            let start_epoch = std::cmp::max(
+                previous_max_target.as_u64() + 1,
+                (max_target.as_u64() + 1).saturating_sub(self.config.history_length as u64),
+            );
+            for target_epoch in (start_epoch..max_target.as_u64()).map(Epoch::new) {
+                txn.put(
+                    self.attesters_db,
+                    &AttesterKey::new(validator_index, target_epoch, &self.config),
+                    &AttesterRecord::null().as_ssz_bytes(),
+                    Self::write_flags(),
+                )?;
+            }
+        }
+
+        txn.put(
+            self.attesters_max_targets_db,
+            &CurrentEpochKey::new(validator_index),
+            &max_target.as_ssz_bytes(),
+            Self::write_flags(),
+        )?;
+        Ok(())
+    }
+
     pub fn get_current_epoch_for_validator(
         &self,
         validator_index: u64,
@@ -366,8 +424,13 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<AttesterSlashingStatus<E>, Error> {
         // See if there's an existing attestation for this attester.
         let target_epoch = attestation.data.target.epoch;
+
+        let current_epoch = self
+            .get_attester_max_target(validator_index, txn)?
+            .unwrap_or(Epoch::new(0));
+
         if let Some(existing_record) =
-            self.get_attester_record(txn, validator_index, target_epoch)?
+            self.get_attester_record(txn, validator_index, target_epoch, current_epoch)?
         {
             // If the existing attestation data is identical, then this attestation is not
             // slashable and no update is required.
@@ -391,12 +454,16 @@ impl<E: EthSpec> SlasherDB<E> {
         }
         // If no attestation exists, insert a record for this validator.
         else {
+            if target_epoch > current_epoch {
+                self.update_attester_max_target(validator_index, current_epoch, target_epoch, txn)?;
+            }
             txn.put(
                 self.attesters_db,
-                &AttesterKey::new(validator_index, target_epoch),
+                &AttesterKey::new(validator_index, target_epoch, &self.config),
                 &record.as_ssz_bytes(),
                 Self::write_flags(),
             )?;
+
             Ok(AttesterSlashingStatus::NotSlashable)
         }
     }
@@ -407,8 +474,12 @@ impl<E: EthSpec> SlasherDB<E> {
         validator_index: u64,
         target_epoch: Epoch,
     ) -> Result<IndexedAttestation<E>, Error> {
+        let current_epoch = self
+            .get_attester_max_target(validator_index, txn)?
+            .unwrap_or(Epoch::new(0));
+
         let record = self
-            .get_attester_record(txn, validator_index, target_epoch)?
+            .get_attester_record(txn, validator_index, target_epoch, current_epoch)?
             .ok_or(Error::MissingAttesterRecord {
                 validator_index,
                 target_epoch,
@@ -421,13 +492,19 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         target: Epoch,
+        current_epoch: Epoch,
     ) -> Result<Option<AttesterRecord>, Error> {
-        let attester_key = AttesterKey::new(validator_index, target);
+        if target > current_epoch {
+            return Ok(None);
+        }
+
+        let attester_key = AttesterKey::new(validator_index, target, &self.config);
         Ok(txn
             .get(self.attesters_db, &attester_key)
             .optional()?
             .map(AttesterRecord::from_ssz_bytes)
-            .transpose()?)
+            .transpose()?
+            .filter(|record| !record.is_null()))
     }
 
     pub fn get_block_proposal(
@@ -491,7 +568,6 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
     ) -> Result<(), Error> {
         self.prune_proposers(current_epoch, txn)?;
-        self.prune_attesters(current_epoch, txn)?;
         self.prune_indexed_attestations(current_epoch, txn)?;
         Ok(())
     }
@@ -525,53 +601,6 @@ impl<E: EthSpec> SlasherDB<E> {
 
             let (slot, _) = ProposerKey::parse(key_bytes)?;
             if slot < min_slot {
-                cursor.del(Self::write_flags())?;
-
-                // End the loop if there is no next entry.
-                if cursor
-                    .get(None, None, lmdb_sys::MDB_NEXT)
-                    .optional()?
-                    .is_none()
-                {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn prune_attesters(
-        &self,
-        current_epoch: Epoch,
-        txn: &mut RwTransaction<'_>,
-    ) -> Result<(), Error> {
-        let min_epoch = current_epoch
-            .saturating_add(1u64)
-            .saturating_sub(self.config.history_length as u64);
-
-        let mut cursor = txn.open_rw_cursor(self.attesters_db)?;
-
-        // Position cursor at first key, bailing out if the database is empty.
-        if cursor
-            .get(None, None, lmdb_sys::MDB_FIRST)
-            .optional()?
-            .is_none()
-        {
-            return Ok(());
-        }
-
-        loop {
-            let key_bytes = cursor
-                .get(None, None, lmdb_sys::MDB_GET_CURRENT)?
-                .0
-                .ok_or(Error::MissingAttesterKey)?;
-
-            let (target_epoch, _) = AttesterKey::parse(key_bytes)?;
-
-            if target_epoch < min_epoch {
                 cursor.del(Self::write_flags())?;
 
                 // End the loop if there is no next entry.

@@ -19,6 +19,10 @@ pub enum Error {
         chunk_size: usize,
         history_length: usize,
     },
+    ConfigInvalidHistoryLength {
+        history_length: usize,
+        max_history_length: usize,
+    },
     ConfigInvalidZeroParameter {
         config: Config,
     },

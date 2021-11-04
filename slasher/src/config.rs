@@ -11,6 +11,8 @@ pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 pub const DEFAULT_BROADCAST: bool = false;
 
+pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
+
 /// Database size to use for tests.
 ///
 /// Mostly a workaround for Windows due to a bug in LMDB, see:
@@ -73,6 +75,11 @@ impl Config {
             Err(Error::ConfigInvalidChunkSize {
                 chunk_size: self.chunk_size,
                 history_length: self.history_length,
+            })
+        } else if self.history_length > MAX_HISTORY_LENGTH {
+            Err(Error::ConfigInvalidHistoryLength {
+                history_length: self.history_length,
+                max_history_length: MAX_HISTORY_LENGTH,
             })
         } else {
             Ok(())

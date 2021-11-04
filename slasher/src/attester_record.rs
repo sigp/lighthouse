@@ -12,6 +12,19 @@ pub struct AttesterRecord {
     pub indexed_attestation_hash: Hash256,
 }
 
+impl AttesterRecord {
+    pub fn null() -> Self {
+        Self {
+            attestation_data_hash: Hash256::zero(),
+            indexed_attestation_hash: Hash256::zero(),
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.attestation_data_hash.is_zero() && self.indexed_attestation_hash.is_zero()
+    }
+}
+
 /// Bundling of an `IndexedAttestation` with an `AttesterRecord`.
 ///
 /// This struct gets `Arc`d and passed around between each stage of queueing and processing.
