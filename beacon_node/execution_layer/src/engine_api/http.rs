@@ -433,11 +433,10 @@ pub mod serde_transactions {
 
             while let Some(val) = seq.next_element::<String>()? {
                 let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
-                let opaque_transaction = VariableList::new(inner_vec).map_err(|e| {
+                let transaction = VariableList::new(inner_vec).map_err(|e| {
                     serde::de::Error::custom(format!("transaction too large: {:?}", e))
                 })?;
-                let transaction = Transaction::OpaqueTransaction(opaque_transaction);
-                outer.push(transaction).map_err(|e| {
+                outer.push(Transaction::new(transaction)).map_err(|e| {
                     serde::de::Error::custom(format!("too many transactions: {:?}", e))
                 })?;
             }
@@ -458,9 +457,7 @@ pub mod serde_transactions {
             // It's important to match on the inner values of the transaction. Serializing the
             // entire `Transaction` will result in appending the SSZ union prefix byte. The
             // execution node does not want that.
-            let hex = match transaction {
-                Transaction::OpaqueTransaction(val) => hex::encode(&val[..]),
-            };
+            let hex = hex::encode(transaction.as_bytes());
             seq.serialize_element(&hex)?;
         }
         seq.end()
@@ -611,7 +608,7 @@ mod test {
     }
 
     /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
-    fn generate_opaque_transactions<E: EthSpec>(
+    fn generate_transactions<E: EthSpec>(
         spec: &[usize],
     ) -> VariableList<Transaction<E>, E::MaxTransactionsPerPayload> {
         let mut txs = VariableList::default();
@@ -621,7 +618,7 @@ mod test {
             for _ in 0..num_bytes {
                 tx.push(0).unwrap();
             }
-            txs.push(Transaction::OpaqueTransaction(tx)).unwrap();
+            txs.push(Transaction::new(tx)).unwrap();
         }
 
         txs
@@ -629,34 +626,30 @@ mod test {
 
     #[test]
     fn transaction_serde() {
-        assert_transactions_serde::<MainnetEthSpec>(
-            "empty",
-            generate_opaque_transactions(&[]),
-            json!([]),
-        );
+        assert_transactions_serde::<MainnetEthSpec>("empty", generate_transactions(&[]), json!([]));
         assert_transactions_serde::<MainnetEthSpec>(
             "one empty tx",
-            generate_opaque_transactions(&[0]),
+            generate_transactions(&[0]),
             json!(["0x"]),
         );
         assert_transactions_serde::<MainnetEthSpec>(
             "two empty txs",
-            generate_opaque_transactions(&[0, 0]),
+            generate_transactions(&[0, 0]),
             json!(["0x", "0x"]),
         );
         assert_transactions_serde::<MainnetEthSpec>(
             "one one-byte tx",
-            generate_opaque_transactions(&[1]),
+            generate_transactions(&[1]),
             json!(["0x00"]),
         );
         assert_transactions_serde::<MainnetEthSpec>(
             "two one-byte txs",
-            generate_opaque_transactions(&[1, 1]),
+            generate_transactions(&[1, 1]),
             json!(["0x00", "0x00"]),
         );
         assert_transactions_serde::<MainnetEthSpec>(
             "mixed bag",
-            generate_opaque_transactions(&[0, 1, 3, 0]),
+            generate_transactions(&[0, 1, 3, 0]),
             json!(["0x", "0x00", "0x000000", "0x"]),
         );
 
@@ -680,7 +673,7 @@ mod test {
 
         use eth2_serde_utils::hex;
 
-        let num_max_bytes = <MainnetEthSpec as EthSpec>::MaxBytesPerOpaqueTransaction::to_usize();
+        let num_max_bytes = <MainnetEthSpec as EthSpec>::MaxBytesPerTransaction::to_usize();
         let max_bytes = (0..num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
         let too_many_bytes = (0..=num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
         decode_transactions::<MainnetEthSpec>(

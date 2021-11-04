@@ -1,39 +1,85 @@
 use crate::{test_utils::TestRandom, *};
+use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use std::{ops::Index, slice::SliceIndex};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
-#[ssz(enum_behaviour = "union")]
-#[tree_hash(enum_behaviour = "union")]
-#[serde(tag = "selector", content = "value")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
 #[serde(bound = "T: EthSpec")]
-pub enum Transaction<T: EthSpec> {
-    // FIXME(merge): renaming this enum variant to 0 is a bit of a hack...
-    #[serde(rename = "0")]
-    OpaqueTransaction(
-        #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-        VariableList<u8, T::MaxBytesPerOpaqueTransaction>,
-    ),
-}
+pub struct Transaction<T: EthSpec>(
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    VariableList<u8, T::MaxBytesPerTransaction>,
+);
 
-impl<T: EthSpec, I: SliceIndex<[u8]>> Index<I> for Transaction<T> {
-    type Output = I::Output;
+impl<T: EthSpec> Transaction<T> {
+    pub fn new(tx: VariableList<u8, T::MaxBytesPerTransaction>) -> Transaction<T> {
+        Self(tx)
+    }
 
-    #[inline]
-    fn index(&self, index: I) -> &Self::Output {
-        match self {
-            Self::OpaqueTransaction(v) => Index::index(v, index),
-        }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[..]
     }
 }
 
-impl<T: EthSpec> From<VariableList<u8, T::MaxBytesPerOpaqueTransaction>> for Transaction<T> {
-    fn from(list: VariableList<u8, <T as EthSpec>::MaxBytesPerOpaqueTransaction>) -> Self {
-        Self::OpaqueTransaction(list)
+impl<T: EthSpec> Encode for Transaction<T> {
+    fn is_ssz_fixed_len() -> bool {
+        <VariableList<u8, T::MaxBytesPerTransaction> as Encode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        self.0.ssz_append(buf)
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <VariableList<u8, T::MaxBytesPerTransaction> as Encode>::ssz_fixed_len()
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        self.0.ssz_bytes_len()
+    }
+}
+
+impl<T: EthSpec> Decode for Transaction<T> {
+    fn is_ssz_fixed_len() -> bool {
+        <VariableList<u8, T::MaxBytesPerTransaction> as Decode>::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <VariableList<u8, T::MaxBytesPerTransaction> as Decode>::ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        Ok(Transaction(VariableList::from_ssz_bytes(bytes)?))
+    }
+}
+
+impl<T: EthSpec> tree_hash::TreeHash for Transaction<T> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::Container
+    }
+
+    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> tree_hash::Hash256 {
+        self.0.tree_hash_root()
+    }
+}
+
+impl<T: EthSpec> SignedRoot for Transaction<T> {}
+
+impl<T: EthSpec> TestRandom for Transaction<T> {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        Transaction(VariableList::random_for_test(rng))
     }
 }
 
