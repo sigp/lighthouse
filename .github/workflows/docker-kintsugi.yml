@@ -1,16 +1,16 @@
-name: docker merge f2f
+name: docker kintsugi
 
 on:
     push:
         branches:
-            - merge-f2f
+            - kintsugi
 
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
     LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
-    BRANCH_NAME: merge-f2f
+    BRANCH_NAME: kintsugi
 
 jobs:
     build-docker-amd64:
