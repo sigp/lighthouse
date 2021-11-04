@@ -683,6 +683,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                         // current epoch duties.
                         if existing_slot < current_slot
                             || (slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                                && slot > current_slot
                                 && slot != existing_slot)
                         {
                             existing_slot_gauge.set(slot.as_u64() as i64);
