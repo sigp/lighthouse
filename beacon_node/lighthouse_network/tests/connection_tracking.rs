@@ -10,9 +10,9 @@ use common::behaviours::{MethodCall, PuppetBehaviour, PuppetEvent};
 use futures::StreamExt;
 use libp2p::core::connection::{ConnectedPoint, ConnectionId};
 use libp2p::swarm::protocols_handler::DummyProtocolsHandler;
-use libp2p::swarm::{DialError, DummyBehaviour};
 use libp2p::swarm::{
-    NetworkBehaviour, NetworkBehaviourAction as NBAction, ProtocolsHandler, Swarm,
+    CloseConnection, DialError, DialPeerCondition, DummyBehaviour, IntoProtocolsHandler,
+    NetworkBehaviour, NetworkBehaviourAction as NBAction, PollParameters, ProtocolsHandler, Swarm,
 };
 use libp2p::{development_transport, Multiaddr, NetworkBehaviour, PeerId};
 use parking_lot::RwLock;
@@ -253,7 +253,97 @@ impl NetworkBehaviour for ConnTracker {
     }
 }
 
-struct ConnTracked {}
+// #[derive(NetworkBehaviour)]
+// #[behaviour(event_process = false, out_event="E")]
+// struct ConnTracked<IH = H, H, B, E>
+// where
+// IH: IntoProtocolsHandler<Handler = H>,
+// H : ProtocolsHandler,
+// E: Send + 'static,
+// B: NetworkBehaviour<ProtocolsHandler = IH, OutEvent = E>,
+// { // NOTE: can't make the derive work
+struct ConnTracked<B> {
+    // #[behaviour(ignore)]
+    peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
+    b: B,
+}
+
+/*
+ * NOTE: This is the price we pay to get disconnections and dialing_attempts
+ */
+impl<P: ProtocolsHandler, B: NetworkBehaviour<ProtocolsHandler = P>> NetworkBehaviour
+    for ConnTracked<B>
+{
+    type ProtocolsHandler = B::ProtocolsHandler;
+
+    type OutEvent = B::OutEvent;
+
+    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+        todo!()
+    }
+
+    fn inject_event(
+        &mut self,
+        peer_id: PeerId,
+        connection: ConnectionId,
+        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+    ) {
+        self.b.inject_event(peer_id, connection, event)
+    }
+
+    fn poll(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        params: &mut impl PollParameters,
+    ) -> Poll<NBAction<Self::OutEvent, Self::ProtocolsHandler>> {
+        let poll = self.b.poll(cx, params);
+        if let Poll::Ready(ev) = &poll {
+            match ev {
+                NBAction::DialPeer {
+                    peer_id,
+                    condition,
+                    handler,
+                } => {
+                    // NOTE: I don't think there is any guarantee that this condition will be the
+                    // same when the swarm gets this event as right now.
+                    // This will get ugly
+                    match condition {
+                        DialPeerCondition::Disconnected => {
+                            // TODO: if the peer does not exist, register it as disconnected with
+                            // dialing attempts since the condition is met.
+                        }
+                        DialPeerCondition::NotDialing => {
+                            // TODO: asumming that this requires an active dial attempt to this
+                            // peer and not a multiaddr, check if the peer has dialing attempts. If
+                            // not, the condition is met and then we register the attempt.
+                            // Peer would get registered as disconnected if it does not exist.
+                        }
+                        DialPeerCondition::Always => {
+                            // TODO: registed the dial attempt.  Peer would get registered as
+                            // disconnected if it does not exist.
+                        }
+                    }
+                }
+                NBAction::CloseConnection {
+                    peer_id,
+                    connection,
+                } => match connection {
+                    CloseConnection::One(_) => {
+                        // TODO: add the connection_id to the disconnections.
+                    }
+                    CloseConnection::All => {
+                        // TODO: add all the connection_ids to the disconnections.
+                    }
+                },
+                NBAction::GenerateEvent(_)
+                | NBAction::DialAddress { .. }
+                | NBAction::NotifyHandler { .. }
+                | NBAction::ReportObservedAddr { .. } => {}
+            }
+        }
+        poll
+    }
+}
 
 /* utilities */
 
