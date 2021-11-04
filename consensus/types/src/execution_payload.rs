@@ -5,6 +5,7 @@ use std::{ops::Index, slice::SliceIndex};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[ssz(enum_behaviour = "union")]
 #[tree_hash(enum_behaviour = "union")]
