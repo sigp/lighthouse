@@ -19,6 +19,8 @@ lazy_static! {
 /// indices are populated by non-zero leaves (perfect for the deposit contract tree).
 #[derive(Debug, PartialEq)]
 pub enum MerkleTree {
+    /// Finalized Node
+    Finalized(H256),
     /// Leaf node with the hash of its content.
     Leaf(H256),
     /// Internal node with hash, left subtree and right subtree.
@@ -41,6 +43,22 @@ pub enum MerkleTreeError {
     DepthTooSmall,
     // Overflow occurred
     ArithError,
+    // Can't finalize a zero node
+    ZeroNodeFinalized,
+    // Can't push to finalized node
+    FinalizedNodePushed,
+    // Invalid Snapshot
+    InvalidSnapshot(InvalidSnapshot),
+    // Can't proof a finalized node
+    ProofEncounteredFinalizedNode,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum InvalidSnapshot {
+    // Branches are empty but deposits are not
+    EmptyBranchesWithNonZeroDeposits(usize),
+    // End of tree reached but deposits != 1
+    EndOfTree,
 }
 
 impl MerkleTree {
@@ -97,9 +115,11 @@ impl MerkleTree {
                 let right: &mut MerkleTree = &mut *right;
                 match (&*left, &*right) {
                     // Tree is full
-                    (Leaf(_), Leaf(_)) => return Err(MerkleTreeError::MerkleTreeFull),
+                    (Leaf(_), Leaf(_)) | (Finalized(_), Leaf(_)) => {
+                        return Err(MerkleTreeError::MerkleTreeFull)
+                    }
                     // There is a right node so insert in right node
-                    (Node(_, _, _), Node(_, _, _)) => {
+                    (Node(_, _, _), Node(_, _, _)) | (Finalized(_), Node(_, _, _)) => {
                         if let Err(e) = right.push_leaf(elem, depth - 1) {
                             return Err(e);
                         }
@@ -109,7 +129,7 @@ impl MerkleTree {
                         *left = MerkleTree::create(&[elem], depth - 1);
                     }
                     // Leaf on left branch and zero on right branch, insert on right side
-                    (Leaf(_), Zero(_)) => {
+                    (Leaf(_), Zero(_)) | (Finalized(_), Zero(_)) => {
                         *right = MerkleTree::create(&[elem], depth - 1);
                     }
                     // Try inserting on the left node -> if it fails because it is full, insert in right side.
@@ -131,6 +151,7 @@ impl MerkleTree {
                     right.hash().as_bytes(),
                 ));
             }
+            Finalized(_) => return Err(MerkleTreeError::FinalizedNodePushed),
         }
 
         Ok(())
@@ -139,6 +160,7 @@ impl MerkleTree {
     /// Retrieve the root hash of this Merkle tree.
     pub fn hash(&self) -> H256 {
         match *self {
+            MerkleTree::Finalized(h) => h,
             MerkleTree::Leaf(h) => h,
             MerkleTree::Node(h, _, _) => h,
             MerkleTree::Zero(depth) => H256::from_slice(&ZERO_HASHES[depth]),
@@ -148,7 +170,7 @@ impl MerkleTree {
     /// Get a reference to the left and right subtrees if they exist.
     pub fn left_and_right_branches(&self) -> Option<(&Self, &Self)> {
         match *self {
-            MerkleTree::Leaf(_) | MerkleTree::Zero(0) => None,
+            MerkleTree::Finalized(_) | MerkleTree::Leaf(_) | MerkleTree::Zero(0) => None,
             MerkleTree::Node(_, ref l, ref r) => Some((l, r)),
             MerkleTree::Zero(depth) => Some((&ZERO_NODES[depth - 1], &ZERO_NODES[depth - 1])),
         }
@@ -159,16 +181,121 @@ impl MerkleTree {
         matches!(self, MerkleTree::Leaf(_))
     }
 
+    /// Finalize deposits up to deposit with `index`
+    pub fn finalize_deposits(
+        &mut self,
+        left_count: usize,
+        index: usize,
+        depth: usize,
+    ) -> Result<(), MerkleTreeError> {
+        match self {
+            MerkleTree::Finalized(_) => Ok(()),
+            MerkleTree::Zero(_) => Err(MerkleTreeError::ZeroNodeFinalized),
+            MerkleTree::Leaf(hash) => {
+                *self = MerkleTree::Finalized(*hash);
+                Ok(())
+            }
+            MerkleTree::Node(hash, left, right) => {
+                let leaf_nodes = 2usize.pow(depth as u32);
+                if left_count + leaf_nodes - 1 <= index {
+                    *self = MerkleTree::Finalized(*hash);
+                    return Ok(());
+                }
+                left.finalize_deposits(left_count, index, depth - 1)?;
+                if left_count + leaf_nodes / 2 <= index {
+                    right.finalize_deposits(left_count + leaf_nodes / 2, index, depth - 1)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn append_finalized_branches(&self, result: &mut Vec<H256>) {
+        match self {
+            MerkleTree::Zero(_) | MerkleTree::Leaf(_) => {}
+            MerkleTree::Finalized(h) => result.push(*h),
+            MerkleTree::Node(_, left, right) => {
+                left.append_finalized_branches(result);
+                right.append_finalized_branches(result);
+            }
+        }
+    }
+
+    pub fn get_finalized_snapshot(&self) -> Vec<H256> {
+        let mut result = vec![];
+        self.append_finalized_branches(&mut result);
+        result
+    }
+
+    pub fn from_finalized_snapshot(
+        finalized_branches: &[H256],
+        deposits: usize,
+        level: usize,
+        depth: usize,
+    ) -> Result<Self, MerkleTreeError> {
+        if finalized_branches == EMPTY_SLICE {
+            return if deposits == 0 {
+                Ok(MerkleTree::Zero(level))
+            } else {
+                Err(MerkleTreeError::InvalidSnapshot(
+                    InvalidSnapshot::EmptyBranchesWithNonZeroDeposits(deposits),
+                ))
+            };
+        }
+        if deposits == (0x1 << level) {
+            return Ok(MerkleTree::Finalized(finalized_branches[0]));
+        }
+        if level == 0 {
+            return Err(MerkleTreeError::InvalidSnapshot(InvalidSnapshot::EndOfTree));
+        }
+
+        let left_subtree = 0x1 << level - 1;
+        if deposits <= left_subtree {
+            let left = MerkleTree::from_finalized_snapshot(
+                finalized_branches,
+                deposits,
+                level - 1,
+                depth,
+            )?;
+            let right = MerkleTree::Zero(level - 1);
+            let hash = H256::from_slice(&hash32_concat(
+                left.hash().as_bytes(),
+                right.hash().as_bytes(),
+            ));
+            Ok(MerkleTree::Node(hash, Box::new(left), Box::new(right)))
+        } else {
+            let left = MerkleTree::Finalized(finalized_branches[0]);
+            let right = MerkleTree::from_finalized_snapshot(
+                &finalized_branches[1..],
+                deposits - left_subtree,
+                level - 1,
+                depth,
+            )?;
+            let hash = H256::from_slice(&hash32_concat(
+                left.hash().as_bytes(),
+                right.hash().as_bytes(),
+            ));
+            Ok(MerkleTree::Node(hash, Box::new(left), Box::new(right)))
+        }
+    }
+
     /// Return the leaf at `index` and a Merkle proof of its inclusion.
     ///
     /// The Merkle proof is in "bottom-up" order, starting with a leaf node
     /// and moving up the tree. Its length will be exactly equal to `depth`.
-    pub fn generate_proof(&self, index: usize, depth: usize) -> (H256, Vec<H256>) {
+    pub fn generate_proof(
+        &self,
+        index: usize,
+        depth: usize,
+    ) -> Result<(H256, Vec<H256>), MerkleTreeError> {
         let mut proof = vec![];
         let mut current_node = self;
         let mut current_depth = depth;
         while current_depth > 0 {
             let ith_bit = (index >> (current_depth - 1)) & 0x01;
+            if let &MerkleTree::Finalized(_) = current_node {
+                return Err(MerkleTreeError::ProofEncounteredFinalizedNode);
+            }
             // Note: unwrap is safe because leaves are only ever constructed at depth == 0.
             let (left, right) = current_node.left_and_right_branches().unwrap();
 
@@ -189,7 +316,33 @@ impl MerkleTree {
         // Put proof in bottom-up order.
         proof.reverse();
 
-        (current_node.hash(), proof)
+        Ok((current_node.hash(), proof))
+    }
+
+    /// useful for debugging
+    pub fn print_node(&self, mut space: u32) {
+        const SPACES: u32 = 10;
+        space += SPACES;
+        let (pair, text) = match self {
+            MerkleTree::Node(hash, left, right) => (Some((left, right)), format!("Node({})", hash)),
+            MerkleTree::Leaf(hash) => (None, format!("Leaf({})", hash)),
+            MerkleTree::Zero(depth) => (
+                None,
+                format!("Z[{}]({})", depth, H256::from_slice(&ZERO_HASHES[*depth])),
+            ),
+            MerkleTree::Finalized(hash) => (None, format!("Finl({})", hash)),
+        };
+        if let Some((_, right)) = pair {
+            right.print_node(space);
+        }
+        println!();
+        for _i in SPACES..space {
+            print!(" ");
+        }
+        println!("{}", text);
+        if let Some((left, _)) = pair {
+            left.print_node(space);
+        }
     }
 }
 
@@ -257,7 +410,9 @@ mod tests {
         let merkle_root = merkle_tree.hash();
 
         let proofs_ok = (0..leaves.len()).all(|i| {
-            let (leaf, branch) = merkle_tree.generate_proof(i, depth);
+            let (leaf, branch) = merkle_tree
+                .generate_proof(i, depth)
+                .expect("should generate proof");
             leaf == leaves[i] && verify_merkle_proof(leaf, &branch, depth, i, merkle_root)
         });
 
@@ -276,7 +431,9 @@ mod tests {
 
         let proofs_ok = leaves_iter.enumerate().all(|(i, leaf)| {
             assert_eq!(merkle_tree.push_leaf(leaf, depth), Ok(()));
-            let (stored_leaf, branch) = merkle_tree.generate_proof(i, depth);
+            let (stored_leaf, branch) = merkle_tree
+                .generate_proof(i, depth)
+                .expect("should generate proof");
             stored_leaf == leaf && verify_merkle_proof(leaf, &branch, depth, i, merkle_tree.hash())
         });
 

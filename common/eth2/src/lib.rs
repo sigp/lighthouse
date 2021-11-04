@@ -1418,6 +1418,21 @@ impl BeaconNodeHttpClient {
         .await
     }
 
+    /// `GET lighthouse/deposit_snapshot`
+    pub async fn get_deposit_snapshot(&self) -> Result<Option<types::DepositTreeSnapshot>, Error> {
+        use ssz::Decode;
+
+        let mut path = self.server.full.clone();
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("deposit_snapshot");
+        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+            .await?
+            .map(|bytes| DepositTreeSnapshot::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
+            .transpose()
+    }
+
     /// `POST validator/duties/attester/{epoch}`
     pub async fn post_validator_duties_attester(
         &self,

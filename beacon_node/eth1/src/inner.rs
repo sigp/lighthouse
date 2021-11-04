@@ -1,3 +1,4 @@
+use crate::deposit_cache::SszLegacyDepositCache;
 use crate::Config;
 use crate::{
     block_cache::{BlockCache, Eth1Block},
@@ -59,9 +60,18 @@ impl Inner {
 
     /// Recover `Inner` given byte representation of eth1 deposit and block caches.
     pub fn from_bytes(bytes: &[u8], config: Config, spec: ChainSpec) -> Result<Self, String> {
-        let ssz_cache = SszEth1Cache::from_ssz_bytes(bytes)
-            .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
-        ssz_cache.to_inner(config, spec)
+        match SszEth1Cache::from_ssz_bytes(bytes) {
+            Ok(ssz_cache) => ssz_cache.to_inner(config, spec),
+            Err(_) => {
+                let ssz_legacy_cache = SszLegacyEth1Cache::from_ssz_bytes(bytes)
+                    .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
+                ssz_legacy_cache.to_inner(config, spec)
+            }
+        }
+        .map(|inner| {
+            inner.block_cache.write().rebuild_by_hash_map();
+            inner
+        })
     }
 
     /// Returns a reference to the specification.
@@ -89,6 +99,33 @@ impl SszEth1Cache {
         }
     }
 
+    pub fn to_inner(&self, config: Config, spec: ChainSpec) -> Result<Inner, String> {
+        Ok(Inner {
+            block_cache: RwLock::new(self.block_cache.clone()),
+            deposit_cache: RwLock::new(DepositUpdater {
+                cache: self.deposit_cache.to_deposit_cache()?,
+                last_processed_block: self.last_processed_block,
+            }),
+            endpoints_cache: RwLock::new(None),
+            // Set the remote head_block zero when creating a new instance. We only care about
+            // present and future eth1 nodes.
+            remote_head_block: RwLock::new(None),
+            config: RwLock::new(config),
+            spec,
+        })
+    }
+}
+
+#[derive(Encode, Decode, Clone)]
+pub struct SszLegacyEth1Cache {
+    block_cache: BlockCache,
+    deposit_cache: SszLegacyDepositCache,
+    #[ssz(with = "four_byte_option_u64")]
+    last_processed_block: Option<u64>,
+}
+
+// TODO: delete this after the new SszEth1Cache has been release for a while
+impl SszLegacyEth1Cache {
     pub fn to_inner(&self, config: Config, spec: ChainSpec) -> Result<Inner, String> {
         Ok(Inner {
             block_cache: RwLock::new(self.block_cache.clone()),

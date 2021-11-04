@@ -7086,7 +7086,7 @@ checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
 
 [[package]]
 name = "types"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "arbitrary",
  "beacon_chain",

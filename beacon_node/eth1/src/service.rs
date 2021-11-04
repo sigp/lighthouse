@@ -416,6 +416,8 @@ pub struct Config {
     /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
     /// itself.
     pub block_cache_truncation: Option<usize>,
+    /// Controls whether finalization should be enabled for the deposit cache
+    pub deposit_cache_finalization: bool,
     /// The interval between updates when using the `auto_update` function.
     pub auto_update_interval_millis: u64,
     /// The span of blocks we should query for logs, per request.
@@ -476,6 +478,7 @@ impl Default for Config {
             cache_follow_distance: None,
             node_far_behind_seconds: 128 * 14,
             block_cache_truncation: Some(4_096),
+            deposit_cache_finalization: false,
             auto_update_interval_millis: 60_000,
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: Some(5_000),

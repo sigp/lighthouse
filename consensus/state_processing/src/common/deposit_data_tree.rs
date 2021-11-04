@@ -2,12 +2,15 @@ use eth2_hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::{MerkleTree, MerkleTreeError};
 use safe_arith::SafeArith;
-use types::Hash256;
+use types::{DepositTreeSnapshot, Hash256};
 
 /// Emulates the eth1 deposit contract merkle tree.
+#[derive(PartialEq)]
 pub struct DepositDataTree {
     tree: MerkleTree,
     mix_in_length: usize,
+    deposits_finalized: usize,
+    finalized_eth1_block_hash: Option<Hash256>,
     depth: usize,
 }
 
@@ -17,6 +20,8 @@ impl DepositDataTree {
         Self {
             tree: MerkleTree::create(leaves, depth),
             mix_in_length,
+            deposits_finalized: 0,
+            finalized_eth1_block_hash: None,
             depth,
         }
     }
@@ -38,10 +43,10 @@ impl DepositDataTree {
     ///
     /// The Merkle proof is in "bottom-up" order, starting with a leaf node
     /// and moving up the tree. Its length will be exactly equal to `depth + 1`.
-    pub fn generate_proof(&self, index: usize) -> (Hash256, Vec<Hash256>) {
-        let (root, mut proof) = self.tree.generate_proof(index, self.depth);
+    pub fn generate_proof(&self, index: usize) -> Result<(Hash256, Vec<Hash256>), MerkleTreeError> {
+        let (root, mut proof) = self.tree.generate_proof(index, self.depth)?;
         proof.push(Hash256::from_slice(&self.length_bytes()));
-        (root, proof)
+        Ok((root, proof))
     }
 
     /// Add a deposit to the merkle tree.
@@ -49,5 +54,58 @@ impl DepositDataTree {
         self.tree.push_leaf(leaf, self.depth)?;
         self.mix_in_length.safe_add_assign(1)?;
         Ok(())
+    }
+
+    /// Finalize deposits up to leaf at `index`
+    pub fn finalize(
+        &mut self,
+        index: usize,
+        eth1_block_hash: Hash256,
+    ) -> Result<(), MerkleTreeError> {
+        self.tree.finalize_deposits(0, index as usize, self.depth)?;
+        self.deposits_finalized = index + 1;
+        self.finalized_eth1_block_hash = Some(eth1_block_hash);
+        Ok(())
+    }
+
+    /// Get snapshot of finalized deposit tree
+    pub fn get_snapshot(&self) -> DepositTreeSnapshot {
+        DepositTreeSnapshot {
+            branches: self.tree.get_finalized_snapshot(),
+            deposits: self.deposits_finalized as u64,
+            eth1_block_hash: self
+                .finalized_eth1_block_hash
+                .unwrap_or_else(|| Hash256::zero()),
+        }
+    }
+
+    /// Create a new Merkle tree from a snapshot
+    pub fn from_snapshot(
+        snapshot: &DepositTreeSnapshot,
+        depth: usize,
+    ) -> Result<Self, MerkleTreeError> {
+        let finalized_eth1_block_hash = if snapshot.eth1_block_hash.is_zero() {
+            None
+        } else {
+            Some(snapshot.eth1_block_hash)
+        };
+        Ok(Self {
+            tree: MerkleTree::from_finalized_snapshot(
+                &snapshot.branches,
+                snapshot.deposits as usize,
+                depth,
+                depth,
+            )?,
+            mix_in_length: snapshot.deposits as usize,
+            deposits_finalized: snapshot.deposits as usize,
+            finalized_eth1_block_hash,
+            depth,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn print_tree(&self) {
+        self.tree.print_node(0);
+        println!("========================================================");
     }
 }

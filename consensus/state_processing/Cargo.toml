@@ -16,6 +16,7 @@ itertools = "0.10.0"
 eth2_ssz = "0.4.1"
 eth2_ssz_derive = "0.3.0"
 eth2_ssz_types = "0.2.2"
+eth2_ssz_derive = "0.3.0"
 merkle_proof = { path = "../merkle_proof" }
 safe_arith = { path = "../safe_arith" }
 tree_hash = "0.4.1"

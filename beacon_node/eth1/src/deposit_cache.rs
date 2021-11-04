@@ -1,9 +1,9 @@
-use execution_layer::http::deposit_log::DepositLog;
+use crate::{DepositLog, Eth1Block};
 use ssz_derive::{Decode, Encode};
 use state_processing::common::DepositDataTree;
 use std::cmp::Ordering;
 use tree_hash::TreeHash;
-use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
+use types::{Deposit, DepositTreeSnapshot, Hash256, DEPOSIT_TREE_DEPTH};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -21,10 +21,27 @@ pub enum Error {
     /// A log with the given index is already present in the cache and it does not match the one
     /// provided.
     DuplicateDistinctLog(u64),
+    /// Attempted to insert log with given index after the log had been finalized
+    FinalizedLogInsert {
+        log_index: u64,
+        finalized_index: u64,
+    },
     /// The deposit count must always be large enough to account for the requested deposit range.
     ///
     /// E.g., you cannot request deposit 10 when the deposit count is 9.
     DepositCountInvalid { deposit_count: u64, range_end: u64 },
+    /// You can't request deposits on or before the finalized deposit
+    DepositRangeInvalid {
+        range_start: u64,
+        finalized_index: u64,
+    },
+    /// You can't finalize what's already been finalized and the cache must have the logs
+    /// that you wish to finalize
+    InvalidFinalizeIndex {
+        requested_index: u64,
+        currently_finalized: u64,
+        deposit_count: u64,
+    },
     /// Error with the merkle tree for deposits.
     DepositTree(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
@@ -32,23 +49,15 @@ pub enum Error {
 }
 
 #[derive(Encode, Decode, Clone)]
-pub struct SszDepositCache {
+pub struct SszLegacyDepositCache {
     logs: Vec<DepositLog>,
     leaves: Vec<Hash256>,
     deposit_contract_deploy_block: u64,
     deposit_roots: Vec<Hash256>,
 }
 
-impl SszDepositCache {
-    pub fn from_deposit_cache(cache: &DepositCache) -> Self {
-        Self {
-            logs: cache.logs.clone(),
-            leaves: cache.leaves.clone(),
-            deposit_contract_deploy_block: cache.deposit_contract_deploy_block,
-            deposit_roots: cache.deposit_roots.clone(),
-        }
-    }
-
+// TODO: delete this after the new SszDepositCache has been release for a while
+impl SszLegacyDepositCache {
     pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
         let deposit_tree =
             DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
@@ -68,6 +77,64 @@ impl SszDepositCache {
             leaves: self.leaves.clone(),
             deposit_contract_deploy_block: self.deposit_contract_deploy_block,
             deposit_tree,
+            finalized_deposit_count: None,
+            finalized_block_height: None,
+            deposit_roots: self.deposit_roots.clone(),
+        })
+    }
+}
+
+#[derive(Encode, Decode, Clone)]
+pub struct SszDepositCache {
+    logs: Vec<DepositLog>,
+    leaves: Vec<Hash256>,
+    deposit_contract_deploy_block: u64,
+    finalized_deposit_count: Option<u64>,
+    finalized_block_height: Option<u64>,
+    deposit_tree_snapshot: DepositTreeSnapshot,
+    deposit_roots: Vec<Hash256>,
+}
+
+impl SszDepositCache {
+    pub fn from_deposit_cache(cache: &DepositCache) -> Self {
+        Self {
+            logs: cache.logs.clone(),
+            leaves: cache.leaves.clone(),
+            deposit_contract_deploy_block: cache.deposit_contract_deploy_block,
+            finalized_deposit_count: cache.finalized_deposit_count,
+            finalized_block_height: cache.finalized_block_height,
+            deposit_tree_snapshot: cache.deposit_tree.get_snapshot(),
+            deposit_roots: cache.deposit_roots.clone(),
+        }
+    }
+
+    pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
+        let mut deposit_tree =
+            DepositDataTree::from_snapshot(&self.deposit_tree_snapshot, DEPOSIT_TREE_DEPTH)
+                .map_err(|e| format!("Invalid SszDepositCache: {:?}", e))?;
+        for leaf in &self.leaves {
+            deposit_tree
+                .push_leaf(*leaf)
+                .map_err(|e| format!("Invalid SszDepositCache: unable to push leaf: {:?}", e))?;
+        }
+        // Check for invalid SszDepositCache conditions
+        if self.leaves.len() != self.logs.len() {
+            return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
+        }
+        // `deposit_roots` also includes the zero root
+        if self.leaves.len() + 1 != self.deposit_roots.len() {
+            return Err(
+                "Invalid SszDepositCache: deposit_roots length must be only one more than leaves"
+                    .into(),
+            );
+        }
+        Ok(DepositCache {
+            logs: self.logs.clone(),
+            leaves: self.leaves.clone(),
+            deposit_contract_deploy_block: self.deposit_contract_deploy_block,
+            finalized_deposit_count: self.finalized_deposit_count,
+            finalized_block_height: self.finalized_block_height,
+            deposit_tree,
             deposit_roots: self.deposit_roots.clone(),
         })
     }
@@ -76,10 +143,13 @@ impl SszDepositCache {
 /// Mirrors the merkle tree of deposits in the eth1 deposit contract.
 ///
 /// Provides `Deposit` objects with merkle proofs included.
+#[cfg_attr(test, derive(PartialEq))]
 pub struct DepositCache {
     logs: Vec<DepositLog>,
     leaves: Vec<Hash256>,
     deposit_contract_deploy_block: u64,
+    finalized_deposit_count: Option<u64>,
+    finalized_block_height: Option<u64>,
     /// An incremental merkle tree which represents the current state of the
     /// deposit contract tree.
     deposit_tree: DepositDataTree,
@@ -96,6 +166,8 @@ impl Default for DepositCache {
             logs: Vec::new(),
             leaves: Vec::new(),
             deposit_contract_deploy_block: 1,
+            finalized_deposit_count: None,
+            finalized_block_height: None,
             deposit_tree,
             deposit_roots,
         }
@@ -118,29 +190,105 @@ impl DepositCache {
         }
     }
 
-    /// Returns the number of deposits available in the cache.
+    pub fn from_deposit_snapshot(
+        deposit_contract_deploy_block: u64,
+        snapshot: DepositTreeSnapshot,
+        finalized_block_number: u64,
+    ) -> Result<Self, String> {
+        let deposit_tree = DepositDataTree::from_snapshot(&snapshot, DEPOSIT_TREE_DEPTH)
+            .map_err(|e| format!("Invalid DepositSnapshot: {:?}", e))?;
+        Ok(DepositCache {
+            logs: Vec::new(),
+            leaves: Vec::new(),
+            deposit_contract_deploy_block,
+            finalized_deposit_count: Some(snapshot.deposits),
+            finalized_block_height: Some(finalized_block_number),
+            deposit_tree,
+            deposit_roots: Vec::new(),
+        })
+    }
+
+    /// Returns the number of deposits the cache stores
     pub fn len(&self) -> usize {
-        self.logs.len()
+        self.finalized_deposit_count.unwrap_or(0) as usize + self.logs.len()
     }
 
     /// True if the cache does not store any blocks.
     pub fn is_empty(&self) -> bool {
-        self.logs.is_empty()
+        self.finalized_deposit_count.is_none() && self.logs.is_empty()
     }
 
     /// Returns the block number for the most recent deposit in the cache.
     pub fn latest_block_number(&self) -> Option<u64> {
-        self.logs.last().map(|log| log.block_number)
+        self.logs
+            .last()
+            .map(|log| log.block_number)
+            .or(self.finalized_block_height)
     }
 
-    /// Returns an iterator over all the logs in `self`.
+    /// Returns an iterator over all the logs in `self` that aren't finalized.
     pub fn iter(&self) -> impl Iterator<Item = &DepositLog> {
         self.logs.iter()
     }
 
     /// Returns the i'th deposit log.
-    pub fn get(&self, i: usize) -> Option<&DepositLog> {
-        self.logs.get(i)
+    pub fn get_log(&self, i: usize) -> Option<&DepositLog> {
+        let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0) as usize;
+        if i < finalized_deposit_count {
+            None
+        } else {
+            self.logs.get(i - finalized_deposit_count)
+        }
+    }
+
+    /// Returns the deposit root with deposit_count i
+    pub fn get_root(&self, i: usize) -> Option<&Hash256> {
+        let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0) as usize;
+        if i < finalized_deposit_count {
+            None
+        } else {
+            self.deposit_roots.get(i - finalized_deposit_count)
+        }
+    }
+
+    /// Finalizes the cache up to `index`
+    pub fn finalize(&mut self, eth1_block: Eth1Block) -> Result<(), Error> {
+        let index = eth1_block
+            .deposit_count
+            .map(|count| count - 1)
+            .ok_or(Error::Internal(
+                "Eth1Block did not contain deposit_count".to_string(),
+            ))?;
+        let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0);
+
+        if index > self.len() as u64 || index < finalized_deposit_count {
+            Err(Error::InvalidFinalizeIndex {
+                requested_index: index,
+                currently_finalized: finalized_deposit_count,
+                deposit_count: self.len() as u64,
+            })
+        } else {
+            let finalized_log = self
+                .get_log(index as usize)
+                .cloned()
+                .expect("log should exist");
+            let drop = (index + 1 - finalized_deposit_count) as usize;
+            self.deposit_tree
+                .finalize(index as usize, eth1_block.hash)
+                .map_err(Error::DepositTree)?;
+            self.logs.drain(0..drop);
+            self.leaves.drain(0..drop);
+            self.deposit_roots.drain(0..drop);
+            self.finalized_deposit_count = Some(finalized_log.index + 1);
+            self.finalized_block_height = Some(finalized_log.block_number);
+
+            Ok(())
+        }
+    }
+
+    /// Returns the deposit tree snapshot
+    pub fn get_deposit_snapshot(&self) -> DepositTreeSnapshot {
+        self.deposit_tree.get_snapshot()
     }
 
     /// Adds `log` to self.
@@ -153,7 +301,7 @@ impl DepositCache {
     /// - If a log with index `log.index - 1` is not already present in `self` (ignored when empty).
     /// - If a log with `log.index` is already known, but the given `log` is distinct to it.
     pub fn insert_log(&mut self, log: DepositLog) -> Result<DepositCacheInsertOutcome, Error> {
-        match log.index.cmp(&(self.logs.len() as u64)) {
+        match log.index.cmp(&(self.len() as u64)) {
             Ordering::Equal => {
                 let deposit = log.deposit_data.tree_hash_root();
                 self.leaves.push(deposit);
@@ -165,7 +313,18 @@ impl DepositCache {
                 Ok(DepositCacheInsertOutcome::Inserted)
             }
             Ordering::Less => {
-                if self.logs[log.index as usize] == log {
+                let mut compare_index = log.index as usize;
+                if let Some(count) = self.finalized_deposit_count {
+                    if log.index < count {
+                        return Err(Error::FinalizedLogInsert {
+                            log_index: log.index,
+                            finalized_index: count - 1,
+                        });
+                    } else {
+                        compare_index -= count as usize;
+                    }
+                }
+                if self.logs[compare_index] == log {
                     Ok(DepositCacheInsertOutcome::Duplicate)
                 } else {
                     Err(Error::DuplicateDistinctLog(log.index))
@@ -194,7 +353,6 @@ impl DepositCache {
         start: u64,
         end: u64,
         deposit_count: u64,
-        tree_depth: usize,
     ) -> Result<(Hash256, Vec<Deposit>), Error> {
         if deposit_count < end {
             // It's invalid to ask for more deposits than should exist.
@@ -202,48 +360,57 @@ impl DepositCache {
                 deposit_count,
                 range_end: end,
             })
-        } else if end > self.logs.len() as u64 {
+        } else if end > self.len() as u64 {
             // The range of requested deposits exceeds the deposits stored locally.
             Err(Error::InsufficientDeposits {
                 requested: end,
                 known_deposits: self.logs.len(),
             })
-        } else if deposit_count > self.leaves.len() as u64 {
-            // There are not `deposit_count` known deposit roots, so we can't build the merkle tree
-            // to prove into.
-            Err(Error::InsufficientDeposits {
-                requested: deposit_count,
-                known_deposits: self.logs.len(),
+        } else if self
+            .finalized_deposit_count
+            .map(|count| start - count + 1)
+            .unwrap_or(1)
+            <= 0
+        {
+            // Can't ask for deposits before or on the finalized deposit
+            Err(Error::DepositRangeInvalid {
+                range_start: start,
+                finalized_index: self.finalized_deposit_count.map(|count| count - 1).unwrap(),
             })
         } else {
+            let (start, end, deposit_count) = self
+                .finalized_deposit_count
+                .map(|count| (start - count, end - count, deposit_count - count))
+                .unwrap_or((start, end, deposit_count));
             let leaves = self
                 .leaves
                 .get(0..deposit_count as usize)
                 .ok_or_else(|| Error::Internal("Unable to get known leaves".into()))?;
 
-            // Note: there is likely a more optimal solution than recreating the `DepositDataTree`
-            // each time this function is called.
-            //
-            // Perhaps a base merkle tree could be maintained that contains all deposits up to the
-            // last finalized eth1 deposit count. Then, that tree could be cloned and extended for
-            // each of these calls.
+            let mut tree = DepositDataTree::from_snapshot(
+                &self.deposit_tree.get_snapshot(),
+                DEPOSIT_TREE_DEPTH,
+            )
+            .map_err(Error::DepositTree)?;
+            for leaf in leaves {
+                tree.push_leaf(leaf.clone()).map_err(Error::DepositTree)?;
+            }
 
-            let tree = DepositDataTree::create(leaves, deposit_count as usize, tree_depth);
-
-            let deposits = self
-                .logs
+            let mut deposits = vec![];
+            self.logs
                 .get(start as usize..end as usize)
                 .ok_or_else(|| Error::Internal("Unable to get known log".into()))?
                 .iter()
-                .map(|deposit_log| {
-                    let (_leaf, proof) = tree.generate_proof(deposit_log.index as usize);
-
-                    Deposit {
+                .try_for_each(|deposit_log| {
+                    let (_leaf, proof) = tree
+                        .generate_proof(deposit_log.index as usize)
+                        .map_err(Error::DepositTree)?;
+                    deposits.push(Deposit {
                         proof: proof.into(),
                         data: deposit_log.deposit_data.clone(),
-                    }
-                })
-                .collect();
+                    });
+                    Ok(())
+                })?;
 
             Ok((tree.root(), deposits))
         }
@@ -270,16 +437,27 @@ impl DepositCache {
     /// Returns the number of deposits that have been observed up to and
     /// including the block at `block_number`.
     ///
-    /// Returns `None` if the `block_number` is zero or prior to contract deployment.
+    /// Returns `None` if the `block_number` is zero or prior to contract deployment
+    /// or prior to last finalized deposit.
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
-        if block_number == 0 || block_number < self.deposit_contract_deploy_block {
+        let (finalized_block_number, finalized_deposit_count) =
+            match (self.finalized_block_height, self.finalized_deposit_count) {
+                (Some(block_height), Some(deposit_count)) => (block_height, deposit_count),
+                _ => (0, 0),
+            };
+        if block_number == 0
+            || block_number < self.deposit_contract_deploy_block
+            || block_number <= finalized_block_number
+        {
             None
         } else {
             Some(
-                self.logs
-                    .iter()
-                    .take_while(|deposit| deposit.block_number <= block_number)
-                    .count() as u64,
+                finalized_deposit_count
+                    + self
+                        .logs
+                        .iter()
+                        .take_while(|deposit| deposit.block_number <= block_number)
+                        .count() as u64,
             )
         }
     }
@@ -289,8 +467,8 @@ impl DepositCache {
     /// Fetches the `deposit_count` on or just before the queried `block_number`
     /// and queries the `deposit_roots` map to get the corresponding `deposit_root`.
     pub fn get_deposit_root_from_cache(&self, block_number: u64) -> Option<Hash256> {
-        let index = self.get_deposit_count_from_cache(block_number)?;
-        Some(*self.deposit_roots.get(index as usize)?)
+        let count = self.get_deposit_count_from_cache(block_number)?;
+        self.get_root(count as usize).cloned()
     }
 }
 
@@ -338,32 +516,52 @@ pub mod tests {
         log.to_deposit_log(&spec).expect("should decode log")
     }
 
+    fn get_cache_with_deposits(n: u64) -> DepositCache {
+        let mut deposit_cache = DepositCache::default();
+        for i in 0..n {
+            let mut log = example_log();
+            log.index = i;
+            log.block_number = i;
+            log.deposit_data.withdrawal_credentials = Hash256::from_low_u64_be(i);
+            deposit_cache
+                .insert_log(log)
+                .expect("should add consecutive logs");
+        }
+        assert_eq!(deposit_cache.len() as u64, n, "should have {} deposits", n);
+
+        deposit_cache
+    }
+
     #[test]
     fn insert_log_valid() {
-        let mut tree = DepositCache::default();
+        let mut deposit_cache = DepositCache::default();
 
         for i in 0..16 {
             let mut log = example_log();
             log.index = i;
-            tree.insert_log(log).expect("should add consecutive logs");
+            deposit_cache
+                .insert_log(log)
+                .expect("should add consecutive logs");
         }
     }
 
     #[test]
     fn insert_log_invalid() {
-        let mut tree = DepositCache::default();
+        let mut deposit_cache = DepositCache::default();
 
         for i in 0..4 {
             let mut log = example_log();
             log.index = i;
-            tree.insert_log(log).expect("should add consecutive logs");
+            deposit_cache
+                .insert_log(log)
+                .expect("should add consecutive logs");
         }
 
         // Add duplicate, when given is the same as the one known.
         let mut log = example_log();
         log.index = 3;
         assert_eq!(
-            tree.insert_log(log).unwrap(),
+            deposit_cache.insert_log(log).unwrap(),
             DepositCacheInsertOutcome::Duplicate
         );
 
@@ -371,54 +569,46 @@ pub mod tests {
         let mut log = example_log();
         log.index = 3;
         log.block_number = 99;
-        assert!(tree.insert_log(log).is_err());
+        assert!(deposit_cache.insert_log(log).is_err());
 
         //  Skip inserting a log.
         let mut log = example_log();
         log.index = 5;
-        assert!(tree.insert_log(log).is_err());
+        assert!(deposit_cache.insert_log(log).is_err());
     }
 
     #[test]
     fn get_deposit_valid() {
         let n = 1_024;
-        let mut tree = DepositCache::default();
-
-        for i in 0..n {
-            let mut log = example_log();
-            log.index = i;
-            log.block_number = i;
-            log.deposit_data.withdrawal_credentials = Hash256::from_low_u64_be(i);
-            tree.insert_log(log).expect("should add consecutive logs");
-        }
+        let deposit_cache = get_cache_with_deposits(n);
 
         // Get 0 deposits, with max deposit count.
-        let (_, deposits) = tree
-            .get_deposits(0, 0, n, TREE_DEPTH)
+        let (_, deposits) = deposit_cache
+            .get_deposits(0, 0, n)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get 0 deposits, with 0 deposit count.
-        let (_, deposits) = tree
-            .get_deposits(0, 0, 0, TREE_DEPTH)
+        let (_, deposits) = deposit_cache
+            .get_deposits(0, 0, 0)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get 0 deposits, with 0 deposit count, tree depth 0.
-        let (_, deposits) = tree
-            .get_deposits(0, 0, 0, 0)
+        let (_, deposits) = deposit_cache
+            .get_deposits(0, 0, 0)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
         // Get all deposits, with max deposit count.
-        let (full_root, deposits) = tree
-            .get_deposits(0, n, n, TREE_DEPTH)
+        let (full_root, deposits) = deposit_cache
+            .get_deposits(0, n, n)
             .expect("should get the full tree");
         assert_eq!(deposits.len(), n as usize, "should return all deposits");
 
         // Get 4 deposits, with max deposit count.
-        let (root, deposits) = tree
-            .get_deposits(0, 4, n, TREE_DEPTH)
+        let (root, deposits) = deposit_cache
+            .get_deposits(0, 4, n)
             .expect("should get the four from the full tree");
         assert_eq!(
             deposits.len(),
@@ -432,14 +622,14 @@ pub mod tests {
 
         // Get half of the deposits, with half deposit count.
         let half = n / 2;
-        let (half_root, deposits) = tree
-            .get_deposits(0, half, half, TREE_DEPTH)
+        let (half_root, deposits) = deposit_cache
+            .get_deposits(0, half, half)
             .expect("should get the half tree");
         assert_eq!(deposits.len(), half as usize, "should return half deposits");
 
         // Get 4 deposits, with half deposit count.
-        let (root, deposits) = tree
-            .get_deposits(0, 4, n / 2, TREE_DEPTH)
+        let (root, deposits) = deposit_cache
+            .get_deposits(0, 4, n / 2)
             .expect("should get the half tree");
         assert_eq!(
             deposits.len(),
@@ -459,23 +649,311 @@ pub mod tests {
     #[test]
     fn get_deposit_invalid() {
         let n = 16;
-        let mut tree = DepositCache::default();
-
-        for i in 0..n {
-            let mut log = example_log();
-            log.index = i;
-            log.block_number = i;
-            log.deposit_data.withdrawal_credentials = Hash256::from_low_u64_be(i);
-            tree.insert_log(log).expect("should add consecutive logs");
-        }
+        let mut tree = get_cache_with_deposits(n);
 
         // Range too high.
-        assert!(tree.get_deposits(0, n + 1, n, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, n + 1, n).is_err());
 
         // Count too high.
-        assert!(tree.get_deposits(0, n, n + 1, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, n, n + 1).is_err());
 
         // Range higher than count.
-        assert!(tree.get_deposits(0, 4, 2, TREE_DEPTH).is_err());
+        assert!(tree.get_deposits(0, 4, 2).is_err());
+
+        let block7 = fake_eth1_block(&tree.get_log(7).expect("should return log"));
+        tree.finalize(block7).expect("should finalize");
+        // Range starts <= finalized deposit
+        assert!(tree.get_deposits(7, 9, 2).is_err());
+        assert!(tree.get_deposits(6, 9, 2).is_err());
+    }
+
+    fn fake_eth1_block(deposit_log: &DepositLog) -> Eth1Block {
+        Eth1Block {
+            hash: Hash256::from_low_u64_be(deposit_log.block_number),
+            timestamp: 0,
+            number: deposit_log.block_number,
+            deposit_root: None,
+            deposit_count: Some(deposit_log.index + 1),
+        }
+    }
+
+    #[test]
+    fn test_finalization() {
+        let n = 1024;
+        let half = n / 2;
+        let quarter = half / 2;
+        let mut deposit_cache = get_cache_with_deposits(n);
+
+        let full_root_before_finalization = deposit_cache.deposit_tree.root();
+        let q3_root_before_finalization = deposit_cache
+            .get_root((half + quarter) as usize)
+            .cloned()
+            .expect("root should exist");
+        let q3_log_before_finalization = deposit_cache
+            .get_log((half + quarter) as usize)
+            .cloned()
+            .expect("log should exist");
+        // get_log(half+quarter) should return log with index `half+quarter`
+        assert_eq!(
+            q3_log_before_finalization.index,
+            (half + quarter) as u64,
+            "log index should be {}",
+            (half + quarter),
+        );
+
+        // get lower quarter of deposits with max deposit count
+        let (lower_quarter_root_before_finalization, lower_quarter_deposits_before_finalization) =
+            deposit_cache
+                .get_deposits(quarter, half, n)
+                .expect("should get lower quarter");
+        assert_eq!(
+            lower_quarter_deposits_before_finalization.len(),
+            quarter as usize,
+            "should get {} deposits from lower quarter",
+            quarter,
+        );
+        // since the lower quarter was done with full deposits, root should be the same as full_root_before_finalization
+        assert_eq!(
+            lower_quarter_root_before_finalization, full_root_before_finalization,
+            "should still get full root with deposit subset",
+        );
+
+        // get upper quarter of deposits with slightly reduced deposit count
+        let (upper_quarter_root_before_finalization, upper_quarter_deposits_before_finalization) =
+            deposit_cache
+                .get_deposits(half, half + quarter, n - 2)
+                .expect("should get upper quarter");
+        assert_eq!(
+            upper_quarter_deposits_before_finalization.len(),
+            quarter as usize,
+            "should get {} deposits from upper quarter",
+            quarter,
+        );
+        // since upper quarter was with subset of nodes, it should differ from full root
+        assert_ne!(
+            full_root_before_finalization, upper_quarter_root_before_finalization,
+            "subtree root should differ from full root",
+        );
+
+        let f0_log = deposit_cache
+            .get_log((quarter - 1) as usize)
+            .cloned()
+            .expect("should return log");
+        let f0_block = fake_eth1_block(&f0_log);
+
+        // finalize first quarter
+        deposit_cache
+            .finalize(f0_block)
+            .expect("should finalize first quarter");
+        // finalized count and block number should match log
+        assert_eq!(
+            deposit_cache.finalized_deposit_count.expect("should be a number"),
+            f0_log.index + 1,
+            "after calling finalize(eth1block) finalized_deposit_count should equal eth1_block.deposit_count",
+        );
+        assert_eq!(
+            deposit_cache.finalized_block_height.expect("should be a number"),
+            f0_log.block_number,
+            "after calling finalize(eth1block) finalized_block_number should equal eth1block.block_number"
+        );
+        // check get_log boundaries
+        assert!(
+            deposit_cache.get_log((quarter - 1) as usize).is_none(),
+            "get_log() should return None for index <= finalized log index",
+        );
+        assert!(
+            deposit_cache.get_log(quarter as usize).is_some(),
+            "get_log() should return Some(log) for index >= finalized_deposit_count",
+        );
+
+        // full root should remain the same after finalization
+        assert_eq!(
+            full_root_before_finalization,
+            deposit_cache.deposit_tree.root(),
+            "root should be the same before and after finalization",
+        );
+        // get_root should return the same root before and after finalization
+        assert_eq!(
+            q3_root_before_finalization,
+            deposit_cache
+                .get_root((half + quarter) as usize)
+                .cloned()
+                .expect("root should exist"),
+            "get_root should return the same root before and after finalization",
+        );
+        // get_log should return the same log before and after finalization
+        assert_eq!(
+            q3_log_before_finalization,
+            deposit_cache
+                .get_log((half + quarter) as usize)
+                .cloned()
+                .expect("log should exist"),
+            "get_log should return the same log before and after finalization",
+        );
+
+        // again get lower quarter of deposits with max deposit count after finalization
+        let (f0_lower_quarter_root, f0_lower_quarter_deposits) = deposit_cache
+            .get_deposits(quarter, half, n)
+            .expect("should get lower quarter");
+        assert_eq!(
+            f0_lower_quarter_deposits.len(),
+            quarter as usize,
+            "should get {} deposits from lower quarter",
+            quarter,
+        );
+        // again get upper quarter of deposits with slightly reduced deposit count after finalization
+        let (f0_upper_quarter_root, f0_upper_quarter_deposits) = deposit_cache
+            .get_deposits(half, half + quarter, n - 2)
+            .expect("should get upper quarter");
+        assert_eq!(
+            f0_upper_quarter_deposits.len(),
+            quarter as usize,
+            "should get {} deposits from upper quarter",
+            quarter,
+        );
+
+        // lower quarter root and deposits should be the same
+        assert_eq!(
+            lower_quarter_root_before_finalization, f0_lower_quarter_root,
+            "root should be the same before and after finalization",
+        );
+        for i in 0..lower_quarter_deposits_before_finalization.len() {
+            assert_eq!(
+                lower_quarter_deposits_before_finalization[i], f0_lower_quarter_deposits[i],
+                "get_deposits() should be the same before and after finalization",
+            );
+        }
+        // upper quarter root and deposits should be the same
+        assert_eq!(
+            upper_quarter_root_before_finalization, f0_upper_quarter_root,
+            "subtree root should be the same before and after finalization",
+        );
+        for i in 0..upper_quarter_deposits_before_finalization.len() {
+            assert_eq!(
+                upper_quarter_deposits_before_finalization[i], f0_upper_quarter_deposits[i],
+                "get_deposits() should be the same before and after finalization",
+            );
+        }
+
+        let f1_log = deposit_cache
+            .get_log((half - 2) as usize)
+            .cloned()
+            .expect("should return log");
+        // finalize a little less than half to test multiple finalization
+        let f1_block = fake_eth1_block(&f1_log);
+        deposit_cache
+            .finalize(f1_block)
+            .expect("should finalize a little less than half");
+        // finalized count and block number should match f1_log
+        assert_eq!(
+            deposit_cache.finalized_deposit_count.expect("should be a number"),
+            f1_log.index + 1,
+            "after calling finalize(eth1block) finalized_deposit_count should equal eth1_block.deposit_count",
+        );
+        assert_eq!(
+            deposit_cache.finalized_block_height.expect("should be a number"),
+            f1_log.block_number,
+            "after calling finalize(eth1block) finalized_block_number should equal eth1block.block_number"
+        );
+        // check get_log boundaries
+        assert!(
+            deposit_cache.get_log((half - 2) as usize).is_none(),
+            "get_log() should return None for index <= finalized log index",
+        );
+        assert!(
+            deposit_cache.get_log((half - 1) as usize).is_some(),
+            "get_log() should return Some(log) for index >= finalized_deposit_count",
+        );
+
+        // full root should still be unchanged
+        assert_eq!(
+            full_root_before_finalization,
+            deposit_cache.deposit_tree.root(),
+            "root should be the same before and after finalization",
+        );
+
+        // again get upper quarter of deposits with slightly reduced deposit count after second finalization
+        let (f1_upper_quarter_root, f1_upper_quarter_deposits) = deposit_cache
+            .get_deposits(half, half + quarter, n - 2)
+            .expect("should get upper quarter");
+
+        // upper quarter root and deposits should be the same after second finalization
+        assert_eq!(
+            f0_upper_quarter_root, f1_upper_quarter_root,
+            "subtree root should be the same after multiple finalization",
+        );
+        for i in 0..f0_upper_quarter_deposits.len() {
+            assert_eq!(
+                f0_upper_quarter_deposits[i], f1_upper_quarter_deposits[i],
+                "get_deposits() should be the same before and after finalization",
+            );
+        }
+    }
+
+    fn verify_equality(original: &DepositCache, copy: &DepositCache) {
+        // verify each field individually so that if one field should
+        // fail to recover, this test will point right to it
+        assert_eq!(original.deposit_contract_deploy_block, copy.deposit_contract_deploy_block, "DepositCache: deposit_contract_deploy_block should remain the same after encoding and decoding from ssz" );
+        assert_eq!(
+            original.leaves, copy.leaves,
+            "DepositCache: leaves should remain the same after encoding and decoding from ssz"
+        );
+        assert_eq!(
+            original.logs, copy.logs,
+            "DepositCache: logs should remain the same after encoding and decoding from ssz"
+        );
+        assert_eq!(original.finalized_deposit_count, copy.finalized_deposit_count, "DepositCache: finalized_deposit_count should remain the same after encoding and decoding from ssz");
+        assert_eq!(original.finalized_block_height, copy.finalized_block_height, "DepositCache: finalized_block_height should remain the same after encoding and decoding from ssz");
+        assert_eq!(original.deposit_roots, copy.deposit_roots, "DepositCache: deposit_roots should remain the same before and after encoding and decoding from ssz");
+        assert!(original.deposit_tree == copy.deposit_tree, "DepositCache: deposit_tree should remain the same before and after encoding and decoding from ssz");
+        // verify all together for good measure
+        assert!(
+            original == copy,
+            "Deposit cache should remain the same after encoding and decoding from ssz"
+        );
+    }
+
+    fn ssz_round_trip(original: &DepositCache) -> DepositCache {
+        use ssz::{Decode, Encode};
+        let bytes = SszDepositCache::from_deposit_cache(original).as_ssz_bytes();
+        let ssz_cache =
+            SszDepositCache::from_ssz_bytes(&bytes).expect("should decode from ssz bytes");
+
+        SszDepositCache::to_deposit_cache(&ssz_cache).expect("should recover cache")
+    }
+
+    #[test]
+    fn ssz_encode_decode() {
+        let deposit_cache = get_cache_with_deposits(512);
+        let recovered_cache = ssz_round_trip(&deposit_cache);
+
+        verify_equality(&deposit_cache, &recovered_cache);
+    }
+
+    #[test]
+    fn ssz_encode_decode_with_finalization() {
+        let mut deposit_cache = get_cache_with_deposits(512);
+        let block383 = fake_eth1_block(&deposit_cache.get_log(383).expect("should return log"));
+        deposit_cache.finalize(block383).expect("should finalize");
+        let mut first_recovery = ssz_round_trip(&deposit_cache);
+
+        verify_equality(&deposit_cache, &first_recovery);
+        // finalize again to verify equality after multiple finalizations
+        let block447 = fake_eth1_block(&deposit_cache.get_log(447).expect("should return log"));
+        first_recovery.finalize(block447).expect("should finalize");
+
+        let mut second_recovery = ssz_round_trip(&first_recovery);
+        verify_equality(&first_recovery, &second_recovery);
+
+        // verify equality of a tree that finalized block383, block447, block479
+        // with a tree that finalized block383, block479
+        let block479 = fake_eth1_block(&deposit_cache.get_log(479).expect("should return log"));
+        second_recovery
+            .finalize(block479.clone())
+            .expect("should finalize");
+        let third_recovery = ssz_round_trip(&second_recovery);
+        deposit_cache.finalize(block479).expect("should finalize");
+
+        verify_equality(&deposit_cache, &third_recovery);
     }
 }

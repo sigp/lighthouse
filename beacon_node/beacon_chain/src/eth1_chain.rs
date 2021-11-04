@@ -16,7 +16,6 @@ use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
-    DEPOSIT_TREE_DEPTH,
 };
 
 type BlockNumber = u64;
@@ -546,7 +545,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
                     .deposits()
                     .read()
                     .cache
-                    .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
+                    .get_deposits(next, last, deposit_count)
                     .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                     .map(|(_deposit_root, deposits)| deposits)
             }

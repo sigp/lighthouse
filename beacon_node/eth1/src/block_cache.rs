@@ -1,7 +1,9 @@
 use ssz_derive::{Decode, Encode};
+use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
 pub use eth2::lighthouse::Eth1Block;
+use eth2::types::Hash256;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -21,6 +23,8 @@ pub enum Error {
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BlockCache {
     blocks: Vec<Eth1Block>,
+    #[ssz(skip_serializing, skip_deserializing)]
+    by_hash: HashMap<Hash256, Eth1Block>,
 }
 
 impl BlockCache {
@@ -80,7 +84,11 @@ impl BlockCache {
     /// If `len` is greater than the vector's current length, this has no effect.
     pub fn truncate(&mut self, len: usize) {
         if len < self.blocks.len() {
-            self.blocks = self.blocks.split_off(self.blocks.len() - len);
+            let remaining = self.blocks.split_off(self.blocks.len() - len);
+            for block in &self.blocks {
+                self.by_hash.remove(&block.hash);
+            }
+            self.blocks = remaining;
         }
     }
 
@@ -98,6 +106,19 @@ impl BlockCache {
                 .binary_search_by(|block| block.number.cmp(&block_number))
                 .ok()?,
         )
+    }
+
+    /// Returns a block with the corresponding hash, if any.
+    pub fn block_by_hash(&self, block_hash: &Hash256) -> Option<&Eth1Block> {
+        self.by_hash.get(block_hash)
+    }
+
+    /// Rebuilds the by_hash map
+    pub fn rebuild_by_hash_map(&mut self) {
+        self.by_hash.clear();
+        for block in self.blocks.iter() {
+            self.by_hash.insert(block.hash.clone(), block.clone());
+        }
     }
 
     /// Insert an `Eth1Snapshot` into `self`, allowing future queries.
@@ -161,6 +182,7 @@ impl BlockCache {
             }
         }
 
+        self.by_hash.insert(block.hash.clone(), block.clone());
         self.blocks.push(block);
 
         Ok(())
