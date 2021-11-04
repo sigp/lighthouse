@@ -162,24 +162,6 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 
-use serde::{Deserializer, Serializer};
-
-pub fn serialize_u256<S>(val: &Uint256, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let val = val.to_string();
-    s.serialize_str(&val)
-}
-
-pub fn deserialize_u256<'de, D>(deserializer: D) -> Result<Uint256, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let decoded: String = serde::de::Deserialize::deserialize(deserializer)?;
-    Uint256::from_dec_str(&decoded).map_err(serde::de::Error::custom)
-}
-
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
