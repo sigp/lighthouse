@@ -23,12 +23,12 @@ use tokio;
 struct Event(());
 
 #[derive(NetworkBehaviour)]
-#[behaviour(event_process = false, out_event = "Event")]
+#[behaviour(event_process = false)]
 struct Behaviour {
     /// Behaviour used to fake other sibling behaviour's "calls" to the swarm. It also registers
     /// calls from the swarm to the behaviour.
     pub puppet: PuppetBehaviour,
-    // pub peer_manager: PeerManager<E>,
+    pub conn_tracker: ConnTracker,
 }
 
 /* Connection tracker implementation */
@@ -65,12 +65,12 @@ impl NetworkBehaviour for ConnTracker {
         // This is the first time the peer connects to us. Thus the peer must be either new or be
         // disconnected. Check this. The connection will be registered in
         // `inject_connection_established`.
-        if let Some(info) = self.peers.read().get(peer_id) {
-            assert!(matches!(
-                info.connection_status,
-                ConnectionStatus::Disconnected { .. }
-            ))
-        }
+        // if let Some(info) = self.peers.read().get(peer_id) {
+        //     assert!(matches!(
+        //         info.connection_status,
+        //         ConnectionStatus::Disconnected { .. }
+        //     ))
+        // }
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -78,23 +78,24 @@ impl NetworkBehaviour for ConnTracker {
         // has only one active connection. The disconnection will be registered in
         // `inject_connection_closed`.
 
-        let peers = self.peers.read();
-        let info = peers.get(peer_id).expect("Peer exists");
-        match &info.connection_status {
-            ConnectionStatus::Connected {
-                connections,
-                disconnections: _,
-            } => {
-                assert_eq!(
-                    connections.len(),
-                    1,
-                    "Disconnected notification must be for peer with only one connection"
-                )
-            }
-            ConnectionStatus::Disconnected { since } => {
-                panic!("Peer was already disconnected. Since: {:?}", since)
-            }
-        }
+        // NOTE: called after inject_connection_closed
+        // let peers = self.peers.read();
+        // let info = peers.get(peer_id).expect("Peer exists");
+        // match &info.connection_status {
+        //     ConnectionStatus::Connected {
+        //         connections,
+        //         disconnections: _,
+        //     } => {
+        //         assert_eq!(
+        //             connections.len(),
+        //             1,
+        //             "Disconnected notification must be for peer with only one connection"
+        //         )
+        //     }
+        //     ConnectionStatus::Disconnected { since } => {
+        //         panic!("Peer was already disconnected. Since: {:?}", since)
+        //     }
+        // }
     }
 
     fn inject_connection_established(
@@ -110,7 +111,12 @@ impl NetworkBehaviour for ConnTracker {
                 if matches!(endpoint, ConnectedPoint::Dialer { .. }) {
                     // Another behaviour could have dialed this peer via a multiaddr, and we
                     // wouldn't be aware of the dialing attempt for this peer.
-                    info.dialing_attempts = info.dialing_attempts.saturating_sub(1);
+
+                    /*
+                     * Dialing / Disconnecting stuff
+                     */
+                    // info.dialing_attempts = info.dialing_attempts.saturating_sub(1);
+
                     // About this subtraction. The successful dialing attempts must be always
                     // more than the registered/known dialing attempts.
                 }
@@ -222,13 +228,16 @@ impl NetworkBehaviour for ConnTracker {
         _handler: Self::ProtocolsHandler,
         _error: &DialError,
     ) {
-        if let Some(peer_id) = peer_id {
-            // This was an explicit dial to a peer. We should have it registered.
-            let mut peers = self.peers.write();
-            let info = peers.get_mut(&peer_id).expect("Peer exists.");
-            assert!(info.dialing_attempts > 0);
-            info.dialing_attempts -= 1;
-        }
+        /*
+         * Dialing / Disconnecting stuff
+         */
+        // if let Some(peer_id) = peer_id {
+        //     // This was an explicit dial to a peer. We should have it registered.
+        //     let mut peers = self.peers.write();
+        //     let info = peers.get_mut(&peer_id).expect("Peer exists.");
+        //     assert!(info.dialing_attempts > 0);
+        //     info.dialing_attempts -= 1;
+        // }
     }
 
     fn new_handler(&mut self) -> Self::ProtocolsHandler {
@@ -396,7 +405,9 @@ async fn build_swarm(_log: slog::Logger) -> Node {
 
         let behaviour = Behaviour {
             puppet: Default::default(),
-            // peer_manager,
+            conn_tracker: ConnTracker {
+                peers: Arc::new(RwLock::new(HashMap::new())),
+            },
         };
         Swarm::new(transport, behaviour, local_peer_id)
     };
@@ -414,18 +425,17 @@ async fn build_dummy_swarm() -> Swarm<DummyBehaviour> {
 }
 
 #[tokio::test]
-async fn peer_manager_dial() {
+async fn basic_test() {
     let log = common::build_log(slog::Level::Trace, true);
 
-    // Build the peer manager node and bind a listener
-    // let (mut node, globals) =
-    // build_swarm(log.new(o!("node" => "peer_manager")), Config::default()).await;
+    // Build the connection tracker node and bind a listener
     let mut node = build_swarm(log.new(o!("node" => "puppet"))).await;
     let _our_addr = common::behaviours::bind_listener(&mut node).await;
 
     // Build the dummy swarm and bind a listener
     let mut dummy = build_dummy_swarm().await;
     let dummy_addr = common::behaviours::bind_listener(&mut dummy).await;
+    let dummy_peer_id = *dummy.local_peer_id();
 
     // Dial dummy from a sibling behaviour
     node.queue_event(NBAction::DialAddress {
@@ -434,7 +444,10 @@ async fn peer_manager_dial() {
             keep_alive: libp2p::swarm::KeepAlive::Yes,
         },
     });
-    debug!(log, "running loop");
+    let dc_time = tokio::time::sleep(tokio::time::Duration::from_secs(5));
+    let run_duration = tokio::time::sleep(tokio::time::Duration::from_secs(10));
+    futures::pin_mut!(dc_time);
+    futures::pin_mut!(run_duration);
     loop {
         tokio::select! {
             ev = node.select_next_some() => {
@@ -443,12 +456,13 @@ async fn peer_manager_dial() {
             ev = dummy.select_next_some() => {
                 debug!(log, "Dummy swarm event"; "ev" => ?ev);
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(20)) => {
-                // TODO: No way for the behaviour to know about this change.
+            _ = run_duration.as_mut() => {
                 debug!(log, "Method calls"; "calls" => ?node.calls());
                 return;
             }
-
+            _ = dc_time.as_mut() => {
+                node.queue_event(NBAction::CloseConnection{ peer_id: dummy_peer_id, connection: CloseConnection::All});
+            }
         }
     }
 }
