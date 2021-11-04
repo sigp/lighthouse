@@ -800,6 +800,7 @@ fn slasher_slot_offset() {
     // See: https://github.com/sigp/lighthouse/pull/2767#discussion_r741610402
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("11.25"))
         .run();
 }
@@ -808,6 +809,7 @@ fn slasher_slot_offset() {
 fn slasher_slot_offset_nan() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("NaN"))
         .run();
 }
