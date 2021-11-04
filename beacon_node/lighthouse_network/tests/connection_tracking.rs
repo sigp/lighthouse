@@ -2,6 +2,7 @@ mod common;
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::Instant;
 
@@ -14,6 +15,7 @@ use libp2p::swarm::{
     NetworkBehaviour, NetworkBehaviourAction as NBAction, ProtocolsHandler, Swarm,
 };
 use libp2p::{development_transport, Multiaddr, NetworkBehaviour, PeerId};
+use parking_lot::RwLock;
 use slog::{debug, o};
 use tokio;
 
@@ -47,7 +49,7 @@ struct PeerInfo {
 }
 
 struct ConnTracker {
-    peers: HashMap<PeerId, PeerInfo>,
+    peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
 }
 
 impl NetworkBehaviour for ConnTracker {
@@ -63,7 +65,7 @@ impl NetworkBehaviour for ConnTracker {
         // This is the first time the peer connects to us. Thus the peer must be either new or be
         // disconnected. Check this. The connection will be registered in
         // `inject_connection_established`.
-        if let Some(info) = self.peers.get(peer_id) {
+        if let Some(info) = self.peers.read().get(peer_id) {
             assert!(matches!(
                 info.connection_status,
                 ConnectionStatus::Disconnected { .. }
@@ -75,7 +77,9 @@ impl NetworkBehaviour for ConnTracker {
         // This is the last connection to this peer. Check that the peer exists, is connected, and
         // has only one active connection. The disconnection will be registered in
         // `inject_connection_closed`.
-        let info = self.peers.get(peer_id).expect("Peer exists");
+
+        let peers = self.peers.read();
+        let info = peers.get(peer_id).expect("Peer exists");
         match &info.connection_status {
             ConnectionStatus::Connected {
                 connections,
@@ -100,7 +104,7 @@ impl NetworkBehaviour for ConnTracker {
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
-        match self.peers.entry(*peer_id) {
+        match self.peers.write().entry(*peer_id) {
             Entry::Occupied(mut entry) => {
                 let info = entry.get_mut();
                 if matches!(endpoint, ConnectedPoint::Dialer { .. }) {
@@ -159,7 +163,8 @@ impl NetworkBehaviour for ConnTracker {
         endpoint: &ConnectedPoint,
         _handler: Self::ProtocolsHandler,
     ) {
-        let info = self.peers.get_mut(peer_id).expect("Peer exists.");
+        let mut peers = self.peers.write();
+        let info = peers.get_mut(peer_id).expect("Peer exists.");
         match &mut info.connection_status {
             ConnectionStatus::Connected {
                 connections,
@@ -191,7 +196,8 @@ impl NetworkBehaviour for ConnTracker {
         old: &ConnectedPoint,
         new: &ConnectedPoint,
     ) {
-        let info = self.peers.get_mut(peer_id).expect("Peer exists.");
+        let mut peers = self.peers.write();
+        let info = peers.get_mut(peer_id).expect("Peer exists.");
         match &mut info.connection_status {
             ConnectionStatus::Connected {
                 connections,
@@ -218,7 +224,8 @@ impl NetworkBehaviour for ConnTracker {
     ) {
         if let Some(peer_id) = peer_id {
             // This was an explicit dial to a peer. We should have it registered.
-            let info = self.peers.get_mut(&peer_id).expect("Peer exists.");
+            let mut peers = self.peers.write();
+            let info = peers.get_mut(&peer_id).expect("Peer exists.");
             assert!(info.dialing_attempts > 0);
             info.dialing_attempts -= 1;
         }
@@ -245,6 +252,8 @@ impl NetworkBehaviour for ConnTracker {
         Poll::Pending
     }
 }
+
+struct ConnTracked {}
 
 /* utilities */
 
