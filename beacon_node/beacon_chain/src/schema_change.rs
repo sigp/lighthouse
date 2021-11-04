@@ -191,115 +191,125 @@ pub fn proto_array_from_legacy_persisted<T: BeaconChainTypes>(
         .finalized_checkpoint
         .root;
 
-    let mappy = find_justified_roots::<T>(db, finalized_root, &legacy_nodes, &fork_choice)?;
-
-    // Update `node.justified_checkpoint` to the correct value for each node.
-    for (index, justified_root) in mappy {
-        let mut node = fork_choice
-            .core_proto_array_mut()
-            .nodes
-            .get_mut(index)
-            .unwrap();
-        node.justified_checkpoint = Some(Checkpoint {
-            epoch: legacy_nodes.get(index).unwrap().justified_epoch,
-            root: justified_root.unwrap(),
-        })
-    }
+    update_justified_roots::<T>(db, finalized_root, &legacy_nodes, &mut fork_choice)?;
 
     Ok(fork_choice)
 }
 
-fn find_justified_roots<T: BeaconChainTypes>(
+fn update_justified_roots<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     finalized_root: Hash256,
     legacy_nodes: &[LegacyProtoNode],
-    fork_choice: &ProtoArrayForkChoice,
-) -> Result<HashMap<usize, Option<Hash256>>, String> {
-    let heads = fork_choice
-        .core_proto_array()
-        .nodes
-        .iter()
-        .cloned()
-        .enumerate()
-        .filter(|(node_index, node)| {
-            node.best_descendant.is_none() && fork_choice.is_descendant(finalized_root, node.root)
-        })
-        .collect::<Vec<_>>();
+    fork_choice: &mut ProtoArrayForkChoice,
+) -> Result<(), String> {
+    // Gather candidate heads
+    let head_indices = find_head_indices(finalized_root, fork_choice);
 
-    let mut justified_roots_by_index: HashMap<usize, _> = HashMap::new();
-
-    for (head_index, head) in heads {
-        // instantiate iterator
+    // For each head, iterate backwards to its parents, stopping once a parent can't be found or we
+    // reach the finalized root. Instantiate a block roots iter and iterate backwards to the start
+    // of each justified epoch as the justified epoch in this chain of descendants changes.
+    for head_index in head_indices {
         let mut iter = std::iter::once(Ok((head.root, head.slot))).chain(
             BlockRootsIterator::from_block(db.clone(), head.root)
-                .map_err(|_| "todo: fix".to_string())?,
+                .map_err(|e| format!("{:?}", e))?,
         );
 
-        find_justified_root::<_, T::EthSpec>(
-            &legacy_nodes,
-            &mut justified_roots_by_index,
-            head_index,
-            &mut iter,
-        )?;
+        let head = fork_choice
+            .core_proto_array_mut()
+            .nodes
+            .get_mut(head_index)
+            .ok_or("Head index not found in proto nodes".to_string())?;
+        let justified_epoch = legacy_nodes
+            .get(head_index)
+            .ok_or("Head index not found in legacy proto nodes".to_string())?
+            .justified_epoch;
 
-        // repeat for all parents
-        let mut parent_index = head.parent;
-        let mut parent = parent_index.and_then(|index| legacy_nodes.get(index));
+        // Find the justified root for the head and populate the checkpoint.
+        let justified_root = find_justified_root::<_, T::EthSpec>(justified_epoch, &mut iter)?;
+        let justified_checkpoint = Some(Checkpoint {
+            epoch: justified_epoch,
+            root: justified_root,
+        });
+        head.justified_checkpoint = justified_checkpoint;
 
-        while let Some(parent_ref) = parent {
-            if parent_ref.root == finalized_root {
+        // These values will be updated as we iterate through the while loop
+        let mut child_justified_epoch = justified_epoch;
+        let mut child_justified_checkpoint = justified_checkpoint;
+        let mut parent_index_opt = head.parent;
+        let mut parent_opt = parent_index_opt
+            .and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
+
+        while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
+            if parent.root == finalized_root {
                 break;
             }
 
-            find_justified_root::<_, T::EthSpec>(
-                &legacy_nodes,
-                &mut justified_roots_by_index,
-                parent_index.unwrap(),
-                &mut iter,
-            )?;
+            let parent_justified_epoch = legacy_nodes
+                .get(parent_index)
+                .ok_or("Head index not found in legacy proto nodes".to_string())?
+                .justified_epoch;
 
-            parent_index = parent_ref.parent;
-            parent = parent_index.and_then(|index| legacy_nodes.get(index));
+            if parent_justified_epoch == child_justified_epoch {
+                parent.justified_checkpoint = child_justified_checkpoint;
+            } else {
+                // Use the same iterator, in order to avoid loading state unnecessarily.
+                let parent_justified_root =
+                    find_justified_root::<_, T::EthSpec>(parent_justified_epoch, &mut iter)?;
+                let parent_justified_checkpoint = Some(Checkpoint {
+                    epoch: parent_justified_epoch,
+                    root: parent_justified_root,
+                });
+                parent.justified_checkpoint = parent_justified_checkpoint;
+                child_justified_checkpoint = parent_justified_checkpoint;
+            }
+
+            parent_index_opt = parent.parent;
+            parent_opt = parent_index_opt
+                .and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
         }
     }
+    Ok(())
+}
 
-    Ok(justified_roots_by_index)
+fn find_head_indices(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice) -> Vec<usize> {
+    fork_choice
+        .core_proto_array()
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(node_index, node)| {
+            if node.best_descendant.is_none()
+                && fork_choice.is_descendant(finalized_root, node.root)
+            {
+                Some(node_index)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
 }
 
 fn find_justified_root<U, E: EthSpec>(
-    legacy_nodes: &[LegacyProtoNode],
-    justified_roots_by_index: &mut HashMap<usize, Option<Hash256>>,
-    head_index: usize,
-    itera: &mut U,
-) -> Result<(), String>
+    justified_epoch: Epoch,
+    iter: &mut U,
+) -> Result<Hash256, String>
 where
     U: Iterator<Item = Result<(Hash256, Slot), store::Error>>,
 {
-    let justified_root_slot = legacy_nodes
-        .get(head_index)
-        .unwrap()
-        .justified_epoch
+    let justified_root_slot = justified_epoch
         .start_slot(E::slots_per_epoch())
-        .safe_sub(1)
-        .map_err(|_| "todo: fix".to_string())?;
+        .saturating_sub(Slot::new(1));
 
     // iter block roots until justified epoch, then update node
-    let justified_root = itera
-        .find_map(|banana| {
-            if let Ok((root, slot)) = banana {
-                if slot == justified_root_slot {
-                    return Some(Ok(root));
-                }
-            } else {
-                return Some(Err("todo: fix".to_string()));
-            }
-            None
+    let justified_root = iter
+        .find_map(|next| match next {
+            Ok((root, slot)) => (slot == justified_root_slot).then(|| Ok(root)),
+            Err(e) => Some(Err(format!("{:?}", e))),
         })
-        .transpose()?;
+        .transpose()?
+        .ok_or("Justified root not found".to_string())?;
 
-    // cache root to update later
-    justified_roots_by_index.insert(head_index, justified_root);
-    Ok(())
+    Ok(justified_root)
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
