@@ -1,7 +1,7 @@
 use crate::{error::Error, Block, ExecutionStatus};
 use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};

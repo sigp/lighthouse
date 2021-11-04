@@ -1,24 +1,16 @@
 //! Utilities for managing database schema changes.
-use crate::beacon_chain::{
-    BeaconChainTypes, BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY,
-};
+use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::types::{AttestationShufflingId, EthSpec, Slot};
 use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use fork_choice::ForkChoice;
-use futures::FutureExt;
-use itertools::process_results;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use proto_array::ExecutionStatus;
 use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, ProtoArrayForkChoice};
-use safe_arith::SafeArith;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
 use std::fs;
-use std::iter::{Chain, Once};
 use std::path::Path;
 use std::sync::Arc;
 use store::config::OnDiskStoreConfig;
@@ -209,19 +201,20 @@ fn update_justified_roots<T: BeaconChainTypes>(
     // reach the finalized root. Instantiate a block roots iter and iterate backwards to the start
     // of each justified epoch as the justified epoch in this chain of descendants changes.
     for head_index in head_indices {
+        let head = fork_choice
+            .core_proto_array_mut()
+            .nodes
+            .get_mut(head_index)
+            .ok_or_else(|| "Head index not found in proto nodes".to_string())?;
+
         let mut iter = std::iter::once(Ok((head.root, head.slot))).chain(
             BlockRootsIterator::from_block(db.clone(), head.root)
                 .map_err(|e| format!("{:?}", e))?,
         );
 
-        let head = fork_choice
-            .core_proto_array_mut()
-            .nodes
-            .get_mut(head_index)
-            .ok_or("Head index not found in proto nodes".to_string())?;
         let justified_epoch = legacy_nodes
             .get(head_index)
-            .ok_or("Head index not found in legacy proto nodes".to_string())?
+            .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?
             .justified_epoch;
 
         // Find the justified root for the head and populate the checkpoint.
@@ -246,7 +239,7 @@ fn update_justified_roots<T: BeaconChainTypes>(
 
             let parent_justified_epoch = legacy_nodes
                 .get(parent_index)
-                .ok_or("Head index not found in legacy proto nodes".to_string())?
+                .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?
                 .justified_epoch;
 
             if parent_justified_epoch == child_justified_epoch {
@@ -260,9 +253,13 @@ fn update_justified_roots<T: BeaconChainTypes>(
                     root: parent_justified_root,
                 });
                 parent.justified_checkpoint = parent_justified_checkpoint;
+
+                // Update child justification values
+                child_justified_epoch = parent_justified_epoch;
                 child_justified_checkpoint = parent_justified_checkpoint;
             }
 
+            // Update parent values
             parent_index_opt = parent.parent;
             parent_opt = parent_index_opt
                 .and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
@@ -307,7 +304,7 @@ where
             Err(e) => Some(Err(format!("{:?}", e))),
         })
         .transpose()?
-        .ok_or("Justified root not found".to_string())?;
+        .ok_or_else(|| "Justified root not found".to_string())?;
 
     Ok(justified_root)
 }

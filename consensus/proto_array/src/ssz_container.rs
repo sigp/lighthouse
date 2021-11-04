@@ -2,10 +2,10 @@ use crate::{
     proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
 };
-use ssz::{four_byte_option_impl, Decode, Encode};
+use ssz::{four_byte_option_impl, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Checkpoint, Hash256};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
