@@ -44,11 +44,12 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
             SingleKeystoreResponse {
                 validating_pubkey,
                 derivation_path,
+                readonly: None,
             }
         })
         .collect::<Vec<_>>();
 
-    ListKeystoresResponse { keystores }
+    ListKeystoresResponse { data: keystores }
 }
 
 pub fn import<T: SlotClock + 'static, E: EthSpec>(
@@ -97,13 +98,18 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     // Import each keystore. Some keystores may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.keystores.len());
 
-    for keystore in request.keystores {
+    // FIXME(sproul): check and test different length keystores vs passwords
+    for (keystore, password) in request
+        .keystores
+        .into_iter()
+        .zip(request.passwords.into_iter())
+    {
         let pubkey_str = keystore.pubkey().to_string();
 
         let status = if let Some(runtime) = runtime.upgrade() {
             match import_single_keystore(
                 keystore,
-                request.keystores_password.clone(),
+                password,
                 validator_dir.clone(),
                 &validator_store,
                 runtime,
@@ -128,7 +134,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
         statuses.push(status);
     }
 
-    Ok(ImportKeystoresResponse { statuses })
+    Ok(ImportKeystoresResponse { data: statuses })
 }
 
 fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
@@ -210,7 +216,7 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
         })?;
 
     Ok(DeleteKeystoresResponse {
-        statuses,
+        data: statuses,
         slashing_protection,
     })
 }

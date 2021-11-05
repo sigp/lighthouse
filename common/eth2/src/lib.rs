@@ -100,12 +100,6 @@ impl fmt::Display for Error {
     }
 }
 
-impl From<reqwest::Error> for Error {
-    fn from(error: reqwest::Error) -> Self {
-        Error::Reqwest(error)
-    }
-}
-
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
 /// proper fallback behaviour.
 #[derive(Clone)]

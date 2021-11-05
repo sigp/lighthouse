@@ -48,7 +48,7 @@ fn check_get_response<'a>(
     response: &ListKeystoresResponse,
     expected_keystores: impl IntoIterator<Item = &'a Keystore>,
 ) {
-    for (ks1, ks2) in response.keystores.iter().zip_eq(expected_keystores) {
+    for (ks1, ks2) in response.data.iter().zip_eq(expected_keystores) {
         assert_eq!(ks1.validating_pubkey, keystore_pubkey(ks2));
         assert_eq!(ks1.derivation_path, ks2.path());
     }
@@ -58,7 +58,7 @@ fn check_import_response<'a>(
     response: &ImportKeystoresResponse,
     expected_statuses: impl IntoIterator<Item = ImportKeystoreStatus>,
 ) {
-    for (status, expected_status) in response.statuses.iter().zip_eq(expected_statuses) {
+    for (status, expected_status) in response.data.iter().zip_eq(expected_statuses) {
         assert_eq!(
             status.status, expected_status,
             "message: {:?}",
@@ -71,7 +71,7 @@ fn check_delete_response<'a>(
     response: &DeleteKeystoresResponse,
     expected_statuses: impl IntoIterator<Item = DeleteKeystoreStatus>,
 ) {
-    for (status, expected_status) in response.statuses.iter().zip_eq(expected_statuses) {
+    for (status, expected_status) in response.data.iter().zip_eq(expected_statuses) {
         assert_eq!(
             status.status, expected_status,
             "message: {:?}",
@@ -99,7 +99,7 @@ fn get_auth_no_token() {
 fn get_empty_keystores() {
     run_test(|tester| async move {
         let res = tester.client.get_keystores().await.unwrap();
-        assert_eq!(res, ListKeystoresResponse { keystores: vec![] });
+        assert_eq!(res, ListKeystoresResponse { data: vec![] });
     })
 }
 
@@ -115,7 +115,7 @@ fn import_new_keystores() {
             .client
             .post_keystores(&ImportKeystoresRequest {
                 keystores: keystores.clone(),
-                keystores_password: password,
+                passwords: vec![password.clone(); keystores.len()],
                 slashing_protection: None,
             })
             .await
@@ -140,7 +140,7 @@ fn import_only_duplicate_keystores() {
 
         let req = ImportKeystoresRequest {
             keystores: keystores.clone(),
-            keystores_password: password,
+            passwords: vec![password.clone(); keystores.len()],
             slashing_protection: None,
         };
 
@@ -182,13 +182,13 @@ fn import_some_duplicate_keystores() {
 
         let req1 = ImportKeystoresRequest {
             keystores: keystores1.clone(),
-            keystores_password: password.clone(),
+            passwords: vec![password.clone(); keystores1.len()],
             slashing_protection: None,
         };
 
         let req2 = ImportKeystoresRequest {
             keystores: keystores_all.clone(),
-            keystores_password: password,
+            passwords: vec![password.clone(); keystores_all.len()],
             slashing_protection: None,
         };
 
@@ -291,7 +291,7 @@ fn delete_concurrent_with_signing() {
             .client
             .post_keystores(&ImportKeystoresRequest {
                 keystores: keystores.clone(),
-                keystores_password: password,
+                passwords: vec![password.clone(); keystores.len()],
                 slashing_protection: None,
             })
             .await
@@ -353,7 +353,7 @@ fn delete_concurrent_with_signing() {
                         .await
                         .unwrap();
 
-                    for status in delete_res.statuses.iter() {
+                    for status in delete_res.data.iter() {
                         assert_ne!(status.status, DeleteKeystoreStatus::Error);
                     }
 
@@ -402,7 +402,7 @@ fn delete_then_reimport() {
         // 1. Import all keystores.
         let import_req = ImportKeystoresRequest {
             keystores: keystores.clone(),
-            keystores_password: password,
+            passwords: vec![password.clone(); keystores.len()],
             slashing_protection: None,
         };
         let import_res = tester.client.post_keystores(&import_req).await.unwrap();

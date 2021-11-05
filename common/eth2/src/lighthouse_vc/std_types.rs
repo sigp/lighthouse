@@ -11,25 +11,27 @@ pub struct AuthResponse {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct ListKeystoresResponse {
-    pub keystores: Vec<SingleKeystoreResponse>,
+    pub data: Vec<SingleKeystoreResponse>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct SingleKeystoreResponse {
     pub validating_pubkey: PublicKeyBytes,
     pub derivation_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readonly: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ImportKeystoresRequest {
     pub keystores: Vec<Keystore>,
-    pub keystores_password: ZeroizeString,
+    pub passwords: Vec<ZeroizeString>,
     pub slashing_protection: Option<Interchange>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ImportKeystoresResponse {
-    pub statuses: Vec<Status<ImportKeystoreStatus>>,
+    pub data: Vec<Status<ImportKeystoreStatus>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -70,7 +72,7 @@ pub struct DeleteKeystoresRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteKeystoresResponse {
-    pub statuses: Vec<Status<DeleteKeystoreStatus>>,
+    pub data: Vec<Status<DeleteKeystoreStatus>>,
     pub slashing_protection: Interchange,
 }
 
