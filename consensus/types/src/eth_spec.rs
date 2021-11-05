@@ -214,16 +214,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn bytes_per_logs_bloom() -> usize {
         Self::BytesPerLogsBloom::to_usize()
     }
-
-    /// Returns the `GAS_LIMIT_DENOMINATOR` constant for this specification.
-    fn gas_limit_denominator() -> u64 {
-        Self::GasLimitDenominator::to_u64()
-    }
-
-    /// Returns the `MIN_GAS_LIMIT` constant for this specification.
-    fn min_gas_limit() -> u64 {
-        Self::MinGasLimit::to_u64()
-    }
 }
 
 /// Macro to inherit some type values from another EthSpec.

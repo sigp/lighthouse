@@ -1353,12 +1353,6 @@ fn validate_execution_payload<T: BeaconChainTypes>(
                 },
             ));
         }
-        // Gas used is less than the gas limit
-        if execution_payload.gas_used > execution_payload.gas_limit {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::GasUsedExceedsLimit,
-            ));
-        }
         // The execution payload block hash is not equal to the parent hash
         if execution_payload.block_hash == execution_payload.parent_hash {
             return Err(BlockError::ExecutionPayloadError(
