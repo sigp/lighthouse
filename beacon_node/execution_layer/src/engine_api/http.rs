@@ -354,12 +354,6 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
     }
 }
 
-fn uint256_to_hash256(u: Uint256) -> Hash256 {
-    let mut bytes = [0; 32];
-    u.to_little_endian(&mut bytes);
-    Hash256::from_slice(&bytes)
-}
-
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonConsensusValidatedRequest {
