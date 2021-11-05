@@ -1,87 +1,10 @@
 use crate::{test_utils::TestRandom, *};
-use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-#[serde(bound = "T: EthSpec")]
-pub struct Transaction<T: EthSpec>(
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    VariableList<u8, T::MaxBytesPerTransaction>,
-);
-
-impl<T: EthSpec> Transaction<T> {
-    pub fn new(tx: VariableList<u8, T::MaxBytesPerTransaction>) -> Transaction<T> {
-        Self(tx)
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0[..]
-    }
-}
-
-impl<T: EthSpec> Encode for Transaction<T> {
-    fn is_ssz_fixed_len() -> bool {
-        <VariableList<u8, T::MaxBytesPerTransaction> as Encode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        self.0.ssz_append(buf)
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <VariableList<u8, T::MaxBytesPerTransaction> as Encode>::ssz_fixed_len()
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        self.0.ssz_bytes_len()
-    }
-}
-
-impl<T: EthSpec> Decode for Transaction<T> {
-    fn is_ssz_fixed_len() -> bool {
-        <VariableList<u8, T::MaxBytesPerTransaction> as Decode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <VariableList<u8, T::MaxBytesPerTransaction> as Decode>::ssz_fixed_len()
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        Ok(Transaction(VariableList::from_ssz_bytes(bytes)?))
-    }
-}
-
-impl<T: EthSpec> tree_hash::TreeHash for Transaction<T> {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Container
-    }
-
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("List should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("List should never be packed.")
-    }
-
-    fn tree_hash_root(&self) -> tree_hash::Hash256 {
-        self.0.tree_hash_root()
-    }
-}
-
-impl<T: EthSpec> SignedRoot for Transaction<T> {}
-
-impl<T: EthSpec> TestRandom for Transaction<T> {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        Transaction(VariableList::random_for_test(rng))
-    }
-}
+pub type Transaction<T> = VariableList<u8, T>;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
@@ -108,8 +31,9 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Hash256,
     pub block_hash: Hash256,
-    #[test_random(default)]
-    pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions:
+        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
