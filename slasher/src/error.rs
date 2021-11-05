@@ -1,6 +1,6 @@
 use crate::Config;
 use std::io;
-use types::{Epoch, Hash256};
+use types::Epoch;
 
 #[derive(Debug)]
 pub enum Error {
@@ -47,15 +47,19 @@ pub enum Error {
     ProposerKeyCorrupt {
         length: usize,
     },
-    IndexedAttestationKeyCorrupt {
+    IndexedAttestationIdKeyCorrupt {
+        length: usize,
+    },
+    IndexedAttestationIdCorrupt {
         length: usize,
     },
     MissingIndexedAttestation {
-        root: Hash256,
+        id: u64,
     },
     MissingAttesterKey,
     MissingProposerKey,
-    MissingIndexedAttestationKey,
+    MissingIndexedAttestationId,
+    MissingIndexedAttestationIdKey,
     AttesterRecordInconsistentRoot,
 }
 

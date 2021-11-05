@@ -40,4 +40,9 @@ lazy_static! {
         "slasher_compression_ratio",
         "Compression ratio for min-max array chunks (higher is better)"
     );
+    pub static ref SLASHER_NUM_INDEXED_ATTESTATION_LOADS: Result<IntCounter> =
+        try_create_int_counter(
+            "slasher_num_indexed_attestation_loads",
+            "Number of indexed attestations loaded from disk for double vote checking",
+        );
 }

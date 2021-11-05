@@ -5,7 +5,7 @@ use crate::metrics::{
     SLASHER_NUM_BLOCKS_PROCESSED,
 };
 use crate::{
-    array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
+    array, AttestationBatch, AttestationQueue, BlockQueue, Config, Error, IndexedAttestationId,
     ProposerSlashingStatus, SimpleBatch, SlasherDB,
 };
 use lmdb::{RwTransaction, Transaction};
@@ -159,11 +159,12 @@ impl<E: EthSpec> Slasher<E> {
         let mut num_stored = 0;
         for weak_record in &batch.attestations {
             if let Some(indexed_record) = weak_record.upgrade() {
-                self.db.store_indexed_attestation(
+                let indexed_attestation_id = self.db.store_indexed_attestation(
                     txn,
                     indexed_record.record.indexed_attestation_hash,
                     &indexed_record.indexed,
                 )?;
+                indexed_record.set_id(indexed_attestation_id);
                 num_stored += 1;
             }
         }
@@ -197,11 +198,12 @@ impl<E: EthSpec> Slasher<E> {
     ) -> Result<(), Error> {
         // First, check for double votes.
         for attestation in &batch {
+            let indexed_attestation_id = IndexedAttestationId::new(attestation.get_id());
             match self.check_double_votes(
                 txn,
                 subqueue_id,
                 &attestation.indexed,
-                attestation.record,
+                indexed_attestation_id,
             ) {
                 Ok(slashings) => {
                     if !slashings.is_empty() {
@@ -262,7 +264,7 @@ impl<E: EthSpec> Slasher<E> {
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
-        attester_record: AttesterRecord,
+        indexed_attestation_id: IndexedAttestationId,
     ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
         let mut slashings = HashSet::new();
 
@@ -274,7 +276,7 @@ impl<E: EthSpec> Slasher<E> {
                 txn,
                 validator_index,
                 attestation,
-                attester_record,
+                indexed_attestation_id,
             )?;
 
             if let Some(slashing) = slashing_status.into_slashing(attestation) {
