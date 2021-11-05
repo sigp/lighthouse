@@ -426,7 +426,6 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
 pub struct ForkChoiceGetHeadHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ForkChoiceGetHeadHandler<E> {
-    // Reuse the blocks case runner.
     type Case = cases::ForkChoiceTest<E>;
 
     fn config_name() -> &'static str {
@@ -453,7 +452,6 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceGetHeadHandler<E> {
 pub struct ForkChoiceOnBlockHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ForkChoiceOnBlockHandler<E> {
-    // Reuse the blocks case runner.
     type Case = cases::ForkChoiceTest<E>;
 
     fn config_name() -> &'static str {
