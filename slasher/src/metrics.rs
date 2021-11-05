@@ -40,9 +40,17 @@ lazy_static! {
         "slasher_compression_ratio",
         "Compression ratio for min-max array chunks (higher is better)"
     );
-    pub static ref SLASHER_NUM_INDEXED_ATTESTATION_LOADS: Result<IntCounter> =
+    pub static ref SLASHER_NUM_ATTESTATION_ROOT_QUERIES: Result<IntCounter> =
         try_create_int_counter(
-            "slasher_num_indexed_attestation_loads",
-            "Number of indexed attestations loaded from disk for double vote checking",
+            "slasher_num_attestation_root_queries",
+            "Number of requests for an attestation data root",
         );
+    pub static ref SLASHER_NUM_ATTESTATION_ROOT_HITS: Result<IntCounter> = try_create_int_counter(
+        "slasher_num_attestation_root_hits",
+        "Number of requests for an attestation data root that hit the LRU cache",
+    );
+    pub static ref SLASHER_ATTESTATION_ROOT_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "slasher_attestation_root_cache_size",
+        "Number of attestation data roots cached in memory"
+    );
 }

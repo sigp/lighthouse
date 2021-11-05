@@ -1,5 +1,5 @@
 use crate::{
-    config::{DEFAULT_BROADCAST, DEFAULT_SLOT_OFFSET},
+    config::{DEFAULT_ATTESTATION_ROOT_CACHE_SIZE, DEFAULT_BROADCAST, DEFAULT_SLOT_OFFSET},
     database::CURRENT_SCHEMA_VERSION,
     Config, Error, SlasherDB,
 };
@@ -31,6 +31,7 @@ impl Into<ConfigV2> for ConfigV1 {
             update_period: self.update_period,
             slot_offset: DEFAULT_SLOT_OFFSET,
             max_db_size_mbs: self.max_db_size_mbs,
+            attestation_root_cache_size: DEFAULT_ATTESTATION_ROOT_CACHE_SIZE,
             broadcast: DEFAULT_BROADCAST,
         }
     }

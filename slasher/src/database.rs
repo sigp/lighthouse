@@ -1,14 +1,18 @@
 use crate::{
     metrics,
     utils::{TxnMapFull, TxnOptional},
-    AttesterSlashingStatus, CompactAttesterRecord, Config, Error, ProposerSlashingStatus,
+    AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Error,
+    ProposerSlashingStatus,
 };
 use byteorder::{BigEndian, ByteOrder};
 use lmdb::{Cursor, Database, DatabaseFlags, Environment, RwTransaction, Transaction, WriteFlags};
+use lru::LruCache;
+use parking_lot::Mutex;
 use serde::Deserialize;
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::{
     Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader, Slot,
 };
@@ -67,6 +71,8 @@ pub struct SlasherDB<E: EthSpec> {
     pub(crate) current_epochs_db: Database,
     pub(crate) proposers_db: Database,
     pub(crate) metadata_db: Database,
+    /// LRU cache mapping indexed attestation IDs to their attestation data roots.
+    attestation_root_cache: Mutex<LruCache<IndexedAttestationId, Hash256>>,
     config: Arc<Config>,
     _phantom: PhantomData<E>,
 }
@@ -192,7 +198,7 @@ impl AsRef<[u8]> for IndexedAttestationIdKey {
 }
 
 /// Key containing a 6-byte indexed attestation ID.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IndexedAttestationId {
     id: [u8; INDEXED_ATTESTATION_ID_SIZE],
 }
@@ -260,6 +266,8 @@ impl<E: EthSpec> SlasherDB<E> {
             restrict_file_permissions(lock).map_err(Error::DatabasePermissionsError)?;
         }
 
+        let attestation_root_cache = Mutex::new(LruCache::new(config.attestation_root_cache_size));
+
         let db = Self {
             env,
             indexed_attestation_db,
@@ -271,6 +279,7 @@ impl<E: EthSpec> SlasherDB<E> {
             current_epochs_db,
             proposers_db,
             metadata_db,
+            attestation_root_cache,
             config,
             _phantom: PhantomData,
         };
@@ -508,11 +517,55 @@ impl<E: EthSpec> SlasherDB<E> {
         Ok(IndexedAttestation::from_ssz_bytes(bytes)?)
     }
 
+    fn get_attestation_data_root(
+        &self,
+        txn: &mut RwTransaction<'_>,
+        indexed_id: IndexedAttestationId,
+    ) -> Result<(Hash256, Option<IndexedAttestation<E>>), Error> {
+        metrics::inc_counter(&metrics::SLASHER_NUM_ATTESTATION_ROOT_QUERIES);
+
+        // If the value already exists in the cache, return it.
+        let mut cache = self.attestation_root_cache.lock();
+        if let Some(attestation_data_root) = cache.get(&indexed_id) {
+            metrics::inc_counter(&metrics::SLASHER_NUM_ATTESTATION_ROOT_HITS);
+            return Ok((*attestation_data_root, None));
+        }
+
+        // Otherwise, load the indexed attestation, compute the root and cache it.
+        let indexed_attestation = self.get_indexed_attestation(txn, indexed_id)?;
+        let attestation_data_root = indexed_attestation.data.tree_hash_root();
+
+        cache.put(indexed_id, attestation_data_root);
+
+        Ok((attestation_data_root, Some(indexed_attestation)))
+    }
+
+    pub fn cache_attestation_data_root(
+        &self,
+        indexed_attestation_id: IndexedAttestationId,
+        attestation_data_root: Hash256,
+    ) {
+        let mut cache = self.attestation_root_cache.lock();
+        cache.put(indexed_attestation_id, attestation_data_root);
+    }
+
+    fn delete_attestation_data_roots(&self, ids: impl IntoIterator<Item = IndexedAttestationId>) {
+        let mut cache = self.attestation_root_cache.lock();
+        for indexed_id in ids {
+            cache.pop(&indexed_id);
+        }
+    }
+
+    pub fn attestation_root_cache_size(&self) -> usize {
+        self.attestation_root_cache.lock().len()
+    }
+
     pub fn check_and_update_attester_record(
         &self,
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         attestation: &IndexedAttestation<E>,
+        record: &AttesterRecord,
         indexed_attestation_id: IndexedAttestationId,
     ) -> Result<AttesterSlashingStatus<E>, Error> {
         // See if there's an existing attestation for this attester.
@@ -527,22 +580,31 @@ impl<E: EthSpec> SlasherDB<E> {
         {
             // If the existing indexed attestation is identical, then this attestation is not
             // slashable and no update is required.
-            if existing_record.indexed_attestation_id == indexed_attestation_id {
+            let existing_att_id = existing_record.indexed_attestation_id;
+            if existing_att_id == indexed_attestation_id {
                 return Ok(AttesterSlashingStatus::NotSlashable);
             }
 
-            // Otherwise, load the indexed attestation so we can check if it's slashable.
-            metrics::inc_counter(&metrics::SLASHER_NUM_INDEXED_ATTESTATION_LOADS);
+            // Otherwise, load the attestation data root and check slashability via a hash root
+            // comparison.
+            let (existing_data_root, opt_existing_att) =
+                self.get_attestation_data_root(txn, existing_att_id)?;
 
-            let existing_attestation =
-                self.get_indexed_attestation(txn, existing_record.indexed_attestation_id)?;
+            if existing_data_root == record.attestation_data_hash {
+                return Ok(AttesterSlashingStatus::NotSlashable);
+            }
+
+            // If we made it this far, then the attestation is slashable. Ensure that it's
+            // loaded, double-check the slashing condition and return.
+            let existing_attestation = opt_existing_att
+                .map_or_else(|| self.get_indexed_attestation(txn, existing_att_id), Ok)?;
 
             if attestation.is_double_vote(&existing_attestation) {
                 Ok(AttesterSlashingStatus::DoubleVote(Box::new(
                     existing_attestation,
                 )))
             } else {
-                Ok(AttesterSlashingStatus::NotSlashable)
+                Err(Error::InconsistentAttestationDataRoot)
             }
         }
         // If no attestation exists, insert a record for this validator.
@@ -742,7 +804,9 @@ impl<E: EthSpec> SlasherDB<E> {
             let (target_epoch, _) = IndexedAttestationIdKey::parse(key_bytes)?;
 
             if target_epoch < min_epoch {
-                indexed_attestation_ids.push(IndexedAttestationId::parse(value)?);
+                indexed_attestation_ids.push(IndexedAttestationId::new(
+                    IndexedAttestationId::parse(value)?,
+                ));
 
                 cursor.del(Self::write_flags())?;
 
@@ -761,13 +825,10 @@ impl<E: EthSpec> SlasherDB<E> {
 
         // Delete the indexed attestations.
         // Optimisation potential: use a cursor here.
-        for indexed_attestation_id in indexed_attestation_ids {
-            txn.del(
-                self.indexed_attestation_db,
-                &IndexedAttestationId::new(indexed_attestation_id),
-                None,
-            )?;
+        for indexed_attestation_id in &indexed_attestation_ids {
+            txn.del(self.indexed_attestation_db, indexed_attestation_id, None)?;
         }
+        self.delete_attestation_data_roots(indexed_attestation_ids);
 
         Ok(())
     }

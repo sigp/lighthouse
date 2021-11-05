@@ -9,6 +9,7 @@ pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
+pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
@@ -34,6 +35,8 @@ pub struct Config {
     pub slot_offset: f64,
     /// Maximum size of the LMDB database in megabytes.
     pub max_db_size_mbs: usize,
+    /// Maximum size of the in-memory cache for attestation roots.
+    pub attestation_root_cache_size: usize,
     /// Whether to broadcast slashings found to the network.
     pub broadcast: bool,
 }
@@ -52,6 +55,7 @@ impl Config {
             update_period: DEFAULT_UPDATE_PERIOD,
             slot_offset: DEFAULT_SLOT_OFFSET,
             max_db_size_mbs: DEFAULT_MAX_DB_SIZE,
+            attestation_root_cache_size: DEFAULT_ATTESTATION_ROOT_CACHE_SIZE,
             broadcast: DEFAULT_BROADCAST,
         }
     }

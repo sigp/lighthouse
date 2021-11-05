@@ -5,8 +5,8 @@ use crate::metrics::{
     SLASHER_NUM_BLOCKS_PROCESSED,
 };
 use crate::{
-    array, AttestationBatch, AttestationQueue, BlockQueue, Config, Error, IndexedAttestationId,
-    ProposerSlashingStatus, SimpleBatch, SlasherDB,
+    array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
+    IndexedAttestationId, ProposerSlashingStatus, SimpleBatch, SlasherDB,
 };
 use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
@@ -165,6 +165,13 @@ impl<E: EthSpec> Slasher<E> {
                     &indexed_record.indexed,
                 )?;
                 indexed_record.set_id(indexed_attestation_id);
+
+                // Prime the attestation data root LRU cache.
+                self.db.cache_attestation_data_root(
+                    IndexedAttestationId::new(indexed_attestation_id),
+                    indexed_record.record.attestation_data_hash,
+                );
+
                 num_stored += 1;
             }
         }
@@ -185,6 +192,12 @@ impl<E: EthSpec> Slasher<E> {
         for (subqueue_id, subqueue) in grouped_attestations.subqueues.into_iter().enumerate() {
             self.process_batch(txn, subqueue_id, subqueue, current_epoch)?;
         }
+
+        metrics::set_gauge(
+            &metrics::SLASHER_ATTESTATION_ROOT_CACHE_SIZE,
+            self.db.attestation_root_cache_size() as i64,
+        );
+
         Ok(AttestationStats { num_processed })
     }
 
@@ -203,6 +216,7 @@ impl<E: EthSpec> Slasher<E> {
                 txn,
                 subqueue_id,
                 &attestation.indexed,
+                &attestation.record,
                 indexed_attestation_id,
             ) {
                 Ok(slashings) => {
@@ -264,6 +278,7 @@ impl<E: EthSpec> Slasher<E> {
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
+        attester_record: &AttesterRecord,
         indexed_attestation_id: IndexedAttestationId,
     ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
         let mut slashings = HashSet::new();
@@ -276,6 +291,7 @@ impl<E: EthSpec> Slasher<E> {
                 txn,
                 validator_index,
                 attestation,
+                attester_record,
                 indexed_attestation_id,
             )?;
 

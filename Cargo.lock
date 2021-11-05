@@ -5238,6 +5238,7 @@ dependencies = [
  "lmdb",
  "lmdb-sys",
  "logging",
+ "lru",
  "maplit",
  "parking_lot",
  "rand 0.7.3",

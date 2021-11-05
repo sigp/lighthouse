@@ -60,7 +60,7 @@ pub enum Error {
     MissingProposerKey,
     MissingIndexedAttestationId,
     MissingIndexedAttestationIdKey,
-    AttesterRecordInconsistentRoot,
+    InconsistentAttestationDataRoot,
 }
 
 impl From<lmdb::Error> for Error {
