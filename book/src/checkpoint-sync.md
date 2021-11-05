@@ -1,7 +1,7 @@
 # Checkpoint Sync
 
-Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster
-than syncing from genesis, while still providing all the same features.
+Since version 2.0.0 Lighthouse supports syncing from a recent finalized checkpoint. This is
+substantially faster than syncing from genesis, while still providing all the same features.
 
 If you would like to quickly get started with checkpoint sync, read the sections below on:
 
