@@ -139,6 +139,7 @@ pub struct ChainSpec {
     pub merge_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: Hash256,
+    pub terminal_block_hash_activation_epoch: Epoch,
 
     /*
      * Networking
@@ -407,7 +408,7 @@ impl ChainSpec {
              * Constants
              */
             genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::max_value()),
+            far_future_epoch: Epoch::new(u64::MAX),
             base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
 
@@ -534,6 +535,7 @@ impl ChainSpec {
                 .checked_sub(Uint256::from(2u64.pow(10)))
                 .expect("calculation does not overflow"),
             terminal_block_hash: Hash256::zero(),
+            terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
              * Network specific
