@@ -1,4 +1,4 @@
-use crate::Config;
+use crate::config::{Config, DiskConfig};
 use std::io;
 use types::Epoch;
 
@@ -27,8 +27,8 @@ pub enum Error {
         config: Config,
     },
     ConfigIncompatible {
-        on_disk_config: Config,
-        config: Config,
+        on_disk_config: DiskConfig,
+        config: DiskConfig,
     },
     ConfigMissing,
     DistanceTooLarge,

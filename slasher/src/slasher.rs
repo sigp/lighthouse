@@ -32,7 +32,7 @@ impl<E: EthSpec> Slasher<E> {
     pub fn open(config: Config, log: Logger) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
-        let db = SlasherDB::open(config.clone())?;
+        let db = SlasherDB::open(config.clone(), log.clone())?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::default();

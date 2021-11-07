@@ -9,6 +9,7 @@ use lmdb::{Cursor, Database, DatabaseFlags, Environment, RwTransaction, Transact
 use lru::LruCache;
 use parking_lot::Mutex;
 use serde::Deserialize;
+use slog::Logger;
 use ssz::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -73,7 +74,8 @@ pub struct SlasherDB<E: EthSpec> {
     pub(crate) metadata_db: Database,
     /// LRU cache mapping indexed attestation IDs to their attestation data roots.
     attestation_root_cache: Mutex<LruCache<IndexedAttestationId, Hash256>>,
-    config: Arc<Config>,
+    pub(crate) config: Arc<Config>,
+    pub(crate) log: Logger,
     _phantom: PhantomData<E>,
 }
 
@@ -238,7 +240,7 @@ impl AsRef<[u8]> for IndexedAttestationId {
 }
 
 impl<E: EthSpec> SlasherDB<E> {
-    pub fn open(config: Arc<Config>) -> Result<Self, Error> {
+    pub fn open(config: Arc<Config>, log: Logger) -> Result<Self, Error> {
         std::fs::create_dir_all(&config.database_path)?;
         let env = Environment::new()
             .set_max_dbs(LMDB_MAX_DBS)
@@ -268,7 +270,7 @@ impl<E: EthSpec> SlasherDB<E> {
 
         let attestation_root_cache = Mutex::new(LruCache::new(config.attestation_root_cache_size));
 
-        let db = Self {
+        let mut db = Self {
             env,
             indexed_attestation_db,
             indexed_attestation_id_db,
@@ -281,22 +283,23 @@ impl<E: EthSpec> SlasherDB<E> {
             metadata_db,
             attestation_root_cache,
             config,
+            log,
             _phantom: PhantomData,
         };
 
+        db = db.migrate()?;
+
         let mut txn = db.begin_rw_txn()?;
 
-        db.migrate(&mut txn)?;
-
         if let Some(on_disk_config) = db.load_config(&mut txn)? {
-            if !db.config.is_compatible(&on_disk_config) {
+            let current_disk_config = db.config.disk_config();
+            if current_disk_config != on_disk_config {
                 return Err(Error::ConfigIncompatible {
                     on_disk_config,
-                    config: (*db.config).clone(),
+                    config: current_disk_config,
                 });
             }
         }
-        db.store_config(&db.config, &mut txn)?;
         txn.commit()?;
 
         Ok(db)

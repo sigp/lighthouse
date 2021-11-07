@@ -31,7 +31,6 @@ pub struct Config {
     /// Update frequency in seconds.
     pub update_period: u64,
     /// Offset from the start of the slot to begin processing.
-    #[serde(skip, default = "default_slot_offset")]
     pub slot_offset: f64,
     /// Maximum size of the LMDB database in megabytes.
     pub max_db_size_mbs: usize,
@@ -41,8 +40,12 @@ pub struct Config {
     pub broadcast: bool,
 }
 
-fn default_slot_offset() -> f64 {
-    DEFAULT_SLOT_OFFSET
+/// Immutable configuration parameters which are stored on disk and checked for consistency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskConfig {
+    pub chunk_size: usize,
+    pub validator_chunk_size: usize,
+    pub history_length: usize,
 }
 
 impl Config {
@@ -90,10 +93,12 @@ impl Config {
         }
     }
 
-    pub fn is_compatible(&self, other: &Config) -> bool {
-        self.chunk_size == other.chunk_size
-            && self.validator_chunk_size == other.validator_chunk_size
-            && self.history_length == other.history_length
+    pub fn disk_config(&self) -> DiskConfig {
+        DiskConfig {
+            chunk_size: self.chunk_size,
+            validator_chunk_size: self.validator_chunk_size,
+            history_length: self.history_length,
+        }
     }
 
     pub fn chunk_index(&self, epoch: Epoch) -> usize {
