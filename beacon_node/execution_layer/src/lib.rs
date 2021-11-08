@@ -21,6 +21,7 @@ use tokio::{
 
 pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
 pub use execute_payload_handle::ExecutePayloadHandle;
+use types::ExecutionPayloadHeader;
 
 mod engine_api;
 mod engines;
@@ -303,6 +304,36 @@ impl ExecutionLayer {
                     .await?;
 
                 engine.api.get_payload(payload_id).await
+            })
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
+    pub async fn get_payload_header<T: EthSpec>(
+        &self,
+        parent_hash: Hash256,
+        timestamp: u64,
+        random: Hash256,
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
+        let fee_recipient = self.fee_recipient()?;
+        debug!(
+            self.log(),
+            "Issuing engine_getPayload";
+            "fee_recipient" => ?fee_recipient,
+            "random" => ?random,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
+        self.engines()
+            .first_success(|engine| async move {
+                // TODO(merge): make a cache for these IDs, so we don't always have to perform this
+                // request.
+                let payload_id = engine
+                    .api
+                    .prepare_payload(parent_hash, timestamp, random, fee_recipient)
+                    .await?;
+
+                engine.api.get_payload_header(payload_id).await
             })
             .await
             .map_err(Error::EngineErrors)

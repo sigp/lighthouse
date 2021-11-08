@@ -33,6 +33,31 @@ pub fn process_operations<'a, T: EthSpec>(
     Ok(())
 }
 
+pub fn process_operations_private<'a, T: EthSpec>(
+    state: &mut BeaconState<T>,
+    block_body: PrivateBeaconBlockBodyRef<'a, T>,
+    proposer_index: u64,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    process_proposer_slashings(
+        state,
+        block_body.proposer_slashings(),
+        verify_signatures,
+        spec,
+    )?;
+    process_attester_slashings(
+        state,
+        block_body.attester_slashings(),
+        verify_signatures,
+        spec,
+    )?;
+    process_attestations_private(state, block_body, proposer_index, verify_signatures, spec)?;
+    process_deposits(state, block_body.deposits(), spec)?;
+    process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+    Ok(())
+}
+
 pub mod base {
     use super::*;
 
@@ -229,6 +254,32 @@ pub fn process_attestations<'a, T: EthSpec>(
             base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
         }
         BeaconBlockBodyRef::Altair(_) | BeaconBlockBodyRef::Merge(_) => {
+            altair::process_attestations(
+                state,
+                block_body.attestations(),
+                proposer_index,
+                verify_signatures,
+                spec,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Wrapper function to handle calling the correct version of `process_attestations` based on
+/// the fork.
+pub fn process_attestations_private<'a, T: EthSpec>(
+    state: &mut BeaconState<T>,
+    block_body: PrivateBeaconBlockBodyRef<'a, T>,
+    proposer_index: u64,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    match block_body {
+        PrivateBeaconBlockBodyRef::Base(_) => {
+            base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
+        }
+        PrivateBeaconBlockBodyRef::Altair(_) | PrivateBeaconBlockBodyRef::Merge(_) => {
             altair::process_attestations(
                 state,
                 block_body.attestations(),

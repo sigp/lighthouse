@@ -33,6 +33,7 @@ pub const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
 pub const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_PAYLOAD: &str = "engine_getPayload";
+pub const ENGINE_GET_PAYLOAD_HEADER : &str = "engine_getPayloadHeader";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_CONSENSUS_VALIDATED: &str = "engine_consensusValidated";
@@ -193,6 +194,19 @@ impl EngineApi for HttpJsonRpc {
         Ok(ExecutionPayload::from(response))
     }
 
+    async fn get_payload_header<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
+        let params = json!([JsonPayloadIdRequest { payload_id }]);
+
+        let response: JsonExecutionPayloadHeader<T> = self
+            .rpc_request(ENGINE_GET_PAYLOAD_HEADER, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await?;
+
+        Ok(ExecutionPayloadHeader::from(response))
+    }
+
     async fn consensus_validated(
         &self,
         block_hash: Hash256,
@@ -349,6 +363,73 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
             base_fee_per_gas: uint256_to_hash256(e.base_fee_per_gas),
             block_hash: e.block_hash,
             transactions: e.transactions,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadHeader<T: EthSpec> {
+    pub parent_hash: Hash256,
+    pub coinbase: Address,
+    pub state_root: Hash256,
+    pub receipt_root: Hash256,
+    #[serde(with = "serde_logs_bloom")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub random: Hash256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub block_number: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub base_fee_per_gas: Uint256,
+    pub block_hash: Hash256,
+    pub transactions_root: Hash256,
+}
+
+impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for JsonExecutionPayloadHeader<T> {
+    fn from(e: ExecutionPayloadHeader<T>) -> Self {
+        Self {
+            parent_hash: e.parent_hash,
+            coinbase: e.coinbase,
+            state_root: e.state_root,
+            receipt_root: e.receipt_root,
+            logs_bloom: e.logs_bloom,
+            random: e.random,
+            block_number: e.block_number,
+            gas_limit: e.gas_limit,
+            gas_used: e.gas_used,
+            timestamp: e.timestamp,
+            extra_data: e.extra_data,
+            base_fee_per_gas: Uint256::from_little_endian(e.base_fee_per_gas.as_bytes()),
+            block_hash: e.block_hash,
+            transactions_root: e.transactions_root,
+        }
+    }
+}
+
+impl<T: EthSpec> From<JsonExecutionPayloadHeader<T>> for ExecutionPayloadHeader<T> {
+    fn from(e: JsonExecutionPayloadHeader<T>) -> Self {
+        Self {
+            parent_hash: e.parent_hash,
+            coinbase: e.coinbase,
+            state_root: e.state_root,
+            receipt_root: e.receipt_root,
+            logs_bloom: e.logs_bloom,
+            random: e.random,
+            block_number: e.block_number,
+            gas_limit: e.gas_limit,
+            gas_used: e.gas_used,
+            timestamp: e.timestamp,
+            extra_data: e.extra_data,
+            base_fee_per_gas: uint256_to_hash256(e.base_fee_per_gas),
+            block_hash: e.block_hash,
+            transactions_root: e.transactions_root,
         }
     }
 }

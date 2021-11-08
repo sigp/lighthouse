@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const LATEST_TAG: &str = "latest";
 
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
+use types::ExecutionPayloadHeader;
 
 pub mod http;
 
@@ -69,6 +70,11 @@ pub trait EngineApi {
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error>;
+
+    async fn get_payload_header<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayloadHeader<T>, Error>;
 
     async fn consensus_validated(
         &self,
