@@ -46,8 +46,6 @@ use types::{
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
-// This parameter is required by a builder but not used because we use the `TestingSlotClock`.
-pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 // Environment variable to read if `fork_from_env` feature is enabled.
 const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
@@ -318,6 +316,7 @@ where
 
         let log = test_logger();
         let spec = self.spec.expect("cannot build without spec");
+        let seconds_per_slot = spec.seconds_per_slot;
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
@@ -352,7 +351,7 @@ where
         // Initialize the slot clock only if it hasn't already been initialized.
         builder = if builder.get_slot_clock().is_none() {
             builder
-                .testing_slot_clock(HARNESS_SLOT_TIME)
+                .testing_slot_clock(Duration::from_secs(seconds_per_slot))
                 .expect("should configure testing slot clock")
         } else {
             builder
