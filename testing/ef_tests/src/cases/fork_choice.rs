@@ -9,6 +9,7 @@ use beacon_chain::{
 };
 use serde_derive::Deserialize;
 use state_processing::state_advance::complete_state_advance;
+use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
     IndexedAttestation, SignedBeaconBlock, Slot,
@@ -260,8 +261,15 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn set_tick(&self, tick: u64) {
+        self.harness
+            .chain
+            .slot_clock
+            .set_current_time(Duration::from_secs(tick));
+
+        // Compute the slot time manually to ensure the slot clock is correct.
         let slot = self.tick_to_slot(tick).unwrap();
-        self.harness.set_current_slot(slot);
+        assert_eq!(slot, self.harness.chain.slot().unwrap());
+
         self.harness
             .chain
             .fork_choice
