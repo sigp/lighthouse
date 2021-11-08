@@ -2207,6 +2207,39 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/blocks_private/{slot}
+    let get_lighthouse_validator_blocks_private = warp::path("lighthouse")
+        .and(warp::path("validator"))
+        .and(warp::path("blocks_private"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(chain_filter.clone())
+        .and_then(
+            |slot: Slot,
+             query: api_types::ValidatorBlocksQuery,
+             chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "randao reveal is not valid BLS signature: {:?}",
+                            e
+                        ))
+                    })?;
+
+                    let (block, _) = chain
+                        .produce_block_private(randao_reveal, slot, query.graffiti.map(Into::into))
+                        .map_err(warp_utils::reject::block_production_error)?;
+                    Ok(api_types::GenericResponse::from(block))
+                })
+            },
+        );
+
     // POST lighthouse/liveness
     let post_lighthouse_liveness = warp::path("lighthouse")
         .and(warp::path("liveness"))
@@ -2633,6 +2666,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
+                .or(get_lighthouse_validator_blocks_private.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(

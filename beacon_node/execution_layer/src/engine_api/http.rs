@@ -36,6 +36,10 @@ pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
+//TODO: here
+pub const BUILDER_GET_PAYLOAD_HEADER : &str = "builder_getPayloadHeaderV1";
+pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
@@ -120,7 +124,7 @@ impl EngineApi for HttpJsonRpc {
             params,
             ETH_GET_BLOCK_BY_NUMBER_TIMEOUT,
         )
-        .await
+            .await
     }
 
     async fn get_block_by_hash<'a>(
@@ -180,8 +184,212 @@ impl EngineApi for HttpJsonRpc {
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
             )
             .await?;
+    }
+
+    //TODO: here
+    async fn get_payload_header_v1<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
+        let params = json!([JsonPayloadIdRequest { payload_id }]);
+
+        let response: JsonExecutionPayloadHeader<T> = self
+            .rpc_request(ENGINE_GET_PAYLOAD_HEADER, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await?;
 
         Ok(response.into())
+    }
+}
+
+//TODO: move this
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadHeader<T: EthSpec> {
+    pub parent_hash: Hash256,
+    pub coinbase: Address,
+    pub state_root: Hash256,
+    pub receipt_root: Hash256,
+    #[serde(with = "serde_logs_bloom")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub random: Hash256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub block_number: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub base_fee_per_gas: Uint256,
+    pub block_hash: Hash256,
+    pub transactions_root: Hash256,
+}
+
+impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for JsonExecutionPayloadHeader<T> {
+    fn from(e: ExecutionPayloadHeader<T>) -> Self {
+        Self {
+            parent_hash: e.parent_hash,
+            coinbase: e.coinbase,
+            state_root: e.state_root,
+            receipt_root: e.receipt_root,
+            logs_bloom: e.logs_bloom,
+            random: e.random,
+            block_number: e.block_number,
+            gas_limit: e.gas_limit,
+            gas_used: e.gas_used,
+            timestamp: e.timestamp,
+            extra_data: e.extra_data,
+            base_fee_per_gas: Uint256::from_little_endian(e.base_fee_per_gas.as_bytes()),
+            block_hash: e.block_hash,
+            transactions_root: e.transactions_root,
+        }
+    }
+}
+
+impl<T: EthSpec> From<JsonExecutionPayloadHeader<T>> for ExecutionPayloadHeader<T> {
+    fn from(e: JsonExecutionPayloadHeader<T>) -> Self {
+        Self {
+            parent_hash: e.parent_hash,
+            coinbase: e.coinbase,
+            state_root: e.state_root,
+            receipt_root: e.receipt_root,
+            logs_bloom: e.logs_bloom,
+            random: e.random,
+            block_number: e.block_number,
+            gas_limit: e.gas_limit,
+            gas_used: e.gas_used,
+            timestamp: e.timestamp,
+            extra_data: e.extra_data,
+            base_fee_per_gas: uint256_to_hash256(e.base_fee_per_gas),
+            block_hash: e.block_hash,
+            transactions_root: e.transactions_root,
+        }
+    }
+}
+
+fn uint256_to_hash256(u: Uint256) -> Hash256 {
+    let mut bytes = [0; 32];
+    u.to_little_endian(&mut bytes);
+    Hash256::from_slice(&bytes)
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonConsensusValidatedRequest {
+    pub block_hash: Hash256,
+    pub status: ConsensusStatus,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonForkChoiceUpdatedRequest {
+    pub head_block_hash: Hash256,
+    pub finalized_block_hash: Hash256,
+}
+
+/// Serializes the `logs_bloom` field of an `ExecutionPayload`.
+pub mod serde_logs_bloom {
+    use super::*;
+    use eth2_serde_utils::hex::PrefixedHexVisitor;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S, U>(bytes: &FixedVector<u8, U>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        U: Unsigned,
+    {
+        let mut hex_string: String = "0x".to_string();
+        hex_string.push_str(&hex::encode(&bytes[..]));
+
+        serializer.serialize_str(&hex_string)
+    }
+
+    pub fn deserialize<'de, D, U>(deserializer: D) -> Result<FixedVector<u8, U>, D::Error>
+    where
+        D: Deserializer<'de>,
+        U: Unsigned,
+    {
+        let vec = deserializer.deserialize_string(PrefixedHexVisitor)?;
+
+        FixedVector::new(vec)
+            .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
+    }
+}
+
+/// Serializes the `transactions` field of an `ExecutionPayload`.
+pub mod serde_transactions {
+    use super::*;
+    use eth2_serde_utils::hex;
+    use serde::ser::SerializeSeq;
+    use serde::{de, Deserializer, Serializer};
+    use std::marker::PhantomData;
+
+    type Value<T, N> = VariableList<Transaction<T>, N>;
+
+    #[derive(Default)]
+    pub struct ListOfBytesListVisitor<T, N> {
+        _phantom_t: PhantomData<T>,
+        _phantom_n: PhantomData<N>,
+    }
+
+    impl<'a, T: EthSpec, N: Unsigned> serde::de::Visitor<'a> for ListOfBytesListVisitor<T, N> {
+        type Value = Value<T, N>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(formatter, "a list of 0x-prefixed byte lists")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'a>,
+        {
+            let mut outer = VariableList::default();
+
+            while let Some(val) = seq.next_element::<String>()? {
+                let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
+                let opaque_transaction = VariableList::new(inner_vec).map_err(|e| {
+                    serde::de::Error::custom(format!("transaction too large: {:?}", e))
+                })?;
+                let transaction = Transaction::OpaqueTransaction(opaque_transaction);
+                outer.push(transaction).map_err(|e| {
+                    serde::de::Error::custom(format!("too many transactions: {:?}", e))
+                })?;
+            }
+
+            Ok(outer)
+        }
+    }
+
+    pub fn serialize<S, T: EthSpec, N: Unsigned>(
+        value: &Value<T, N>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(value.len()))?;
+        for transaction in value {
+            // It's important to match on the inner values of the transaction. Serializing the
+            // entire `Transaction` will result in appending the SSZ union prefix byte. The
+            // execution node does not want that.
+            let hex = match transaction {
+                Transaction::OpaqueTransaction(val) => hex::encode(&val[..]),
+            };
+            seq.serialize_element(&hex)?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D, T: EthSpec, N: Unsigned>(
+        deserializer: D,
+    ) -> Result<Value<T, N>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let visitor: ListOfBytesListVisitor<T, N> = <_>::default();
+        deserializer.deserialize_any(visitor)
     }
 }
 

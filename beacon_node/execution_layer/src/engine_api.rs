@@ -6,6 +6,7 @@ pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
+use types::ExecutionPayloadHeader;
 
 pub mod http;
 pub mod json_structures;
@@ -70,6 +71,12 @@ pub trait EngineApi {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
+
+    //TODO: here
+    async fn get_payload_header<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayloadHeader<T>, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

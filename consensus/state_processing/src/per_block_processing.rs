@@ -37,6 +37,8 @@ mod verify_proposer_slashing;
 
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
+use crate::per_block_processing::process_operations::process_operations_private;
+use crate::signature_sets::randao_signature_set_private;
 
 /// The strategy to be used when validating the block's signatures.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
@@ -120,7 +122,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
-    let proposer_index = process_block_header(state, block, spec)?;
+    let proposer_index = process_block_header(state, block.temporary_block_header(), spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -166,27 +168,27 @@ pub fn per_block_processing<T: EthSpec>(
 /// Processes the block header, returning the proposer index.
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: BeaconBlockRef<'_, T>,
+    block: BeaconBlockHeader,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
     verify!(
-        block.slot() == state.slot(),
+        block.slot == state.slot(),
         HeaderInvalid::StateSlotMismatch
     );
 
     // Verify that the block is newer than the latest block header
     verify!(
-        block.slot() > state.latest_block_header().slot,
+        block.slot > state.latest_block_header().slot,
         HeaderInvalid::OlderThanLatestBlockHeader {
-            block_slot: block.slot(),
+            block_slot: block.slot,
             latest_block_header_slot: state.latest_block_header().slot,
         }
     );
 
     // Verify that proposer index is the correct index
-    let proposer_index = block.proposer_index() as usize;
-    let state_proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
+    let proposer_index = block.proposer_index as usize;
+    let state_proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
     verify!(
         proposer_index == state_proposer_index,
         HeaderInvalid::ProposerIndexMismatch {
@@ -197,14 +199,14 @@ pub fn process_block_header<T: EthSpec>(
 
     let expected_previous_block_root = state.latest_block_header().tree_hash_root();
     verify!(
-        block.parent_root() == expected_previous_block_root,
+        block.parent_root == expected_previous_block_root,
         HeaderInvalid::ParentBlockRootMismatch {
             state: expected_previous_block_root,
-            block: block.parent_root(),
+            block: block.parent_root,
         }
     );
 
-    *state.latest_block_header_mut() = block.temporary_block_header();
+    *state.latest_block_header_mut() = block;
 
     // Verify proposer is not slashed
     verify!(
@@ -212,7 +214,7 @@ pub fn process_block_header<T: EthSpec>(
         HeaderInvalid::ProposerSlashed(proposer_index)
     );
 
-    Ok(block.proposer_index())
+    Ok(proposer_index as u64)
 }
 
 /// Verifies the signature of a block.
@@ -244,6 +246,28 @@ pub fn verify_block_signature<T: EthSpec>(
 pub fn process_randao<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    if verify_signatures.is_true() {
+        // Verify RANDAO reveal signature.
+        block_verify!(
+            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            BlockProcessingError::RandaoSignatureInvalid
+        );
+    }
+
+    // Update the current epoch RANDAO mix.
+    state.update_randao_mix(state.current_epoch(), block.body().randao_reveal())?;
+
+    Ok(())
+}
+
+/// Verifies the `randao_reveal` against the block's proposer pubkey and updates
+/// `state.latest_randao_mixes`.
+pub fn process_randao_private<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    block: PrivateBeaconBlockRef<'_, T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -369,6 +393,51 @@ pub fn process_execution_payload<T: EthSpec>(
         block_hash: payload.block_hash,
         transactions_root: payload.transactions.tree_hash_root(),
     };
+
+    Ok(())
+}
+
+//TODO: here
+/// Performs *partial* verification of the `payload`.
+///
+/// The verification is partial, since the execution payload is not verified against an execution
+/// engine. That is expected to be performed by an upstream function.
+///
+/// ## Specification
+///
+/// Contains a partial set of checks from the `process_execution_payload` function:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
+pub fn partially_verify_execution_payload_header<T: EthSpec>(
+    state: &BeaconState<T>,
+    payload: &ExecutionPayload<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    if is_merge_transition_complete(state) {
+        block_verify!(
+            payload.parent_hash == state.latest_execution_payload_header()?.block_hash,
+            BlockProcessingError::ExecutionHashChainIncontiguous {
+                expected: state.latest_execution_payload_header()?.block_hash,
+                found: payload.parent_hash,
+            }
+        );
+    }
+    block_verify!(
+        payload.random == *state.get_randao_mix(state.current_epoch())?,
+        BlockProcessingError::ExecutionRandaoMismatch {
+            expected: *state.get_randao_mix(state.current_epoch())?,
+            found: payload.random,
+        }
+    );
+
+    let timestamp = compute_timestamp_at_slot(state, spec)?;
+    block_verify!(
+        payload.timestamp == timestamp,
+        BlockProcessingError::ExecutionInvalidTimestamp {
+            expected: timestamp,
+            found: payload.timestamp,
+        }
+    );
 
     Ok(())
 }

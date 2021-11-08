@@ -183,7 +183,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_block_header(state, self.to_ref(), spec)?;
+        process_block_header(state, self.to_ref().temporary_block_header(), spec)?;
         Ok(())
     }
 }

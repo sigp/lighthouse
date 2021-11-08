@@ -1176,7 +1176,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<PrivateBeaconBlock<T>>, Error> {
+    ) -> Result<GenericResponse<PrivateBeaconBlock<T>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
