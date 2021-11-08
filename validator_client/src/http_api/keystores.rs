@@ -189,7 +189,7 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let mut initialized_validators = initialized_validators_rwlock.write();
 
-    let statuses = request
+    let mut statuses = request
         .pubkeys
         .iter()
         .map(|pubkey_bytes| {
@@ -207,13 +207,25 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
                 }
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let slashing_protection = validator_store
         .export_slashing_protection_for_keys(&request.pubkeys)
         .map_err(|e| {
             custom_server_error(format!("error exporting slashing protection: {:?}", e))
         })?;
+
+    // Update stasuses based on availability of slashing protection data.
+    for (pubkey, status) in request.pubkeys.iter().zip(statuses.iter_mut()) {
+        if status.status == DeleteKeystoreStatus::NotFound
+            && slashing_protection
+                .data
+                .iter()
+                .any(|interchange_data| interchange_data.pubkey == *pubkey)
+        {
+            status.status = DeleteKeystoreStatus::NotActive;
+        }
+    }
 
     Ok(DeleteKeystoresResponse {
         data: statuses,

@@ -705,21 +705,33 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     /// Export slashing protection data while also disabling the given keys in the database.
+    ///
+    /// If any key is unknown to the slashing protection database it will be silently omitted
+    /// from the result. It is the caller's responsibility to check whether all keys provided
+    /// had data returned for them.
     pub fn export_slashing_protection_for_keys(
         &self,
         pubkeys: &[PublicKeyBytes],
     ) -> Result<Interchange, InterchangeError> {
         self.slashing_protection.with_transaction(|txn| {
-            for pubkey in pubkeys {
-                let validator_id = self
-                    .slashing_protection
-                    .get_validator_id_ignoring_status(txn, pubkey)?;
-                self.slashing_protection
-                    .update_validator_status(txn, validator_id, false)?;
-            }
+            let known_pubkeys = pubkeys
+                .iter()
+                .filter_map(|pubkey| {
+                    let validator_id = self
+                        .slashing_protection
+                        .get_validator_id_ignoring_status(txn, pubkey)
+                        .ok()?;
+
+                    Some(
+                        self.slashing_protection
+                            .update_validator_status(txn, validator_id, false)
+                            .map(|()| *pubkey),
+                    )
+                })
+                .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
             self.slashing_protection.export_interchange_info_in_txn(
                 self.genesis_validators_root,
-                Some(pubkeys),
+                Some(&known_pubkeys),
                 txn,
             )
         })

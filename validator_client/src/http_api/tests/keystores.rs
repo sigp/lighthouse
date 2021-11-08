@@ -44,6 +44,14 @@ fn all_deleted(keystores: &[Keystore]) -> impl Iterator<Item = DeleteKeystoreSta
     keystores.iter().map(|_| DeleteKeystoreStatus::Deleted)
 }
 
+fn all_not_active(keystores: &[Keystore]) -> impl Iterator<Item = DeleteKeystoreStatus> + '_ {
+    keystores.iter().map(|_| DeleteKeystoreStatus::NotActive)
+}
+
+fn all_not_found(keystores: &[Keystore]) -> impl Iterator<Item = DeleteKeystoreStatus> + '_ {
+    keystores.iter().map(|_| DeleteKeystoreStatus::NotFound)
+}
+
 fn check_get_response<'a>(
     response: &ListKeystoresResponse,
     expected_keystores: impl IntoIterator<Item = &'a Keystore>,
@@ -232,10 +240,51 @@ fn delete_all_keystores() {}
 fn delete_same_keystores_twice() {}
 
 #[test]
-fn delete_some_keystores_twice() {}
+fn delete_some_keystores_twice() {
+    run_test(|tester| async move {
+        let password = random_password_string();
+        let keystores = (0..2)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        // 1. Import all keystores.
+        let import_req = ImportKeystoresRequest {
+            keystores: keystores.clone(),
+            passwords: vec![password.clone(); keystores.len()],
+            slashing_protection: None,
+        };
+        let import_res = tester.client.post_keystores(&import_req).await.unwrap();
+        check_import_response(&import_res, all_imported(&keystores));
+
+        // 2. Delete all.
+        let delete_req = DeleteKeystoresRequest {
+            pubkeys: keystores.iter().map(keystore_pubkey).collect(),
+        };
+        let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
+        check_delete_response(&delete_res, all_deleted(&keystores));
+
+        // 3. Delete again.
+        let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
+        check_delete_response(&delete_res, all_not_active(&keystores));
+    })
+}
 
 #[test]
-fn delete_nonexistent_keystores() {}
+fn delete_nonexistent_keystores() {
+    run_test(|tester| async move {
+        let password = random_password_string();
+        let keystores = (0..2)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        // Delete all.
+        let delete_req = DeleteKeystoresRequest {
+            pubkeys: keystores.iter().map(keystore_pubkey).collect(),
+        };
+        let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
+        check_delete_response(&delete_res, all_not_found(&keystores));
+    })
+}
 
 #[test]
 fn delete_some_nonexistent_keystores() {}
