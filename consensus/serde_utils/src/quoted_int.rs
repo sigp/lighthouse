@@ -171,7 +171,7 @@ pub mod quoted_u256 {
         where
             E: serde::de::Error,
         {
-            U256::from_dec_str(&v).map_err(serde::de::Error::custom)
+            U256::from_dec_str(v).map_err(serde::de::Error::custom)
         }
     }
 
