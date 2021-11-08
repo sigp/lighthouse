@@ -715,18 +715,20 @@ fn slasher_update_period_flag() {
         });
 }
 #[test]
-fn slasher_slot_offset() {
-    // TODO: check that the offset is actually stored, once the config is un-hacked
-    // See: https://github.com/sigp/lighthouse/pull/2767#discussion_r741610402
+fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("11.25"))
-        .run();
+        .run()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.slot_offset, 11.25);
+        });
 }
 #[test]
 #[should_panic]
-fn slasher_slot_offset_nan() {
+fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("16"))
@@ -760,6 +762,21 @@ fn slasher_max_db_size_flag() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.max_db_size_mbs, 10240);
+        });
+}
+#[test]
+fn slasher_attestation_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
+        .flag("slasher-att-cache-size", Some("10000"))
+        .run()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.attestation_root_cache_size, 10000);
         });
 }
 #[test]

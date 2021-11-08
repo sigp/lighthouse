@@ -138,6 +138,19 @@ about [how the slasher works][design-notes], and/or reading the source code.
 
 [design-notes]: https://hackmd.io/@sproul/min-max-slasher
 
+### Attestation Root Cache Size
+
+* Flag: `--slasher-att-cache-size COUNT`
+* Argument: number of attestations
+* Default: 100,000
+
+The number of attestation data roots to cache in memory. The cache is an LRU cache used to map
+indexed attestation IDs to the tree hash roots of their attestation data. The cache prevents reading
+whole indexed attestations from disk to determine whether they are slashable.
+
+Each value is very small (38 bytes) so the entire cache should fit in around 4 MB of RAM. Decreasing
+the cache size is not recommended, and the size is set so as to be large enough for future growth.
+
 ### Short-Range Example
 
 If you would like to run a lightweight slasher that just checks blocks and attestations within

@@ -485,6 +485,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("slasher-att-cache-size")
+                .long("slasher-att-cache-size")
+                .help("Set the maximum number of attestation roots for the slasher to cache")
+                .value_name("COUNT")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slasher-chunk-size")
                 .long("slasher-chunk-size")
                 .help(
