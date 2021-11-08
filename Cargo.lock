@@ -1275,6 +1275,7 @@ dependencies = [
 name = "ef_tests"
 version = "0.2.0"
 dependencies = [
+ "beacon_chain",
  "bls",
  "cached_tree_hash",
  "compare_fields",
@@ -1292,6 +1293,7 @@ dependencies = [
  "serde_yaml",
  "snap",
  "state_processing",
+ "store",
  "swap_or_not_shuffle",
  "tree_hash",
  "tree_hash_derive",

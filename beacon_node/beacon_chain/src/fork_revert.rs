@@ -166,7 +166,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
 
         let (block, _) = block.deconstruct();
         fork_choice
-            .on_block(block.slot(), &block, block.canonical_root(), &state)
+            .on_block(block.slot(), &block, block.canonical_root(), &state, spec)
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }
 
