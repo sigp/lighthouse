@@ -10,6 +10,7 @@ use reqwest::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::private_beacon_block::PrivateBeaconBlock;
 use types::*;
 use url::Url;
 use web3signer::{ForkInfo, SigningRequest, SigningResponse};
@@ -35,6 +36,7 @@ pub enum Error {
 pub enum SignableMessage<'a, T: EthSpec> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T>),
+    PrivateBeaconBlock(&'a PrivateBeaconBlock<T>),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -55,6 +57,7 @@ impl<'a, T: EthSpec> SignableMessage<'a, T> {
         match self {
             SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
             SignableMessage::BeaconBlock(b) => b.signing_root(domain),
+            SignableMessage::PrivateBeaconBlock(b) => b.signing_root(domain),
             SignableMessage::AttestationData(a) => a.signing_root(domain),
             SignableMessage::SignedAggregateAndProof(a) => a.signing_root(domain),
             SignableMessage::SelectionProof(slot) => slot.signing_root(domain),
@@ -160,6 +163,9 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
+                    SignableMessage::PrivateBeaconBlock(block) => {
+                        Web3SignerObject::private_beacon_block(block)?
+                    }
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)
