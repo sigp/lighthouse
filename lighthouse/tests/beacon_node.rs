@@ -795,6 +795,25 @@ fn slasher_update_period_flag() {
         });
 }
 #[test]
+fn slasher_slot_offset() {
+    // TODO: check that the offset is actually stored, once the config is un-hacked
+    // See: https://github.com/sigp/lighthouse/pull/2767#discussion_r741610402
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
+        .flag("slasher-slot-offset", Some("11.25"))
+        .run();
+}
+#[test]
+#[should_panic]
+fn slasher_slot_offset_nan() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("16"))
+        .flag("slasher-slot-offset", Some("NaN"))
+        .run();
+}
+#[test]
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)

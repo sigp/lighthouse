@@ -22,6 +22,11 @@ lazy_static! {
         "slasher_num_attestations_valid",
         "Number of valid attestations per batch"
     );
+    pub static ref SLASHER_NUM_ATTESTATIONS_STORED_PER_BATCH: Result<IntGauge> =
+        try_create_int_gauge(
+            "slasher_num_attestations_stored_per_batch",
+            "Number of attestations stored per batch"
+        );
     pub static ref SLASHER_NUM_BLOCKS_PROCESSED: Result<IntGauge> = try_create_int_gauge(
         "slasher_num_blocks_processed",
         "Number of blocks processed per batch",
