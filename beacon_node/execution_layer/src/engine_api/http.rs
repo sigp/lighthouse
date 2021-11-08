@@ -33,7 +33,7 @@ pub const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
 pub const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_PAYLOAD: &str = "engine_getPayload";
-pub const ENGINE_GET_PAYLOAD_HEADER : &str = "engine_getPayloadHeader";
+pub const ENGINE_GET_PAYLOAD_HEADER: &str = "engine_getPayloadHeader";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_CONSENSUS_VALIDATED: &str = "engine_consensusValidated";
@@ -201,7 +201,11 @@ impl EngineApi for HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest { payload_id }]);
 
         let response: JsonExecutionPayloadHeader<T> = self
-            .rpc_request(ENGINE_GET_PAYLOAD_HEADER, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_HEADER,
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT,
+            )
             .await?;
 
         Ok(ExecutionPayloadHeader::from(response))

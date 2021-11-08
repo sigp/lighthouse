@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, ExecutionPayload, Unsigned};
+use types::{ChainSpec, EthSpec, ExecutionPayload, SignedPrivateBeaconBlock, Unsigned};
 
 /// Indicates the default eth1 network id we use for the deposit contract.
 pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;

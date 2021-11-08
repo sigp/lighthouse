@@ -599,7 +599,7 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("lighthouse")
-            .push("validator")
+            .push("beacon")
             .push("blocks_private");
 
         self.post_with_timeout(path, block, self.timeouts.proposal)

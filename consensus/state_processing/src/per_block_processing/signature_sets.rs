@@ -9,9 +9,10 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
-    ProposerSlashing, PublicKey, PublicKeyBytes, PrivateBeaconBlockRef, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedContributionAndProof, SignedRoot,
-    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    PrivateBeaconBlockRef, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
+    SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -35,10 +35,10 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
 use crate::per_block_processing::process_operations::process_operations_private;
 use crate::signature_sets::randao_signature_set_private;
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
 
 /// The strategy to be used when validating the block's signatures.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
@@ -201,7 +201,13 @@ pub fn per_block_processing_private<T: EthSpec>(
 
     process_randao_private(state, block, VerifySignatures::True, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations_private(state, block.body(), proposer_index, VerifySignatures::True, spec)?;
+    process_operations_private(
+        state,
+        block.body(),
+        proposer_index,
+        VerifySignatures::True,
+        spec,
+    )?;
 
     if let Some(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
@@ -223,10 +229,7 @@ pub fn process_block_header<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
-    verify!(
-        block.slot == state.slot(),
-        HeaderInvalid::StateSlotMismatch
-    );
+    verify!(block.slot == state.slot(), HeaderInvalid::StateSlotMismatch);
 
     // Verify that the block is newer than the latest block header
     verify!(
@@ -325,7 +328,8 @@ pub fn process_randao_private<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set_private(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set_private(state, |i| get_pubkey_from_state(state, i), block, spec)?
+                .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }
@@ -519,9 +523,15 @@ pub fn is_merge_complete_private<T: EthSpec>(state: &BeaconState<T>) -> bool {
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_block
-pub fn is_merge_block_private<T: EthSpec>(state: &BeaconState<T>, body: PrivateBeaconBlockBodyRef<T>) -> bool {
+pub fn is_merge_block_private<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: PrivateBeaconBlockBodyRef<T>,
+) -> bool {
     body.execution_payload_header()
-        .map(|payload_header| !is_merge_complete_private(state) && *payload_header != <ExecutionPayloadHeader<T>>::default())
+        .map(|payload_header| {
+            !is_merge_complete_private(state)
+                && *payload_header != <ExecutionPayloadHeader<T>>::default()
+        })
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled

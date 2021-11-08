@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
-pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 use types::ExecutionPayloadHeader;
+pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
 
