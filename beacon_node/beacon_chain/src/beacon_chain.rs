@@ -62,6 +62,7 @@ use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use state_processing::per_block_processing::per_block_processing_private;
 use ssz::Encode;
 use state_processing::{
     common::get_indexed_attestation,
@@ -78,7 +79,6 @@ use std::collections::HashSet;
 use std::io::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use state_processing::per_block_processing::per_block_processing_private;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
 use task_executor::ShutdownReason;
@@ -3294,11 +3294,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
-        per_block_processing_private(
-            &mut state,
-            &block,
-            &self.spec,
-        )?;
+        per_block_processing_private(&mut state, &block, &self.spec)?;
         drop(process_timer);
 
         let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);

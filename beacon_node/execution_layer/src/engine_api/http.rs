@@ -37,7 +37,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
 //TODO: here
-pub const BUILDER_GET_PAYLOAD_HEADER : &str = "builder_getPayloadHeaderV1";
+pub const BUILDER_GET_PAYLOAD_HEADER_V1 : &str = "builder_getPayloadHeaderV1";
 pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
 
 pub struct HttpJsonRpc {
@@ -194,7 +194,11 @@ impl EngineApi for HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest { payload_id }]);
 
         let response: JsonExecutionPayloadHeader<T> = self
-            .rpc_request(ENGINE_GET_PAYLOAD_HEADER, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_HEADER,
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT,
+            )
             .await?;
 
         Ok(response.into())

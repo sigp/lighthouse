@@ -35,10 +35,10 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
 use crate::per_block_processing::process_operations::process_operations_private;
 use crate::signature_sets::randao_signature_set_private;
+#[cfg(feature = "arbitrary-fuzz")]
+use arbitrary::Arbitrary;
 
 /// The strategy to be used when validating the block's signatures.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
@@ -165,6 +165,63 @@ pub fn per_block_processing<T: EthSpec>(
     Ok(())
 }
 
+pub fn per_block_processing_private<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    signed_block: &SignedPrivateBeaconBlock<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let block = signed_block.message();
+
+    // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
+    signed_block
+        .fork_name(spec)
+        .map_err(BlockProcessingError::InconsistentBlockFork)?;
+
+    // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
+    state
+        .fork_name(spec)
+        .map_err(BlockProcessingError::InconsistentStateFork)?;
+
+    let proposer_index = process_block_header(state, block.temporary_block_header(), spec)?;
+
+    // Ensure the current and previous epoch caches are built.
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+    // The call to the `process_execution_payload` must happen before the call to the
+    // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
+    // previous block.
+    if is_execution_enabled_private(state, block.body()) {
+        let payload = block
+            .body()
+            .execution_payload_header()
+            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        process_execution_payload_header(state, payload, spec)?;
+    }
+
+    process_randao_private(state, block, VerifySignatures::True, spec)?;
+    process_eth1_data(state, block.body().eth1_data())?;
+    process_operations_private(
+        state,
+        block.body(),
+        proposer_index,
+        VerifySignatures::True,
+        spec,
+    )?;
+
+    if let Some(sync_aggregate) = block.body().sync_aggregate() {
+        process_sync_aggregate(
+            state,
+            sync_aggregate,
+            proposer_index,
+            VerifySignatures::True,
+            spec,
+        )?;
+    }
+
+    Ok(())
+}
+
 /// Processes the block header, returning the proposer index.
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -172,10 +229,7 @@ pub fn process_block_header<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
-    verify!(
-        block.slot == state.slot(),
-        HeaderInvalid::StateSlotMismatch
-    );
+    verify!(block.slot == state.slot(), HeaderInvalid::StateSlotMismatch);
 
     // Verify that the block is newer than the latest block header
     verify!(
@@ -274,7 +328,7 @@ pub fn process_randao_private<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set_private(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

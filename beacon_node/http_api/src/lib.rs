@@ -44,8 +44,8 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
     EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SignedContributionAndProof, SignedPrivateBeaconBlock, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -1009,6 +1009,29 @@ pub fn serve<T: BeaconChainTypes>(
                             Err(warp_utils::reject::broadcast_without_import(msg))
                         }
                     }
+                })
+            },
+        );
+
+    /*
+     * beacon/blocks
+     */
+
+    // POST beacon/blocks
+    let post_lighthouse_beacon_blocks_private = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("blocks_private"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(eth1_service_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |block: SignedPrivateBeaconBlock<T::EthSpec>,
+             eth1_service: eth1::Service,
+             log: Logger| {
+                blocking_json_task(move || {
+                    // TODO: should just forward to the relay
+                    Ok::<(), warp::Rejection>(())
                 })
             },
         );
@@ -2221,9 +2244,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
-            |slot: Slot,
-             query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| {
+            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
@@ -2685,7 +2706,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_sync_committee_subscriptions.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
-                .or(post_lighthouse_database_historical_blocks.boxed()),
+                .or(post_lighthouse_database_historical_blocks.boxed())
+                .or(post_lighthouse_beacon_blocks_private.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
