@@ -5,6 +5,7 @@ use crate::{
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
+use eth2::types::SignedPrivateBeaconBlock;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
@@ -14,6 +15,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::private_beacon_block::PrivateBeaconBlock;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
     Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
@@ -421,6 +423,83 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "error" => format!("{:?}", e)
                 );
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
+                Err(Error::Slashable(e))
+            }
+        }
+    }
+
+    pub async fn sign_block_private(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        block: PrivateBeaconBlock<E>,
+        current_slot: Slot,
+    ) -> Result<SignedPrivateBeaconBlock<E>, Error> {
+        // Make sure the block slot is not higher than the current slot to avoid potential attacks.
+        if block.slot() > current_slot {
+            warn!(
+                self.log,
+                "Not signing block with slot greater than current slot";
+                "block_slot" => block.slot().as_u64(),
+                "current_slot" => current_slot.as_u64()
+            );
+            return Err(Error::GreaterThanCurrentSlot {
+                slot: block.slot(),
+                current_slot,
+            });
+        }
+
+        let signing_epoch = block.epoch();
+        let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
+        let domain_hash = signing_context.domain_hash(&self.spec);
+
+        // Check for slashing conditions.
+        let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
+            &validator_pubkey,
+            &block.block_header(),
+            domain_hash,
+        );
+
+        match slashing_status {
+            // We can safely sign this block without slashing.
+            Ok(Safe::Valid) => {
+                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
+
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signature = signing_method
+                    .get_signature(
+                        SignableMessage::PrivateBeaconBlock(&block),
+                        signing_context,
+                        &self.spec,
+                        &self.task_executor,
+                    )
+                    .await?;
+                Ok(SignedPrivateBeaconBlock::from_block(block, signature))
+            }
+            Ok(Safe::SameData) => {
+                warn!(
+                    self.log,
+                    "Skipping signing of previously signed block";
+                );
+                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SAME_DATA]);
+                Err(Error::SameData)
+            }
+            Err(NotSafe::UnregisteredValidator(pk)) => {
+                warn!(
+                    self.log,
+                    "Not signing block for unregistered validator";
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
+                    "public_key" => format!("{:?}", pk)
+                );
+                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::UNREGISTERED]);
+                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
+            }
+            Err(e) => {
+                crit!(
+                    self.log,
+                    "Not signing slashable block";
+                    "error" => format!("{:?}", e)
+                );
+                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
                 Err(Error::Slashable(e))
             }
         }

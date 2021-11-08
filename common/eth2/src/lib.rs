@@ -15,6 +15,7 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseForkName, ResponseOptional};
 use self::types::{Error as ResponseError, *};
+use crate::types::private_beacon_block::PrivateBeaconBlock;
 use ::types::map_fork_name_with;
 use futures::Stream;
 use futures_util::StreamExt;
@@ -28,6 +29,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
 use std::time::Duration;
+use store::signed_private_beacon_block::SignedPrivateBeaconBlock;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -585,6 +587,27 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST lighthouse/beacon/blocks_private`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blocks_private<T: EthSpec>(
+        &self,
+        block: &SignedPrivateBeaconBlock<T>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validator")
+            .push("blocks_private");
+
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
+
+        Ok(())
+    }
+
     /// Path for `v2/beacon/blocks`
     pub fn get_beacon_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V2)?;
@@ -1134,6 +1157,33 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("blocks")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/validator/blocks_private/{slot}`
+    pub async fn get_validator_blocks_private<T: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<ForkVersionedResponse<PrivateBeaconBlock<T>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validator")
+            .push("blocks_private")
             .push(&slot.to_string());
 
         path.query_pairs_mut()
