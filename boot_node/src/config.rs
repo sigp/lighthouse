@@ -5,6 +5,7 @@ use lighthouse_network::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
+use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -128,5 +129,37 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             discv5_config: network_config.discv5_config,
             phantom: PhantomData,
         })
+    }
+}
+
+/// The set of configuration parameters that can safely be (de)serialized.
+///
+/// Its fields are a subset of the fields of `BootNodeConfig`.
+#[derive(Serialize, Deserialize)]
+pub struct BootNodeConfigSerialization {
+    pub listen_socket: SocketAddr,
+    // TODO: Generalise to multiaddr
+    pub boot_nodes: Vec<Enr>,
+    pub local_enr: Enr,
+}
+
+impl BootNodeConfigSerialization {
+    /// Returns a `BootNodeConfigSerialization` obtained from copying resp. cloning the
+    /// relevant fields of `config`
+    pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
+        let BootNodeConfig {
+            listen_socket,
+            boot_nodes,
+            local_enr,
+            local_key: _,
+            discv5_config: _,
+            phantom: _,
+        } = config;
+
+        BootNodeConfigSerialization {
+            listen_socket: *listen_socket,
+            boot_nodes: boot_nodes.clone(),
+            local_enr: local_enr.clone(),
+        }
     }
 }
