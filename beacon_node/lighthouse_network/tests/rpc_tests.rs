@@ -8,13 +8,33 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, Epoch, EthSpec, Hash256, MinimalEthSpec,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, EthSpec, Hash256,
+    MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 mod common;
 
 type E = MinimalEthSpec;
+
+/// Merge block with length < MAX_RPC_SIZE.
+fn merge_block_small() -> BeaconBlock<E> {
+    let mut block = BeaconBlockMerge::empty(&E::default_spec());
+    let tx = VariableList::from(vec![0; 1024]);
+    let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
+
+    block.body.execution_payload.transactions = txs;
+    BeaconBlock::Merge(block)
+}
+
+/// Merge block with length > MAX_RPC_SIZE.
+fn merge_block_large() -> BeaconBlock<E> {
+    let mut block = BeaconBlockMerge::empty(&E::default_spec());
+    let tx = VariableList::from(vec![0; 1024]);
+    let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
+
+    block.body.execution_payload.transactions = txs;
+    BeaconBlock::Merge(block)
+}
 
 // Tests the STATUS RPC message
 #[test]
@@ -118,10 +138,10 @@ fn test_status_rpc() {
 #[allow(clippy::single_match)]
 fn test_blocks_by_range_chunked_rpc() {
     // set up the logging. The level and enabled logging or not
-    let log_level = Level::Trace;
+    let log_level = Level::Debug;
     let enable_logging = false;
 
-    let messages_to_send = 10;
+    let messages_to_send = 20;
 
     let log = common::build_log(log_level, enable_logging);
 
@@ -149,6 +169,14 @@ fn test_blocks_by_range_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRange(Some(Box::new(signed_full_block)));
 
+        let full_block = merge_block_small();
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
+        let rpc_response_merge_small = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+
+        let full_block = merge_block_large();
+        let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
+        let rpc_response_merge_large = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+
         // keep count of the number of messages received
         let mut messages_received = 0;
         // build the sender future
@@ -160,13 +188,13 @@ fn test_blocks_by_range_chunked_rpc() {
                         debug!(log, "Sending RPC");
                         sender.swarm.behaviour_mut().send_request(
                             peer_id,
-                            RequestId::Sync(10),
+                            RequestId::Sync(20),
                             rpc_request.clone(),
                         );
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
                         peer_id: _,
-                        id: RequestId::Sync(10),
+                        id: RequestId::Sync(20),
                         response,
                     }) => {
                         warn!(log, "Sender received a response");
@@ -174,8 +202,12 @@ fn test_blocks_by_range_chunked_rpc() {
                             Response::BlocksByRange(Some(_)) => {
                                 if messages_received < 5 {
                                     assert_eq!(response, rpc_response_base.clone());
-                                } else {
+                                } else if messages_received < 10 {
                                     assert_eq!(response, rpc_response_altair.clone());
+                                } else if messages_received < 15 {
+                                    assert_eq!(response, rpc_response_merge_small.clone());
+                                } else {
+                                    assert_eq!(response, rpc_response_merge_large.clone());
                                 }
                                 messages_received += 1;
                                 warn!(log, "Chunk received");
@@ -211,8 +243,12 @@ fn test_blocks_by_range_chunked_rpc() {
                                 // second half as altair blocks.
                                 let rpc_response = if i < 5 {
                                     rpc_response_base.clone()
-                                } else {
+                                } else if i < 10 {
                                     rpc_response_altair.clone()
+                                } else if i < 15 {
+                                    rpc_response_merge_small.clone()
+                                } else {
+                                    rpc_response_merge_large.clone()
                                 };
                                 receiver.swarm.behaviour_mut().send_successful_response(
                                     peer_id,
@@ -237,7 +273,9 @@ fn test_blocks_by_range_chunked_rpc() {
             _ = sender_future => {}
             _ = receiver_future => {}
             _ = sleep(Duration::from_secs(10)) => {
-                panic!("Future timed out");
+                if messages_received < 15 {
+                    panic!("Future timed out");
+                }
             }
         }
     })
