@@ -204,6 +204,8 @@ fn update_justified_roots<T: BeaconChainTypes>(
     // reach the finalized root. Instantiate a block roots iter and iterate backwards to the start
     // of each justified epoch as the justified epoch in this chain of descendants changes.
     for (head_index, head_root, head_slot) in head_indices {
+        // `relevant_epochs` are epochs for which we will need to find the root at the start slot.
+        // We don't need to worry about whether the are finalized or justified epochs.
         let mut relevant_epochs = vec![];
         let relevant_epoch_finder = |index, _: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = legacy_nodes
@@ -222,30 +224,36 @@ fn update_justified_roots<T: BeaconChainTypes>(
             relevant_epoch_finder,
         )?;
 
-        let roots_by_epoch = map_relvant_epochs_to_roots::<T>(
+        let roots_by_epoch = map_relevant_epochs_to_roots::<T>(
             db.clone(),
             head_root,
             head_slot,
             &mut relevant_epochs,
         )?;
 
-        let node_mutator = |_, head: &mut ProtoNode| {
+        let node_mutator = |_, node: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = legacy_nodes
                 .get(1)
                 .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
 
             // Find the justified root for the head and populate the checkpoint.
-            let justified_checkpoint = Some(Checkpoint {
-                epoch: justified_epoch,
-                root: *roots_by_epoch.get(&justified_epoch).unwrap(),
-            });
-            let finalized_checkpoint = Some(Checkpoint {
-                epoch: finalized_epoch,
-                root: *roots_by_epoch.get(&finalized_epoch).unwrap(),
-            });
-            head.justified_checkpoint = justified_checkpoint;
-            head.finalized_checkpoint = finalized_checkpoint;
+            if node.justified_checkpoint.is_none() {
+                let justified_checkpoint = Some(Checkpoint {
+                    epoch: justified_epoch,
+                    root: *roots_by_epoch.get(&justified_epoch).unwrap(),
+                });
+                node.justified_checkpoint = justified_checkpoint;
+            }
+
+            if node.finalized_checkpoint.is_none() {
+                let finalized_checkpoint = Some(Checkpoint {
+                    epoch: finalized_epoch,
+                    root: *roots_by_epoch.get(&finalized_epoch).unwrap(),
+                });
+                node.finalized_checkpoint = finalized_checkpoint;
+            }
+
             Ok(())
         };
 
@@ -254,7 +262,7 @@ fn update_justified_roots<T: BeaconChainTypes>(
     Ok(())
 }
 
-fn map_relvant_epochs_to_roots<T: BeaconChainTypes>(
+fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     head_root: Hash256,
     head_slot: Slot,
