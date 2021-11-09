@@ -206,9 +206,7 @@ fn update_roots<T: BeaconChainTypes>(
     // Gather candidate heads
     let heads = find_heads(finalized_root, fork_choice);
 
-    // For each head, iterate backwards to its parents, stopping once a parent can't be found or we
-    // reach the finalized root. Instantiate a block roots iter and iterate backwards to the start
-    // of each justified epoch as the justified epoch in this chain of descendants changes.
+    // For each head, first gather all epochs we will need to find justified or finalized roots for.
     for head in heads {
         // `relevant_epochs` are epochs for which we will need to find the root at the start slot.
         // We don't need to worry about whether the are finalized or justified epochs.
@@ -230,6 +228,8 @@ fn update_roots<T: BeaconChainTypes>(
             relevant_epoch_finder,
         )?;
 
+        // Instantiate a block roots iter and iterate backwards to the start
+        // of each justified or finalized epoch.
         let roots_by_epoch = map_relevant_epochs_to_roots::<T>(
             db.clone(),
             head.root,
@@ -237,9 +237,11 @@ fn update_roots<T: BeaconChainTypes>(
             &mut relevant_epochs,
         )?;
 
-        let node_mutator = |_, node: &mut ProtoNode| {
+        // Iterate through the chain of descendants from this head and add justified checkpoints
+        // and finalized checkpoints for each.
+        let node_mutator = |index, node: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = legacy_nodes
-                .get(1)
+                .get(index)
                 .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
 
@@ -274,17 +276,26 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     head_slot: Slot,
     relevant_epochs: &mut Vec<Epoch>,
 ) -> Result<HashMap<Epoch, Hash256>, String> {
-    // Reverse sort the vec and remove duplicates
+    // Reverse sort the epochs and remove duplicates.
     relevant_epochs.sort_unstable_by(|a, b| b.cmp(a));
     relevant_epochs.dedup();
 
-    //iterate backwards, find root at each epoch
+    // Iterate backwards, find root at each epoch.
     let mut iter = std::iter::once(Ok((head_root, head_slot))).chain(
         BlockRootsIterator::from_block(db.clone(), head_root).map_err(|e| format!("{:?}", e))?,
     );
     let mut roots_by_epoch = HashMap::new();
     for epoch in relevant_epochs.iter().copied() {
-        let root = find_start_root_for_epoch::<_, T::EthSpec>(epoch, &mut iter)?;
+
+        let start_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
+
+        let root = iter
+            .find_map(|next| match next {
+                Ok((root, slot)) => (slot == start_slot).then(|| Ok(root)),
+                Err(e) => Some(Err(format!("{:?}", e))),
+            })
+            .transpose()?
+            .ok_or_else(|| "Justified root not found".to_string())?;
         roots_by_epoch.insert(epoch, root);
     }
     Ok(roots_by_epoch)
@@ -312,6 +323,7 @@ where
         parent_index_opt.and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
 
     while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
+
         node_mutator(parent_index, parent)?;
 
         // Break out of this while loop *after* the `node_mutator` has been applied to the finalized
@@ -355,24 +367,6 @@ fn find_heads(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice) -> Ve
             }
         })
         .collect::<Vec<_>>()
-}
-
-fn find_start_root_for_epoch<U, E: EthSpec>(epoch: Epoch, iter: &mut U) -> Result<Hash256, String>
-where
-    U: Iterator<Item = Result<(Hash256, Slot), store::Error>>,
-{
-    let start_slot = epoch.start_slot(E::slots_per_epoch());
-
-    // iter block roots until justified epoch, then update node
-    let root = iter
-        .find_map(|next| match next {
-            Ok((root, slot)) => (slot == start_slot).then(|| Ok(root)),
-            Err(e) => Some(Err(format!("{:?}", e))),
-        })
-        .transpose()?
-        .ok_or_else(|| "Justified root not found".to_string())?;
-
-    Ok(root)
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
