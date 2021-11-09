@@ -1,3 +1,4 @@
+use crate::metrics;
 use itertools::Itertools;
 
 /// Trait for types that we can compute a maximum cover for.
@@ -44,7 +45,7 @@ impl<T> MaxCoverItem<T> {
 ///
 /// * Time complexity: `O(limit * items_iter.len())`
 /// * Space complexity: `O(item_iter.len())`
-pub fn maximum_cover<I, T>(items_iter: I, limit: usize) -> Vec<T>
+pub fn maximum_cover<I, T>(items_iter: I, limit: usize, label: &str) -> Vec<T>
 where
     I: IntoIterator<Item = T>,
     T: MaxCover,
@@ -55,6 +56,12 @@ where
         .map(MaxCoverItem::new)
         .filter(|x| x.item.score() != 0)
         .collect();
+
+    metrics::set_int_gauge(
+        &metrics::MAX_COVER_NON_ZERO_ITEMS,
+        &[label],
+        all_items.len() as i64,
+    );
 
     let mut result = vec![];
 
@@ -146,14 +153,14 @@ mod test {
 
     #[test]
     fn zero_limit() {
-        let cover = maximum_cover(example_system(), 0);
+        let cover = maximum_cover(example_system(), 0, "test");
         assert_eq!(cover.len(), 0);
     }
 
     #[test]
     fn one_limit() {
         let sets = example_system();
-        let cover = maximum_cover(sets.clone(), 1);
+        let cover = maximum_cover(sets.clone(), 1, "test");
         assert_eq!(cover.len(), 1);
         assert_eq!(cover[0], sets[1]);
     }
@@ -163,7 +170,7 @@ mod test {
     fn exclude_zero_score() {
         let sets = example_system();
         for k in 2..10 {
-            let cover = maximum_cover(sets.clone(), k);
+            let cover = maximum_cover(sets.clone(), k, "test");
             assert_eq!(cover.len(), 2);
             assert_eq!(cover[0], sets[1]);
             assert_eq!(cover[1], sets[0]);
@@ -187,7 +194,7 @@ mod test {
             HashSet::from_iter(vec![5, 6, 7, 8]),      // 4, 4*
             HashSet::from_iter(vec![0, 1, 2, 3, 4]),   // 5*
         ];
-        let cover = maximum_cover(sets, 3);
+        let cover = maximum_cover(sets, 3, "test");
         assert_eq!(quality(&cover), 11);
     }
 
@@ -202,7 +209,7 @@ mod test {
             HashSet::from_iter(vec![1, 5, 6, 8]),
             HashSet::from_iter(vec![1, 7, 11, 19]),
         ];
-        let cover = maximum_cover(sets, 5);
+        let cover = maximum_cover(sets, 5, "test");
         assert_eq!(quality(&cover), 19);
         assert_eq!(cover.len(), 5);
     }

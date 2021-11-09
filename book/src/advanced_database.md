@@ -25,16 +25,16 @@ some example values.
 
 | Use Case                | SPRP           | Yearly Disk Usage | Load Historical State |
 | ----------------------  | -------------- | ----------------- | --------------------- |
-| Block explorer/analysis | 32             | 411 GB            | 96 ms                 |
-| Default                 | 2048           | 6.4 GB            | 6 s                   |
-| Validator only          | 8192           | 1.6 GB            | 25 s                  |
+| Block explorer/analysis | 32             | 1.4 TB            | 155 ms                |
+| Default                 | 2048           | 23.1 GB           | 10.2 s                |
+| Validator only          | 8192           | 5.7 GB            | 41 s                  |
 
 As you can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
 load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP
 is 32, and the maximum is 8192.
 
 The values shown in the table are approximate, calculated using a simple heuristic: each
-`BeaconState` consumes around 5MB of disk space, and each block replayed takes around 3ms.  The
+`BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
 **Yearly Disk Usage** column shows the approx size of the freezer DB _alone_ (hot DB not included),
 and the **Load Historical State** time is the worst-case load time for a state in the last slot of
 an epoch.

@@ -57,6 +57,15 @@ pub enum OpPoolError {
     IncorrectOpPoolVariant,
 }
 
+pub struct AttestationStats {
+    /// Total number of attestations for all committeees/indices/votes.
+    pub num_attestations: usize,
+    /// Number of unique `AttestationData` attested to.
+    pub num_attestation_data: usize,
+    /// Maximum number of aggregates for a single `AttestationData`.
+    pub max_aggregates_per_data: usize,
+}
+
 impl From<SyncAggregateError> for OpPoolError {
     fn from(e: SyncAggregateError) -> Self {
         OpPoolError::SyncAggregateError(e)
@@ -207,6 +216,23 @@ impl<T: EthSpec> OperationPool<T> {
         self.attestations.read().values().map(Vec::len).sum()
     }
 
+    pub fn attestation_stats(&self) -> AttestationStats {
+        let mut num_attestations = 0;
+        let mut num_attestation_data = 0;
+        let mut max_aggregates_per_data = 0;
+
+        for aggregates in self.attestations.read().values() {
+            num_attestations += aggregates.len();
+            num_attestation_data += 1;
+            max_aggregates_per_data = std::cmp::max(max_aggregates_per_data, aggregates.len());
+        }
+        AttestationStats {
+            num_attestations,
+            num_attestation_data,
+            max_aggregates_per_data,
+        }
+    }
+
     /// Return all valid attestations for the given epoch, for use in max cover.
     fn get_valid_attestations_for_epoch<'a>(
         &'a self,
@@ -265,22 +291,29 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
-        let prev_epoch_att = self.get_valid_attestations_for_epoch(
-            prev_epoch,
-            &*all_attestations,
-            state,
-            total_active_balance,
-            prev_epoch_validity_filter,
-            spec,
-        );
-        let curr_epoch_att = self.get_valid_attestations_for_epoch(
-            current_epoch,
-            &*all_attestations,
-            state,
-            total_active_balance,
-            curr_epoch_validity_filter,
-            spec,
-        );
+        let mut num_prev_valid = 0_i64;
+        let mut num_curr_valid = 0_i64;
+
+        let prev_epoch_att = self
+            .get_valid_attestations_for_epoch(
+                prev_epoch,
+                &*all_attestations,
+                state,
+                total_active_balance,
+                prev_epoch_validity_filter,
+                spec,
+            )
+            .inspect(|_| num_prev_valid += 1);
+        let curr_epoch_att = self
+            .get_valid_attestations_for_epoch(
+                current_epoch,
+                &*all_attestations,
+                state,
+                total_active_balance,
+                curr_epoch_validity_filter,
+                spec,
+            )
+            .inspect(|_| num_curr_valid += 1);
 
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
@@ -299,14 +332,21 @@ impl<T: EthSpec> OperationPool<T> {
                 if prev_epoch == current_epoch {
                     vec![]
                 } else {
-                    maximum_cover(prev_epoch_att, prev_epoch_limit)
+                    maximum_cover(prev_epoch_att, prev_epoch_limit, "prev_epoch_attestations")
                 }
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
-                maximum_cover(curr_epoch_att, T::MaxAttestations::to_usize())
+                maximum_cover(
+                    curr_epoch_att,
+                    T::MaxAttestations::to_usize(),
+                    "curr_epoch_attestations",
+                )
             },
         );
+
+        metrics::set_gauge(&metrics::NUM_PREV_EPOCH_ATTESTATIONS, num_prev_valid);
+        metrics::set_gauge(&metrics::NUM_CURR_EPOCH_ATTESTATIONS, num_curr_valid);
 
         Ok(max_cover::merge_solutions(
             curr_cover,
@@ -354,10 +394,15 @@ impl<T: EthSpec> OperationPool<T> {
     /// This function computes both types of slashings together, because
     /// attester slashings may be invalidated by proposer slashings included
     /// earlier in the block.
-    pub fn get_slashings(
+    pub fn get_slashings_and_exits(
         &self,
         state: &BeaconState<T>,
-    ) -> (Vec<ProposerSlashing>, Vec<AttesterSlashing<T>>) {
+        spec: &ChainSpec,
+    ) -> (
+        Vec<ProposerSlashing>,
+        Vec<AttesterSlashing<T>>,
+        Vec<SignedVoluntaryExit>,
+    ) {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
             |slashing| {
@@ -371,7 +416,7 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Set of validators to be slashed, so we don't attempt to construct invalid attester
         // slashings.
-        let to_be_slashed = proposer_slashings
+        let mut to_be_slashed = proposer_slashings
             .iter()
             .map(|s| s.signed_header_1.message.proposer_index)
             .collect::<HashSet<_>>();
@@ -389,12 +434,22 @@ impl<T: EthSpec> OperationPool<T> {
         let attester_slashings = maximum_cover(
             relevant_attester_slashings,
             T::MaxAttesterSlashings::to_usize(),
+            "attester_slashings",
         )
         .into_iter()
-        .map(|cover| cover.object().clone())
+        .map(|cover| {
+            to_be_slashed.extend(cover.covering_set().keys());
+            cover.object().clone()
+        })
         .collect();
 
-        (proposer_slashings, attester_slashings)
+        let voluntary_exits = self.get_voluntary_exits(
+            state,
+            |exit| !to_be_slashed.contains(&exit.message.validator_index),
+            spec,
+        );
+
+        (proposer_slashings, attester_slashings, voluntary_exits)
     }
 
     /// Prune proposer slashings for validators which are exited in the finalized epoch.
@@ -454,14 +509,18 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Get a list of voluntary exits for inclusion in a block.
-    pub fn get_voluntary_exits(
+    fn get_voluntary_exits<F>(
         &self,
         state: &BeaconState<T>,
+        filter: F,
         spec: &ChainSpec,
-    ) -> Vec<SignedVoluntaryExit> {
+    ) -> Vec<SignedVoluntaryExit>
+    where
+        F: Fn(&SignedVoluntaryExit) -> bool,
+    {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
-            |exit| verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
+            |exit| filter(exit) && verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
             T::MaxVoluntaryExits::to_usize(),
         )
     }
@@ -609,15 +668,11 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
+        test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
     };
     use lazy_static::lazy_static;
-    use state_processing::{
-        common::{base::get_base_reward, get_attesting_indices},
-        VerifyOperation,
-    };
+    use state_processing::VerifyOperation;
     use std::collections::BTreeSet;
-    use std::iter::FromIterator;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
 
@@ -632,8 +687,11 @@ mod release_tests {
         validator_count: usize,
         spec: Option<ChainSpec>,
     ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-        let harness =
-            BeaconChainHarness::new(E::default(), spec, KEYPAIRS[0..validator_count].to_vec());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec_or_default(spec)
+            .keypairs(KEYPAIRS[0..validator_count].to_vec())
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 
@@ -644,11 +702,11 @@ mod release_tests {
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
-        let spec = E::default_spec();
+        let spec = test_spec::<E>();
 
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
-        let harness = get_harness::<E>(num_validators, None);
+        let harness = get_harness::<E>(num_validators, Some(spec.clone()));
 
         (harness, spec)
     }
@@ -679,6 +737,12 @@ mod release_tests {
     #[test]
     fn test_earliest_attestation() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+
+        // Only run this test on the phase0 hard-fork.
+        if spec.altair_fork_epoch != None {
+            return;
+        }
+
         let mut state = harness.get_current_state();
         let slot = state.slot();
         let committees = state
@@ -722,7 +786,6 @@ mod release_tests {
                     .num_set_bits()
             );
 
-            // FIXME(altair): handle altair in these tests
             state
                 .as_base_mut()
                 .unwrap()
@@ -1143,46 +1206,25 @@ mod release_tests {
         let total_active_balance = state.get_total_active_balance().unwrap();
 
         // Set of indices covered by previous attestations in `best_attestations`.
-        let mut seen_indices = BTreeSet::new();
+        let mut seen_indices = BTreeSet::<u64>::new();
         // Used for asserting that rewards are in decreasing order.
         let mut prev_reward = u64::max_value();
 
         for att in &best_attestations {
-            let fresh_validators_bitlist =
-                earliest_attestation_validators(att, &state, state.as_base().unwrap());
-            let committee = state
-                .get_beacon_committee(att.data.slot, att.data.index)
-                .expect("should get beacon committee");
-
-            let att_indices = BTreeSet::from_iter(
-                get_attesting_indices::<MainnetEthSpec>(
-                    committee.committee,
-                    &fresh_validators_bitlist,
-                )
-                .unwrap(),
-            );
-
-            let fresh_indices = &att_indices - &seen_indices;
-
-            let rewards = fresh_indices
-                .iter()
-                .map(|validator_index| {
-                    get_base_reward(
-                        &state,
-                        *validator_index as usize,
-                        total_active_balance,
-                        spec,
-                    )
+            let mut fresh_validators_rewards =
+                AttMaxCover::new(att, &state, total_active_balance, spec)
                     .unwrap()
-                        / spec.proposer_reward_quotient
-                })
-                .sum();
+                    .fresh_validators_rewards;
+
+            // Remove validators covered by previous attestations.
+            fresh_validators_rewards
+                .retain(|validator_index, _| !seen_indices.contains(validator_index));
 
             // Check that rewards are in decreasing order
+            let rewards = fresh_validators_rewards.values().sum();
             assert!(prev_reward >= rewards);
-
             prev_reward = rewards;
-            seen_indices.extend(fresh_indices);
+            seen_indices.extend(fresh_validators_rewards.keys());
         }
     }
 
@@ -1208,7 +1250,10 @@ mod release_tests {
             .insert_proposer_slashing(slashing2.clone().validate(&state, &harness.spec).unwrap());
 
         // Should only get the second slashing back.
-        assert_eq!(op_pool.get_slashings(&state).0, vec![slashing2]);
+        assert_eq!(
+            op_pool.get_slashings_and_exits(&state, &harness.spec).0,
+            vec![slashing2]
+        );
     }
 
     // Sanity check on the pruning of proposer slashings
@@ -1221,7 +1266,10 @@ mod release_tests {
         let slashing = harness.make_proposer_slashing(0);
         op_pool.insert_proposer_slashing(slashing.clone().validate(&state, &harness.spec).unwrap());
         op_pool.prune_proposer_slashings(&state);
-        assert_eq!(op_pool.get_slashings(&state).0, vec![slashing]);
+        assert_eq!(
+            op_pool.get_slashings_and_exits(&state, &harness.spec).0,
+            vec![slashing]
+        );
     }
 
     // Sanity check on the pruning of attester slashings
@@ -1238,7 +1286,10 @@ mod release_tests {
             state.fork(),
         );
         op_pool.prune_attester_slashings(&state);
-        assert_eq!(op_pool.get_slashings(&state).1, vec![slashing]);
+        assert_eq!(
+            op_pool.get_slashings_and_exits(&state, &harness.spec).1,
+            vec![slashing]
+        );
     }
 
     // Check that we get maximum coverage for attester slashings (highest qty of validators slashed)
@@ -1271,7 +1322,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state);
+        let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_4, slashing_3]);
     }
 
@@ -1305,7 +1356,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state);
+        let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
     }
 
@@ -1336,7 +1387,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state);
+        let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
     }
 
@@ -1368,11 +1419,11 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state);
+        let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
     }
 
-    //Max coverage should be affected by the overall effective balances
+    // Max coverage should be affected by the overall effective balances
     #[test]
     fn max_coverage_effective_balances() {
         let harness = get_harness(32, None);
@@ -1400,7 +1451,7 @@ mod release_tests {
             state.fork(),
         );
 
-        let best_slashings = op_pool.get_slashings(&state);
+        let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
     }
 

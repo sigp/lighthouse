@@ -178,7 +178,7 @@ impl Eth2NetworkConfig {
                     .and_then(|file| {
                         serde_yaml::from_reader(file)
                             .map_err(|e| format!("Unable to parse {}: {:?}", $file, e))
-                    })?;
+                    })?
             };
         }
 
@@ -248,6 +248,12 @@ mod tests {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         let spec = ChainSpec::mainnet();
         assert_eq!(spec, config.chain_spec::<E>().unwrap());
+    }
+
+    #[test]
+    fn mainnet_genesis_state() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
+        config.beacon_state::<E>().expect("beacon state can decode");
     }
 
     #[test]

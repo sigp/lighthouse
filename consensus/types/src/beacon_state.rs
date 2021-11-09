@@ -197,6 +197,8 @@ impl From<BeaconStateHash> for Hash256 {
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<T>
 where
     T: EthSpec,
@@ -264,6 +266,7 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
@@ -275,36 +278,31 @@ where
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub exit_cache: ExitCache,
     #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
@@ -413,16 +411,13 @@ impl<T: EthSpec> BeaconState<T> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
 
-        if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
-        {
-            BeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            BeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 
     /// Returns the `tree_hash_root` of the state.

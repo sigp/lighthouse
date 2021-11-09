@@ -9,9 +9,9 @@ use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::PeerId;
-use eth2_libp2p::SyncInfo;
 use fnv::FnvHashMap;
+use lighthouse_network::PeerId;
+use lighthouse_network::SyncInfo;
 use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
@@ -480,7 +480,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
                 if let Err(remove_reason) = chain.add_peer(network, peer) {
                     if remove_reason.is_critical() {
-                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                        crit!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     } else {
                         error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     }

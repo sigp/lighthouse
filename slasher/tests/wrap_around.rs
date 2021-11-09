@@ -1,7 +1,5 @@
-use slasher::{
-    test_utils::{indexed_att, logger},
-    Config, Error, Slasher,
-};
+use logging::test_logger;
+use slasher::{test_utils::indexed_att, Config, Error, Slasher};
 use tempfile::tempdir;
 use types::Epoch;
 
@@ -13,7 +11,7 @@ fn attestation_pruning_empty_wrap_around() {
     config.chunk_size = 16;
     config.history_length = 16;
 
-    let slasher = Slasher::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::open(config.clone(), test_logger()).unwrap();
 
     let v = vec![0];
     let history_length = config.history_length as u64;
@@ -48,7 +46,7 @@ fn pruning_with_map_full() {
     config.history_length = 1024;
     config.max_db_size_mbs = 1;
 
-    let slasher = Slasher::open(config, logger()).unwrap();
+    let slasher = Slasher::open(config, test_logger()).unwrap();
 
     let v = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 

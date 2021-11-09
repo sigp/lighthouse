@@ -1,7 +1,7 @@
 use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
 use clap::ArgMatches;
-use eth2_libp2p::discv5::{enr::CombinedKey, Discv5Config, Enr};
-use eth2_libp2p::{
+use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
+use lighthouse_network::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };

@@ -2,12 +2,12 @@
 //! required for the HTTP API.
 
 use crate::Error as ServerError;
-use eth2_libp2p::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-pub use reqwest::header::ACCEPT;
+use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
+use std::time::Duration;
 pub use types::*;
 
 /// An API error serializable to JSON.
@@ -212,7 +212,6 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-// #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct ForkVersionedResponse<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<ForkName>,
@@ -761,6 +760,20 @@ pub struct SseChainReorg {
     pub epoch: Epoch,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseLateHead {
+    pub slot: Slot,
+    pub block: Hash256,
+    pub proposer_index: u64,
+    pub peer_id: Option<String>,
+    pub peer_client: Option<String>,
+    pub proposer_graffiti: String,
+    pub block_delay: Duration,
+    pub observed_delay: Option<Duration>,
+    pub imported_delay: Option<Duration>,
+    pub set_as_head_delay: Option<Duration>,
+}
+
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
@@ -770,6 +783,8 @@ pub enum EventKind<T: EthSpec> {
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
+    ContributionAndProof(Box<SignedContributionAndProof<T>>),
+    LateHead(SseLateHead),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -781,6 +796,8 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::VoluntaryExit(_) => "voluntary_exit",
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
             EventKind::ChainReorg(_) => "chain_reorg",
+            EventKind::ContributionAndProof(_) => "contribution_and_proof",
+            EventKind::LateHead(_) => "late_head",
         }
     }
 
@@ -820,11 +837,19 @@ impl<T: EthSpec> EventKind<T> {
             "head" => Ok(EventKind::Head(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)),
             )?)),
+            "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
+            )?)),
             "voluntary_exit" => Ok(EventKind::VoluntaryExit(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
                 })?,
             )),
+            "contribution_and_proof" => Ok(EventKind::ContributionAndProof(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -846,6 +871,8 @@ pub enum EventTopic {
     VoluntaryExit,
     FinalizedCheckpoint,
     ChainReorg,
+    ContributionAndProof,
+    LateHead,
 }
 
 impl FromStr for EventTopic {
@@ -859,6 +886,8 @@ impl FromStr for EventTopic {
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
             "chain_reorg" => Ok(EventTopic::ChainReorg),
+            "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
+            "late_head" => Ok(EventTopic::LateHead),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -873,6 +902,8 @@ impl fmt::Display for EventTopic {
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
+            EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
+            EventTopic::LateHead => write!(f, "late_head"),
         }
     }
 }

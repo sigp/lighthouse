@@ -36,22 +36,26 @@ jobs:
             - name: Cargo login
               run: |
                   echo "${CARGO_API_TOKEN}" | cargo login
-            - name: publish tree hash
-              if: startsWith(env.TAG, 'tree-hash-v')
-              run: |
-                ./scripts/ci/publish.sh consensus/tree_hash tree_hash "$TAG"
-            - name: publish tree hash derive
-              if: startsWith(env.TAG, 'tree-hash-derive-v')
-              run: |
-                ./scripts/ci/publish.sh consensus/tree_hash_derive tree_hash_derive "$TAG"
-            - name: publish eth2 ssz
-              if: startsWith(env.TAG, 'eth2-ssz-v')
-              run: |
-                ./scripts/ci/publish.sh consensus/ssz eth2_ssz "$TAG"
             - name: publish eth2 ssz derive
               if: startsWith(env.TAG, 'eth2-ssz-derive-v')
               run: |
                 ./scripts/ci/publish.sh consensus/ssz_derive eth2_ssz_derive "$TAG"
+            - name: publish eth2 ssz
+              if: startsWith(env.TAG, 'eth2-ssz-v')
+              run: |
+                ./scripts/ci/publish.sh consensus/ssz eth2_ssz "$TAG"
+            - name: publish eth2 hashing
+              if: startsWith(env.TAG, 'eth2-hashing-v')
+              run: |
+                ./scripts/ci/publish.sh crypto/eth2_hashing eth2_hashing "$TAG"
+            - name: publish tree hash derive
+              if: startsWith(env.TAG, 'tree-hash-derive-v')
+              run: |
+                ./scripts/ci/publish.sh consensus/tree_hash_derive tree_hash_derive "$TAG"
+            - name: publish tree hash
+              if: startsWith(env.TAG, 'tree-hash-v')
+              run: |
+                ./scripts/ci/publish.sh consensus/tree_hash tree_hash "$TAG"
             - name: publish ssz types
               if: startsWith(env.TAG, 'eth2-ssz-types-v')
               run: |
@@ -60,7 +64,3 @@ jobs:
               if: startsWith(env.TAG, 'eth2-serde-util-v')
               run: |
                 ./scripts/ci/publish.sh consensus/serde_utils eth2_serde_utils "$TAG"
-            - name: publish eth2 hashing
-              if: startsWith(env.TAG, 'eth2-hashing-v')
-              run: |
-                ./scripts/ci/publish.sh crypto/eth2_hashing eth2_hashing "$TAG"

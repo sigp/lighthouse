@@ -5,7 +5,7 @@
 set -e
 USAGE="Publish a new release of a lighthouse crate
 USAGE:
-    $(basename "$0") [OPTIONS] [CRATE_PATH] [CRATE] [TAG]
+    $(basename "$0") [OPTIONS] [CRATE_PATH] [CRATE] [TAG_NAME]
 OPTIONS:
     -v, --verbose       Use verbose Cargo output
     -d, --dry-run       Perform a dry run (do not publish the release)
@@ -72,9 +72,9 @@ case "$1" in
         CRATE_PATH="$1"
     elif [ -z "$CRATE" ]; then
         CRATE="$1"
-    elif [ -z "$TAG" ]; then
-        TAG="$1"
-        VERSION=$(sed -e 's#.*-v\([0-9]\)#\1#' <<< "$TAG")
+    elif [ -z "$TAG_NAME" ]; then
+        TAG_NAME="$1"
+        VERSION=$(sed -e 's#.*-v\([0-9]\)#\1#' <<< "$TAG_NAME")
     else
         echo "unknown positional argument \"$1\""
         echo "$USAGE"

@@ -15,9 +15,10 @@ use types::*;
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
     variants(Base, Altair),
-    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
+    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode),)
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PartialBeaconState<T>
 where
     T: EthSpec,
@@ -32,15 +33,12 @@ where
     // History
     pub latest_block_header: BeaconBlockHeader,
 
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     pub block_roots: Option<FixedVector<Hash256, T::SlotsPerHistoricalRoot>>,
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     pub state_roots: Option<FixedVector<Hash256, T::SlotsPerHistoricalRoot>>,
 
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     pub historical_roots: Option<VariableList<Hash256, T::HistoricalRootsLimit>>,
 
     // Ethereum 1.0 chain data
@@ -55,8 +53,7 @@ where
     // Shuffling
     /// Randao value from the current slot, for patching into the per-epoch randao vector.
     pub latest_randao_value: Hash256,
-    #[ssz(skip_serializing)]
-    #[ssz(skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
     pub randao_mixes: Option<FixedVector<Hash256, T::EpochsPerHistoricalVector>>,
 
     // Slashings
@@ -179,20 +176,16 @@ impl<T: EthSpec> PartialBeaconState<T> {
         )?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
 
-        if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
-        {
-            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 
     /// Prepare the partial state for storage in the KV database.
-    #[must_use]
     pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
         let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
         KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())

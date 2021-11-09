@@ -8,6 +8,7 @@ pub use beacon_chain;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
+    TimeoutRwLock,
 };
 use clap::ArgMatches;
 pub use cli::cli_app;
@@ -65,6 +66,11 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let executor = context.executor.clone();
+
+        if !client_config.chain.enable_lock_timeouts {
+            info!(log, "Disabling lock timeouts globally");
+            TimeoutRwLock::disable_timeouts()
+        }
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
@@ -158,7 +164,7 @@ impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
 #[derive(Clone)]
 struct Discv5Executor(task_executor::TaskExecutor);
 
-impl eth2_libp2p::discv5::Executor for Discv5Executor {
+impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
     }

@@ -11,7 +11,7 @@ pub use self::verify_attester_slashing::{
 };
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use altair::sync_committee::process_sync_aggregate;
-pub use block_signature_verifier::BlockSignatureVerifier;
+pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use process_operations::process_operations;
 pub use verify_attestation::{
@@ -46,6 +46,8 @@ pub enum BlockSignatureStrategy {
     NoVerification,
     /// Validate each signature individually, as its object is being processed.
     VerifyIndividual,
+    /// Validate only the randao reveal signature.
+    VerifyRandao,
     /// Verify all signatures in bulk at the beginning of block processing.
     VerifyBulk,
 }
@@ -115,6 +117,7 @@ pub fn per_block_processing<T: EthSpec>(
         }
         BlockSignatureStrategy::VerifyIndividual => VerifySignatures::True,
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
+        BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
     let proposer_index = process_block_header(state, block, spec)?;
@@ -123,11 +126,16 @@ pub fn per_block_processing<T: EthSpec>(
         verify_block_signature(state, signed_block, block_root, spec)?;
     }
 
+    let verify_randao = if let BlockSignatureStrategy::VerifyRandao = block_signature_strategy {
+        VerifySignatures::True
+    } else {
+        verify_signatures
+    };
     // Ensure the current and previous epoch caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-    process_randao(state, block, verify_signatures, spec)?;
+    process_randao(state, block, verify_randao, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 

@@ -1,7 +1,7 @@
 # Lighthouse Non-Standard APIs
 
 Lighthouse fully supports the standardization efforts at
-[github.com/ethereum/eth2.0-APIs](https://github.com/ethereum/eth2.0-APIs),
+[github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs),
 however sometimes development requires additional endpoints that shouldn't
 necessarily be defined as a broad-reaching standard.  Such endpoints are placed
 behind the `/lighthouse` path.
@@ -320,9 +320,9 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: a
 
 Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
 
-The `state_id` parameter is identical to that used in the [Standard Eth2.0 API
+The `state_id` parameter is identical to that used in the [Standard Eth2.0 Beacon Node API
 `beacon/state`
-routes](https://ethereum.github.io/eth2.0-APIs/#/Beacon/getStateRoot).
+routes](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot).
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
@@ -354,3 +354,57 @@ curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":["0","1"
     ]
 }
 ```
+
+### `/lighthouse/database/info`
+
+Information about the database's split point and anchor info.
+
+```bash
+curl "http://localhost:5052/lighthouse/database/info" | jq
+```
+
+```json
+{
+  "schema_version": 5,
+  "split": {
+    "slot": "2034912",
+    "state_root": "0x11c8516aa7d4d1613e84121e3a557ceca34618b4c1a38f05b66ad045ff82b33b"
+  },
+  "anchor": {
+    "anchor_slot": "2034720",
+    "oldest_block_slot": "1958881",
+    "oldest_block_parent": "0x1fd3d855d03e9df28d8a41a0f9cb9d4c540832b3ca1c3e1d7e09cd75b874cc87",
+    "state_upper_limit": "2035712",
+    "state_lower_limit": "0"
+  }
+}
+```
+
+For more information about the split point, see the [Database Configuration](./advanced_database.md)
+docs.
+
+The `anchor` will be `null` unless the node has been synced with checkpoint sync and state
+reconstruction has yet to be completed. For more information
+on the specific meanings of these fields see the docs on [Checkpoint
+Sync](./checkpoint-sync.md#reconstructing-states).
+
+### `/lighthouse/database/reconstruct`
+
+Instruct Lighthouse to begin reconstructing historic states, see
+[Reconstructing States](./checkpoint-sync.md#reconstructing-states). This is an alternative
+to the `--reconstruct-historic-states` flag.
+
+```
+curl -X POST "http://localhost:5052/lighthouse/database/reconstruct" | jq
+```
+
+```json
+"success"
+```
+
+The endpoint will return immediately. See the beacon node logs for an indication of progress.
+
+### `/lighthouse/database/historical_blocks`
+
+Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
+for use by Lighthouse developers during testing only.

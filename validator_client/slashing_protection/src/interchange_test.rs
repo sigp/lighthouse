@@ -64,15 +64,15 @@ impl MultiTestCase {
         let slashing_db_file = dir.path().join("slashing_protection.sqlite");
         let slashing_db = SlashingDatabase::create(&slashing_db_file).unwrap();
 
-        // If minification is used, false positives are allowed, i.e. there may be some situations
-        // in which signing is safe but the minified file prevents it.
-        let allow_false_positives = minify;
+        // Now that we are using implicit minification on import, we must always allow
+        // false positives.
+        let allow_false_positives = true;
 
         for test_case in &self.steps {
-            // If the test case is marked as containing slashable data, then it is permissible
-            // that we fail to import the file, in which case execution of the whole test should
-            // be aborted.
-            let allow_import_failure = test_case.contains_slashable_data;
+            // If the test case is marked as containing slashable data, then the spec allows us to
+            // fail to import the file. However, we minify on import and ignore slashable data, so
+            // we should be capable of importing no matter what.
+            let allow_import_failure = false;
 
             let interchange = if minify {
                 let minified = test_case.interchange.minify().unwrap();

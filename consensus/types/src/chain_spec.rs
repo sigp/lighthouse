@@ -349,8 +349,6 @@ impl ChainSpec {
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
-    ///
-    /// Spec v0.12.3
     pub fn mainnet() -> Self {
         Self {
             /*
@@ -468,7 +466,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
-            altair_fork_epoch: None,
+            altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
              * Network specific
@@ -492,6 +490,7 @@ impl ChainSpec {
         Self {
             max_committees_per_slot: 4,
             target_committee_size: 4,
+            churn_limit_quotient: 32,
             shuffle_round_count: 10,
             min_genesis_active_validator_count: 64,
             min_genesis_time: 1578009600,

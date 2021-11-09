@@ -3,13 +3,13 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use eth2_libp2p::{
+use http_api::{Config, Context};
+use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    Enr, NetworkGlobals, PeerId,
+    ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
 };
-use http_api::{Config, Context};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
@@ -18,7 +18,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use types::{test_utils::generate_deterministic_keypairs, ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
 pub const UDP_PORT: u16 = 42;
@@ -46,12 +46,12 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
 }
 
 impl<E: EthSpec> InteractiveTester<E> {
-    pub fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        let harness = BeaconChainHarness::new(
-            E::default(),
-            spec,
-            generate_deterministic_keypairs(validator_count),
-        );
+    pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec_or_default(spec)
+            .deterministic_keypairs(validator_count)
+            .fresh_ephemeral_store()
+            .build();
 
         let ApiServer {
             server,
@@ -59,7 +59,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             shutdown_tx: _server_shutdown,
             network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone());
+        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
 
         tokio::spawn(server);
 
@@ -82,7 +82,7 @@ impl<E: EthSpec> InteractiveTester<E> {
     }
 }
 
-pub fn create_api_server<T: BeaconChainTypes>(
+pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
@@ -96,15 +96,30 @@ pub fn create_api_server<T: BeaconChainTypes>(
     });
     let enr_key = CombinedKey::generate_secp256k1();
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-    let network_globals =
-        NetworkGlobals::new(enr.clone(), TCP_PORT, UDP_PORT, meta_data, vec![], &log);
+    let network_globals = Arc::new(NetworkGlobals::new(
+        enr.clone(),
+        TCP_PORT,
+        UDP_PORT,
+        meta_data,
+        vec![],
+        &log,
+    ));
 
+    // Only a peer manager can add peers, so we create a dummy manager.
+    let config = lighthouse_network::peer_manager::config::Config::default();
+    let mut pm = PeerManager::new(config, network_globals.clone(), &log)
+        .await
+        .unwrap();
+
+    // add a peer
     let peer_id = PeerId::random();
-    network_globals
-        .peers
-        .write()
-        .connect_ingoing(&peer_id, EXTERNAL_ADDR.parse().unwrap(), None);
 
+    let connected_point = ConnectedPoint::Listener {
+        local_addr: EXTERNAL_ADDR.parse().unwrap(),
+        send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
+    };
+    let num_established = std::num::NonZeroU32::new(1).unwrap();
+    pm.inject_connection_established(peer_id, connected_point, num_established, None);
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
@@ -116,10 +131,11 @@ pub fn create_api_server<T: BeaconChainTypes>(
             listen_port: 0,
             allow_origin: None,
             serve_legacy_spec: true,
+            tls_config: None,
         },
         chain: Some(chain.clone()),
         network_tx: Some(network_tx),
-        network_globals: Some(Arc::new(network_globals)),
+        network_globals: Some(network_globals),
         eth1_service: Some(eth1_service),
         log,
     });

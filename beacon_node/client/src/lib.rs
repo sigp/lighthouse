@@ -8,7 +8,7 @@ pub mod builder;
 pub mod error;
 
 use beacon_chain::BeaconChain;
-use eth2_libp2p::{Enr, Multiaddr, NetworkGlobals};
+use lighthouse_network::{Enr, Multiaddr, NetworkGlobals};
 use std::net::SocketAddr;
 use std::sync::Arc;
 

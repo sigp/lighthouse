@@ -2,12 +2,12 @@ use beacon_chain::{
     attestation_verification::Error as AttnError,
     sync_committee_verification::Error as SyncCommitteeError,
 };
-use eth2_libp2p::PubsubMessage;
-use eth2_libp2p::{
-    types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
-};
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
+use lighthouse_network::PubsubMessage;
+use lighthouse_network::{
+    types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals, TopicHash,
+};
 use std::{collections::HashMap, sync::Arc};
 use strum::AsStaticRef;
 use types::{
@@ -353,9 +353,17 @@ lazy_static! {
         "beacon_processor_chain_segment_success_total",
         "Total number of chain segments successfully processed."
     );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_backfill_chain_segment_success_total",
+        "Total number of chain segments successfully processed."
+    );
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_chain_segment_failed_total",
         "Total number of chain segments that failed processing."
+    );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_backfill_chain_segment_failed_total",
+        "Total number of backfill chain segments that failed processing."
     );
     // Unaggregated attestations.
     pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
@@ -887,6 +895,57 @@ pub fn update_gossip_metrics<T: EthSpec>(
         };
     }
 
+<<<<<<< HEAD
+=======
+    let mut peer_to_client = HashMap::new();
+    let mut scores_per_client: HashMap<&'static str, Vec<f64>> = HashMap::new();
+    {
+        let peers = network_globals.peers.read();
+        for (peer_id, _) in gossipsub.all_peers() {
+            let client = peers
+                .peer_info(peer_id)
+                .map(|peer_info| peer_info.client().kind.as_static())
+                .unwrap_or_else(|| "Unknown");
+
+            peer_to_client.insert(peer_id, client);
+            let score = gossipsub.peer_score(peer_id).unwrap_or(0.0);
+            scores_per_client.entry(client).or_default().push(score);
+        }
+    }
+
+    // mesh peers per client
+    for topic_hash in gossipsub.topics() {
+        if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
+            match topic.kind() {
+                GossipKind::BeaconBlock => {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) =
+                                get_int_gauge(&BEACON_BLOCK_MESH_PEERS_PER_CLIENT, &[client])
+                            {
+                                v.inc()
+                            };
+                        }
+                    }
+                }
+                GossipKind::BeaconAggregateAndProof => {
+                    for peer in gossipsub.mesh_peers(topic_hash) {
+                        if let Some(client) = peer_to_client.get(peer) {
+                            if let Some(v) = get_int_gauge(
+                                &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
+                                &[client],
+                            ) {
+                                v.inc()
+                            };
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
+>>>>>>> origin/unstable
     for (client, scores) in scores_per_client.into_iter() {
         let c = &[client];
         let len = scores.len();
@@ -1022,7 +1081,7 @@ pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>)
         .peers
         .read()
         .connected_peers()
-        .map(|(_peer_id, info)| info.sync_status.as_str())
+        .map(|(_peer_id, info)| info.sync_status().as_str())
     {
         *peers_per_sync_type.entry(sync_type).or_default() += 1;
     }

@@ -5,6 +5,7 @@ mod beacon_chain;
 mod beacon_fork_choice_store;
 mod beacon_proposer_cache;
 mod beacon_snapshot;
+mod block_times_cache;
 mod block_verification;
 pub mod builder;
 pub mod chain_config;
@@ -13,6 +14,7 @@ pub mod eth1_chain;
 pub mod events;
 pub mod fork_revert;
 mod head_tracker;
+pub mod historical_blocks;
 mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
@@ -39,6 +41,7 @@ pub use self::beacon_chain::{
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
+pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{BlockError, GossipVerifiedBlock};
@@ -52,4 +55,5 @@ pub use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
+pub use timeout_rw_lock::TimeoutRwLock;
 pub use types;

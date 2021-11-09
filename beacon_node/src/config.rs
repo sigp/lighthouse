@@ -2,8 +2,9 @@ use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
-use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use http_api::TlsConfig;
+use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
@@ -35,16 +36,20 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        fs::remove_dir_all(client_config.get_db_path().ok_or("Failed to get db_path")?)
-            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let chain_db = client_config.get_db_path().ok_or("Failed to get db_path")?;
+        if chain_db.exists() {
+            fs::remove_dir_all(chain_db)
+                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        }
 
         // Remove the freezer db.
-        fs::remove_dir_all(
-            client_config
-                .get_freezer_db_path()
-                .ok_or("Failed to get freezer db path")?,
-        )
-        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let freezer_db = client_config
+            .get_freezer_db_path()
+            .ok_or("Failed to get freezer db path")?;
+        if freezer_db.exists() {
+            fs::remove_dir_all(freezer_db)
+                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -109,6 +114,21 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("http-disable-legacy-spec") {
         client_config.http_api.serve_legacy_spec = false;
+    }
+
+    if cli_args.is_present("http-enable-tls") {
+        client_config.http_api.tls_config = Some(TlsConfig {
+            cert: cli_args
+                .value_of("http-tls-cert")
+                .ok_or("--http-tls-cert was not provided.")?
+                .parse::<PathBuf>()
+                .map_err(|_| "http-tls-cert is not a valid path name.")?,
+            key: cli_args
+                .value_of("http-tls-key")
+                .ok_or("--http-tls-key was not provided.")?
+                .parse::<PathBuf>()
+                .map_err(|_| "http-tls-key is not a valid path name.")?,
+        });
     }
 
     /*
@@ -292,15 +312,62 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
-        // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-        // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-        // effects.
-        client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes,
-        };
+    client_config.genesis = if let Some(genesis_state_bytes) =
+        eth2_network_config.genesis_state_bytes
+    {
+        // Set up weak subjectivity sync, or start from the hardcoded genesis state.
+        if let (Some(initial_state_path), Some(initial_block_path)) = (
+            cli_args.value_of("checkpoint-state"),
+            cli_args.value_of("checkpoint-block"),
+        ) {
+            let read = |path: &str| {
+                use std::fs::File;
+                use std::io::Read;
+                File::open(Path::new(path))
+                    .and_then(|mut f| {
+                        let mut buffer = vec![];
+                        f.read_to_end(&mut buffer)?;
+                        Ok(buffer)
+                    })
+                    .map_err(|e| format!("Unable to open {}: {:?}", path, e))
+            };
+
+            let anchor_state_bytes = read(initial_state_path)?;
+            let anchor_block_bytes = read(initial_block_path)?;
+
+            ClientGenesis::WeakSubjSszBytes {
+                genesis_state_bytes,
+                anchor_state_bytes,
+                anchor_block_bytes,
+            }
+        } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
+            let url = SensitiveUrl::parse(remote_bn_url)
+                .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+
+            ClientGenesis::CheckpointSyncUrl {
+                genesis_state_bytes,
+                url,
+            }
+        } else {
+            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
+            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
+            // effects.
+            ClientGenesis::SszBytes {
+                genesis_state_bytes,
+            }
+        }
     } else {
-        client_config.genesis = ClientGenesis::DepositContract;
+        if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
+            return Err(
+                "Checkpoint sync is not available for this network as no genesis state is known"
+                    .to_string(),
+            );
+        }
+        ClientGenesis::DepositContract
+    };
+
+    if cli_args.is_present("reconstruct-historic-states") {
+        client_config.chain.reconstruct_historic_states = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
@@ -439,6 +506,10 @@ pub fn get_config<E: EthSpec>(
         client_config
             .validator_monitor_pubkeys
             .extend_from_slice(&pubkeys);
+    }
+
+    if cli_args.is_present("disable-lock-timeouts") {
+        client_config.chain.enable_lock_timeouts = false;
     }
 
     Ok(client_config)
@@ -632,6 +703,10 @@ pub fn set_network_config(
 
     if cli_args.is_present("private") {
         config.private = true;
+    }
+
+    if cli_args.is_present("metrics") {
+        config.metrics_enabled = true;
     }
 
     Ok(())

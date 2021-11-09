@@ -28,14 +28,19 @@ use tree_hash_derive::TreeHash;
             TestRandom
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
     ),
-    ref_attributes(derive(Debug, PartialEq, TreeHash))
+    ref_attributes(
+        derive(Debug, PartialEq, TreeHash),
+        tree_hash(enum_behaviour = "transparent")
+    )
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
@@ -76,16 +81,13 @@ impl<T: EthSpec> BeaconBlock<T> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
 
-        if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
-        {
-            BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            BeaconBlockAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 
     /// Try decoding each beacon block variant in sequence.
@@ -195,6 +197,11 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
             BeaconBlockRef::Base(block) => block.body.tree_hash_root(),
             BeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
         }
+    }
+
+    /// Returns the epoch corresponding to `self.slot()`.
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(T::slots_per_epoch())
     }
 
     /// Returns a full `BeaconBlockHeader` of this block.

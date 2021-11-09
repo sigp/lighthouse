@@ -102,7 +102,7 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
             .as_ref()
             .to_str()
             .ok_or(Error::UnableToObtainFilePath)?;
-        let mut acl = ACL::from_file_path(&path_str, false).map_err(Error::UnableToRetrieveACL)?;
+        let mut acl = ACL::from_file_path(path_str, false).map_err(Error::UnableToRetrieveACL)?;
 
         let owner_sid =
             windows_acl::helper::string_to_sid(OWNER_SID_STR).map_err(Error::UnableToConvertSID)?;

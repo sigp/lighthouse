@@ -10,11 +10,11 @@ mod processor;
 use crate::error;
 use crate::service::NetworkMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::{
+use futures::prelude::*;
+use lighthouse_network::{
     rpc::RequestId, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
     Response,
 };
-use futures::prelude::*;
 use processor::Processor;
 use slog::{debug, o, trace};
 use std::sync::Arc;
@@ -223,7 +223,12 @@ impl<T: BeaconChainTypes> Router<T> {
                 );
             }
             PubsubMessage::BeaconBlock(block) => {
-                self.processor.on_block_gossip(id, peer_id, block);
+                self.processor.on_block_gossip(
+                    id,
+                    peer_id,
+                    self.network_globals.client(&peer_id),
+                    block,
+                );
             }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);

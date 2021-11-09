@@ -104,13 +104,21 @@ impl<'a> SszEncoder<'a> {
 
     /// Append some `item` to the SSZ bytes.
     pub fn append<T: Encode>(&mut self, item: &T) {
-        if T::is_ssz_fixed_len() {
-            item.ssz_append(&mut self.buf);
+        self.append_parameterized(T::is_ssz_fixed_len(), |buf| item.ssz_append(buf))
+    }
+
+    /// Uses `ssz_append` to append the encoding of some item to the SSZ bytes.
+    pub fn append_parameterized<F>(&mut self, is_ssz_fixed_len: bool, ssz_append: F)
+    where
+        F: Fn(&mut Vec<u8>),
+    {
+        if is_ssz_fixed_len {
+            ssz_append(&mut self.buf);
         } else {
             self.buf
                 .extend_from_slice(&encode_length(self.offset + self.variable_bytes.len()));
 
-            item.ssz_append(&mut self.variable_bytes);
+            ssz_append(&mut self.variable_bytes);
         }
     }
 
@@ -123,13 +131,6 @@ impl<'a> SszEncoder<'a> {
 
         &mut self.buf
     }
-}
-
-/// Encode `index` as a little-endian byte array of `BYTES_PER_LENGTH_OFFSET` length.
-///
-/// If `len` is larger than `2 ^ BYTES_PER_LENGTH_OFFSET`, a `debug_assert` is raised.
-pub fn encode_union_index(index: usize) -> [u8; BYTES_PER_LENGTH_OFFSET] {
-    encode_length(index)
 }
 
 /// Encode `len` as a little-endian byte array of `BYTES_PER_LENGTH_OFFSET` length.

@@ -259,8 +259,10 @@ where
 }
 
 #[cfg(feature = "arbitrary")]
-impl<T: arbitrary::Arbitrary, N: 'static + Unsigned> arbitrary::Arbitrary for VariableList<T, N> {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+impl<'a, T: arbitrary::Arbitrary<'a>, N: 'static + Unsigned> arbitrary::Arbitrary<'a>
+    for VariableList<T, N>
+{
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let max_size = N::to_usize();
         let rand = usize::arbitrary(u)?;
         let size = std::cmp::min(rand, max_size);

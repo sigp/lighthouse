@@ -145,6 +145,6 @@ impl<Pub, Sig> fmt::Debug for GenericSignatureBytes<Pub, Sig> {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub: 'static, Sig: 'static> arbitrary::Arbitrary for GenericSignatureBytes<Pub, Sig> {
+impl<Pub: 'static, Sig: 'static> arbitrary::Arbitrary<'_> for GenericSignatureBytes<Pub, Sig> {
     impl_arbitrary!(SIGNATURE_BYTES_LEN);
 }
