@@ -203,7 +203,6 @@ fn update_roots<T: BeaconChainTypes>(
     legacy_nodes: &[LegacyProtoNode],
     fork_choice: &mut ProtoArrayForkChoice,
 ) -> Result<(), String> {
-    // Gather candidate heads
     let heads = find_heads(finalized_root, fork_choice);
 
     // For each head, first gather all epochs we will need to find justified or finalized roots for.
@@ -245,20 +244,25 @@ fn update_roots<T: BeaconChainTypes>(
                 .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
 
-            // Find the justified root for the head and populate the checkpoint.
+            // Update the checkpoints only if they haven't already been populated.
             if node.justified_checkpoint.is_none() {
-                let justified_checkpoint = Some(Checkpoint {
-                    epoch: justified_epoch,
-                    root: *roots_by_epoch.get(&justified_epoch).unwrap(),
-                });
+                let justified_checkpoint =
+                    roots_by_epoch
+                        .get(&justified_epoch)
+                        .map(|&root| Checkpoint {
+                            epoch: justified_epoch,
+                            root,
+                        });
                 node.justified_checkpoint = justified_checkpoint;
             }
-
             if node.finalized_checkpoint.is_none() {
-                let finalized_checkpoint = Some(Checkpoint {
-                    epoch: finalized_epoch,
-                    root: *roots_by_epoch.get(&finalized_epoch).unwrap(),
-                });
+                let finalized_checkpoint =
+                    roots_by_epoch
+                        .get(&finalized_epoch)
+                        .map(|&root| Checkpoint {
+                            epoch: finalized_epoch,
+                            root,
+                        });
                 node.finalized_checkpoint = finalized_checkpoint;
             }
 
@@ -286,7 +290,6 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     );
     let mut roots_by_epoch = HashMap::new();
     for epoch in relevant_epochs.iter().copied() {
-
         let start_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let root = iter
@@ -323,7 +326,6 @@ where
         parent_index_opt.and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
 
     while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
-
         node_mutator(parent_index, parent)?;
 
         // Break out of this while loop *after* the `node_mutator` has been applied to the finalized
