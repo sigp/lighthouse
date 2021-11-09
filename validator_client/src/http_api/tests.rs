@@ -460,7 +460,7 @@ impl ApiTester {
         self.client
             .post_lighthouse_validators_web3signer(&request)
             .await
-            .unwrap_err();
+            .unwrap();
 
         assert_eq!(self.vals_total(), initial_vals + s.count);
         if s.enabled {

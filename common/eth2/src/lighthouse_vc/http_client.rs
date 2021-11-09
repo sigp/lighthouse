@@ -437,7 +437,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_lighthouse_validators_web3signer(
         &self,
         request: &[Web3SignerValidatorRequest],
-    ) -> Result<GenericResponse<ValidatorData>, Error> {
+    ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

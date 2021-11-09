@@ -27,24 +27,24 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
     let keystores = initialized_validators
         .validator_definitions()
         .iter()
-        .filter(|def| def.enabled && def.signing_definition.is_local_keystore())
+        .filter(|def| def.enabled)
         .map(|def| {
             let validating_pubkey = def.voting_public_key.compress();
 
-            let derivation_path = initialized_validators
+            let (derivation_path, readonly) = initialized_validators
                 .signing_method(&validating_pubkey)
-                .and_then(|signing_method| match *signing_method {
+                .map_or((None, None), |signing_method| match *signing_method {
                     SigningMethod::LocalKeystore {
                         ref voting_keystore,
                         ..
-                    } => voting_keystore.path(),
-                    SigningMethod::Web3Signer { .. } => None,
+                    } => (voting_keystore.path(), None),
+                    SigningMethod::Web3Signer { .. } => (None, Some(true)),
                 });
 
             SingleKeystoreResponse {
                 validating_pubkey,
                 derivation_path,
-                readonly: None,
+                readonly,
             }
         })
         .collect::<Vec<_>>();
@@ -59,6 +59,15 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     runtime: Weak<Runtime>,
     log: Logger,
 ) -> Result<ImportKeystoresResponse, Rejection> {
+    // Check request validity. This is the only cases in which we should return a 4xx code.
+    if request.keystores.len() != request.passwords.len() {
+        return Err(custom_bad_request(format!(
+            "mismatched numbers of keystores ({}) and passwords ({})",
+            request.keystores.len(),
+            request.passwords.len(),
+        )));
+    }
+
     info!(
         log,
         "Importing keystores via standard HTTP API";
@@ -98,7 +107,6 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     // Import each keystore. Some keystores may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.keystores.len());
 
-    // FIXME(sproul): check and test different length keystores vs passwords
     for (keystore, password) in request
         .keystores
         .into_iter()
@@ -156,6 +164,15 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     {
         return Ok(ImportKeystoreStatus::Duplicate);
     }
+
+    // Check that the password is correct.
+    // In future we should re-structure to avoid the double decryption here. It's not as simple
+    // as removing this check because `add_validator_keystore` will break if provided with an
+    // invalid validator definition (`update_validators` will get stuck trying to decrypt with the
+    // wrong password indefinitely).
+    keystore
+        .decrypt_keypair(password.as_ref())
+        .map_err(|e| format!("incorrect password: {:?}", e))?;
 
     let validator_dir = ValidatorDirBuilder::new(validator_dir_path)
         .voting_keystore(keystore, password.as_ref())

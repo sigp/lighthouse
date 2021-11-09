@@ -1,6 +1,9 @@
 use super::*;
 use account_utils::random_password_string;
-use eth2::lighthouse_vc::{http_client::ValidatorClientHttpClient as HttpClient, std_types::*};
+use eth2::lighthouse_vc::{
+    http_client::ValidatorClientHttpClient as HttpClient, std_types::*,
+    types::Web3SignerValidatorRequest,
+};
 use eth2_keystore::Keystore;
 use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
@@ -13,6 +16,27 @@ fn new_keystore(password: ZeroizeString) -> Keystore {
         .unwrap()
         .build()
         .unwrap()
+}
+
+fn web3_signer_url() -> String {
+    "http://localhost:1/this-url-hopefully-doesnt-exist".into()
+}
+
+fn new_web3signer_validator() -> (Keypair, Web3SignerValidatorRequest) {
+    let keypair = Keypair::random();
+    let pk = keypair.pk.clone();
+    (
+        keypair,
+        Web3SignerValidatorRequest {
+            enable: true,
+            description: "".into(),
+            graffiti: None,
+            voting_public_key: pk,
+            url: web3_signer_url(),
+            root_certificate_path: None,
+            request_timeout_ms: None,
+        },
+    )
 }
 
 fn run_test<F, V>(f: F)
@@ -62,13 +86,13 @@ fn check_get_response<'a>(
     }
 }
 
-fn check_import_response<'a>(
+fn check_import_response(
     response: &ImportKeystoresResponse,
     expected_statuses: impl IntoIterator<Item = ImportKeystoreStatus>,
 ) {
     for (status, expected_status) in response.data.iter().zip_eq(expected_statuses) {
         assert_eq!(
-            status.status, expected_status,
+            expected_status, status.status,
             "message: {:?}",
             status.message
         );
@@ -216,13 +240,159 @@ fn import_some_duplicate_keystores() {
     })
 }
 
-// FIXME(sproul): finish these test stubs
-// FIXME(sproul): add test involving web3signer validators
 #[test]
-fn import_keystores_wrong_password_all() {}
+fn import_wrong_number_of_passwords() {
+    run_test(|tester| async move {
+        let password = random_password_string();
+        let keystores = (0..3)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        let err = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.status().unwrap(), 400);
+    })
+}
 
 #[test]
-fn import_keystores_wrong_password_some() {}
+fn get_web3_signer_keystores() {
+    run_test(|tester| async move {
+        let num_local = 3;
+        let num_remote = 2;
+
+        // Add some local validators.
+        let password = random_password_string();
+        let keystores = (0..num_local)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_import_response(&import_res, all_imported(&keystores));
+
+        // Add some web3signer validators.
+        let remote_vals = (0..num_remote)
+            .map(|_| new_web3signer_validator().1)
+            .collect::<Vec<_>>();
+
+        tester
+            .client
+            .post_lighthouse_validators_web3signer(&remote_vals)
+            .await
+            .unwrap();
+
+        // Check that both local and remote validators are returned.
+        let get_res = tester.client.get_keystores().await.unwrap();
+
+        let expected_responses = keystores
+            .iter()
+            .map(|local_keystore| SingleKeystoreResponse {
+                validating_pubkey: keystore_pubkey(local_keystore),
+                derivation_path: local_keystore.path(),
+                readonly: None,
+            })
+            .chain(remote_vals.iter().map(|remote_val| SingleKeystoreResponse {
+                validating_pubkey: remote_val.voting_public_key.compress(),
+                derivation_path: None,
+                readonly: Some(true),
+            }))
+            .collect::<Vec<_>>();
+
+        for response in expected_responses {
+            assert!(get_res.data.contains(&response), "{:?}", response);
+        }
+    })
+}
+
+#[test]
+fn import_keystores_wrong_password() {
+    run_test(|tester| async move {
+        let num_keystores = 4;
+        let (keystores, correct_passwords): (Vec<_>, Vec<_>) = (0..num_keystores)
+            .map(|_| {
+                let password = random_password_string();
+                (new_keystore(password.clone()), password)
+            })
+            .unzip();
+
+        // First import with some incorrect passwords.
+        let incorrect_passwords = (0..num_keystores)
+            .map(|i| {
+                if i % 2 == 0 {
+                    random_password_string()
+                } else {
+                    correct_passwords[i].clone()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: incorrect_passwords.clone(),
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        let expected_statuses = (0..num_keystores).map(|i| {
+            if i % 2 == 0 {
+                ImportKeystoreStatus::Error
+            } else {
+                ImportKeystoreStatus::Imported
+            }
+        });
+        check_import_response(&import_res, expected_statuses);
+
+        // Import again with the correct passwords and check that the statuses are as expected.
+        let correct_import_req = ImportKeystoresRequest {
+            keystores: keystores.clone(),
+            passwords: correct_passwords.clone(),
+            slashing_protection: None,
+        };
+        let import_res = tester
+            .client
+            .post_keystores(&correct_import_req)
+            .await
+            .unwrap();
+        let expected_statuses = (0..num_keystores).map(|i| {
+            if i % 2 == 0 {
+                ImportKeystoreStatus::Imported
+            } else {
+                ImportKeystoreStatus::Duplicate
+            }
+        });
+        check_import_response(&import_res, expected_statuses);
+
+        // Import one final time, at which point all keys should be duplicates.
+        let import_res = tester
+            .client
+            .post_keystores(&correct_import_req)
+            .await
+            .unwrap();
+        check_import_response(
+            &import_res,
+            (0..num_keystores).map(|_| ImportKeystoreStatus::Duplicate),
+        );
+    });
+}
 
 #[test]
 fn import_keystores_full_slashing_protection() {}
@@ -237,10 +407,7 @@ fn delete_some_keystores() {}
 fn delete_all_keystores() {}
 
 #[test]
-fn delete_same_keystores_twice() {}
-
-#[test]
-fn delete_some_keystores_twice() {
+fn delete_keystores_twice() {
     run_test(|tester| async move {
         let password = random_password_string();
         let keystores = (0..2)
@@ -285,9 +452,6 @@ fn delete_nonexistent_keystores() {
         check_delete_response(&delete_res, all_not_found(&keystores));
     })
 }
-
-#[test]
-fn delete_some_nonexistent_keystores() {}
 
 fn make_attestation(source_epoch: u64, target_epoch: u64) -> Attestation<E> {
     Attestation {
@@ -360,19 +524,10 @@ fn delete_concurrent_with_signing() {
             let handle = runtime.spawn(async move {
                 for j in 0..num_attestations {
                     let mut att = make_attestation(j, j + 1);
-                    for (validator_id, public_key) in thread_pubkeys.iter().enumerate() {
-                        let res = validator_store
+                    for (_validator_id, public_key) in thread_pubkeys.iter().enumerate() {
+                        let _ = validator_store
                             .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
                             .await;
-
-                        println!(
-                            "attestation {}->{} for validator t{}/v{}: {:?}",
-                            j,
-                            j + 1,
-                            thread_index,
-                            validator_id,
-                            res
-                        );
                     }
                 }
             });
