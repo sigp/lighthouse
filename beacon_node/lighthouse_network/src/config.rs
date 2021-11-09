@@ -17,7 +17,7 @@ use std::time::Duration;
 use types::{ForkContext, ForkName};
 
 /// The maximum transmit size of gossip messages in bytes.
-pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+pub const GOSSIP_MAX_SIZE: usize = 10 * 1_048_576; // 10M
 /// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
 pub const MESH_N_LOW: usize = 6;
 

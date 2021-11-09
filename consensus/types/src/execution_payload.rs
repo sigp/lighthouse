@@ -1,5 +1,6 @@
 use crate::{test_utils::TestRandom, *};
 use serde_derive::{Deserialize, Serialize};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -56,5 +57,15 @@ impl<T: EthSpec> ExecutionPayload<T> {
             block_hash: Hash256::zero(),
             transactions: VariableList::empty(),
         }
+    }
+
+    /// Returns the maximum size of an execution payload.
+    pub fn max_execution_payload_size() -> usize {
+        // Fixed part
+        Self::empty().as_ssz_bytes().len()
+        // length of List * size_of(uint8)
+        + (T::max_extra_data_bytes() * 1)
+        // length of List * offset size * max size of transaction
+        + (T::max_transactions_per_payload() *4 * T::max_bytes_per_transaction())
     }
 }
