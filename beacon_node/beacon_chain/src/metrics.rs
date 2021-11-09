@@ -107,6 +107,11 @@ lazy_static! {
         "Number of attestations in a block"
     );
 
+    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram(
+        "beacon_block_total_size",
+        "Size of a signed beacon block"
+    );
+
     /*
      * Unaggregated Attestation Verification
      */

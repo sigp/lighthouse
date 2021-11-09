@@ -185,6 +185,7 @@ pub enum BlockProductionError {
     GetPayloadFailed(execution_layer::Error),
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
+    BlockTooLarge(usize),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

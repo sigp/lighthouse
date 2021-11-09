@@ -61,6 +61,7 @@ use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
@@ -3005,6 +3006,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),
         );
+
+        let block_size = block.ssz_bytes_len();
+        debug!(
+            self.log,
+            "Produced block on state";
+            "block_size" => block_size,
+        );
+
+        metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
+
+        if block_size > self.config.max_network_size {
+            return Err(BlockProductionError::BlockTooLarge(block_size));
+        }
 
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
         per_block_processing(
