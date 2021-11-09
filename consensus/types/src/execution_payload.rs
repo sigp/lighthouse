@@ -59,13 +59,14 @@ impl<T: EthSpec> ExecutionPayload<T> {
         }
     }
 
+    #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
         // length of List * size_of(uint8)
-        + (T::max_extra_data_bytes() * 1)
+        + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
         // length of List * offset size * max size of transaction
-        + (T::max_transactions_per_payload() *4 * T::max_bytes_per_transaction())
+        + (T::max_transactions_per_payload() *ssz::BYTES_PER_LENGTH_OFFSET * T::max_bytes_per_transaction())
     }
 }
