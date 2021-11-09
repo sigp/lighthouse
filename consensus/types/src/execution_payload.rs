@@ -67,6 +67,6 @@ impl<T: EthSpec> ExecutionPayload<T> {
         // length of List * size_of(uint8)
         + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
         // length of List * offset size * max size of transaction
-        + (T::max_transactions_per_payload() *ssz::BYTES_PER_LENGTH_OFFSET * T::max_bytes_per_transaction())
+        + (T::max_transactions_per_payload() *(ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
     }
 }
