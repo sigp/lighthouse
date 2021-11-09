@@ -298,11 +298,13 @@ where
         parent_index_opt.and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
 
     while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
+        node_mutator(parent_index, parent)?;
+
+        // Break out of this while loop *after* the `node_mutator` has been applied to the finalized
+        // node.
         if parent.root == finalized_root {
             break;
         }
-
-        node_mutator(parent_index, parent)?;
 
         // Update parent values
         parent_index_opt = parent.parent;
