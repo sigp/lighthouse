@@ -186,24 +186,30 @@ pub fn proto_array_from_legacy_persisted<T: BeaconChainTypes>(
         .finalized_checkpoint
         .root;
 
-    update_justified_roots::<T>(db, finalized_root, &legacy_nodes, &mut fork_choice)?;
+    update_roots::<T>(db, finalized_root, &legacy_nodes, &mut fork_choice)?;
 
     Ok(fork_choice)
 }
 
-fn update_justified_roots<T: BeaconChainTypes>(
+struct HeadInfo {
+    index: usize,
+    root: Hash256,
+    slot: Slot,
+}
+
+fn update_roots<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     finalized_root: Hash256,
     legacy_nodes: &[LegacyProtoNode],
     fork_choice: &mut ProtoArrayForkChoice,
 ) -> Result<(), String> {
     // Gather candidate heads
-    let head_indices = find_head_indices(finalized_root, fork_choice);
+    let heads = find_heads(finalized_root, fork_choice);
 
     // For each head, iterate backwards to its parents, stopping once a parent can't be found or we
     // reach the finalized root. Instantiate a block roots iter and iterate backwards to the start
     // of each justified epoch as the justified epoch in this chain of descendants changes.
-    for (head_index, head_root, head_slot) in head_indices {
+    for head in heads {
         // `relevant_epochs` are epochs for which we will need to find the root at the start slot.
         // We don't need to worry about whether the are finalized or justified epochs.
         let mut relevant_epochs = vec![];
@@ -219,15 +225,15 @@ fn update_justified_roots<T: BeaconChainTypes>(
 
         apply_to_chain_of_descendants(
             finalized_root,
-            head_index,
+            head.index,
             fork_choice,
             relevant_epoch_finder,
         )?;
 
         let roots_by_epoch = map_relevant_epochs_to_roots::<T>(
             db.clone(),
-            head_root,
-            head_slot,
+            head.root,
+            head.slot,
             &mut relevant_epochs,
         )?;
 
@@ -257,7 +263,7 @@ fn update_justified_roots<T: BeaconChainTypes>(
             Ok(())
         };
 
-        apply_to_chain_of_descendants(finalized_root, head_index, fork_choice, node_mutator)?;
+        apply_to_chain_of_descendants(finalized_root, head.index, fork_choice, node_mutator)?;
     }
     Ok(())
 }
@@ -322,21 +328,28 @@ where
     Ok(())
 }
 
-//TODO: only look for nodes that are not referenced as parents from other nodes
-fn find_head_indices(
-    finalized_root: Hash256,
-    fork_choice: &ProtoArrayForkChoice,
-) -> Vec<(usize, Hash256, Slot)> {
+fn find_heads(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice) -> Vec<HeadInfo> {
+    let nodes_referenced_as_parents: Vec<usize> = fork_choice
+        .core_proto_array()
+        .nodes
+        .iter()
+        .filter_map(|node| node.parent)
+        .collect::<Vec<_>>();
+
     fork_choice
         .core_proto_array()
         .nodes
         .iter()
         .enumerate()
-        .filter_map(|(node_index, node)| {
-            if node.best_descendant.is_none()
+        .filter_map(|(index, node)| {
+            if !nodes_referenced_as_parents.contains(&index)
                 && fork_choice.is_descendant(finalized_root, node.root)
             {
-                Some((node_index, node.root, node.slot))
+                Some(HeadInfo {
+                    index,
+                    root: node.root,
+                    slot: node.slot,
+                })
             } else {
                 None
             }
