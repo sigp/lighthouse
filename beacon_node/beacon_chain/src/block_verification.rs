@@ -1353,12 +1353,6 @@ fn validate_execution_payload<T: BeaconChainTypes>(
                 },
             ));
         }
-        // The execution payload block hash is not equal to the parent hash
-        if execution_payload.block_hash == execution_payload.parent_hash {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::BlockHashEqualsParentHash,
-            ));
-        }
         // The execution payload transaction list data is within expected size limits
         if execution_payload.transactions.len() > T::EthSpec::max_transactions_per_payload() {
             return Err(BlockError::ExecutionPayloadError(
