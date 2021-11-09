@@ -210,6 +210,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::MaxTransactionsPerPayload::to_usize()
     }
 
+    /// Returns the `MAX_EXTRA_DATA_BYTES` constant for this specification.
+    fn max_extra_data_bytes() -> usize {
+        Self::MaxExtraDataBytes::to_usize()
+    }
+
     /// Returns the `BYTES_PER_LOGS_BLOOM` constant for this specification.
     fn bytes_per_logs_bloom() -> usize {
         Self::BytesPerLogsBloom::to_usize()

@@ -60,12 +60,10 @@ lazy_static! {
     )
     .as_ssz_bytes()
     .len();
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Merge(BeaconBlockMerge::full(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len();
+
+    /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
+    /// We calculate the value from its fields instead of constructing the block and checking the length.
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize = types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size();
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
@@ -95,7 +93,7 @@ lazy_static! {
 }
 
 /// The maximum bytes that can be sent across the RPC.
-pub const MAX_RPC_SIZE: usize = 1_048_576; // 1M
+pub const MAX_RPC_SIZE: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -208,9 +206,10 @@ impl RpcLimits {
         Self { min, max }
     }
 
-    /// Returns true if the given length is out of bounds, false otherwise.
-    pub fn is_out_of_bounds(&self, length: usize) -> bool {
-        length > self.max || length < self.min
+    /// Returns true if the given length is is greater than `MAX_RPC_SIZE` or out of
+    /// bounds for the given ssz type, returns false otherwise.
+    pub fn is_out_of_bounds(&self, length: usize, max_rpc_size: usize) -> bool {
+        length > std::cmp::min(self.max, max_rpc_size) || length < self.min
     }
 }
 
