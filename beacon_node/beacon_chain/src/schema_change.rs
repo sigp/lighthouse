@@ -10,6 +10,7 @@ use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, ProtoA
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -171,10 +172,12 @@ pub fn proto_array_from_legacy_persisted<T: BeaconChainTypes>(
                 )
             })?;
 
-    // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`.
+    // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`
+    // and `node.finalized_epoch`.
     let legacy_nodes = legacy_container.nodes.clone();
 
-    // These transformations instantiate `node.justified_checkpoint` to `None`.
+    // These transformations instantiate `node.justified_checkpoint` and `node.finalized_checkpoint`
+    // to `None`.
     let container: SszContainer = legacy_container.into_ssz_container();
     let mut fork_choice: ProtoArrayForkChoice = container.into();
 
@@ -200,75 +203,120 @@ fn update_justified_roots<T: BeaconChainTypes>(
     // For each head, iterate backwards to its parents, stopping once a parent can't be found or we
     // reach the finalized root. Instantiate a block roots iter and iterate backwards to the start
     // of each justified epoch as the justified epoch in this chain of descendants changes.
-    for head_index in head_indices {
-        let head = fork_choice
-            .core_proto_array_mut()
-            .nodes
-            .get_mut(head_index)
-            .ok_or_else(|| "Head index not found in proto nodes".to_string())?;
+    for (head_index, head_root, head_slot) in head_indices {
+        let mut relevant_epochs = vec![];
+        let relevant_epoch_finder = |index, _: &mut ProtoNode| {
+            let (justified_epoch, finalized_epoch) = legacy_nodes
+                .get(index)
+                .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
+                .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
+            relevant_epochs.push(justified_epoch);
+            relevant_epochs.push(finalized_epoch);
+            Ok(())
+        };
 
-        let mut iter = std::iter::once(Ok((head.root, head.slot))).chain(
-            BlockRootsIterator::from_block(db.clone(), head.root)
-                .map_err(|e| format!("{:?}", e))?,
-        );
+        apply_to_chain_of_descendants(
+            finalized_root,
+            head_index,
+            fork_choice,
+            relevant_epoch_finder,
+        )?;
 
-        let justified_epoch = legacy_nodes
-            .get(head_index)
-            .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?
-            .justified_epoch;
+        let roots_by_epoch = map_relvant_epochs_to_roots::<T>(
+            db.clone(),
+            head_root,
+            head_slot,
+            &mut relevant_epochs,
+        )?;
 
-        // Find the justified root for the head and populate the checkpoint.
-        let justified_root = find_justified_root::<_, T::EthSpec>(justified_epoch, &mut iter)?;
-        let justified_checkpoint = Some(Checkpoint {
-            epoch: justified_epoch,
-            root: justified_root,
-        });
-        head.justified_checkpoint = justified_checkpoint;
+        let node_mutator = |_, head: &mut ProtoNode| {
+            let (justified_epoch, finalized_epoch) = legacy_nodes
+                .get(1)
+                .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
+                .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
 
-        // These values will be updated as we iterate through the while loop
-        let mut child_justified_epoch = justified_epoch;
-        let mut child_justified_checkpoint = justified_checkpoint;
-        let mut parent_index_opt = head.parent;
-        let mut parent_opt = parent_index_opt
-            .and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
+            // Find the justified root for the head and populate the checkpoint.
+            let justified_checkpoint = Some(Checkpoint {
+                epoch: justified_epoch,
+                root: *roots_by_epoch.get(&justified_epoch).unwrap(),
+            });
+            let finalized_checkpoint = Some(Checkpoint {
+                epoch: finalized_epoch,
+                root: *roots_by_epoch.get(&finalized_epoch).unwrap(),
+            });
+            head.justified_checkpoint = justified_checkpoint;
+            head.finalized_checkpoint = finalized_checkpoint;
+            Ok(())
+        };
 
-        while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
-            if parent.root == finalized_root {
-                break;
-            }
-
-            let parent_justified_epoch = legacy_nodes
-                .get(parent_index)
-                .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?
-                .justified_epoch;
-
-            if parent_justified_epoch == child_justified_epoch {
-                parent.justified_checkpoint = child_justified_checkpoint;
-            } else {
-                // Use the same iterator, in order to avoid loading state unnecessarily.
-                let parent_justified_root =
-                    find_justified_root::<_, T::EthSpec>(parent_justified_epoch, &mut iter)?;
-                let parent_justified_checkpoint = Some(Checkpoint {
-                    epoch: parent_justified_epoch,
-                    root: parent_justified_root,
-                });
-                parent.justified_checkpoint = parent_justified_checkpoint;
-
-                // Update child justification values
-                child_justified_epoch = parent_justified_epoch;
-                child_justified_checkpoint = parent_justified_checkpoint;
-            }
-
-            // Update parent values
-            parent_index_opt = parent.parent;
-            parent_opt = parent_index_opt
-                .and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
-        }
+        apply_to_chain_of_descendants(finalized_root, head_index, fork_choice, node_mutator)?;
     }
     Ok(())
 }
 
-fn find_head_indices(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice) -> Vec<usize> {
+fn map_relvant_epochs_to_roots<T: BeaconChainTypes>(
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    head_root: Hash256,
+    head_slot: Slot,
+    relevant_epochs: &mut Vec<Epoch>,
+) -> Result<HashMap<Epoch, Hash256>, String> {
+    // Reverse sort the vec and remove duplicates
+    relevant_epochs.sort_unstable_by(|a, b| b.cmp(a));
+    relevant_epochs.dedup();
+
+    //iterate backwards, find root at each epoch
+    let mut iter = std::iter::once(Ok((head_root, head_slot))).chain(
+        BlockRootsIterator::from_block(db.clone(), head_root).map_err(|e| format!("{:?}", e))?,
+    );
+    let mut roots_by_epoch = HashMap::new();
+    for epoch in relevant_epochs.iter().copied() {
+        let root = find_start_root_for_epoch::<_, T::EthSpec>(epoch, &mut iter)?;
+        roots_by_epoch.insert(epoch, root);
+    }
+    Ok(roots_by_epoch)
+}
+
+fn apply_to_chain_of_descendants<F>(
+    finalized_root: Hash256,
+    head_index: usize,
+    fork_choice: &mut ProtoArrayForkChoice,
+    mut node_mutator: F,
+) -> Result<(), String>
+where
+    F: FnMut(usize, &mut ProtoNode) -> Result<(), String>,
+{
+    let head = fork_choice
+        .core_proto_array_mut()
+        .nodes
+        .get_mut(head_index)
+        .ok_or_else(|| "Head index not found in proto nodes".to_string())?;
+
+    node_mutator(head_index, head)?;
+
+    let mut parent_index_opt = head.parent;
+    let mut parent_opt =
+        parent_index_opt.and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
+
+    while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
+        if parent.root == finalized_root {
+            break;
+        }
+
+        node_mutator(parent_index, parent)?;
+
+        // Update parent values
+        parent_index_opt = parent.parent;
+        parent_opt = parent_index_opt
+            .and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
+    }
+    Ok(())
+}
+
+//TODO: only look for nodes that are not referenced as parents from other nodes
+fn find_head_indices(
+    finalized_root: Hash256,
+    fork_choice: &ProtoArrayForkChoice,
+) -> Vec<(usize, Hash256, Slot)> {
     fork_choice
         .core_proto_array()
         .nodes
@@ -278,7 +326,7 @@ fn find_head_indices(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice
             if node.best_descendant.is_none()
                 && fork_choice.is_descendant(finalized_root, node.root)
             {
-                Some(node_index)
+                Some((node_index, node.root, node.slot))
             } else {
                 None
             }
@@ -286,27 +334,22 @@ fn find_head_indices(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice
         .collect::<Vec<_>>()
 }
 
-fn find_justified_root<U, E: EthSpec>(
-    justified_epoch: Epoch,
-    iter: &mut U,
-) -> Result<Hash256, String>
+fn find_start_root_for_epoch<U, E: EthSpec>(epoch: Epoch, iter: &mut U) -> Result<Hash256, String>
 where
     U: Iterator<Item = Result<(Hash256, Slot), store::Error>>,
 {
-    let justified_root_slot = justified_epoch
-        .start_slot(E::slots_per_epoch())
-        .saturating_sub(Slot::new(1));
+    let start_slot = epoch.start_slot(E::slots_per_epoch());
 
     // iter block roots until justified epoch, then update node
-    let justified_root = iter
+    let root = iter
         .find_map(|next| match next {
-            Ok((root, slot)) => (slot == justified_root_slot).then(|| Ok(root)),
+            Ok((root, slot)) => (slot == start_slot).then(|| Ok(root)),
             Err(e) => Some(Err(format!("{:?}", e))),
         })
         .transpose()?
         .ok_or_else(|| "Justified root not found".to_string())?;
 
-    Ok(justified_root)
+    Ok(root)
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
