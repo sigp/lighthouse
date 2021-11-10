@@ -45,10 +45,8 @@ pub enum Operation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForkChoiceTestDefinition {
     pub finalized_block_slot: Slot,
-    pub justified_epoch: Epoch,
-    pub justified_root: Hash256,
-    pub finalized_epoch: Epoch,
-    pub finalized_root: Hash256,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     pub operations: Vec<Operation>,
 }
 
@@ -60,14 +58,8 @@ impl ForkChoiceTestDefinition {
         let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
-            Checkpoint {
-                epoch: self.justified_epoch,
-                root: self.justified_root,
-            },
-            Checkpoint {
-                epoch: self.finalized_epoch,
-                root: self.finalized_root,
-            },
+                self.justified_checkpoint,
+            self.finalized_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             execution_status,
@@ -89,8 +81,8 @@ impl ForkChoiceTestDefinition {
                             &justified_state_balances,
                         )
                         .map_err(|e| e)
-                        .unwrap_or_else(|_| {
-                            panic!("find_head op at index {} returned error", op_index)
+                        .unwrap_or_else(|e| {
+                            panic!("find_head op at index {} returned error {}", op_index, e)
                         });
 
                     assert_eq!(
@@ -194,15 +186,15 @@ impl ForkChoiceTestDefinition {
 
 /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
 fn get_hash(i: u64) -> Hash256 {
-    Hash256::from_low_u64_be(i)
+    Hash256::from_low_u64_be(i + 1)
 }
 
 /// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::max_value)`.
 /// `Epoch` will always equal `i + 1`.
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
-        epoch: Epoch::new(i),
-        root: get_hash(i),
+        epoch: Epoch::new(i + 1),
+        root: get_hash(i ),
     }
 }
 

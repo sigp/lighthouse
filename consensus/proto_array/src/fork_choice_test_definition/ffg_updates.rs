@@ -94,10 +94,8 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
     // END OF TESTS
     ForkChoiceTestDefinition {
         finalized_block_slot: Slot::new(0),
-        justified_epoch: Epoch::new(1),
-        justified_root: get_hash(1),
-        finalized_epoch: Epoch::new(1),
-        finalized_root: get_hash(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         operations: ops,
     }
 }
@@ -413,10 +411,8 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     // END OF TESTS
     ForkChoiceTestDefinition {
         finalized_block_slot: Slot::new(0),
-        justified_epoch: Epoch::new(1),
-        justified_root: get_hash(1),
-        finalized_epoch: Epoch::new(1),
-        finalized_root: get_hash(0),
+        justified_checkpoint: get_checkpoint(1),
+        finalized_checkpoint: get_checkpoint(0),
         operations: ops,
     }
 }
