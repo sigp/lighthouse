@@ -101,8 +101,9 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
-        //TODO: udpate comment
-        // Migration for adding `is_merge_complete` field to the fork choice store.
+        // Migration for adding `execution_status` field to the fork choice store, as well as
+        // updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
+        // `finalized_checkpoint`.
         (SchemaVersion(5), SchemaVersion(6)) => {
             let fork_choice_opt = db
                 .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
