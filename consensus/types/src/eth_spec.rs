@@ -3,13 +3,13 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Unsigned, U0, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U512,
-    U64, U65536, U8, U8192,
+    Unsigned, U0, U1024, U1073741824, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4,
+    U4096, U512, U64, U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
 use std::str::FromStr;
 
-use ssz_types::typenum::{bit::B0, UInt, U1048576, U16384, U256, U625};
+use ssz_types::typenum::{bit::B0, UInt, U1048576, U256, U625};
 pub type U5000 = UInt<UInt<UInt<U625, B0>, B0>, B0>; // 625 * 8 = 5000
 
 const MAINNET: &str = "mainnet";
@@ -86,7 +86,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /*
      * New in Merge
      */
-    type MaxBytesPerOpaqueTransaction: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBytesPerTransaction: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxTransactionsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerLogsBloom: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type GasLimitDenominator: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -200,9 +200,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::SyncSubcommitteeSize::to_usize()
     }
 
-    /// Returns the `MAX_BYTES_PER_OPAQUE_TRANSACTION` constant for this specification.
-    fn max_bytes_per_opaque_transaction() -> usize {
-        Self::MaxBytesPerOpaqueTransaction::to_usize()
+    /// Returns the `MAX_BYTES_PER_TRANSACTION` constant for this specification.
+    fn max_bytes_per_transaction() -> usize {
+        Self::MaxBytesPerTransaction::to_usize()
     }
 
     /// Returns the `MAX_TRANSACTIONS_PER_PAYLOAD` constant for this specification.
@@ -213,16 +213,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `BYTES_PER_LOGS_BLOOM` constant for this specification.
     fn bytes_per_logs_bloom() -> usize {
         Self::BytesPerLogsBloom::to_usize()
-    }
-
-    /// Returns the `GAS_LIMIT_DENOMINATOR` constant for this specification.
-    fn gas_limit_denominator() -> u64 {
-        Self::GasLimitDenominator::to_u64()
-    }
-
-    /// Returns the `MIN_GAS_LIMIT` constant for this specification.
-    fn min_gas_limit() -> u64 {
-        Self::MinGasLimit::to_u64()
     }
 }
 
@@ -258,8 +248,8 @@ impl EthSpec for MainnetEthSpec {
     type MaxVoluntaryExits = U16;
     type SyncCommitteeSize = U512;
     type SyncCommitteeSubnetCount = U4;
-    type MaxBytesPerOpaqueTransaction = U1048576;
-    type MaxTransactionsPerPayload = U16384;
+    type MaxBytesPerTransaction = U1073741824; // 1,073,741,824
+    type MaxTransactionsPerPayload = U1048576; // 1,048,576
     type BytesPerLogsBloom = U256;
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
@@ -306,7 +296,7 @@ impl EthSpec for MinimalEthSpec {
         MaxAttestations,
         MaxDeposits,
         MaxVoluntaryExits,
-        MaxBytesPerOpaqueTransaction,
+        MaxBytesPerTransaction,
         MaxTransactionsPerPayload,
         BytesPerLogsBloom,
         GasLimitDenominator,
