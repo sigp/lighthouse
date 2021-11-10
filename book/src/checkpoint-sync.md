@@ -41,6 +41,17 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
 
+### Use Infura as a remote beacon node provider
+
+You can use Infura as the remote beacon node provider to load the initial checkpoint state.
+
+1. Sign up for the free Infura ETH2 API using the `Create new project tab` on the [Infura dashboard](https://infura.io/dashboard).
+2. Copy the HTTPS endpoint for the required network (Mainnet/Prater).
+3. Use it as the url for the `--checkpoint-sync-url` flag.  e.g.
+```
+lighthouse bn --checkpoint-sync-url https://<PROJECT-ID>:<PROJECT-SECRET>@eth2-beacon-mainnet.infura.io ...
+```
+
 ## Backfilling Blocks
 
 Once forwards sync completes, Lighthouse will commence a "backfill sync" to download the blocks
