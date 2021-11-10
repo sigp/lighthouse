@@ -52,28 +52,46 @@ where
     });
 }
 
+fn run_dual_vc_test<F, V>(f: F)
+where
+    F: FnOnce(ApiTester, ApiTester) -> V,
+    V: Future<Output = ()>,
+{
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        let tester1 = ApiTester::new(weak_runtime.clone()).await;
+        let tester2 = ApiTester::new(weak_runtime).await;
+        f(tester1, tester2).await
+    });
+}
+
 fn keystore_pubkey(keystore: &Keystore) -> PublicKeyBytes {
     keystore.public_key().unwrap().compress()
 }
 
-fn all_imported(keystores: &[Keystore]) -> impl Iterator<Item = ImportKeystoreStatus> + '_ {
-    keystores.iter().map(|_| ImportKeystoreStatus::Imported)
+fn all_with_status<T: Clone>(count: usize, status: T) -> impl Iterator<Item = T> {
+    std::iter::repeat(status).take(count)
 }
 
-fn all_duplicate(keystores: &[Keystore]) -> impl Iterator<Item = ImportKeystoreStatus> + '_ {
-    keystores.iter().map(|_| ImportKeystoreStatus::Duplicate)
+fn all_imported(count: usize) -> impl Iterator<Item = ImportKeystoreStatus> {
+    all_with_status(count, ImportKeystoreStatus::Imported)
 }
 
-fn all_deleted(keystores: &[Keystore]) -> impl Iterator<Item = DeleteKeystoreStatus> + '_ {
-    keystores.iter().map(|_| DeleteKeystoreStatus::Deleted)
+fn all_duplicate(count: usize) -> impl Iterator<Item = ImportKeystoreStatus> {
+    all_with_status(count, ImportKeystoreStatus::Duplicate)
 }
 
-fn all_not_active(keystores: &[Keystore]) -> impl Iterator<Item = DeleteKeystoreStatus> + '_ {
-    keystores.iter().map(|_| DeleteKeystoreStatus::NotActive)
+fn all_deleted(count: usize) -> impl Iterator<Item = DeleteKeystoreStatus> {
+    all_with_status(count, DeleteKeystoreStatus::Deleted)
 }
 
-fn all_not_found(keystores: &[Keystore]) -> impl Iterator<Item = DeleteKeystoreStatus> + '_ {
-    keystores.iter().map(|_| DeleteKeystoreStatus::NotFound)
+fn all_not_active(count: usize) -> impl Iterator<Item = DeleteKeystoreStatus> {
+    all_with_status(count, DeleteKeystoreStatus::NotActive)
+}
+
+fn all_not_found(count: usize) -> impl Iterator<Item = DeleteKeystoreStatus> {
+    all_with_status(count, DeleteKeystoreStatus::NotFound)
 }
 
 fn check_get_response<'a>(
@@ -154,7 +172,7 @@ fn import_new_keystores() {
             .unwrap();
 
         // All keystores should be imported.
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
 
         // Check that GET lists all the imported keystores.
         let get_res = tester.client.get_keystores().await.unwrap();
@@ -178,11 +196,11 @@ fn import_only_duplicate_keystores() {
 
         // All keystores should be imported on first import.
         let import_res = tester.client.post_keystores(&req).await.unwrap();
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
 
         // No keystores should be imported on repeat import.
         let import_res = tester.client.post_keystores(&req).await.unwrap();
-        check_import_response(&import_res, all_duplicate(&keystores));
+        check_import_response(&import_res, all_duplicate(keystores.len()));
 
         // Check that GET lists all the imported keystores.
         let get_res = tester.client.get_keystores().await.unwrap();
@@ -225,7 +243,7 @@ fn import_some_duplicate_keystores() {
         };
 
         let import_res = tester.client.post_keystores(&req1).await.unwrap();
-        check_import_response(&import_res, all_imported(&keystores1));
+        check_import_response(&import_res, all_imported(keystores1.len()));
 
         // Check partial import.
         let expected = (0..num_keystores).map(|i| {
@@ -284,7 +302,7 @@ fn get_web3_signer_keystores() {
             .unwrap();
 
         // All keystores should be imported.
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
 
         // Add some web3signer validators.
         let remote_vals = (0..num_remote)
@@ -394,17 +412,231 @@ fn import_keystores_wrong_password() {
     });
 }
 
-#[test]
-fn import_keystores_full_slashing_protection() {}
+fn all_indices(count: usize) -> Vec<usize> {
+    (0..count).collect()
+}
 
 #[test]
-fn import_keystores_partial_slashing_protection() {}
+fn migrate_all_with_slashing_protection() {
+    let n = 3;
+    generic_migration_test(
+        n,
+        vec![
+            (0, make_attestation(1, 2)),
+            (1, make_attestation(2, 3)),
+            (2, make_attestation(1, 2)),
+        ],
+        all_indices(n),
+        all_indices(n),
+        all_indices(n),
+        vec![
+            (0, make_attestation(1, 2), false),
+            (1, make_attestation(2, 3), false),
+            (2, make_attestation(1, 2), false),
+        ],
+    );
+}
 
 #[test]
-fn delete_some_keystores() {}
+fn migrate_some_with_slashing_protection() {
+    let n = 3;
+    generic_migration_test(
+        n,
+        vec![
+            (0, make_attestation(1, 2)),
+            (1, make_attestation(2, 3)),
+            (2, make_attestation(1, 2)),
+        ],
+        vec![0, 1],
+        vec![0, 1],
+        vec![0, 1],
+        vec![
+            (0, make_attestation(1, 2), false),
+            (1, make_attestation(2, 3), false),
+            (0, make_attestation(2, 3), true),
+            (1, make_attestation(3, 4), true),
+        ],
+    );
+}
 
 #[test]
-fn delete_all_keystores() {}
+fn migrate_some_missing_slashing_protection() {
+    let n = 3;
+    generic_migration_test(
+        n,
+        vec![
+            (0, make_attestation(1, 2)),
+            (1, make_attestation(2, 3)),
+            (2, make_attestation(1, 2)),
+        ],
+        vec![0, 1],
+        vec![0],
+        vec![0, 1],
+        vec![
+            (0, make_attestation(1, 2), false),
+            (1, make_attestation(2, 3), true),
+            (0, make_attestation(2, 3), true),
+        ],
+    );
+}
+
+#[test]
+fn migrate_some_extra_slashing_protection() {
+    let n = 3;
+    generic_migration_test(
+        n,
+        vec![
+            (0, make_attestation(1, 2)),
+            (1, make_attestation(2, 3)),
+            (2, make_attestation(1, 2)),
+        ],
+        all_indices(n),
+        all_indices(n),
+        vec![0, 1],
+        vec![
+            (0, make_attestation(1, 2), false),
+            (1, make_attestation(2, 3), false),
+            (0, make_attestation(2, 3), true),
+            (1, make_attestation(3, 4), true),
+            (2, make_attestation(2, 3), false),
+        ],
+    );
+}
+
+/// Run a test that creates some validators on one VC, and then migrates them to a second VC.
+///
+/// All indices given are in the range 0..`num_validators`. They are *not* validator indices in the
+/// ordinary sense.
+///
+/// Parameters:
+///
+/// - `num_validators`: the total number of validators to create
+/// - `first_vc_attestations`: attestations to sign on the first VC as `(validator_idx, att)`
+/// - `delete_indices`: validators to delete from the first VC
+/// - `slashing_protection_indices`: validators to transfer slashing protection data for. It should
+///    be a subset of `delete_indices` or the test will panic.
+/// - `import_indices`: validators to transfer. It needn't be a subset of `delete_indices`.
+/// - `second_vc_attestations`: attestations to sign on the second VC after the transfer. The bool
+///   indicates whether the signing should be successful.
+fn generic_migration_test(
+    num_validators: usize,
+    first_vc_attestations: Vec<(usize, Attestation<E>)>,
+    delete_indices: Vec<usize>,
+    slashing_protection_indices: Vec<usize>,
+    import_indices: Vec<usize>,
+    second_vc_attestations: Vec<(usize, Attestation<E>, bool)>,
+) {
+    run_dual_vc_test(move |tester1, tester2| async move {
+        // Create the validators on VC1.
+        let (keystores, passwords): (Vec<_>, Vec<_>) = (0..num_validators)
+            .map(|_| {
+                let password = random_password_string();
+                (new_keystore(password.clone()), password)
+            })
+            .unzip();
+
+        let import_res = tester1
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: passwords.clone(),
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+        check_import_response(&import_res, all_imported(keystores.len()));
+
+        // Sign attestations on VC1.
+        for (validator_index, mut attestation) in first_vc_attestations {
+            let public_key = keystore_pubkey(&keystores[validator_index]);
+            let current_epoch = attestation.data.target.epoch;
+            tester1
+                .validator_store
+                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .await
+                .unwrap();
+        }
+
+        // Delete the selected keys from VC1.
+        let delete_res = tester1
+            .client
+            .delete_keystores(&DeleteKeystoresRequest {
+                pubkeys: delete_indices
+                    .iter()
+                    .copied()
+                    .map(|i| keystore_pubkey(&keystores[i]))
+                    .collect(),
+            })
+            .await
+            .unwrap();
+        check_delete_response(&delete_res, all_deleted(delete_indices.len()));
+
+        // Check that slashing protection data was returned for all selected validators.
+        assert_eq!(
+            delete_res.slashing_protection.data.len(),
+            delete_indices.len()
+        );
+        for &i in &delete_indices {
+            assert!(delete_res
+                .slashing_protection
+                .data
+                .iter()
+                .any(|interchange_data| interchange_data.pubkey == keystore_pubkey(&keystores[i])));
+        }
+
+        // Filter slashing protection according to `slashing_protection_indices`.
+        let mut slashing_protection = delete_res.slashing_protection;
+        let data = std::mem::take(&mut slashing_protection.data);
+
+        for &i in &slashing_protection_indices {
+            let pubkey = keystore_pubkey(&keystores[i]);
+            slashing_protection.data.push(
+                data.iter()
+                    .find(|interchange_data| interchange_data.pubkey == pubkey)
+                    .expect("slashing protection indices should be subset of deleted")
+                    .clone(),
+            );
+        }
+        assert_eq!(
+            slashing_protection.data.len(),
+            slashing_protection_indices.len()
+        );
+
+        // Import into the 2nd VC using the slashing protection data.
+        let import_res = tester2
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: import_indices
+                    .iter()
+                    .copied()
+                    .map(|i| keystores[i].clone())
+                    .collect(),
+                passwords: import_indices
+                    .iter()
+                    .copied()
+                    .map(|i| passwords[i].clone())
+                    .collect(),
+                slashing_protection: Some(slashing_protection),
+            })
+            .await
+            .unwrap();
+        check_import_response(&import_res, all_imported(import_indices.len()));
+
+        // Sign attestations on the second VC.
+        for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
+            let public_key = keystore_pubkey(&keystores[validator_index]);
+            let current_epoch = attestation.data.target.epoch;
+            match tester2
+                .validator_store
+                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .await
+            {
+                Ok(()) => assert!(should_succeed),
+                Err(e) => assert!(!should_succeed, "{:?}", e),
+            }
+        }
+    });
+}
 
 #[test]
 fn delete_keystores_twice() {
@@ -421,18 +653,18 @@ fn delete_keystores_twice() {
             slashing_protection: None,
         };
         let import_res = tester.client.post_keystores(&import_req).await.unwrap();
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
 
         // 2. Delete all.
         let delete_req = DeleteKeystoresRequest {
             pubkeys: keystores.iter().map(keystore_pubkey).collect(),
         };
         let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
-        check_delete_response(&delete_res, all_deleted(&keystores));
+        check_delete_response(&delete_res, all_deleted(keystores.len()));
 
         // 3. Delete again.
         let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
-        check_delete_response(&delete_res, all_not_active(&keystores));
+        check_delete_response(&delete_res, all_not_active(keystores.len()));
     })
 }
 
@@ -449,7 +681,7 @@ fn delete_nonexistent_keystores() {
             pubkeys: keystores.iter().map(keystore_pubkey).collect(),
         };
         let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
-        check_delete_response(&delete_res, all_not_found(&keystores));
+        check_delete_response(&delete_res, all_not_found(keystores.len()));
     })
 }
 
@@ -509,7 +741,7 @@ fn delete_concurrent_with_signing() {
             })
             .await
             .unwrap();
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
 
         // Start several threads signing attestations at sequential epochs.
         let mut join_handles = vec![];
@@ -542,7 +774,6 @@ fn delete_concurrent_with_signing() {
             let all_pubkeys = all_pubkeys.clone();
 
             let handle = runtime.spawn(async move {
-                // let mut rng = SmallRng::from_seed([42; 16]);
                 let mut rng = SmallRng::from_entropy();
 
                 let mut slashing_protection = vec![];
@@ -610,7 +841,7 @@ fn delete_then_reimport() {
             slashing_protection: None,
         };
         let import_res = tester.client.post_keystores(&import_req).await.unwrap();
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
 
         // 2. Delete all.
         let delete_res = tester
@@ -620,10 +851,10 @@ fn delete_then_reimport() {
             })
             .await
             .unwrap();
-        check_delete_response(&delete_res, all_deleted(&keystores));
+        check_delete_response(&delete_res, all_deleted(keystores.len()));
 
         // 3. Re-import
         let import_res = tester.client.post_keystores(&import_req).await.unwrap();
-        check_import_response(&import_res, all_imported(&keystores));
+        check_import_response(&import_res, all_imported(keystores.len()));
     })
 }

@@ -11,7 +11,7 @@ use crate::{
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
-    ZeroizeString,
+    random_password_string, ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
@@ -612,8 +612,32 @@ fn routes_with_invalid_auth() {
                     .await
             })
             .await
-            // FIXME(sproul): more of these
             .test_with_invalid_auth(|client| async move { client.get_keystores().await })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                let password = random_password_string();
+                let keypair = Keypair::random();
+                let keystore = KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                client
+                    .post_keystores(&ImportKeystoresRequest {
+                        keystores: vec![keystore],
+                        passwords: vec![password],
+                        slashing_protection: None,
+                    })
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                let keypair = Keypair::random();
+                client
+                    .delete_keystores(&DeleteKeystoresRequest {
+                        pubkeys: vec![keypair.pk.compress()],
+                    })
+                    .await
+            })
             .await
     });
 }

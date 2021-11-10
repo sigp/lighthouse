@@ -390,6 +390,11 @@ impl InitializedValidators {
             .map(|v| v.signing_method.clone())
     }
 
+    /// Add a validator definition to `self`, replacing any disabled definition with the same
+    /// voting public key.
+    ///
+    /// The on-disk representation of the validator definitions & the key cache will both be
+    /// updated.
     pub async fn add_definition_replace_disabled(
         &mut self,
         def: ValidatorDefinition,
@@ -426,6 +431,10 @@ impl InitializedValidators {
         Ok(())
     }
 
+    /// Delete the validator definition and keystore for `pubkey`.
+    ///
+    /// The delete is carried out in stages so that the filesystem is never left in an inconsistent
+    /// state, even in case of errors or crashes.
     pub async fn delete_definition_and_keystore(
         &mut self,
         pubkey: &PublicKey,
@@ -442,6 +451,7 @@ impl InitializedValidators {
                 .save(&self.validators_dir)
                 .map_err(Error::UnableToSaveDefinitions)?;
         } else {
+            // FIXME(sproul): return an error for remote signer validators here (and test it)
             return Ok(DeleteKeystoreStatus::NotFound);
         }
 
@@ -458,9 +468,6 @@ impl InitializedValidators {
             }
         }
 
-        // FIXME(sproul): remove key cache related warnings/optimise this?
-        self.update_validators().await?;
-
         // 3. Delete from validator definitions entirely.
         self.definitions
             .retain(|def| &def.voting_public_key != pubkey);
@@ -471,6 +478,10 @@ impl InitializedValidators {
         Ok(DeleteKeystoreStatus::Deleted)
     }
 
+    /// Attempt to delete the voting keystore file, or its entire validator directory.
+    ///
+    /// Some parts of the VC assume the existence of a validator based on the existence of a
+    /// directory in the validators dir named like a public key.
     fn delete_keystore_or_validator_dir(
         &self,
         voting_keystore_path: &Path,
@@ -547,15 +558,22 @@ impl InitializedValidators {
 
     /// Tries to decrypt the key cache.
     ///
-    /// Returns `Ok(true)` if decryption was successful, `Ok(false)` if it couldn't get decrypted
-    /// and an error if a needed password couldn't get extracted.
+    /// Returns the decrypted cache if decryption was successful, or an error if a required password
+    /// wasn't provided and couldn't be read interactively.
     ///
+    /// In the case that the cache contains UUIDs for unknown validator definitions then it cannot
+    /// be decrypted and will be replaced by a new empty cache.
+    ///
+    /// The mutable `key_stores` argument will be used to accelerate decyption by bypassing
+    /// filesystem accesses for keystores that are already known. In the case that a keystore
+    /// from the validator definitions is not yet in this map, it will be loaded from disk and
+    /// inserted into the map.
     async fn decrypt_key_cache(
         &self,
         mut cache: KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
     ) -> Result<KeyCache, Error> {
-        //read relevant key_stores
+        // Read relevant key stores from the filesystem.
         let mut definitions_map = HashMap::new();
         for def in self.definitions.as_slice().iter().filter(|def| def.enabled) {
             match &def.signing_definition {
@@ -578,10 +596,11 @@ impl InitializedValidators {
         //check if all paths are in the definitions_map
         for uuid in cache.uuids() {
             if !definitions_map.contains_key(uuid) {
-                warn!(
+                debug!(
                     self.log,
-                    "Unknown uuid in cache";
-                    "uuid" => format!("{}", uuid)
+                    "Resetting the key cache";
+                    "keystore_uuid" => %uuid,
+                    "reason" => "impossible to decrypt due to missing keystore",
                 );
                 return Ok(KeyCache::new());
             }
@@ -638,7 +657,7 @@ impl InitializedValidators {
     /// A validator is considered "already known" and skipped if the public key is already known.
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
-    async fn update_validators(&mut self) -> Result<(), Error> {
+    pub(crate) async fn update_validators(&mut self) -> Result<(), Error> {
         //use key cache if available
         let mut key_stores = HashMap::new();
 

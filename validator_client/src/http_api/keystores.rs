@@ -226,6 +226,16 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
         })
         .collect::<Vec<_>>();
 
+    // Use `update_validators` to update the key cache. It is safe to let the key cache get a bit out
+    // of date as it resets when it can't be decrypted. We update it just a single time to avoid
+    // continually resetting it after each key deletion.
+    if let Some(runtime) = runtime.upgrade() {
+        runtime
+            .block_on(initialized_validators.update_validators())
+            .map_err(|e| custom_server_error(format!("unable to update key cache: {:?}", e)))?;
+    }
+
+    // Export the slashing protection data.
     let slashing_protection = validator_store
         .export_slashing_protection_for_keys(&request.pubkeys)
         .map_err(|e| {
