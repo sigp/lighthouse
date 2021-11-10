@@ -192,7 +192,6 @@ pub mod quoted_u256 {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
