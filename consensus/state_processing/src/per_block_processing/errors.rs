@@ -61,10 +61,6 @@ pub enum BlockProcessingError {
         expected: Hash256,
         found: Hash256,
     },
-    ExecutionBlockNumberIncontiguous {
-        expected: u64,
-        found: u64,
-    },
     ExecutionRandaoMismatch {
         expected: Hash256,
         found: Hash256,
@@ -72,14 +68,6 @@ pub enum BlockProcessingError {
     ExecutionInvalidGasLimit {
         used: u64,
         limit: u64,
-    },
-    ExecutionInvalidGasLimitIncrease {
-        limit: u64,
-        parent_limit: u64,
-    },
-    ExecutionInvalidGasLimitDecrease {
-        limit: u64,
-        parent_limit: u64,
     },
     ExecutionInvalidGasLimitTooSmall {
         limit: u64,

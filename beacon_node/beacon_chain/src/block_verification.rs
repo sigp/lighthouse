@@ -278,18 +278,6 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     InvalidPayloadTimestamp { expected: u64, found: u64 },
-    /// The gas used in the block exceeds the gas limit
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty
-    GasUsedExceedsLimit,
-    /// The payload block hash equals the parent hash
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty
-    BlockHashEqualsParentHash,
     /// The execution payload transaction list data exceeds size limits
     ///
     /// ## Peer scoring
