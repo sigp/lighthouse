@@ -191,3 +191,30 @@ pub mod quoted_u256 {
         deserializer.deserialize_str(U256Visitor)
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    struct WrappedU256(#[serde(with = "quoted_u256")] U256);
+
+    #[test]
+    fn u256_with_quotes() {
+        assert_eq!(
+            &serde_json::to_string(&WrappedU256(U256::one())).unwrap(),
+            "\"1\""
+        );
+        assert_eq!(
+            serde_json::from_str::<WrappedU256>("\"1\"").unwrap(),
+            WrappedU256(U256::one())
+        );
+    }
+
+    #[test]
+    fn u256_without_quotes() {
+        serde_json::from_str::<WrappedU256>("1").unwrap_err();
+    }
+}
