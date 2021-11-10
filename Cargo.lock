@@ -1586,6 +1586,7 @@ dependencies = [
 name = "eth2_serde_utils"
 version = "0.1.0"
 dependencies = [
+ "ethereum-types 0.12.1",
  "hex",
  "serde",
  "serde_derive",
@@ -6228,7 +6229,7 @@ dependencies = [
  "derivative",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_interop_keypairs",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils 0.1.0",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
