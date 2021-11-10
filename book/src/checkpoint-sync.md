@@ -45,8 +45,8 @@ as soon as forwards sync completes.
 
 You can use Infura as the remote beacon node provider to load the initial checkpoint state.
 
-1. Sign up for the free Infura ETH2 api using the `Create new project tab` on the [Infura dashboard](https://infura.io/dashboard).
-2. Copy the https endpoint for the required network (mainnet/prater)
+1. Sign up for the free Infura ETH2 API using the `Create new project tab` on the [Infura dashboard](https://infura.io/dashboard).
+2. Copy the HTTPS endpoint for the required network (mainnet/Prater).
 3. Use it as the url for the `--checkpoint-sync-url` flag.  e.g.
 ```
 lighthouse bn --checkpoint-sync-url https://<PROJECT-ID>:<PROJECT-SECRET>@eth2-beacon-mainnet.infura.io ...
