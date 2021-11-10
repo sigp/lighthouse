@@ -65,14 +65,6 @@ pub enum BlockProcessingError {
         expected: Hash256,
         found: Hash256,
     },
-    ExecutionInvalidGasLimit {
-        used: u64,
-        limit: u64,
-    },
-    ExecutionInvalidGasLimitTooSmall {
-        limit: u64,
-        min: u64,
-    },
     ExecutionInvalidTimestamp {
         expected: u64,
         found: u64,
