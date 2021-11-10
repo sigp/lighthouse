@@ -4,6 +4,7 @@
 //!
 //! Quotes can be optional during decoding.
 
+use ethereum_types::U256;
 use serde::{Deserializer, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -54,6 +55,17 @@ macro_rules! define_mod {
                     T::try_from(v).map_err(|_| serde::de::Error::custom("invalid integer"))
                 }
             }
+        }
+
+        /// Compositional wrapper type that allows quotes or no quotes.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+        #[serde(transparent)]
+        pub struct MaybeQuoted<T>
+        where
+            T: From<$int> + Into<$int> + Copy + TryFrom<u64>,
+        {
+            #[serde(with = "self")]
+            pub value: T,
         }
 
         /// Wrapper type for requiring quotes on a `$int`-like type.
@@ -141,4 +153,67 @@ pub mod quoted_u64 {
     use super::*;
 
     define_mod!(u64, visit_u64);
+}
+
+pub mod quoted_u256 {
+    use super::*;
+
+    struct U256Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for U256Visitor {
+        type Value = U256;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a quoted U256 integer")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            U256::from_dec_str(v).map_err(serde::de::Error::custom)
+        }
+    }
+
+    /// Serialize with quotes.
+    pub fn serialize<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{}", value))
+    }
+
+    /// Deserialize with quotes.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(U256Visitor)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    struct WrappedU256(#[serde(with = "quoted_u256")] U256);
+
+    #[test]
+    fn u256_with_quotes() {
+        assert_eq!(
+            &serde_json::to_string(&WrappedU256(U256::one())).unwrap(),
+            "\"1\""
+        );
+        assert_eq!(
+            serde_json::from_str::<WrappedU256>("\"1\"").unwrap(),
+            WrappedU256(U256::one())
+        );
+    }
+
+    #[test]
+    fn u256_without_quotes() {
+        serde_json::from_str::<WrappedU256>("1").unwrap_err();
+    }
 }

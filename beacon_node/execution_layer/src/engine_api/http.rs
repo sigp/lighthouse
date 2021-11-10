@@ -326,7 +326,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
             gas_used: e.gas_used,
             timestamp: e.timestamp,
             extra_data: e.extra_data,
-            base_fee_per_gas: Uint256::from_little_endian(e.base_fee_per_gas.as_bytes()),
+            base_fee_per_gas: e.base_fee_per_gas,
             block_hash: e.block_hash,
             transactions: e.transactions,
         }
@@ -347,17 +347,11 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
             gas_used: e.gas_used,
             timestamp: e.timestamp,
             extra_data: e.extra_data,
-            base_fee_per_gas: uint256_to_hash256(e.base_fee_per_gas),
+            base_fee_per_gas: e.base_fee_per_gas,
             block_hash: e.block_hash,
             transactions: e.transactions,
         }
     }
-}
-
-fn uint256_to_hash256(u: Uint256) -> Hash256 {
-    let mut bytes = [0; 32];
-    u.to_little_endian(&mut bytes);
-    Hash256::from_slice(&bytes)
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -797,7 +791,7 @@ mod test {
                             gas_used: 2,
                             timestamp: 42,
                             extra_data: vec![].into(),
-                            base_fee_per_gas: uint256_to_hash256(Uint256::from(1)),
+                            base_fee_per_gas: Uint256::from(1),
                             block_hash: Hash256::repeat_byte(1),
                             transactions: vec![].into(),
                         })
@@ -960,7 +954,7 @@ mod test {
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
-                            base_fee_per_gas: uint256_to_hash256(Uint256::from(0)),
+                            base_fee_per_gas: Uint256::from(0),
                             block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
                             transactions: vec![].into(),
                         };
@@ -984,7 +978,7 @@ mod test {
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
-                            base_fee_per_gas: uint256_to_hash256(Uint256::from(0)),
+                            base_fee_per_gas: Uint256::from(0),
                             block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
                             transactions: vec![].into(),
                         })
