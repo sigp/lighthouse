@@ -420,6 +420,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        the broad Ethereum community has elected to override the terminal PoW block. \
                        Incorrect use of this flag will cause your node to experience a consensus
                        failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-epoch-override")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-epoch-override")
+                .long("terminal-block-hash-epoch-override")
+                .value_name("EPOCH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
+                       parameter. This flag should only be used if the user has a clear understanding \
+                       that the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-override")
                 .takes_value(true)
         )
         .arg(

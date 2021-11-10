@@ -152,7 +152,7 @@ where
             .terminal_total_difficulty_override
             .unwrap_or(spec.terminal_total_difficulty);
         let terminal_block_hash = config
-            .terminal_block_hash
+            .terminal_block_hash_override
             .unwrap_or(spec.terminal_block_hash);
 
         let execution_layer = if let Some(execution_endpoints) = config.execution_endpoints {

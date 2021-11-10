@@ -1,41 +1,10 @@
 use crate::{test_utils::TestRandom, *};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use std::{ops::Index, slice::SliceIndex};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
-#[ssz(enum_behaviour = "union")]
-#[tree_hash(enum_behaviour = "union")]
-#[serde(tag = "selector", content = "value")]
-#[serde(bound = "T: EthSpec")]
-pub enum Transaction<T: EthSpec> {
-    // FIXME(merge): renaming this enum variant to 0 is a bit of a hack...
-    #[serde(rename = "0")]
-    OpaqueTransaction(
-        #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-        VariableList<u8, T::MaxBytesPerOpaqueTransaction>,
-    ),
-}
-
-impl<T: EthSpec, I: SliceIndex<[u8]>> Index<I> for Transaction<T> {
-    type Output = I::Output;
-
-    #[inline]
-    fn index(&self, index: I) -> &Self::Output {
-        match self {
-            Self::OpaqueTransaction(v) => Index::index(v, index),
-        }
-    }
-}
-
-impl<T: EthSpec> From<VariableList<u8, T::MaxBytesPerOpaqueTransaction>> for Transaction<T> {
-    fn from(list: VariableList<u8, <T as EthSpec>::MaxBytesPerOpaqueTransaction>) -> Self {
-        Self::OpaqueTransaction(list)
-    }
-}
+pub type Transaction<T> = VariableList<u8, T>;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
@@ -62,8 +31,9 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Hash256,
     pub block_hash: Hash256,
-    #[test_random(default)]
-    pub transactions: VariableList<Transaction<T>, T::MaxTransactionsPerPayload>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions:
+        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
