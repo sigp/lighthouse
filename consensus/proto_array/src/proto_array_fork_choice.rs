@@ -117,8 +117,8 @@ impl ProtoArrayForkChoice {
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
-            justified_checkpoint: Some(justified_checkpoint),
-            finalized_checkpoint: Some(finalized_checkpoint),
+            justified_checkpoint,
+            finalized_checkpoint,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
         };

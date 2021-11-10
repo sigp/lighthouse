@@ -179,7 +179,10 @@ pub fn proto_array_from_legacy_persisted<T: BeaconChainTypes>(
 
     // These transformations instantiate `node.justified_checkpoint` and `node.finalized_checkpoint`
     // to `None`.
-    let container: SszContainer = legacy_container.into_ssz_container();
+    let container: SszContainer = legacy_container.into_ssz_container(
+        persisted_fork_choice.fork_choice_store.justified_checkpoint,
+        persisted_fork_choice.fork_choice_store.finalized_checkpoint,
+    );
     let mut fork_choice: ProtoArrayForkChoice = container.into();
 
     let finalized_root = persisted_fork_choice
@@ -286,9 +289,8 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     relevant_epochs.dedup();
 
     // Iterate backwards, find root at each epoch.
-    let mut iter = std::iter::once(Ok((head_root, head_slot))).chain(
-        BlockRootsIterator::from_block(db.clone(), head_root).map_err(|e| format!("{:?}", e))?,
-    );
+    let mut iter = std::iter::once(Ok((head_root, head_slot)))
+        .chain(BlockRootsIterator::from_block(db, head_root).map_err(|e| format!("{:?}", e))?);
     let mut roots_by_epoch = HashMap::new();
     for epoch in relevant_epochs.iter().copied() {
         let start_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -386,15 +388,19 @@ pub struct LegacySszContainer {
 }
 
 impl LegacySszContainer {
-    fn into_ssz_container(self) -> SszContainer {
+    fn into_ssz_container(
+        self,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+    ) -> SszContainer {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
         SszContainer {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
-            justified_checkpoint: None,
-            finalized_checkpoint: None,
+            justified_checkpoint,
+            finalized_checkpoint,
             nodes,
             indices: self.indices,
         }

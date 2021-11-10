@@ -16,10 +16,8 @@ pub struct SszContainer {
     pub votes: Vec<VoteTracker>,
     pub balances: Vec<u64>,
     pub prune_threshold: usize,
-    #[ssz(with = "four_byte_option_checkpoint")]
-    pub justified_checkpoint: Option<Checkpoint>,
-    #[ssz(with = "four_byte_option_checkpoint")]
-    pub finalized_checkpoint: Option<Checkpoint>,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: Vec<(Hash256, usize)>,
 }

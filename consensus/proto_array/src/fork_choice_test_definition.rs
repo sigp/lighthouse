@@ -88,10 +88,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                         )
-                        .map_err(|e| {
-                            dbg!(&e);
-                            e
-                        })
+                        .map_err(|e| e)
                         .unwrap_or_else(|_| {
                             panic!("find_head op at index {} returned error", op_index)
                         });
