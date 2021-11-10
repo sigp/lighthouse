@@ -278,18 +278,6 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     InvalidPayloadTimestamp { expected: u64, found: u64 },
-    /// The gas used in the block exceeds the gas limit
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty
-    GasUsedExceedsLimit,
-    /// The payload block hash equals the parent hash
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty
-    BlockHashEqualsParentHash,
     /// The execution payload transaction list data exceeds size limits
     ///
     /// ## Peer scoring
@@ -1351,18 +1339,6 @@ fn validate_execution_payload<T: BeaconChainTypes>(
                     expected: expected_timestamp,
                     found: execution_payload.timestamp,
                 },
-            ));
-        }
-        // Gas used is less than the gas limit
-        if execution_payload.gas_used > execution_payload.gas_limit {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::GasUsedExceedsLimit,
-            ));
-        }
-        // The execution payload block hash is not equal to the parent hash
-        if execution_payload.block_hash == execution_payload.parent_hash {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::BlockHashEqualsParentHash,
             ));
         }
         // The execution payload transaction list data is within expected size limits

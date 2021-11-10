@@ -127,11 +127,19 @@ pub struct ChainSpec {
     pub altair_fork_version: [u8; 4],
     /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
     pub altair_fork_epoch: Option<Epoch>,
+
+    /*
+     * Merge hard fork params
+     */
+    pub inactivity_penalty_quotient_merge: u64,
+    pub min_slashing_penalty_quotient_merge: u64,
+    pub proportional_slashing_multiplier_merge: u64,
     pub merge_fork_version: [u8; 4],
     /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
     pub merge_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: Hash256,
+    pub terminal_block_hash_activation_epoch: Epoch,
 
     /*
      * Networking
@@ -232,6 +240,39 @@ impl ChainSpec {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.merge_fork_epoch,
+        }
+    }
+
+    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
+    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.inactivity_penalty_quotient,
+            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
+            BeaconState::Merge(_) => self.inactivity_penalty_quotient_merge,
+        }
+    }
+
+    /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
+    pub fn proportional_slashing_multiplier_for_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+    ) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.proportional_slashing_multiplier,
+            BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
+            BeaconState::Merge(_) => self.proportional_slashing_multiplier_merge,
+        }
+    }
+
+    /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
+    pub fn min_slashing_penalty_quotient_for_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+    ) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.min_slashing_penalty_quotient,
+            BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
+            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_merge,
         }
     }
 
@@ -367,7 +408,7 @@ impl ChainSpec {
              * Constants
              */
             genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::max_value()),
+            far_future_epoch: Epoch::new(u64::MAX),
             base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
 
@@ -479,12 +520,22 @@ impl ChainSpec {
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
             altair_fork_epoch: Some(Epoch::new(74240)),
+
+            /*
+             * Merge hard fork params
+             */
+            inactivity_penalty_quotient_merge: u64::checked_pow(2, 24)
+                .expect("pow does not overflow"),
+            min_slashing_penalty_quotient_merge: u64::checked_pow(2, 5)
+                .expect("pow does not overflow"),
+            proportional_slashing_multiplier_merge: 3,
             merge_fork_version: [0x02, 0x00, 0x00, 0x00],
             merge_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX
                 .checked_sub(Uint256::from(2u64.pow(10)))
                 .expect("calculation does not overflow"),
             terminal_block_hash: Hash256::zero(),
+            terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
              * Network specific

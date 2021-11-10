@@ -264,8 +264,10 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.fee_recipient = clap_utils::parse_optional(cli_args, "fee-recipient")?;
-    client_config.terminal_block_hash =
-        clap_utils::parse_optional(cli_args, "terminal-block-hash")?;
+    client_config.terminal_block_hash_override =
+        clap_utils::parse_optional(cli_args, "terminal-block-hash-override")?;
+    client_config.terminal_block_hash_epoch_override =
+        clap_utils::parse_optional(cli_args, "terminal-block-hash-epoch-override")?;
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));

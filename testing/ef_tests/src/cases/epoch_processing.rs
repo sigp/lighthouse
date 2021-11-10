@@ -138,7 +138,6 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                 process_slashings(
                     state,
                     validator_statuses.total_balances.current_epoch(),
-                    spec.proportional_slashing_multiplier,
                     spec,
                 )?;
             }
@@ -148,7 +147,6 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                     altair::ParticipationCache::new(state, spec)
                         .unwrap()
                         .current_epoch_total_active_balance(),
-                    spec.proportional_slashing_multiplier_altair,
                     spec,
                 )?;
             }
