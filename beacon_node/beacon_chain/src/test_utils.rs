@@ -370,6 +370,8 @@ where
         self
     }
 
+    /// Instruct the mock execution engine to always return a "valid" response to any payload it is
+    /// asked to execute.
     pub fn mock_execution_layer_all_payloads_valid(self) -> Self {
         self.mock_execution_layer
             .as_ref()
