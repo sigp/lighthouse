@@ -3,8 +3,8 @@ use crate::{signing_method::SigningMethod, InitializedValidators, ValidatorStore
 use account_utils::ZeroizeString;
 use eth2::lighthouse_vc::std_types::{
     DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse, ImportKeystoreStatus,
-    ImportKeystoresRequest, ImportKeystoresResponse, ListKeystoresResponse, SingleKeystoreResponse,
-    Status,
+    ImportKeystoresRequest, ImportKeystoresResponse, InterchangeJsonStr, KeystoreJsonStr,
+    ListKeystoresResponse, SingleKeystoreResponse, Status,
 };
 use eth2_keystore::Keystore;
 use slog::{info, warn, Logger};
@@ -76,9 +76,9 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
 
     // Import slashing protection data before keystores, so that new keystores don't start signing
     // without it.
-    if let Some(slashing_protection) = request.slashing_protection {
+    if let Some(InterchangeJsonStr(slashing_protection)) = request.slashing_protection {
         // Warn for missing slashing protection.
-        for keystore in &request.keystores {
+        for KeystoreJsonStr(ref keystore) in &request.keystores {
             if let Some(public_key) = keystore.public_key() {
                 let pubkey_bytes = public_key.compress();
                 if !slashing_protection
@@ -107,7 +107,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     // Import each keystore. Some keystores may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.keystores.len());
 
-    for (keystore, password) in request
+    for (KeystoreJsonStr(keystore), password) in request
         .keystores
         .into_iter()
         .zip(request.passwords.into_iter())

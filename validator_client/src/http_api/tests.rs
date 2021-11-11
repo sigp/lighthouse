@@ -620,6 +620,7 @@ fn routes_with_invalid_auth() {
                 let keystore = KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
                     .unwrap()
                     .build()
+                    .map(KeystoreJsonStr)
                     .unwrap();
                 client
                     .post_keystores(&ImportKeystoresRequest {

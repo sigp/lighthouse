@@ -24,10 +24,25 @@ pub struct SingleKeystoreResponse {
 
 #[derive(Deserialize, Serialize)]
 pub struct ImportKeystoresRequest {
-    pub keystores: Vec<Keystore>,
+    pub keystores: Vec<KeystoreJsonStr>,
     pub passwords: Vec<ZeroizeString>,
-    pub slashing_protection: Option<Interchange>,
+    pub slashing_protection: Option<InterchangeJsonStr>,
 }
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct KeystoreJsonStr(#[serde(with = "eth2_serde_utils::json_str")] pub Keystore);
+
+impl std::ops::Deref for KeystoreJsonStr {
+    type Target = Keystore;
+    fn deref(&self) -> &Keystore {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct InterchangeJsonStr(#[serde(with = "eth2_serde_utils::json_str")] pub Interchange);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ImportKeystoresResponse {
@@ -73,6 +88,7 @@ pub struct DeleteKeystoresRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteKeystoresResponse {
     pub data: Vec<Status<DeleteKeystoreStatus>>,
+    #[serde(with = "eth2_serde_utils::json_str")]
     pub slashing_protection: Interchange,
 }
 

@@ -449,7 +449,7 @@ dependencies = [
  "arbitrary",
  "blst",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "eth2_ssz",
  "ethereum-types 0.12.1",
  "hex",
@@ -1460,7 +1460,7 @@ dependencies = [
  "account_utils",
  "bytes",
  "eth2_keystore",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "eth2_ssz",
  "eth2_ssz_derive",
  "futures",
@@ -1585,17 +1585,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eth2_serde_utils"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "477fffc25490dfc866288273f96344c6879676a1337187fc39245cd422e10825"
-dependencies = [
- "hex",
- "serde",
- "serde_derive",
-]
-
-[[package]]
 name = "eth2_ssz"
 version = "0.4.0"
 dependencies = [
@@ -1619,7 +1608,7 @@ name = "eth2_ssz_types"
 version = "0.2.1"
 dependencies = [
  "arbitrary",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "eth2_ssz",
  "serde",
  "serde_derive",
@@ -5255,7 +5244,7 @@ dependencies = [
 name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "filesystem",
  "lazy_static",
  "r2d2",
@@ -6199,7 +6188,7 @@ dependencies = [
  "derivative",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_interop_keypairs",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
@@ -6387,7 +6376,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_keystore",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "exit-future",
  "filesystem",
  "futures",

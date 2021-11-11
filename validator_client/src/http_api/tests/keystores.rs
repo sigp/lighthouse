@@ -1,10 +1,11 @@
 use super::*;
 use account_utils::random_password_string;
 use eth2::lighthouse_vc::{
-    http_client::ValidatorClientHttpClient as HttpClient, std_types::*,
+    http_client::ValidatorClientHttpClient as HttpClient,
+    std_types::{KeystoreJsonStr as Keystore, *},
     types::Web3SignerValidatorRequest,
 };
-use eth2_keystore::Keystore;
+// use eth2_keystore::Keystore;
 use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use std::collections::HashMap;
@@ -12,10 +13,12 @@ use std::path::Path;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();
-    KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
-        .unwrap()
-        .build()
-        .unwrap()
+    Keystore(
+        KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
+            .unwrap()
+            .build()
+            .unwrap(),
+    )
 }
 
 fn web3_signer_url() -> String {
@@ -67,7 +70,7 @@ where
 }
 
 fn keystore_pubkey(keystore: &Keystore) -> PublicKeyBytes {
-    keystore.public_key().unwrap().compress()
+    keystore.0.public_key().unwrap().compress()
 }
 
 fn all_with_status<T: Clone>(count: usize, status: T) -> impl Iterator<Item = T> {
@@ -616,7 +619,7 @@ fn generic_migration_test(
                     .copied()
                     .map(|i| passwords[i].clone())
                     .collect(),
-                slashing_protection: Some(slashing_protection),
+                slashing_protection: Some(InterchangeJsonStr(slashing_protection)),
             })
             .await
             .unwrap();
