@@ -219,6 +219,8 @@ impl<E: EthSpec> Tester<E> {
             .spec(spec.clone())
             .keypairs(vec![])
             .genesis_state_ephemeral_store(case.anchor_state.clone())
+            .mock_execution_layer()
+            .mock_execution_layer_all_payloads_valid()
             .build();
 
         if harness.chain.genesis_block_root != case.anchor_block.canonical_root() {
@@ -284,10 +286,11 @@ impl<E: EthSpec> Tester<E> {
         let block_root = block.canonical_root();
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
-                "block with root {} was valid={} whilst test expects valid={}",
+                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
                 block_root,
                 result.is_ok(),
-                valid
+                valid,
+                result
             )));
         }
 

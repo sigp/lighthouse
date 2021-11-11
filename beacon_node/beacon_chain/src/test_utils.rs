@@ -370,6 +370,15 @@ where
         self
     }
 
+    pub fn mock_execution_layer_all_payloads_valid(self) -> Self {
+        self.mock_execution_layer
+            .as_ref()
+            .expect("requires mock execution layer")
+            .server
+            .all_payloads_valid();
+        self
+    }
+
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
