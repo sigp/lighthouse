@@ -1,5 +1,6 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
+use ::fork_choice::PayloadVerificationStatus;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
@@ -319,6 +320,7 @@ impl<E: EthSpec> Tester<E> {
                     &block,
                     block_root,
                     &state,
+                    PayloadVerificationStatus::Irrelevant,
                     &self.harness.chain.spec,
                 );
 
