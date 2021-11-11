@@ -19,7 +19,7 @@ use std::fmt;
 use std::ops::Range;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{Hash256, PowBlock, Uint256};
+use types::Hash256;
 
 /// `keccak("DepositEvent(bytes,bytes,bytes,bytes,bytes)")`
 pub const DEPOSIT_EVENT_TOPIC: &str =
@@ -49,7 +49,6 @@ pub enum Eth1Id {
 #[derive(Clone, Copy)]
 pub enum BlockQuery {
     Number(u64),
-    Hash(Hash256),
     Latest,
 }
 
@@ -136,6 +135,13 @@ pub async fn get_chain_id(endpoint: &SensitiveUrl, timeout: Duration) -> Result<
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct Block {
+    pub hash: Hash256,
+    pub timestamp: u64,
+    pub number: u64,
+}
+
 /// Returns the current block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
@@ -150,73 +156,39 @@ pub async fn get_block_number(endpoint: &SensitiveUrl, timeout: Duration) -> Res
     .map_err(|e| format!("Failed to get block number: {}", e))
 }
 
-/// Gets a block by hash or block number.
+/// Gets a block hash by block number.
 ///
 /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
 pub async fn get_block(
     endpoint: &SensitiveUrl,
     query: BlockQuery,
     timeout: Duration,
-) -> Result<PowBlock, String> {
+) -> Result<Block, String> {
     let query_param = match query {
         BlockQuery::Number(block_number) => format!("0x{:x}", block_number),
-        BlockQuery::Hash(hash) => format!("{:?}", hash), // debug formatting ensures output not truncated
         BlockQuery::Latest => "latest".to_string(),
-    };
-    let rpc_method = match query {
-        BlockQuery::Number(_) | BlockQuery::Latest => "eth_getBlockByNumber",
-        BlockQuery::Hash(_) => "eth_getBlockByHash",
     };
     let params = json!([
         query_param,
         false // do not return full tx objects.
     ]);
 
-    let response_body = send_rpc_request(endpoint, rpc_method, params, timeout).await?;
+    let response_body = send_rpc_request(endpoint, "eth_getBlockByNumber", params, timeout).await?;
     let response = response_result_or_error(&response_body)
-        .map_err(|e| format!("{} failed: {}", rpc_method, e))?;
+        .map_err(|e| format!("eth_getBlockByNumber failed: {}", e))?;
 
-    let block_hash: Vec<u8> = hex_to_bytes(
+    let hash: Vec<u8> = hex_to_bytes(
         response
             .get("hash")
             .ok_or("No hash for block")?
             .as_str()
             .ok_or("Block hash was not string")?,
     )?;
-    let block_hash: Hash256 = if block_hash.len() == 32 {
-        Hash256::from_slice(&block_hash)
+    let hash: Hash256 = if hash.len() == 32 {
+        Hash256::from_slice(&hash)
     } else {
-        return Err(format!("Block hash was not 32 bytes: {:?}", block_hash));
+        return Err(format!("Block has was not 32 bytes: {:?}", hash));
     };
-
-    let parent_hash: Vec<u8> = hex_to_bytes(
-        response
-            .get("parentHash")
-            .ok_or("No parent hash for block")?
-            .as_str()
-            .ok_or("Parent hash was not string")?,
-    )?;
-    let parent_hash: Hash256 = if parent_hash.len() == 32 {
-        Hash256::from_slice(&parent_hash)
-    } else {
-        return Err(format!("parent hash was not 32 bytes: {:?}", parent_hash));
-    };
-
-    let total_difficulty_str = response
-        .get("totalDifficulty")
-        .ok_or("No total difficulty for block")?
-        .as_str()
-        .ok_or("Total difficulty was not a string")?;
-    let total_difficulty = Uint256::from_str(total_difficulty_str)
-        .map_err(|e| format!("total_difficulty from_str {:?}", e))?;
-
-    let difficulty_str = response
-        .get("difficulty")
-        .ok_or("No difficulty for block")?
-        .as_str()
-        .ok_or("Difficulty was not a string")?;
-    let difficulty =
-        Uint256::from_str(difficulty_str).map_err(|e| format!("difficulty from_str {:?}", e))?;
 
     let timestamp = hex_to_u64_be(
         response
@@ -226,7 +198,7 @@ pub async fn get_block(
             .ok_or("Block timestamp was not string")?,
     )?;
 
-    let block_number = hex_to_u64_be(
+    let number = hex_to_u64_be(
         response
             .get("number")
             .ok_or("No number for block")?
@@ -234,20 +206,14 @@ pub async fn get_block(
             .ok_or("Block number was not string")?,
     )?;
 
-    if block_number <= usize::max_value() as u64 {
-        Ok(PowBlock {
-            block_hash,
-            parent_hash,
-            total_difficulty,
-            difficulty,
+    if number <= usize::max_value() as u64 {
+        Ok(Block {
+            hash,
             timestamp,
-            block_number,
+            number,
         })
     } else {
-        Err(format!(
-            "Block number {} is larger than a usize",
-            block_number
-        ))
+        Err(format!("Block number {} is larger than a usize", number))
     }
     .map_err(|e| format!("Failed to get block number: {}", e))
 }
@@ -479,7 +445,7 @@ pub async fn send_rpc_request(
 }
 
 /// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value`.
-pub fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
+fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
     let json = serde_json::from_str::<Value>(response)
         .map_err(|e| RpcError::InvalidJson(e.to_string()))?;
 
@@ -501,7 +467,7 @@ pub fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
 /// Therefore, this function is only useful for numbers encoded by the JSON RPC.
 ///
 /// E.g., `0x01 == 1`
-pub fn hex_to_u64_be(hex: &str) -> Result<u64, String> {
+fn hex_to_u64_be(hex: &str) -> Result<u64, String> {
     u64::from_str_radix(strip_prefix(hex)?, 16)
         .map_err(|e| format!("Failed to parse hex as u64: {:?}", e))
 }
