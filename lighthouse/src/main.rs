@@ -175,6 +175,7 @@ fn main() {
                        Incorrect use of this flag will cause your node to experience a consensus
                        failure. Be extremely careful with this flag.")
                 .takes_value(true)
+                .global(true)
         )
         .arg(
             Arg::with_name("terminal-block-hash-override")
@@ -188,6 +189,7 @@ fn main() {
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-epoch-override")
                 .takes_value(true)
+                .global(true)
         )
         .arg(
             Arg::with_name("terminal-block-hash-epoch-override")
@@ -200,6 +202,7 @@ fn main() {
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-override")
                 .takes_value(true)
+                .global(true)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
