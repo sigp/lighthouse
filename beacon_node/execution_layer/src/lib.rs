@@ -465,6 +465,8 @@ impl ExecutionLayer {
                     self.get_pow_block_hash_at_total_difficulty(engine, spec)
                         .await
                 }
+
+                self.get_pow_block_hash_at_total_difficulty(engine).await
             })
             .await
             .map_err(Error::EngineErrors)?;
@@ -490,13 +492,12 @@ impl ExecutionLayer {
     ///
     /// `get_pow_block_at_terminal_total_difficulty`
     ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/validator.md
+    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
         engine: &Engine<HttpJsonRpc>,
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, ApiError> {
-        let mut ttd_exceeding_block = None;
         let mut block = engine
             .api
             .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
@@ -505,10 +506,11 @@ impl ExecutionLayer {
 
         self.execution_blocks().await.put(block.block_hash, block);
 
-        // TODO(merge): This function can theoretically loop indefinitely, as per the
-        // specification. We should consider how to fix this. See discussion:
+        // TODO(merge): This implementation assumes that the following PR is merged:
         //
-        // https://github.com/ethereum/consensus-specs/issues/2636
+        // https://github.com/ethereum/consensus-specs/pull/2719
+        //
+        // We should check on the status of this PR prior to production.
         loop {
             if block.total_difficulty >= spec.terminal_total_difficulty {
                 ttd_exceeding_block = Some(block.block_hash);
@@ -523,7 +525,7 @@ impl ExecutionLayer {
                     .await?
                     .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
             } else {
-                return Ok(ttd_exceeding_block);
+                block = parent;
             }
         }
     }
