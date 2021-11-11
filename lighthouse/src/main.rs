@@ -16,7 +16,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
-use types::{EthSpec, EthSpecId};
+use types::{EthSpec, EthSpecId, Uint256};
 use validator_client::ProductionValidatorClient;
 
 fn bls_library_name() -> &'static str {
@@ -164,6 +164,42 @@ fn main() {
                     specific memory allocation issues."
                 )
                 .global(true),
+        )
+        .arg(
+            Arg::with_name("terminal-total-difficulty-override")
+                .long("terminal-total-difficulty-override")
+                .value_name("INTEGER")
+                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal difficulty. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-override")
+                .long("terminal-block-hash-override")
+                .value_name("TERMINAL_BLOCK_HASH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
+                       Accepts a 256-bit decimal integer (not a hex value). \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-epoch-override")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-epoch-override")
+                .long("terminal-block-hash-epoch-override")
+                .value_name("EPOCH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
+                       parameter. This flag should only be used if the user has a clear understanding \
+                       that the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-override")
+                .takes_value(true)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
@@ -438,5 +474,34 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
         // if neither is present, assume the default network
         Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
-    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
+
+    let mut eth2_network_config =
+        optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
+
+    if let Some(string) =
+        clap_utils::parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
+    {
+        let stripped = string.replace(",", "");
+        let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
+            format!(
+                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
+                e
+            )
+        })?;
+
+        eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
+    }
+
+    if let Some(hash) = clap_utils::parse_optional(cli_args, "terminal-block-hash-override")? {
+        eth2_network_config.config.terminal_block_hash = hash;
+    }
+
+    if let Some(epoch) = clap_utils::parse_optional(cli_args, "terminal-block-hash-epoch-override")?
+    {
+        eth2_network_config
+            .config
+            .terminal_block_hash_activation_epoch = epoch;
+    }
+
+    Ok(eth2_network_config)
 }

@@ -14,7 +14,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, Uint256, GRAFFITI_BYTES_LEN};
+use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -242,32 +242,7 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    if let Some(string) =
-        clap_utils::parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
-    {
-        let stripped = string.replace(",", "");
-        let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
-            format!(
-                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
-                e
-            )
-        })?;
-
-        if client_config.execution_endpoints.is_none() {
-            return Err(
-                "The --merge flag must be provided when using --terminal-total-difficulty-override"
-                    .into(),
-            );
-        }
-
-        client_config.terminal_total_difficulty_override = Some(terminal_total_difficulty);
-    }
-
     client_config.fee_recipient = clap_utils::parse_optional(cli_args, "fee-recipient")?;
-    client_config.terminal_block_hash_override =
-        clap_utils::parse_optional(cli_args, "terminal-block-hash-override")?;
-    client_config.terminal_block_hash_epoch_override =
-        clap_utils::parse_optional(cli_args, "terminal-block-hash-epoch-override")?;
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
