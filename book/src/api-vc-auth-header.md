@@ -39,7 +39,7 @@ The _path_ to the API token may also be fetched from the HTTP API itself (this e
 one accessible without the token):
 
 ```bash
-curl http://localhost:5062/eth/v1/auth
+curl http://localhost:5062/lighthouse/auth
 ```
 
 Response:

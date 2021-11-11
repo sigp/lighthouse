@@ -518,22 +518,22 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
-    // Standard key-manager endpoints.
-    let eth_v1 = warp::path("eth").and(warp::path("v1"));
-    let std_auth = eth_v1.and(warp::path("auth").and(warp::path::end()));
-    let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
-
-    // GET /eth/v1/auth
-    let get_std_auth = std_auth
+    // GET /lighthouse/auth
+    let get_auth = warp::path("lighthouse").and(warp::path("auth").and(warp::path::end()));
+    let get_auth = get_auth
         .and(signer.clone())
         .and(api_token_path_filter)
         .and_then(|signer, token_path: PathBuf| {
             blocking_signed_json_task(signer, move || {
                 Ok(AuthResponse {
-                    token_path: format!("{}", token_path.display()),
+                    token_path: token_path.display().to_string(),
                 })
             })
         });
+
+    // Standard key-manager endpoints.
+    let eth_v1 = warp::path("eth").and(warp::path("v1"));
+    let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
 
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
@@ -599,7 +599,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 .or(warp::delete().and(delete_std_keystores)),
         )
         // The auth route is the only route that is allowed to be accessed without the API token.
-        .or(warp::get().and(get_std_auth))
+        .or(warp::get().and(get_auth))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

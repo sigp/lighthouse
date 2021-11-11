@@ -476,13 +476,12 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
-    /// `GET eth/v1/auth`
+    /// `GET lighthouse/auth`
     pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("eth")
-            .push("v1")
+            .push("lighthouse")
             .push("auth");
         self.get_unsigned(url).await
     }
