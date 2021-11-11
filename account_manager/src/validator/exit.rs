@@ -84,8 +84,8 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         Timeouts::set_all(Duration::from_secs(env.eth2_config.spec.seconds_per_slot)),
     );
 
-    let testnet_config = env
-        .testnet
+    let eth2_network_config = env
+        .eth2_network_config
         .clone()
         .expect("network should have a valid config");
 
@@ -95,7 +95,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         &client,
         &spec,
         stdin_inputs,
-        &testnet_config,
+        &eth2_network_config,
         no_wait,
     ))?;
 
@@ -109,11 +109,11 @@ async fn publish_voluntary_exit<E: EthSpec>(
     client: &BeaconNodeHttpClient,
     spec: &ChainSpec,
     stdin_inputs: bool,
-    testnet_config: &Eth2NetworkConfig,
+    eth2_network_config: &Eth2NetworkConfig,
     no_wait: bool,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
-    let testnet_genesis_root = testnet_config
+    let testnet_genesis_root = eth2_network_config
         .beacon_state::<E>()
         .as_ref()
         .expect("network should have valid genesis state")

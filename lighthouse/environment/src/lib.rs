@@ -58,7 +58,7 @@ pub struct EnvironmentBuilder<E: EthSpec> {
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
-    testnet: Option<Eth2NetworkConfig>,
+    eth2_network_config: Option<Eth2NetworkConfig>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -69,7 +69,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
             log: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
-            testnet: None,
+            eth2_network_config: None,
         }
     }
 }
@@ -82,7 +82,7 @@ impl EnvironmentBuilder<MainnetEthSpec> {
             log: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
-            testnet: None,
+            eth2_network_config: None,
         }
     }
 }
@@ -210,19 +210,19 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Adds a testnet configuration to the environment.
+    /// Adds a network configuration to the environment.
     pub fn eth2_network_config(
         mut self,
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
-        self.testnet = Some(eth2_network_config);
+        self.eth2_network_config = Some(eth2_network_config);
 
         Ok(self)
     }
 
-    /// Optionally adds a testnet configuration to the environment.
+    /// Optionally adds a network configuration to the environment.
     pub fn optional_eth2_network_config(
         self,
         optional_config: Option<Eth2NetworkConfig>,
@@ -249,7 +249,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             log: self.log.ok_or("Cannot build environment without log")?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
-            testnet: self.testnet,
+            eth2_network_config: self.eth2_network_config,
         })
     }
 }
@@ -301,7 +301,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub testnet: Option<Eth2NetworkConfig>,
+    pub eth2_network_config: Option<Eth2NetworkConfig>,
 }
 
 impl<E: EthSpec> Environment<E> {

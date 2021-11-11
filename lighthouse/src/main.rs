@@ -239,8 +239,8 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = get_eth2_network_config(&matches).and_then(|testnet_config| {
-        let eth_spec_id = testnet_config.eth_spec_id()?;
+    let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
+        let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
         if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
@@ -256,9 +256,9 @@ fn main() {
         }
 
         match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
             #[cfg(not(feature = "spec-minimal"))]
             other => {
                 eprintln!(
@@ -288,7 +288,7 @@ fn main() {
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
-    testnet_config: Eth2NetworkConfig,
+    eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -357,7 +357,7 @@ fn run<E: EthSpec>(
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(testnet_config))?
+        .optional_eth2_network_config(Some(eth2_network_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
