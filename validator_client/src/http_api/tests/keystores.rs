@@ -28,18 +28,19 @@ fn web3_signer_url() -> String {
 fn new_web3signer_validator() -> (Keypair, Web3SignerValidatorRequest) {
     let keypair = Keypair::random();
     let pk = keypair.pk.clone();
-    (
-        keypair,
-        Web3SignerValidatorRequest {
-            enable: true,
-            description: "".into(),
-            graffiti: None,
-            voting_public_key: pk,
-            url: web3_signer_url(),
-            root_certificate_path: None,
-            request_timeout_ms: None,
-        },
-    )
+    (keypair, web3signer_validator_with_pubkey(pk))
+}
+
+fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorRequest {
+    Web3SignerValidatorRequest {
+        enable: true,
+        description: "".into(),
+        graffiti: None,
+        voting_public_key: pubkey,
+        url: web3_signer_url(),
+        root_certificate_path: None,
+        request_timeout_ms: None,
+    }
 }
 
 fn run_test<F, V>(f: F)
@@ -85,6 +86,10 @@ fn all_duplicate(count: usize) -> impl Iterator<Item = ImportKeystoreStatus> {
     all_with_status(count, ImportKeystoreStatus::Duplicate)
 }
 
+fn all_import_error(count: usize) -> impl Iterator<Item = ImportKeystoreStatus> {
+    all_with_status(count, ImportKeystoreStatus::Error)
+}
+
 fn all_deleted(count: usize) -> impl Iterator<Item = DeleteKeystoreStatus> {
     all_with_status(count, DeleteKeystoreStatus::Deleted)
 }
@@ -97,6 +102,10 @@ fn all_not_found(count: usize) -> impl Iterator<Item = DeleteKeystoreStatus> {
     all_with_status(count, DeleteKeystoreStatus::NotFound)
 }
 
+fn all_delete_error(count: usize) -> impl Iterator<Item = DeleteKeystoreStatus> {
+    all_with_status(count, DeleteKeystoreStatus::Error)
+}
+
 fn check_get_response<'a>(
     response: &ListKeystoresResponse,
     expected_keystores: impl IntoIterator<Item = &'a Keystore>,
@@ -104,6 +113,7 @@ fn check_get_response<'a>(
     for (ks1, ks2) in response.data.iter().zip_eq(expected_keystores) {
         assert_eq!(ks1.validating_pubkey, keystore_pubkey(ks2));
         assert_eq!(ks1.derivation_path, ks2.path());
+        assert!(ks1.readonly == None || ks1.readonly == Some(false));
     }
 }
 
@@ -338,6 +348,70 @@ fn get_web3_signer_keystores() {
         for response in expected_responses {
             assert!(get_res.data.contains(&response), "{:?}", response);
         }
+    })
+}
+
+#[test]
+fn import_and_delete_conflicting_web3_signer_keystores() {
+    run_test(|tester| async move {
+        let num_keystores = 3;
+
+        // Create some keystores to be used as both web3signer keystores and local keystores.
+        let password = random_password_string();
+        let keystores = (0..num_keystores)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+        let pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
+
+        // Add the validators as web3signer validators.
+        let remote_vals = pubkeys
+            .iter()
+            .map(|pubkey| web3signer_validator_with_pubkey(pubkey.decompress().unwrap()))
+            .collect::<Vec<_>>();
+
+        tester
+            .client
+            .post_lighthouse_validators_web3signer(&remote_vals)
+            .await
+            .unwrap();
+
+        // Attempt to import the same validators as local validators, which should error.
+        let import_req = ImportKeystoresRequest {
+            keystores: keystores.clone(),
+            passwords: vec![password.clone(); keystores.len()],
+            slashing_protection: None,
+        };
+        let import_res = tester.client.post_keystores(&import_req).await.unwrap();
+        check_import_response(&import_res, all_import_error(keystores.len()));
+
+        // Attempt to delete the web3signer validators, which should fail.
+        let delete_req = DeleteKeystoresRequest {
+            pubkeys: pubkeys.clone(),
+        };
+        let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
+        check_delete_response(&delete_res, all_delete_error(keystores.len()));
+
+        // Get should still list all the validators as `readonly`.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        for (ks, pubkey) in get_res.data.iter().zip_eq(&pubkeys) {
+            assert_eq!(ks.validating_pubkey, *pubkey);
+            assert_eq!(ks.derivation_path, None);
+            assert_eq!(ks.readonly, Some(true));
+        }
+
+        // Disabling the web3signer validators should *still* prevent them from being
+        // overwritten.
+        for pubkey in &pubkeys {
+            tester
+                .client
+                .patch_lighthouse_validators(pubkey, false)
+                .await
+                .unwrap();
+        }
+        let import_res = tester.client.post_keystores(&import_req).await.unwrap();
+        check_import_response(&import_res, all_import_error(keystores.len()));
+        let delete_res = tester.client.delete_keystores(&delete_req).await.unwrap();
+        check_delete_response(&delete_res, all_delete_error(keystores.len()));
     })
 }
 

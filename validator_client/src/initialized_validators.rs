@@ -89,6 +89,8 @@ pub enum Error {
     InvalidWeb3SignerRootCertificateFile(io::Error),
     InvalidWeb3SignerRootCertificate(ReqwestError),
     UnableToBuildWeb3SignerClient(ReqwestError),
+    /// Unable to apply an action to a validator because it is using a remote signer.
+    InvalidActionOnRemoteValidator,
 }
 
 impl From<LockfileError> for Error {
@@ -443,15 +445,21 @@ impl InitializedValidators {
         //
         // We disable before removing so that in case of a crash the auto-discovery mechanism
         // won't re-activate the keystore.
-        if let Some(def) = self.definitions.as_mut_slice().iter_mut().find(|def| {
-            &def.voting_public_key == pubkey && def.signing_definition.is_local_keystore()
-        }) {
-            def.enabled = false;
-            self.definitions
-                .save(&self.validators_dir)
-                .map_err(Error::UnableToSaveDefinitions)?;
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| &def.voting_public_key == pubkey)
+        {
+            if def.signing_definition.is_local_keystore() {
+                def.enabled = false;
+                self.definitions
+                    .save(&self.validators_dir)
+                    .map_err(Error::UnableToSaveDefinitions)?;
+            } else {
+                return Err(Error::InvalidActionOnRemoteValidator);
+            }
         } else {
-            // FIXME(sproul): return an error for remote signer validators here (and test it)
             return Ok(DeleteKeystoreStatus::NotFound);
         }
 

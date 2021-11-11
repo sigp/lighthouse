@@ -152,17 +152,22 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     validator_store: &ValidatorStore<T, E>,
     runtime: Arc<Runtime>,
 ) -> Result<ImportKeystoreStatus, String> {
-    // Check if the validator key already exists.
+    // Check if the validator key already exists, erroring if it is a remote signer validator.
     let pubkey = keystore
         .public_key()
         .ok_or_else(|| format!("invalid pubkey: {}", keystore.pubkey()))?;
-    if validator_store
+    if let Some(def) = validator_store
         .initialized_validators()
         .read()
-        .is_enabled(&pubkey)
-        .unwrap_or(false)
+        .validator_definitions()
+        .iter()
+        .find(|def| def.voting_public_key == pubkey)
     {
-        return Ok(ImportKeystoreStatus::Duplicate);
+        if !def.signing_definition.is_local_keystore() {
+            return Err("cannot import duplicate of existing remote signer validator".into());
+        } else if def.enabled {
+            return Ok(ImportKeystoreStatus::Duplicate);
+        }
     }
 
     // Check that the password is correct.
