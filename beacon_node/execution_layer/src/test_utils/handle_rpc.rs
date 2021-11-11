@@ -76,7 +76,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(ExecutePayloadResponseWrapper { status }).unwrap())
         }
-        ENGINE_GET_PAYLOAD => {
+        ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param_0(params)?;
             let id = request.payload_id;
 
@@ -97,8 +97,8 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(JsonValue::Null)
         }
-        ENGINE_FORKCHOICE_UPDATED => {
-            let request: JsonForkChoiceUpdatedRequest = get_param_0(params)?;
+        ENGINE_FORKCHOICE_UPDATED_V1 => {
+            let request: JsonForkChoiceStateV1 = get_param_0(params)?;
             ctx.execution_block_generator
                 .write()
                 .forkchoice_updated(request.head_block_hash, request.finalized_block_hash)?;

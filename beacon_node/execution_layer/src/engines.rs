@@ -1,11 +1,15 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
-use crate::engine_api::{EngineApi, Error as EngineApiError};
+use crate::engine_api::{EngineApi, Error as EngineApiError, PayloadAttributes, PayloadId};
 use futures::future::join_all;
+use futures::TryFutureExt;
+use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::RwLock;
-use types::Hash256;
+use types::{Address, Hash256};
+
+const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 128;
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
@@ -16,8 +20,9 @@ enum EngineState {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct ForkChoiceHead {
+pub struct ForkChoiceStateV1 {
     pub head_block_hash: Hash256,
+    pub safe_block_hash: Hash256,
     pub finalized_block_hash: Hash256,
 }
 
@@ -37,10 +42,19 @@ impl Logging {
     }
 }
 
+#[derive(Hash, PartialEq, std::cmp::Eq)]
+struct PayloadIdCacheKey {
+    pub head_block_hash: Hash256,
+    pub timestamp: u64,
+    pub random: Hash256,
+    pub fee_recipient: Address,
+}
+
 /// An execution engine.
 pub struct Engine<T> {
     pub id: String,
     pub api: T,
+    payload_id_cache: RwLock<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
 }
 
@@ -50,8 +64,28 @@ impl<T> Engine<T> {
         Self {
             id,
             api,
+            payload_id_cache: RwLock::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
         }
+    }
+
+    pub async fn get_payload_id(
+        &self,
+        head_block_hash: Hash256,
+        timestamp: u64,
+        random: Hash256,
+        fee_recipient: Address,
+    ) -> Option<PayloadId> {
+        self.payload_id_cache
+            .write()
+            .await
+            .get(&PayloadIdCacheKey {
+                head_block_hash,
+                timestamp,
+                random,
+                fee_recipient,
+            })
+            .cloned()
     }
 }
 
@@ -59,7 +93,7 @@ impl<T> Engine<T> {
 /// manner.
 pub struct Engines<T> {
     pub engines: Vec<Engine<T>>,
-    pub latest_head: RwLock<Option<ForkChoiceHead>>,
+    pub latest_forkchoice_state: RwLock<Option<ForkChoiceStateV1>>,
     pub log: Logger,
 }
 
@@ -70,23 +104,21 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
-    pub async fn set_latest_head(&self, latest_head: ForkChoiceHead) {
-        *self.latest_head.write().await = Some(latest_head);
-    }
-
-    async fn send_latest_head(&self, engine: &Engine<T>) {
-        let latest_head: Option<ForkChoiceHead> = *self.latest_head.read().await;
-        if let Some(head) = latest_head {
+    async fn send_latest_forkchoice_state(&self, engine: &Engine<T>) {
+        let latest_forkchoice_state: Option<ForkChoiceStateV1> =
+            *self.latest_forkchoice_state.read().await;
+        if let Some(forkchoice_state) = latest_forkchoice_state {
             info!(
                 self.log,
                 "Issuing forkchoiceUpdated";
-                "head" => ?head,
+                "forkchoice_state" => ?forkchoice_state,
                 "id" => &engine.id,
             );
 
+            // TODO: handle PayloadAttributes?
             if let Err(e) = engine
                 .api
-                .forkchoice_updated(head.head_block_hash, head.finalized_block_hash)
+                .forkchoice_updated_v1(forkchoice_state, None)
                 .await
             {
                 debug!(
@@ -102,6 +134,45 @@ impl<T: EngineApi> Engines<T> {
                 "No head, not sending to engine";
                 "id" => &engine.id,
             );
+        }
+    }
+
+    pub async fn notify_forkchoice_updated(
+        &self,
+        forkchoice_state: ForkChoiceStateV1,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<(), Vec<EngineError>> {
+        {
+            // is this needed to drop the write lock?
+            *self.latest_forkchoice_state.write().await = Some(forkchoice_state.clone());
+        }
+
+        let broadcast_results = self
+            .broadcast(|engine| async move {
+                let result = engine
+                    .api
+                    .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+                    .await;
+                if let Ok(response) = result.as_ref() {
+                    if let Some(payload_id) = response.payload_id {
+                        if let Some(key) = payload_attributes
+                            .map(|pa| PayloadIdCacheKey::from((&forkchoice_state, &pa)))
+                        {
+                            engine.payload_id_cache.write().await.put(key, payload_id);
+                        }
+                    }
+                }
+                result
+            })
+            .await;
+
+        if broadcast_results.iter().any(Result::is_ok) {
+            Ok(())
+        } else {
+            Err(broadcast_results
+                .into_iter()
+                .filter_map(Result::err)
+                .collect())
         }
     }
 
@@ -132,8 +203,8 @@ impl<T: EngineApi> Engines<T> {
                             );
                         }
 
-                        // Send the node our latest head.
-                        self.send_latest_head(engine).await;
+                        // Send the node our latest forkchoice_state.
+                        self.send_latest_forkchoice_state(engine).await;
 
                         *state_lock = EngineState::Synced
                     }
@@ -146,8 +217,8 @@ impl<T: EngineApi> Engines<T> {
                             )
                         }
 
-                        // Send the node our latest head, it may assist with syncing.
-                        self.send_latest_head(engine).await;
+                        // Send the node our latest forkchoice_state, it may assist with syncing.
+                        self.send_latest_forkchoice_state(engine).await;
 
                         *state_lock = EngineState::Syncing
                     }
@@ -310,5 +381,16 @@ impl<T: EngineApi> Engines<T> {
         });
 
         join_all(futures).await
+    }
+}
+
+impl From<(&ForkChoiceStateV1, &PayloadAttributes)> for PayloadIdCacheKey {
+    fn from(pair: (&ForkChoiceStateV1, &PayloadAttributes)) -> Self {
+        Self {
+            head_block_hash: pair.0.head_block_hash,
+            timestamp: pair.1.timestamp,
+            random: pair.1.random,
+            fee_recipient: pair.1.fee_recipient,
+        }
     }
 }

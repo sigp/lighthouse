@@ -5,7 +5,7 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines, ForkChoiceHead, Logging};
+use engines::{Engine, EngineError, Engines, ForkChoiceStateV1, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, debug, error, info, Logger};
@@ -97,7 +97,7 @@ impl ExecutionLayer {
         let inner = Inner {
             engines: Engines {
                 engines,
-                latest_head: <_>::default(),
+                latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
             terminal_total_difficulty,
@@ -295,14 +295,11 @@ impl ExecutionLayer {
         );
         self.engines()
             .first_success(|engine| async move {
-                // TODO(merge): make a cache for these IDs, so we don't always have to perform this
-                // request.
                 let payload_id = engine
-                    .api
-                    .prepare_payload(parent_hash, timestamp, random, fee_recipient)
-                    .await?;
-
-                engine.api.get_payload(payload_id).await
+                    .get_payload_id(parent_hash, timestamp, random, fee_recipient)
+                    .await
+                    .ok_or(ApiError::PayloadIdNotFound)?;
+                engine.api.get_payload_v1(payload_id).await
             })
             .await
             .map_err(Error::EngineErrors)
@@ -422,10 +419,11 @@ impl ExecutionLayer {
     ///
     /// - Ok, if any node returns successfully.
     /// - An error, if all nodes return an error.
-    pub async fn forkchoice_updated(
+    pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: Hash256,
         finalized_block_hash: Hash256,
+        payload_attributes: Option<PayloadAttributes>,
     ) -> Result<(), Error> {
         debug!(
             self.log(),
@@ -434,34 +432,18 @@ impl ExecutionLayer {
             "head_block_hash" => ?head_block_hash,
         );
 
-        // Update the cached version of the latest head so it can be sent to new or reconnecting
-        // execution nodes.
+        // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
+        // for now, we must set safe_block_hash = head_block_hash
+        let forkchoice_state = ForkChoiceStateV1 {
+            head_block_hash,
+            safe_block_hash: head_block_hash,
+            finalized_block_hash,
+        };
+
         self.engines()
-            .set_latest_head(ForkChoiceHead {
-                head_block_hash,
-                finalized_block_hash,
-            })
-            .await;
-
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| {
-                engine
-                    .api
-                    .forkchoice_updated(head_block_hash, finalized_block_hash)
-            })
-            .await;
-
-        if broadcast_results.iter().any(Result::is_ok) {
-            Ok(())
-        } else {
-            Err(Error::EngineErrors(
-                broadcast_results
-                    .into_iter()
-                    .filter_map(Result::err)
-                    .collect(),
-            ))
-        }
+            .notify_forkchoice_updated(forkchoice_state, payload_attributes)
+            .await
+            .map_err(|errors| Error::EngineErrors(errors))
     }
 
     /// Used during block production to determine if the merge has been triggered.

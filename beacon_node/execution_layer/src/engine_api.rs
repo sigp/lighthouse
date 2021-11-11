@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
+use crate::engines::ForkChoiceStateV1;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
@@ -23,6 +24,7 @@ pub enum Error {
     ExecutionBlockNotFound(Hash256),
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(Hash256),
+    PayloadIdNotFound,
 }
 
 impl From<reqwest::Error> for Error {
@@ -65,7 +67,7 @@ pub trait EngineApi {
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error>;
 
-    async fn get_payload<T: EthSpec>(
+    async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error>;
@@ -76,11 +78,11 @@ pub trait EngineApi {
         status: ConsensusStatus,
     ) -> Result<(), Error>;
 
-    async fn forkchoice_updated(
+    async fn forkchoice_updated_v1(
         &self,
-        head_block_hash: Hash256,
-        finalized_block_hash: Hash256,
-    ) -> Result<(), Error>;
+        forkchoice_state: ForkChoiceStateV1,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -113,4 +115,24 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: Hash256,
     pub total_difficulty: Uint256,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PayloadAttributes {
+    pub timestamp: u64,
+    pub random: Hash256,
+    pub fee_recipient: Address,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ForkchoiceUpdatedResponseStatus {
+    Success,
+    Syncing,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkchoiceUpdatedResponse {
+    pub status: ForkchoiceUpdatedResponseStatus,
+    pub payload_id: Option<PayloadId>,
 }

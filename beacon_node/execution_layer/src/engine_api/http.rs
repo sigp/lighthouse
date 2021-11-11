@@ -32,13 +32,13 @@ pub const ENGINE_PREPARE_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(500);
 pub const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
 pub const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub const ENGINE_GET_PAYLOAD: &str = "engine_getPayload";
+pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_CONSENSUS_VALIDATED: &str = "engine_consensusValidated";
 pub const ENGINE_CONSENSUS_VALIDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
-pub const ENGINE_FORKCHOICE_UPDATED: &str = "engine_forkchoiceUpdated";
+pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub struct HttpJsonRpc {
@@ -180,14 +180,14 @@ impl EngineApi for HttpJsonRpc {
         Ok(result.status)
     }
 
-    async fn get_payload<T: EthSpec>(
+    async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest { payload_id }]);
 
         let response: JsonExecutionPayload<T> = self
-            .rpc_request(ENGINE_GET_PAYLOAD, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await?;
 
         Ok(ExecutionPayload::from(response))
@@ -208,22 +208,29 @@ impl EngineApi for HttpJsonRpc {
         .await
     }
 
-    async fn forkchoice_updated(
+    async fn forkchoice_updated_v1(
         &self,
-        head_block_hash: Hash256,
-        finalized_block_hash: Hash256,
-    ) -> Result<(), Error> {
-        let params = json!([JsonForkChoiceUpdatedRequest {
-            head_block_hash,
-            finalized_block_hash
-        }]);
+        forkchoice_state: ForkChoiceStateV1,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let json_payload_attributes = match payload_attributes {
+            Some(p) => json!(JsonPayloadAttributesV1::from(p)),
+            None => serde_json::Value::Null,
+        };
+        let params = json!([
+            JsonForkChoiceStateV1::from(forkchoice_state),
+            json_payload_attributes
+        ]);
 
-        self.rpc_request(
-            ENGINE_FORKCHOICE_UPDATED,
-            params,
-            ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
-        )
-        .await
+        let result: ForkchoiceUpdatedResponse = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+            )
+            .await?;
+
+        Ok(result)
     }
 }
 
@@ -356,6 +363,34 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct JsonPayloadAttributesV1 {
+    pub timestamp: u64,
+    pub random: Hash256,
+    pub fee_recipient: Address,
+}
+
+impl From<PayloadAttributes> for JsonPayloadAttributesV1 {
+    fn from(p: PayloadAttributes) -> Self {
+        Self {
+            timestamp: p.timestamp,
+            random: p.random,
+            fee_recipient: p.fee_recipient,
+        }
+    }
+}
+
+impl From<JsonPayloadAttributesV1> for PayloadAttributes {
+    fn from(j: JsonPayloadAttributesV1) -> Self {
+        Self {
+            timestamp: j.timestamp,
+            random: j.random,
+            fee_recipient: j.fee_recipient,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JsonConsensusValidatedRequest {
     pub block_hash: Hash256,
     pub status: ConsensusStatus,
@@ -363,9 +398,30 @@ pub struct JsonConsensusValidatedRequest {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonForkChoiceUpdatedRequest {
+pub struct JsonForkChoiceStateV1 {
     pub head_block_hash: Hash256,
+    pub safe_block_hash: Hash256,
     pub finalized_block_hash: Hash256,
+}
+
+impl From<ForkChoiceStateV1> for JsonForkChoiceStateV1 {
+    fn from(f: ForkChoiceStateV1) -> Self {
+        Self {
+            head_block_hash: f.head_block_hash,
+            safe_block_hash: f.safe_block_hash,
+            finalized_block_hash: f.finalized_block_hash,
+        }
+    }
+}
+
+impl From<JsonForkChoiceStateV1> for ForkChoiceStateV1 {
+    fn from(j: JsonForkChoiceStateV1) -> Self {
+        Self {
+            head_block_hash: j.head_block_hash,
+            safe_block_hash: j.safe_block_hash,
+            finalized_block_hash: j.finalized_block_hash,
+        }
+    }
 }
 
 /// Serializes the `logs_bloom` field of an `ExecutionPayload`.
@@ -746,12 +802,12 @@ mod test {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_payload::<MainnetEthSpec>(42).await;
+                    let _ = client.get_payload_v1::<MainnetEthSpec>(42).await;
                 },
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
-                    "method": ENGINE_GET_PAYLOAD,
+                    "method": ENGINE_GET_PAYLOAD_V1,
                     "params": ["0x2a"]
                 }),
             )
@@ -852,13 +908,13 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .forkchoice_updated(Hash256::repeat_byte(0), Hash256::repeat_byte(1))
+                        .forkchoice_updated_v1(Hash256::repeat_byte(0), Hash256::repeat_byte(1))
                         .await;
                 },
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
-                    "method": ENGINE_FORKCHOICE_UPDATED,
+                    "method": ENGINE_FORKCHOICE_UPDATED_V1,
                     "params": [{
                         "headBlockHash": HASH_00,
                         "finalizedBlockHash": HASH_01,
@@ -910,7 +966,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .get_payload::<MainnetEthSpec>(0)
+                        .get_payload_v1::<MainnetEthSpec>(0)
                         .await;
                 },
                 serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_getPayload","params":["0x0"],"id":1}"#).unwrap()
@@ -923,7 +979,7 @@ mod test {
                 vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}}"#).unwrap()],
                 |client| async move {
                     let payload = client
-                        .get_payload::<MainnetEthSpec>(0)
+                        .get_payload_v1::<MainnetEthSpec>(0)
                         .await
                         .unwrap();
 
@@ -1016,7 +1072,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .forkchoice_updated(
+                        .forkchoice_updated_v1(
                             Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
                             Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
                         )
@@ -1033,7 +1089,7 @@ mod test {
                 vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
                 |client| async move {
                     let _: () = client
-                        .forkchoice_updated(
+                        .forkchoice_updated_v1(
                             Hash256::zero(),
                             Hash256::zero(),
                         )

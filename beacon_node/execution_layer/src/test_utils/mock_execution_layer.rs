@@ -132,7 +132,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .await;
 
         self.el
-            .forkchoice_updated(block_hash, Hash256::zero())
+            .notify_forkchoice_updated(block_hash, Hash256::zero(), None)
             .await
             .unwrap();
 
