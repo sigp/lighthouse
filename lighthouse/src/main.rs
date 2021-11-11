@@ -2,9 +2,9 @@
 
 mod metrics;
 
-use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
@@ -204,7 +204,13 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(&matches, bootnode_matches, eth_spec_id, debug_info);
+            boot_node::run(
+                &matches,
+                bootnode_matches,
+                eth_spec_id,
+                &eth2_network_config,
+                debug_info,
+            );
 
             return Ok(());
         }
@@ -335,11 +341,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(
-                matches,
-                &context.eth2_config().spec,
-                context.log().clone(),
-            )?;
+            let config = beacon_node::get_config::<E>(matches, &context)?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
             {
@@ -423,4 +425,18 @@ fn run<E: EthSpec>(
         ShutdownReason::Success(_) => Ok(()),
         ShutdownReason::Failure(msg) => Err(msg.to_string()),
     }
+}
+
+/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
+/// Returns the default hardcoded testnet if neither flags are set.
+pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
+    let optional_network_config = if cli_args.is_present("network") {
+        clap_utils::parse_hardcoded_network(cli_args, "network")?
+    } else if cli_args.is_present("testnet-dir") {
+        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
+    } else {
+        // if neither is present, assume the default network
+        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+    };
+    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }

@@ -482,6 +482,7 @@ dependencies = [
  "beacon_node",
  "clap",
  "clap_utils",
+ "eth2_network_config",
  "eth2_ssz",
  "hex",
  "lighthouse_network",
