@@ -59,6 +59,16 @@ impl<T: EthSpec> ExecutionPayload<T> {
         }
     }
 
+    pub fn payload_size(&self) -> usize {
+        let mut tx_size = ssz::BYTES_PER_LENGTH_OFFSET * self.transactions.len();
+        for tx in self.transactions.iter() {
+            tx_size += tx.len();
+        }
+        Self::empty().as_ssz_bytes().len()
+            + <u8 as Encode>::ssz_fixed_len() * self.extra_data.len()
+            + tx_size
+    }
+
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_size() -> usize {
@@ -68,5 +78,22 @@ impl<T: EthSpec> ExecutionPayload<T> {
         + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
         // Max size of variable length `transactions` field
         + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_payload_size() {
+        let mut payload = ExecutionPayload::empty();
+
+        assert_eq!(payload.as_ssz_bytes().len(), payload.payload_size());
+
+        payload.extra_data = VariableList::from(vec![42; 16]);
+        payload.transactions = VariableList::from(vec![VariableList::from(vec![42; 42])]);
+
+        assert_eq!(payload.as_ssz_bytes().len(), payload.payload_size());
     }
 }
