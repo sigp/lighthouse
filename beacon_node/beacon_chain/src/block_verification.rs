@@ -1119,7 +1119,10 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
             let is_valid_terminal_pow_block = execution_layer
                 .block_on(|execution_layer| {
-                    execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash)
+                    execution_layer.is_valid_terminal_pow_block_hash(
+                        execution_payload.parent_hash,
+                        &chain.spec,
+                    )
                 })
                 .map_err(ExecutionPayloadError::from)?;
 
