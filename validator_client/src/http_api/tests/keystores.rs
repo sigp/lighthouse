@@ -786,16 +786,19 @@ fn delete_concurrent_with_signing() {
                         .filter(|_| rng.gen_bool(delete_prob))
                         .copied()
                         .collect::<Vec<_>>();
-                    let delete_res = client
-                        .delete_keystores(&DeleteKeystoresRequest { pubkeys: to_delete })
-                        .await
-                        .unwrap();
 
-                    for status in delete_res.data.iter() {
-                        assert_ne!(status.status, DeleteKeystoreStatus::Error);
+                    if !to_delete.is_empty() {
+                        let delete_res = client
+                            .delete_keystores(&DeleteKeystoresRequest { pubkeys: to_delete })
+                            .await
+                            .unwrap();
+
+                        for status in delete_res.data.iter() {
+                            assert_ne!(status.status, DeleteKeystoreStatus::Error);
+                        }
+
+                        slashing_protection.push(delete_res.slashing_protection);
                     }
-
-                    slashing_protection.push(delete_res.slashing_protection);
                 }
                 slashing_protection
             });
