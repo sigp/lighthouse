@@ -23,8 +23,8 @@ use futures::stream::FuturesUnordered;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction as NBAction,
-        NotifyHandler, PollParameters, SubstreamProtocol,
+        protocols_handler::ProtocolsHandler, DialError, NetworkBehaviour,
+        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
 use lru::LruCache;
@@ -933,9 +933,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
     fn inject_connection_established(
         &mut self,
-        _: &PeerId,
-        _: &ConnectionId,
-        _connected_point: &ConnectedPoint,
+        _peer_id: &PeerId,
+        _connection_id: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
     }
     fn inject_connection_closed(
@@ -943,6 +944,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         _: &PeerId,
         _: &ConnectionId,
         _connected_point: &ConnectedPoint,
+        _handler: Self::ProtocolsHandler,
     ) {
     }
     fn inject_event(
@@ -953,10 +955,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     ) {
     }
 
-    fn inject_dial_failure(&mut self, peer_id: &PeerId) {
-        // set peer as disconnected in discovery DHT
-        debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-        self.disconnect_peer(peer_id);
+    fn inject_dial_failure(
+        &mut self,
+        peer_id: Option<PeerId>,
+        _handler: Self::ProtocolsHandler,
+        _error: &DialError,
+    ) {
+        if let Some(peer_id) = peer_id {
+            // set peer as disconnected in discovery DHT
+            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+            self.disconnect_peer(&peer_id);
+        }
     }
 
     // Main execution loop to drive the behaviour
@@ -964,7 +973,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<<Self::ProtocolsHandler as ProtocolsHandler>::InEvent, Self::OutEvent>> {
+    ) -> Poll<NBAction<Self::OutEvent, Self::ProtocolsHandler>> {
         if !self.started {
             return Poll::Pending;
         }

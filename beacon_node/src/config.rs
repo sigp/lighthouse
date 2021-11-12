@@ -36,16 +36,20 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        fs::remove_dir_all(client_config.get_db_path().ok_or("Failed to get db_path")?)
-            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let chain_db = client_config.get_db_path().ok_or("Failed to get db_path")?;
+        if chain_db.exists() {
+            fs::remove_dir_all(chain_db)
+                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        }
 
         // Remove the freezer db.
-        fs::remove_dir_all(
-            client_config
-                .get_freezer_db_path()
-                .ok_or("Failed to get freezer db path")?,
-        )
-        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let freezer_db = client_config
+            .get_freezer_db_path()
+            .ok_or("Failed to get freezer db path")?;
+        if freezer_db.exists() {
+            fs::remove_dir_all(freezer_db)
+                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -444,6 +448,19 @@ pub fn get_config<E: EthSpec>(
             slasher_config.update_period = update_period;
         }
 
+        if let Some(slot_offset) =
+            clap_utils::parse_optional::<f64>(cli_args, "slasher-slot-offset")?
+        {
+            if slot_offset.is_finite() {
+                slasher_config.slot_offset = slot_offset;
+            } else {
+                return Err(format!(
+                    "invalid float for slasher-slot-offset: {}",
+                    slot_offset
+                ));
+            }
+        }
+
         if let Some(history_length) =
             clap_utils::parse_optional(cli_args, "slasher-history-length")?
         {
@@ -699,6 +716,10 @@ pub fn set_network_config(
 
     if cli_args.is_present("private") {
         config.private = true;
+    }
+
+    if cli_args.is_present("metrics") {
+        config.metrics_enabled = true;
     }
 
     Ok(())

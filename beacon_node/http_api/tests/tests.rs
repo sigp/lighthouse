@@ -5,9 +5,12 @@ use beacon_chain::{
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use environment::null_logger;
-use eth2::Error;
-use eth2::StatusCode;
-use eth2::{types::*, BeaconNodeHttpClient, Timeouts};
+use eth2::{
+    mixin::{RequestAccept, ResponseForkName, ResponseOptional},
+    reqwest::RequestBuilder,
+    types::*,
+    BeaconNodeHttpClient, Error, StatusCode, Timeouts,
+};
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use lighthouse_network::{Enr, EnrExt, PeerId};
@@ -952,6 +955,7 @@ impl ApiTester {
                 }
             }
 
+            // Check the JSON endpoint.
             let json_result = self.client.get_beacon_blocks(block_id).await.unwrap();
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
@@ -965,6 +969,7 @@ impl ApiTester {
                 assert_eq!(expected, None);
             }
 
+            // Check the SSZ endpoint.
             let ssz_result = self
                 .client
                 .get_beacon_blocks_ssz(block_id, &self.chain.spec)
@@ -980,6 +985,34 @@ impl ApiTester {
             } else {
                 assert_eq!(v1_result, None);
                 assert_eq!(expected, None);
+            }
+
+            // Check that version headers are provided.
+            let url = self.client.get_beacon_blocks_path(block_id).unwrap();
+
+            let builders: Vec<fn(RequestBuilder) -> RequestBuilder> = vec![
+                |b| b,
+                |b| b.accept(Accept::Ssz),
+                |b| b.accept(Accept::Json),
+                |b| b.accept(Accept::Any),
+            ];
+
+            for req_builder in builders {
+                let raw_res = self
+                    .client
+                    .get_response(url.clone(), req_builder)
+                    .await
+                    .optional()
+                    .unwrap();
+                if let (Some(raw_res), Some(expected)) = (&raw_res, &expected) {
+                    assert_eq!(
+                        raw_res.fork_name_from_header().unwrap(),
+                        Some(expected.fork_name(&self.chain.spec).unwrap())
+                    );
+                } else {
+                    assert!(raw_res.is_none());
+                    assert_eq!(expected, None);
+                }
             }
         }
 
@@ -1439,6 +1472,30 @@ impl ApiTester {
             } else {
                 assert_eq!(result_v1, None);
                 assert_eq!(expected, None);
+            }
+
+            // Check that version headers are provided.
+            let url = self.client.get_debug_beacon_states_path(state_id).unwrap();
+
+            let builders: Vec<fn(RequestBuilder) -> RequestBuilder> =
+                vec![|b| b, |b| b.accept(Accept::Ssz)];
+
+            for req_builder in builders {
+                let raw_res = self
+                    .client
+                    .get_response(url.clone(), req_builder)
+                    .await
+                    .optional()
+                    .unwrap();
+                if let (Some(raw_res), Some(expected)) = (&raw_res, &expected) {
+                    assert_eq!(
+                        raw_res.fork_name_from_header().unwrap(),
+                        Some(expected.fork_name(&self.chain.spec).unwrap())
+                    );
+                } else {
+                    assert!(raw_res.is_none());
+                    assert_eq!(expected, None);
+                }
             }
         }
 

@@ -387,6 +387,18 @@ fn finality() {
 }
 
 #[test]
+fn fork_choice_get_head() {
+    ForkChoiceGetHeadHandler::<MinimalEthSpec>::default().run();
+    ForkChoiceGetHeadHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn fork_choice_on_block() {
+    ForkChoiceOnBlockHandler::<MinimalEthSpec>::default().run();
+    ForkChoiceOnBlockHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn genesis_initialization() {
     GenesisInitializationHandler::<MinimalEthSpec>::default().run();
 }
