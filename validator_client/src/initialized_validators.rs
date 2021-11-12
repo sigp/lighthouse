@@ -18,6 +18,7 @@ use eth2::lighthouse_vc::std_types::DeleteKeystoreStatus;
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
+use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -109,12 +110,15 @@ pub struct InitializedValidator {
 
 impl InitializedValidator {
     /// Return a reference to this validator's lockfile if it has one.
-    pub fn keystore_lockfile(&self) -> Option<&Lockfile> {
+    pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<Lockfile>> {
         match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore {
                 ref voting_keystore_lockfile,
                 ..
-            } => Some(voting_keystore_lockfile),
+            } => MutexGuard::try_map(voting_keystore_lockfile.lock(), |option_lockfile| {
+                option_lockfile.as_mut()
+            })
+            .ok(),
             // Web3Signer validators do not have any lockfiles.
             SigningMethod::Web3Signer { .. } => None,
         }
@@ -221,7 +225,7 @@ impl InitializedValidator {
                 let lockfile_path = get_lockfile_path(&voting_keystore_path)
                     .ok_or_else(|| Error::BadVotingKeystorePath(voting_keystore_path.clone()))?;
 
-                let voting_keystore_lockfile = Lockfile::new(lockfile_path)?;
+                let voting_keystore_lockfile = Mutex::new(Some(Lockfile::new(lockfile_path)?));
 
                 SigningMethod::LocalKeystore {
                     voting_keystore_path,
@@ -468,10 +472,15 @@ impl InitializedValidators {
         if let Some(initialized_validator) = self.validators.remove(&pubkey.compress()) {
             if let SigningMethod::LocalKeystore {
                 ref voting_keystore_path,
+                ref voting_keystore_lockfile,
                 ref voting_keystore,
                 ..
             } = *initialized_validator.signing_method
             {
+                // Drop the lock file so that it may be deleted. This is particularly important on
+                // Windows where the lockfile will fail to be deleted if it is still open.
+                drop(voting_keystore_lockfile.lock().take());
+
                 self.delete_keystore_or_validator_dir(voting_keystore_path, voting_keystore)?;
             }
         }
