@@ -10,7 +10,6 @@ pub fn cli_app<'a>() -> App<'a> {
         will simply run the discv5 service and assist nodes on the network to discover each other. \
         This is the recommended way to provide a network boot-node since it has a reduced attack \
         surface compared to a full beacon node.")
-        // .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
             Arg::new("enr-address")
                 .value_name("IP-ADDRESS")

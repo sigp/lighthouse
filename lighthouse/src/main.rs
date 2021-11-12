@@ -4,7 +4,11 @@ mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
-use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::flags::{
+    CONFIG_FILE_FLAG, DATADIR_FLAG, DEBUG_LEVEL_FLAG, DISABLE_MALLOC_TUNING_FLAG, DUMP_CONFIG_FLAG,
+    ENV_LOG_FLAG, IMMEDIATE_SHUTDOWN_FLAG, LOGFILE_FLAG, LOG_FORMAT_FLAG, NETWORK_FLAG, SPEC_FLAG,
+    TESTNET_DIR_FLAG,
+};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
@@ -13,10 +17,10 @@ use indexmap::IndexMap;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
-use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
+use std::{env, fs};
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -50,11 +54,18 @@ fn main() {
         have_sha_extensions(),
         cfg!(feature = "spec-minimal"),
     );
+
+    // Due to lifetimes in `App`, this needs to be initialized before `App`.
+    let mut file_args = IndexMap::new();
+    let beacon_node_app = beacon_node::cli_app();
+    let boot_node_app = boot_node::cli_app();
+    let validator_client_app = validator_client::cli_app();
+    let account_manager_app = account_manager::cli_app();
+
     // Parse the CLI parameters.
-    let mut app = App::new("Lighthouse")
+    let app = App::new("Lighthouse")
         .version(version.as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        //.setting(clap::AppSettings::ColoredHelp)
         .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
@@ -63,18 +74,18 @@ fn main() {
             long_version.as_str()
         )
         .arg(
-        Arg::new("config-file")
-            .long("config-file")
+        Arg::new(CONFIG_FILE_FLAG)
+            .long(CONFIG_FILE_FLAG)
             .about(
                 "The filepath to a YAML file with flag values. To override any options in \
                     the config file, specify the same option in the command line."
             )
-            .takes_value(true)
-            .global(true),
+            .global(true)
+            .takes_value(true),
         ).arg(
-            Arg::new("spec")
+            Arg::new(SPEC_FLAG)
                 .short('s')
-                .long("spec")
+                .long(SPEC_FLAG)
                 .value_name("DEPRECATED")
                 .about("This flag is deprecated, it will be disallowed in a future release. This \
                     value is now derived from the --network or --testnet-dir flags.")
@@ -82,15 +93,15 @@ fn main() {
                 .global(true)
         )
         .arg(
-            Arg::new("env_log")
+            Arg::new(ENV_LOG_FLAG)
                 .short('l')
                 .about("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
         )
         .arg(
-            Arg::new("logfile")
-                .long("logfile")
+            Arg::new(LOGFILE_FLAG)
+                .long(LOGFILE_FLAG)
                 .value_name("FILE")
                 .about(
                     "File path where output will be written.",
@@ -98,16 +109,16 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::new("log-format")
-                .long("log-format")
+            Arg::new(LOG_FORMAT_FLAG)
+                .long(LOG_FORMAT_FLAG)
                 .value_name("FORMAT")
                 .about("Specifies the format used for logging.")
                 .possible_values(&["JSON"])
                 .takes_value(true),
         )
         .arg(
-            Arg::new("debug-level")
-                .long("debug-level")
+            Arg::new(DEBUG_LEVEL_FLAG)
+                .long(DEBUG_LEVEL_FLAG)
                 .value_name("LEVEL")
                 .about("The verbosity level for emitting logs.")
                 .takes_value(true)
@@ -116,8 +127,8 @@ fn main() {
                 .default_value("info"),
         )
         .arg(
-            Arg::new("datadir")
-                .long("datadir")
+            Arg::new(DATADIR_FLAG)
+                .long(DATADIR_FLAG)
                 .short('d')
                 .value_name("DIR")
                 .global(true)
@@ -128,9 +139,9 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::new("testnet-dir")
+            Arg::new(TESTNET_DIR_FLAG)
                 .short('t')
-                .long("testnet-dir")
+                .long(TESTNET_DIR_FLAG)
                 .value_name("DIR")
                 .about(
                     "Path to directory containing eth2_testnet specs. Defaults to \
@@ -141,8 +152,8 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::new("network")
-                .long("network")
+            Arg::new(NETWORK_FLAG)
+                .long(NETWORK_FLAG)
                 .value_name("network")
                 .about("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(HARDCODED_NET_NAMES)
@@ -152,16 +163,16 @@ fn main() {
 
         )
         .arg(
-            Arg::new("dump-config")
-                .long("dump-config")
+            Arg::new(DUMP_CONFIG_FLAG)
+                .long(DUMP_CONFIG_FLAG)
                 .hidden(true)
                 .about("Dumps the config to a desired location. Used for testing only.")
                 .takes_value(true)
                 .global(true)
         )
         .arg(
-            Arg::new("immediate-shutdown")
-                .long("immediate-shutdown")
+            Arg::new(IMMEDIATE_SHUTDOWN_FLAG)
+                .long(IMMEDIATE_SHUTDOWN_FLAG)
                 .hidden(true)
                 .about(
                     "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
@@ -177,71 +188,68 @@ fn main() {
                     specific memory allocation issues."
                 )
                 .global(true),
-        )
-        .subcommand(beacon_node::cli_app());
-    // .subcommand(boot_node::cli_app())
-    // .subcommand(validator_client::cli_app())
-    // .subcommand(account_manager::cli_app());
+        );
 
+    // Get a copy of all the command line args, because they will be consumed during the first call
+    // to `get_matches_mut`, and we will require them for the second call.
+    let mut args = vec![];
+    for arg in env::args_os() {
+        args.push(arg);
+    }
+
+    // Clone all apps here because `get_matches` propagates globals that we may need to overwrite
+    // later.
     let mut app_clone = app.clone();
-    let mut app_clone_2 = app.clone();
+    let mut beacon_node_app_clone = beacon_node_app.clone();
+    let mut boot_node_app_clone = boot_node_app.clone();
+    let mut validator_client_app_clone = validator_client_app.clone();
+    let mut account_manager_app_clone = account_manager_app.clone();
 
-    let mut cli_matches = app.get_matches();
-
-    eprintln!("cli matches first: {:?}", cli_matches);
-
-    let file_name_opt = cli_matches.value_of("config-file");
-
-    let file_matches = if let Some(file_name) = file_name_opt {
-        // Use an `IndexMap` to preserve order.
+    // This first `get_matches` is purely to get the `--config-file` flag if it's present.
+    let first_matches = app
+        .subcommand(beacon_node_app)
+        .subcommand(boot_node_app)
+        .subcommand(validator_client_app)
+        .subcommand(account_manager_app)
+        .get_matches();
+    let file_name_opt = first_matches.value_of("config-file");
+    if let Some(file_name) = file_name_opt {
         let yaml_config: Result<IndexMap<String, String>, _> = fs::read_to_string(file_name)
             .map_err(|e| e.to_string())
             .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()));
         match yaml_config {
             Ok(yaml) => {
-                let banana = yaml
-                    .into_iter()
-                    .map(|entry| {
-                        eprintln!("entry: {:?}", entry);
-                        vec![format!("--{}", entry.1), entry.0]
-                    })
-                    .flatten()
-                    .collect::<Vec<_>>();
-                eprintln!("banana: {:?}", banana);
-                Some(app_clone.get_matches_mut())
+                for entry in yaml {
+                    file_args.insert(entry.0, entry.1);
+                }
             }
-            //     eprintln!("file matches: {:?}",file_matches);
-            //     for (key, value) in file_matches.args {
-            //         if !cli_matches.is_present(key) {
-            //             eprintln!("k,v: {:?}, {:?}",key, value);
-            //             eprintln!("cli matches before: {:?}",cli_matches);
-            //             cli_matches.args.insert(key, value);
-            //             eprintln!("cli matches after: {:?}",cli_matches);
-            //         }
-            //     }
-            // }
             Err(e) => {
                 eprintln!("Unable read config from file: {}", e);
                 exit(1);
             }
         }
-    } else {
-        None
     };
 
-    eprintln!("Unable read config from file: {:?}", file_matches);
+    // Here we mutate the default values of all args that we are gathering from file. This lets us
+    // make sure the file arg is only used if the command line arg is not also provided.
+    for (arg_name, arg_value) in file_args.iter() {
+        beacon_node_app_clone =
+            beacon_node_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
+        boot_node_app_clone =
+            boot_node_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
+        validator_client_app_clone =
+            validator_client_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
+        account_manager_app_clone =
+            account_manager_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
+        app_clone = app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value))
+    }
 
-    //TODO: think we're close here
-
-    // app_clone.get_arguments().map(|arg|{
-    //     if !file_matches.unwrap().is_present(arg.get_name()) {
-    //         app_clone_2.mut_arg(arg.get_name(), |arg| arg.default_value(""))
-    //     }
-    //     if !cli_matches.is_present(arg.get_name()) {
-    //         // cli_matches.
-    //     }
-    // });
-    // file_matches.unwrap().args.iter().map(||)
+    let cli_matches = app_clone
+        .subcommand(beacon_node_app_clone)
+        .subcommand(boot_node_app_clone)
+        .subcommand(validator_client_app_clone)
+        .subcommand(account_manager_app_clone)
+        .get_matches_from(args);
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.

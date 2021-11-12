@@ -629,6 +629,6 @@ fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> 
             .block_on(etl::block_efficiency::run::<T>(matches))
             .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
-        None => return Err("No subcommand. See --help".to_string()),
+        None => Err("No subcommand. See --help".to_string()),
     }
 }
