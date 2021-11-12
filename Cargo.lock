@@ -8,7 +8,7 @@ version = "0.3.5"
 dependencies = [
  "account_utils",
  "bls",
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "directory",
  "environment",
@@ -129,15 +129,6 @@ dependencies = [
 name = "amcl"
 version = "0.3.0"
 source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
-
-[[package]]
-name = "ansi_term"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee49baf6cb617b853aa8d93bf420db2383fab46d314482ca2803b40d5fde979b"
-dependencies = [
- "winapi",
-]
 
 [[package]]
 name = "ansi_term"
@@ -340,7 +331,7 @@ name = "beacon_node"
 version = "2.0.1"
 dependencies = [
  "beacon_chain",
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "client",
  "directory",
@@ -478,7 +469,7 @@ name = "boot_node"
 version = "2.0.1"
 dependencies = [
  "beacon_node",
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "eth2_ssz",
  "hex",
@@ -671,20 +662,47 @@ version = "2.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37e58ac78573c40708d45522f0d80fa2f01cc4f9b4e2bf749807255454312002"
 dependencies = [
- "ansi_term 0.11.0",
+ "bitflags",
+ "textwrap 0.11.0",
+ "unicode-width",
+]
+
+[[package]]
+name = "clap"
+version = "3.0.0-beta.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feff3878564edb93745d58cf63e17b63f24142506e7a20c87a5521ed7bfb1d63"
+dependencies = [
  "atty",
  "bitflags",
- "strsim 0.8.0",
- "textwrap",
- "unicode-width",
- "vec_map",
+ "clap_derive",
+ "indexmap",
+ "lazy_static",
+ "os_str_bytes",
+ "strsim",
+ "termcolor",
+ "textwrap 0.14.2",
+ "unicase",
+]
+
+[[package]]
+name = "clap_derive"
+version = "3.0.0-beta.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b15c6b4f786ffb6192ffe65a36855bc1fc2444bcd0945ae16748dcd6ed7d0d3"
+dependencies = [
+ "heck",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
 name = "clap_utils"
 version = "0.1.0"
 dependencies = [
- "clap",
+ "clap 3.0.0-beta.5",
  "dirs",
  "eth2_network_config",
  "eth2_ssz",
@@ -825,7 +843,7 @@ checksum = "1604dafd25fba2fe2d5895a9da139f8dc9b319a5fe5354ca137cbbce4e178d10"
 dependencies = [
  "atty",
  "cast",
- "clap",
+ "clap 2.33.3",
  "criterion-plot",
  "csv",
  "itertools",
@@ -1007,7 +1025,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "strsim 0.10.0",
+ "strsim",
  "syn",
 ]
 
@@ -1021,7 +1039,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "strsim 0.10.0",
+ "strsim",
  "syn",
 ]
 
@@ -1151,7 +1169,7 @@ dependencies = [
 name = "directory"
 version = "0.1.0"
 dependencies = [
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "eth2_network_config",
 ]
@@ -2553,6 +2571,7 @@ checksum = "bc633605454125dec4b66843673f01c7df2b89479b32e0ed634e43a91cff62a5"
 dependencies = [
  "autocfg 1.0.1",
  "hashbrown",
+ "serde",
 ]
 
 [[package]]
@@ -2681,7 +2700,7 @@ version = "2.0.1"
 dependencies = [
  "account_utils",
  "bls",
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "deposit_contract",
  "directory",
@@ -3187,13 +3206,14 @@ dependencies = [
  "beacon_node",
  "bls",
  "boot_node",
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "env_logger 0.9.0",
  "environment",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_network_config",
  "futures",
+ "indexmap",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
@@ -3201,6 +3221,7 @@ dependencies = [
  "malloc_utils",
  "serde",
  "serde_json",
+ "serde_yaml",
  "slashing_protection",
  "slog",
  "sloggers",
@@ -3887,6 +3908,15 @@ dependencies = [
  "state_processing",
  "store",
  "types",
+]
+
+[[package]]
+name = "os_str_bytes"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "addaa943333a514159c80c97ff4a93306530d965d27e139188283cd13e06a799"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -5181,7 +5211,7 @@ dependencies = [
 name = "simulator"
 version = "0.2.0"
 dependencies = [
- "clap",
+ "clap 3.0.0-beta.5",
  "env_logger 0.9.0",
  "eth1",
  "eth1_test_rig",
@@ -5541,12 +5571,6 @@ dependencies = [
 
 [[package]]
 name = "strsim"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
-
-[[package]]
-name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
@@ -5715,6 +5739,15 @@ name = "textwrap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
+dependencies = [
+ "unicode-width",
+]
+
+[[package]]
+name = "textwrap"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0066c8d12af8b5acd21e00547c3797fde4e8677254a7ee429176ccebbe93dd80"
 dependencies = [
  "unicode-width",
 ]
@@ -6037,7 +6070,7 @@ version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e0d2eaa99c3c2e41547cfa109e910a68ea03823cccad4a0525dcbc9b01e8c71"
 dependencies = [
- "ansi_term 0.12.1",
+ "ansi_term",
  "chrono",
  "lazy_static",
  "matchers",
@@ -6375,7 +6408,7 @@ dependencies = [
  "account_utils",
  "bincode",
  "bls",
- "clap",
+ "clap 3.0.0-beta.5",
  "clap_utils",
  "deposit_contract",
  "directory",
@@ -6441,12 +6474,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "vec_map"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "version_check"
