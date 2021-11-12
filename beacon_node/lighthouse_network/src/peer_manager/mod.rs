@@ -9,7 +9,7 @@ use discv5::Enr;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
-use slog::{crit, debug, error, warn};
+use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
@@ -422,8 +422,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 PeerAction::MidToleranceError
             }
             RPCError::InternalError(e) => {
-                // TODO: Remove for production
-                crit!(self.log, "Internal RPC Error"; "error" => %e, "peer_id" => %peer_id);
+                debug!(self.log, "Internal RPC Error"; "error" => %e, "peer_id" => %peer_id);
                 return;
             }
             RPCError::HandlerRejected => {
@@ -483,9 +482,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
             RPCError::StreamTimeout => match direction {
                 ConnectionDirection::Incoming => {
-                    // we timed out
-                    // TODO: Change back to warn for production
-                    crit!(self.log, "Timed out to a peer's request. Likely insufficient resources, reduce peer count"; "peer_id" => %peer_id);
+                    // There was a timeout responding to a peer.
+                    debug!(self.log, "Timed out responding to RPC Request"; "peer_id" => %peer_id);
                     return;
                 }
                 ConnectionDirection::Outgoing => match protocol {

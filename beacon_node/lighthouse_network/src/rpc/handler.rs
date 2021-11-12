@@ -22,7 +22,7 @@ use libp2p::swarm::NegotiatedSubstream;
 use slog::{crit, debug, trace, warn};
 use smallvec::SmallVec;
 use std::{
-    collections::hash_map::Entry,
+    collections::{hash_map::Entry, VecDeque},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -46,14 +46,6 @@ const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
 pub struct SubstreamId(usize);
 
 type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
-
-/// Output of the future handling the send of responses to a peer's request.
-type InboundProcessingOutput<TSpec> = (
-    InboundSubstream<TSpec>, /* substream */
-    Vec<RPCError>,           /* Errors sending messages if any */
-    bool,                    /* whether to remove the stream afterwards */
-    u64,                     /* Chunks remaining to be sent after this processing finishes */
-);
 
 /// Events the handler emits to the behaviour.
 type HandlerEvent<T> = Result<RPCReceived<T>, HandlerErr>;
@@ -157,7 +149,7 @@ struct InboundInfo<TSpec: EthSpec> {
     /// State of the substream.
     state: InboundState<TSpec>,
     /// Responses queued for sending.
-    pending_items: Vec<RPCCodedResponse<TSpec>>,
+    pending_items: VecDeque<RPCCodedResponse<TSpec>>,
     /// Protocol of the original request we received from the peer.
     protocol: Protocol,
     /// Responses that the peer is still expecting from us.
@@ -185,7 +177,7 @@ enum InboundState<TSpec: EthSpec> {
     /// The underlying substream is not being used.
     Idle(InboundSubstream<TSpec>),
     /// The underlying substream is processing responses.
-    Busy(Pin<Box<dyn Future<Output = InboundProcessingOutput<TSpec>> + Send>>),
+    Busy(Pin<Box<dyn Future<Output = Result<(InboundSubstream<TSpec>, bool), RPCError>> + Send>>),
     /// Temporary state during processing
     Poisoned,
 }
@@ -308,7 +300,7 @@ where
                 "response" => %response, "id" => inbound_id);
             return;
         }
-        inbound_info.pending_items.push(response);
+        inbound_info.pending_items.push_back(response);
     }
 }
 
@@ -353,7 +345,7 @@ where
                 self.current_inbound_substream_id,
                 InboundInfo {
                     state: awaiting_stream,
-                    pending_items: vec![],
+                    pending_items: VecDeque::with_capacity(expected_responses as usize),
                     delay_key: Some(delay_key),
                     protocol: req.protocol(),
                     remaining_chunks: expected_responses,
@@ -565,9 +557,9 @@ where
                             id: *inbound_id.get_ref(),
                         }));
 
-                        if info.pending_items.last().map(|l| l.close_after()) == Some(false) {
+                        if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
                             // if the last chunk does not close the stream, append an error
-                            info.pending_items.push(RPCCodedResponse::Error(
+                            info.pending_items.push_back(RPCCodedResponse::Error(
                                 RPCResponseErrorCode::ServerError,
                                 "Request timed out".into(),
                             ));
@@ -625,19 +617,18 @@ where
                     // peer. We need to check if there are messages to send, if so, start the
                     // sending process.
                     InboundState::Idle(substream) if !deactivated => {
-                        if !info.pending_items.is_empty() {
-                            // There are messages to send, start the sending process
-                            let to_send = std::mem::take(&mut info.pending_items);
-                            let fut = process_inbound_substream(
-                                substream,
-                                info.remaining_chunks,
-                                to_send,
-                            )
-                            .boxed();
+                        // Process one more message if one exists.
+                        if let Some(message) = info.pending_items.pop_front() {
+                            // If this is the last chunk, terminate the stream.
+                            let last_chunk = info.remaining_chunks <= 1;
+                            let fut =
+                                send_message_to_inbound_substream(substream, message, last_chunk)
+                                    .boxed();
+                            // Update the state and try to process this further.
                             info.state = InboundState::Busy(Box::pin(fut));
                         } else {
-                            // There were no messages to send, set the state to idle and move to
-                            // the next substream
+                            // There is nothing left to process. Set the stream to idle and
+                            // move on to the next one.
                             info.state = InboundState::Idle(substream);
                             break;
                         }
@@ -669,7 +660,7 @@ where
                                 // If there are still requests to send, report that we are in the
                                 // process of closing a connection to the peer and that we are not
                                 // processing these excess requests.
-                                if info.pending_items.last().map(|l| l.close_after()) == Some(false)
+                                if info.pending_items.back().map(|l| l.close_after()) == Some(false)
                                 {
                                     // if the request was still active, report back to cancel it
                                     self.events_out.push(Err(HandlerErr::Inbound {
@@ -684,64 +675,75 @@ where
                     }
                     // This state indicates that there are messages to send back to the peer.
                     // The future here is built by the `process_inbound_substream` function. The
-                    // output is a `InboundProcessingOutput` which informs us how successful the
-                    // messages were to send.
+                    // output returns a substream and whether it was closed in this operation.
                     InboundState::Busy(mut fut) => {
                         // Check if the future has completed (i.e we have completed sending all our
                         // pending items)
                         match fut.poll_unpin(cx) {
-                            // The pending messages have been sent
-                            Poll::Ready((substream, errors, remove, new_remaining_chunks)) => {
-                                // Decrement the amount of chunks we need to send.
-                                info.remaining_chunks = new_remaining_chunks;
-                                // report any error that may have occurred during the send process
-                                for error in errors {
-                                    self.events_out.push(Err(HandlerErr::Inbound {
-                                        error,
-                                        proto: info.protocol,
-                                        id: *id,
-                                    }))
-                                }
-                                // If there was an error, or if we have nothing left to send (this
-                                // is specified by sending an RPCResponse::StreamTermination) then
-                                // we can remove the substream and remove the timeout.
-                                if remove {
-                                    substreams_to_remove.push(*id);
-                                    if let Some(ref delay_key) = info.delay_key {
-                                        self.inbound_substreams_delay.remove(delay_key);
-                                    }
-                                    // There is nothing more to process on this substream as it has
-                                    // been closed. Move on to the next one.
-                                    break;
-                                } else {
-                                    // If we are not removing this substream, we reset the timer.
-                                    // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
-                                    if let Some(ref delay_key) = info.delay_key {
-                                        self.inbound_substreams_delay.reset(
-                                            delay_key,
-                                            Duration::from_secs(RESPONSE_TIMEOUT),
-                                        );
-                                    }
+                            // The pending messages have been sent successfully
+                            Poll::Ready(Ok((substream, substream_was_closed)))
+                                if !substream_was_closed =>
+                            {
+                                // The substream is still active, decrement the remaining
+                                // chunks expected.
+                                info.remaining_chunks = info.remaining_chunks.saturating_sub(1);
+
+                                // If this substream has not ended, we reset the timer.
+                                // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
+                                if let Some(ref delay_key) = info.delay_key {
+                                    self.inbound_substreams_delay
+                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
                                 // elements
                                 if !deactivated && !info.pending_items.is_empty() {
-                                    // Process more messages if they exist.
-                                    let to_send = std::mem::take(&mut info.pending_items);
-                                    let fut = process_inbound_substream(
-                                        substream,
-                                        info.remaining_chunks,
-                                        to_send,
-                                    )
-                                    .boxed();
-                                    info.state = InboundState::Busy(Box::pin(fut));
+                                    // Process one more message if one exists.
+                                    if let Some(message) = info.pending_items.pop_front() {
+                                        // If this is the last chunk, terminate the stream.
+                                        let last_chunk = info.remaining_chunks <= 1;
+                                        let fut = send_message_to_inbound_substream(
+                                            substream, message, last_chunk,
+                                        )
+                                        .boxed();
+                                        // Update the state and try to process this further.
+                                        info.state = InboundState::Busy(Box::pin(fut));
+                                    }
                                 } else {
                                     // There is nothing left to process. Set the stream to idle and
                                     // move on to the next one.
                                     info.state = InboundState::Idle(substream);
                                     break;
                                 }
+                            }
+                            // The pending messages have been sent successfully and the stream has
+                            // terminated
+                            Poll::Ready(Ok((_substream, _substream_was_closed))) => {
+                                // The substream has closed. Remove the timeout related to the
+                                // substream.
+                                substreams_to_remove.push(*id);
+                                if let Some(ref delay_key) = info.delay_key {
+                                    self.inbound_substreams_delay.remove(delay_key);
+                                }
+                                // There is nothing more to process on this substream as it has
+                                // been closed. Move on to the next one.
+                                break;
+                            }
+                            // An error occurred when trying to send a response.
+                            // This means we terminate the substream.
+                            Poll::Ready(Err(error)) => {
+                                // Remove the stream timeout from the mapping
+                                substreams_to_remove.push(*id);
+                                if let Some(ref delay_key) = info.delay_key {
+                                    self.inbound_substreams_delay.remove(delay_key);
+                                }
+                                // Report the error that occurred during the send process
+                                self.events_out.push(Err(HandlerErr::Inbound {
+                                    error,
+                                    proto: info.protocol,
+                                    id: *id,
+                                }));
+                                break;
                             }
                             // The sending future has not completed. Leave the state as busy and
                             // try to progress later.
@@ -966,63 +968,36 @@ impl slog::Value for SubstreamId {
     }
 }
 
-/// Creates a future that can be polled that will send any queued messages to the peer.
-async fn process_inbound_substream<TSpec: EthSpec>(
+/// Creates a future that can be polled that will send any queued message to the peer.
+///
+/// This function returns the given substream, along with whether it has been closed or not. Any
+/// error that occurred with sending a message is reported also.
+async fn send_message_to_inbound_substream<TSpec: EthSpec>(
     mut substream: InboundSubstream<TSpec>,
-    mut remaining_chunks: u64,
-    pending_items: Vec<RPCCodedResponse<TSpec>>,
-) -> InboundProcessingOutput<TSpec> {
-    let mut errors = Vec::new();
-    let mut substream_closed = false;
+    message: RPCCodedResponse<TSpec>,
+    last_chunk: bool,
+) -> Result<(InboundSubstream<TSpec>, bool), RPCError> {
+    if matches!(message, RPCCodedResponse::StreamTermination(_)) {
+        substream.close().await.map(|_| (substream, true))
+    } else {
+        // chunks that are not stream terminations get sent, and the stream is closed if
+        // the response is an error
+        let is_error = matches!(message, RPCCodedResponse::Error(..));
 
-    for item in pending_items {
-        if !substream_closed {
-            if matches!(item, RPCCodedResponse::StreamTermination(_)) {
-                close_substream(&mut substream)
-                    .await
-                    .unwrap_or_else(|e| errors.push(e));
-                substream_closed = true;
+        let send_result = substream.send(message).await;
+
+        // If we need to close the substream, do so and return the result.
+        if last_chunk || is_error || send_result.is_err() {
+            let close_result = substream.close().await.map(|_| (substream, true));
+            // If there was an error in sending, return this error, otherwise, return the
+            // result of closing the substream.
+            if let Err(e) = send_result {
+                return Err(e);
             } else {
-                remaining_chunks = remaining_chunks.saturating_sub(1);
-                // chunks that are not stream terminations get sent, and the stream is closed if
-                // the response is an error
-                let is_error = matches!(item, RPCCodedResponse::Error(..));
-
-                substream
-                    .send(item)
-                    .await
-                    .unwrap_or_else(|e| errors.push(e));
-
-                if remaining_chunks == 0 || is_error {
-                    close_substream(&mut substream)
-                        .await
-                        .unwrap_or_else(|e| errors.push(e));
-                    substream_closed = true;
-                }
+                return close_result;
             }
-        } else if matches!(item, RPCCodedResponse::StreamTermination(_)) {
-            // The sender closed the stream before us, ignore this.
-        } else {
-            // we have more items after a closed substream, report those as errors
-            errors.push(RPCError::InternalError(
-                "Sending responses to closed inbound substream",
-            ));
         }
-    }
-    (substream, errors, substream_closed, remaining_chunks)
-}
-
-// TODO: Clean this up for production
-// Close a substream with a timeout
-async fn close_substream<TSpec: EthSpec>(
-    substream: &mut InboundSubstream<TSpec>,
-) -> Result<(), RPCError> {
-    let max_time = tokio::time::sleep(Duration::from_secs(1));
-    tokio::pin!(max_time);
-    tokio::select! {
-        result = substream.close() => { result } // everything worked as expected
-        _ = &mut max_time => {
-            Err(RPCError::InternalError("Closing a stream took longer than 1 second!"))
-        }
+        // Everything worked as expected return the result.
+        send_result.map(|_| (substream, false))
     }
 }
