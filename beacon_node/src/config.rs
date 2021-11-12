@@ -452,6 +452,8 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    client_config.chain.max_network_size = lighthouse_network::GOSSIP_MAX_SIZE;
+
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
             PathBuf::from(slasher_dir)
