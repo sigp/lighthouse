@@ -692,7 +692,6 @@ where
                         match fut.poll_unpin(cx) {
                             // The pending messages have been sent
                             Poll::Ready((substream, errors, remove, new_remaining_chunks)) => {
-
                                 // Decrement the amount of chunks we need to send.
                                 info.remaining_chunks = new_remaining_chunks;
                                 // report any error that may have occurred during the send process
@@ -745,7 +744,7 @@ where
                                 }
                             }
                             // The sending future has not completed. Leave the state as busy and
-                            // try to progress later. 
+                            // try to progress later.
                             Poll::Pending => {
                                 info.state = InboundState::Busy(fut);
                                 break;
@@ -967,7 +966,7 @@ impl slog::Value for SubstreamId {
     }
 }
 
-/// Creates a future that can be polled that will send any queued messages to the peer. 
+/// Creates a future that can be polled that will send any queued messages to the peer.
 async fn process_inbound_substream<TSpec: EthSpec>(
     mut substream: InboundSubstream<TSpec>,
     mut remaining_chunks: u64,
@@ -976,12 +975,12 @@ async fn process_inbound_substream<TSpec: EthSpec>(
     let mut errors = Vec::new();
     let mut substream_closed = false;
 
-
-
     for item in pending_items {
         if !substream_closed {
             if matches!(item, RPCCodedResponse::StreamTermination(_)) {
-                close_substream(&mut substream).await.unwrap_or_else(|e| errors.push(e));
+                close_substream(&mut substream)
+                    .await
+                    .unwrap_or_else(|e| errors.push(e));
                 substream_closed = true;
             } else {
                 remaining_chunks = remaining_chunks.saturating_sub(1);
@@ -995,7 +994,9 @@ async fn process_inbound_substream<TSpec: EthSpec>(
                     .unwrap_or_else(|e| errors.push(e));
 
                 if remaining_chunks == 0 || is_error {
-                    close_substream(&mut substream).await.unwrap_or_else(|e| errors.push(e));
+                    close_substream(&mut substream)
+                        .await
+                        .unwrap_or_else(|e| errors.push(e));
                     substream_closed = true;
                 }
             }
@@ -1013,8 +1014,10 @@ async fn process_inbound_substream<TSpec: EthSpec>(
 
 // TODO: Clean this up for production
 // Close a substream with a timeout
-async fn close_substream<TSpec: EthSpec>(substream: &mut InboundSubstream<TSpec>) -> Result<(),RPCError> {
-    let max_time = tokio::time::sleep(Duration::from_secs(1)); 
+async fn close_substream<TSpec: EthSpec>(
+    substream: &mut InboundSubstream<TSpec>,
+) -> Result<(), RPCError> {
+    let max_time = tokio::time::sleep(Duration::from_secs(1));
     tokio::pin!(max_time);
     tokio::select! {
         result = substream.close() => { result } // everything worked as expected
