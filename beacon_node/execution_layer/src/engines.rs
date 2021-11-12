@@ -2,7 +2,6 @@
 
 use crate::engine_api::{EngineApi, Error as EngineApiError, PayloadAttributes, PayloadId};
 use futures::future::join_all;
-use futures::TryFutureExt;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
@@ -144,7 +143,7 @@ impl<T: EngineApi> Engines<T> {
     ) -> Result<(), Vec<EngineError>> {
         {
             // is this needed to drop the write lock?
-            *self.latest_forkchoice_state.write().await = Some(forkchoice_state.clone());
+            *self.latest_forkchoice_state.write().await = Some(forkchoice_state);
         }
 
         let broadcast_results = self

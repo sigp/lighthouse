@@ -19,7 +19,7 @@ use tokio::{
     time::{sleep, sleep_until, Instant},
 };
 
-pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponse};
+pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponseStatus};
 pub use execute_payload_handle::ExecutePayloadHandle;
 
 mod engine_api;
@@ -320,7 +320,7 @@ impl ExecutionLayer {
     pub async fn execute_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
-    ) -> Result<(ExecutePayloadResponse, Option<ExecutePayloadHandle>), Error> {
+    ) -> Result<(ExecutePayloadResponseStatus, Option<Hash256>), Error> {
         debug!(
             self.log(),
             "Issuing engine_executePayload";
@@ -331,18 +331,46 @@ impl ExecutionLayer {
 
         let broadcast_results = self
             .engines()
-            .broadcast(|engine| engine.api.execute_payload(execution_payload.clone()))
+            .broadcast(|engine| engine.api.execute_payload_v1(execution_payload.clone()))
             .await;
 
         let mut errors = vec![];
         let mut valid = 0;
         let mut invalid = 0;
         let mut syncing = 0;
+        let mut invalid_latest_valid_hash = vec![];
         for result in broadcast_results {
-            match result {
-                Ok(ExecutePayloadResponse::Valid) => valid += 1,
-                Ok(ExecutePayloadResponse::Invalid) => invalid += 1,
-                Ok(ExecutePayloadResponse::Syncing) => syncing += 1,
+            match result.map(|response| (response.latest_valid_hash, response.status)) {
+                Ok((Some(latest_hash), ExecutePayloadResponseStatus::Valid)) => {
+                    if latest_hash == execution_payload.block_hash {
+                        valid += 1;
+                    } else {
+                        invalid += 1;
+                        errors.push(EngineError::Api {
+                            id: "unknown".to_string(),
+                            error: engine_api::Error::BadResponse(
+                                format!(
+                                    "execute_payload: response.status = Valid but invalid latest_valid_hash. Expected({:?}) Found({:?})",
+                                    execution_payload.block_hash,
+                                    latest_hash,
+                                )
+                            ),
+                        });
+                        invalid_latest_valid_hash.push(latest_hash);
+                    }
+                }
+                Ok((Some(latest_hash), ExecutePayloadResponseStatus::Invalid)) => {
+                    invalid += 1;
+                    invalid_latest_valid_hash.push(latest_hash);
+                }
+                Ok((_, ExecutePayloadResponseStatus::Syncing)) => syncing += 1,
+                Ok((None, status)) => errors.push(EngineError::Api {
+                    id: "unknown".to_string(),
+                    error: engine_api::Error::BadResponse(format!(
+                        "execute_payload: status {:?} returned with null latest_valid_hash",
+                        status
+                    )),
+                }),
                 Err(e) => errors.push(e),
             }
         }
@@ -356,16 +384,14 @@ impl ExecutionLayer {
         }
 
         if valid > 0 {
-            let handle = ExecutePayloadHandle {
-                block_hash: execution_payload.block_hash,
-                execution_layer: Some(self.clone()),
-                log: self.log().clone(),
-            };
-            Ok((ExecutePayloadResponse::Valid, Some(handle)))
+            Ok((
+                ExecutePayloadResponseStatus::Valid,
+                Some(execution_payload.block_hash),
+            ))
         } else if invalid > 0 {
-            Ok((ExecutePayloadResponse::Invalid, None))
+            Ok((ExecutePayloadResponseStatus::Invalid, None))
         } else if syncing > 0 {
-            Ok((ExecutePayloadResponse::Syncing, None))
+            Ok((ExecutePayloadResponseStatus::Syncing, None))
         } else {
             Err(Error::EngineErrors(errors))
         }
@@ -443,7 +469,7 @@ impl ExecutionLayer {
         self.engines()
             .notify_forkchoice_updated(forkchoice_state, payload_attributes)
             .await
-            .map_err(|errors| Error::EngineErrors(errors))
+            .map_err(Error::EngineErrors)
     }
 
     /// Used during block production to determine if the merge has been triggered.

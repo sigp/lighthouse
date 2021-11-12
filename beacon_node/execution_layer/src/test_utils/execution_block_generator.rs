@@ -1,5 +1,5 @@
 use crate::engine_api::{
-    http::JsonPreparePayloadRequest, ConsensusStatus, ExecutePayloadResponse, ExecutionBlock,
+    http::JsonPreparePayloadRequest, ConsensusStatus, ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -270,16 +270,30 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash) {
             parent
         } else {
-            return ExecutePayloadResponse::Invalid;
+            // TODO: make this smarter..
+            return ExecutePayloadResponse {
+                status: ExecutePayloadResponseStatus::Invalid,
+                latest_valid_hash: self.latest_execution_block().map(|block| block.block_hash),
+                message: None
+            };
         };
 
         if payload.block_number != parent.block_number() + 1 {
-            return ExecutePayloadResponse::Invalid;
+            return ExecutePayloadResponse {
+                status: ExecutePayloadResponseStatus::Invalid,
+                latest_valid_hash: self.latest_execution_block().map(|block| block.block_hash),
+                message: None
+            };
         }
 
+        let valid_hash = payload.block_hash;
         self.pending_payloads.insert(payload.block_hash, payload);
 
-        ExecutePayloadResponse::Valid
+        ExecutePayloadResponse {
+            status: ExecutePayloadResponseStatus::Valid,
+            latest_valid_hash: Some(valid_hash),
+            message: None
+        }
     }
 
     pub fn consensus_validated(

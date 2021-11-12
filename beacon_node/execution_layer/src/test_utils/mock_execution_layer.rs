@@ -123,13 +123,9 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.timestamp, timestamp);
         assert_eq!(payload.random, random);
 
-        let (payload_response, payload_handle) = self.el.execute_payload(&payload).await.unwrap();
-        assert_eq!(payload_response, ExecutePayloadResponse::Valid);
-
-        payload_handle
-            .unwrap()
-            .publish_async(ConsensusStatus::Valid)
-            .await;
+        let (payload_response, latest_valid_hash) = self.el.execute_payload(&payload).await.unwrap();
+        assert_eq!(payload_response, ExecutePayloadResponseStatus::Valid);
+        assert_eq!(latest_valid_hash, Some(payload.block_hash));
 
         self.el
             .notify_forkchoice_updated(block_hash, Hash256::zero(), None)

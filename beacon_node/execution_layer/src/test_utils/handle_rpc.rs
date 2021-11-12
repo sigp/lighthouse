@@ -1,5 +1,5 @@
 use super::Context;
-use crate::engine_api::http::*;
+use crate::engine_api::{http::*, ExecutePayloadResponse, ExecutePayloadResponseStatus};
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -62,19 +62,30 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadIdResponse { payload_id }).unwrap())
         }
-        ENGINE_EXECUTE_PAYLOAD => {
-            let request: JsonExecutionPayload<T> = get_param_0(params)?;
+        ENGINE_EXECUTE_PAYLOAD_V1 => {
+            let request: JsonExecutionPayloadV1<T> = get_param_0(params)?;
 
-            let status = ctx
-                .static_execute_payload_response
-                .lock()
-                .unwrap_or_else(|| {
-                    ctx.execution_block_generator
-                        .write()
-                        .execute_payload(request.into())
-                });
+            let response = if let Some(status) = *ctx.static_execute_payload_response.lock() {
+                match status {
+                    ExecutePayloadResponseStatus::Valid => ExecutePayloadResponse {
+                        status,
+                        latest_valid_hash: Some(request.block_hash),
+                        message: None,
+                    },
+                    ExecutePayloadResponseStatus::Syncing => ExecutePayloadResponse {
+                        status,
+                        latest_valid_hash: None,
+                        message: None,
+                    },
+                    _ => unimplemented!("invalid static executePayloadResponse"),
+                }
+            } else {
+                ctx.execution_block_generator
+                    .write()
+                    .execute_payload(request.into())
+            };
 
-            Ok(serde_json::to_value(ExecutePayloadResponseWrapper { status }).unwrap())
+            Ok(serde_json::to_value(JsonExecutePayloadResponseV1::from(response)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param_0(params)?;
@@ -86,7 +97,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 .get_payload(id)
                 .ok_or_else(|| format!("no payload for id {}", id))?;
 
-            Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
+            Ok(serde_json::to_value(JsonExecutionPayloadV1::from(response)).unwrap())
         }
 
         ENGINE_CONSENSUS_VALIDATED => {

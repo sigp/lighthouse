@@ -62,7 +62,7 @@ pub trait EngineApi {
         fee_recipient: Address,
     ) -> Result<PayloadId, Error>;
 
-    async fn execute_payload<T: EthSpec>(
+    async fn execute_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error>;
@@ -87,10 +87,18 @@ pub trait EngineApi {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ExecutePayloadResponse {
+pub enum ExecutePayloadResponseStatus {
     Valid,
     Invalid,
     Syncing,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutePayloadResponse {
+    pub status: ExecutePayloadResponseStatus,
+    pub latest_valid_hash: Option<Hash256>,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

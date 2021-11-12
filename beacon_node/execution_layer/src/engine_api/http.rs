@@ -29,7 +29,7 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 pub const ENGINE_PREPARE_PAYLOAD: &str = "engine_preparePayload";
 pub const ENGINE_PREPARE_PAYLOAD_TIMEOUT: Duration = Duration::from_millis(500);
 
-pub const ENGINE_EXECUTE_PAYLOAD: &str = "engine_executePayload";
+pub const ENGINE_EXECUTE_PAYLOAD_V1: &str = "engine_executePayloadV1";
 pub const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -163,21 +163,21 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.payload_id)
     }
 
-    async fn execute_payload<T: EthSpec>(
+    async fn execute_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([JsonExecutionPayloadV1::from(execution_payload)]);
 
-        let result: ExecutePayloadResponseWrapper = self
+        let result: ExecutePayloadResponse = self
             .rpc_request(
-                ENGINE_EXECUTE_PAYLOAD,
+                ENGINE_EXECUTE_PAYLOAD_V1,
                 params,
                 ENGINE_EXECUTE_PAYLOAD_TIMEOUT,
             )
             .await?;
 
-        Ok(result.status)
+        Ok(result)
     }
 
     async fn get_payload_v1<T: EthSpec>(
@@ -186,7 +186,7 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest { payload_id }]);
 
-        let response: JsonExecutionPayload<T> = self
+        let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await?;
 
@@ -286,15 +286,9 @@ pub struct JsonPayloadIdResponse {
     pub payload_id: u64,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecutePayloadResponseWrapper {
-    pub status: ExecutePayloadResponse,
-}
-
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayload<T: EthSpec> {
+pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub parent_hash: Hash256,
     pub coinbase: Address,
     pub state_root: Hash256,
@@ -319,7 +313,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
 }
 
-impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
+impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
     fn from(e: ExecutionPayload<T>) -> Self {
         Self {
             parent_hash: e.parent_hash,
@@ -340,8 +334,8 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
     }
 }
 
-impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
-    fn from(e: JsonExecutionPayload<T>) -> Self {
+impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
+    fn from(e: JsonExecutionPayloadV1<T>) -> Self {
         Self {
             parent_hash: e.parent_hash,
             coinbase: e.coinbase,
@@ -420,6 +414,34 @@ impl From<JsonForkChoiceStateV1> for ForkChoiceStateV1 {
             head_block_hash: j.head_block_hash,
             safe_block_hash: j.safe_block_hash,
             finalized_block_hash: j.finalized_block_hash,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonExecutePayloadResponseV1 {
+    pub status: ExecutePayloadResponseStatus,
+    pub latest_valid_hash: Option<Hash256>,
+    pub message: Option<String>,
+}
+
+impl From<ExecutePayloadResponse> for JsonExecutePayloadResponseV1 {
+    fn from(e: ExecutePayloadResponse) -> Self {
+        Self {
+            status: e.status,
+            latest_valid_hash: e.latest_valid_hash,
+            message: e.message,
+        }
+    }
+}
+
+impl From<JsonExecutePayloadResponseV1> for ExecutePayloadResponse {
+    fn from(j: JsonExecutePayloadResponseV1) -> Self {
+        Self {
+            status: j.status,
+            latest_valid_hash: j.latest_valid_hash,
+            message: j.message,
         }
     }
 }
@@ -603,6 +625,7 @@ mod test {
     const ADDRESS_00: &str = "0x0000000000000000000000000000000000000000";
     const ADDRESS_01: &str = "0x0101010101010101010101010101010101010101";
 
+    const JSON_NULL: serde_json::Value = serde_json::Value::Null;
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     fn encode_transactions<E: EthSpec>(
@@ -611,7 +634,7 @@ mod test {
             E::MaxTransactionsPerPayload,
         >,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayload<E> = JsonExecutionPayload {
+        let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
             transactions,
             ..<_>::default()
         };
@@ -644,7 +667,7 @@ mod test {
         json.as_object_mut()
             .unwrap()
             .insert("transactions".into(), transactions);
-        let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
+        let ep: JsonExecutionPayloadV1<E> = serde_json::from_value(json)?;
         Ok(ep.transactions)
     }
 
@@ -820,7 +843,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .execute_payload::<MainnetEthSpec>(ExecutionPayload {
+                        .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
                             parent_hash: Hash256::repeat_byte(0),
                             coinbase: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
@@ -841,7 +864,7 @@ mod test {
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
-                    "method": ENGINE_EXECUTE_PAYLOAD,
+                    "method": ENGINE_EXECUTE_PAYLOAD_V1,
                     "params": [{
                         "parentHash": HASH_00,
                         "coinbase": ADDRESS_01,
@@ -904,12 +927,28 @@ mod test {
 
     #[tokio::test]
     async fn forkchoice_updated_request() {
+        /*
+        {
+            "jsonrpc":"2.0",
+            "method":"engine_forkchoiceUpdatedV1",
+            "params":[{
+                "headBlockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                "safeBlockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                "finalizedBlockHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a"
+            }, null],
+            "id":67
+        }
+        */
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client
-                        .forkchoice_updated_v1(Hash256::repeat_byte(0), Hash256::repeat_byte(1))
-                        .await;
+                    let forkchoice_state = ForkChoiceStateV1 {
+                        head_block_hash: Hash256::repeat_byte(0),
+                        safe_block_hash: Hash256::repeat_byte(0),
+                        finalized_block_hash: Hash256::repeat_byte(1),
+                    };
+
+                    let _ = client.forkchoice_updated_v1(forkchoice_state, None).await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -917,8 +956,9 @@ mod test {
                     "method": ENGINE_FORKCHOICE_UPDATED_V1,
                     "params": [{
                         "headBlockHash": HASH_00,
+                        "safeBlockHash": HASH_00,
                         "finalizedBlockHash": HASH_01,
-                    }]
+                    }, JSON_NULL]
                 }),
             )
             .await;
@@ -969,7 +1009,7 @@ mod test {
                         .get_payload_v1::<MainnetEthSpec>(0)
                         .await;
                 },
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_getPayload","params":["0x0"],"id":1}"#).unwrap()
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_getPayloadV1","params":["0x0"],"id":1}"#).unwrap()
             )
             .await
             .with_preloaded_responses(
@@ -1007,7 +1047,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .execute_payload::<MainnetEthSpec>(ExecutionPayload {
+                        .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
                             parent_hash: Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
                             coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1029,18 +1069,25 @@ mod test {
                 // Geth has an issue. See:
                 //
                 // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_executePayload","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}],"id":1}"#).unwrap()
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_executePayloadV1","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}],"id":1}"#).unwrap()
             )
             .await
             .with_preloaded_responses(
-                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"status":"VALID"}}"#).unwrap()],
+                //vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"status":"VALID"}}"#).unwrap()],
+                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"status":"VALID","latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858","message":null}}"#).unwrap()],
                 |client| async move {
                     let response = client
-                        .execute_payload::<MainnetEthSpec>(ExecutionPayload::default())
+                        .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload::default())
                         .await
                         .unwrap();
 
-                    assert_eq!(response, ExecutePayloadResponse::Valid);
+                    assert_eq!(response,
+                        ExecutePayloadResponse {
+                            status: ExecutePayloadResponseStatus::Valid,
+                            latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
+                            message: None
+                        }
+                    );
                 },
             )
             .await
@@ -1071,10 +1118,15 @@ mod test {
             .await
             .assert_request_equals(
                 |client| async move {
+                    let forkchoice_state = ForkChoiceStateV1 {
+                        head_block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                        safe_block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                        finalized_block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                    };
                     let _ = client
                         .forkchoice_updated_v1(
-                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
-                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            forkchoice_state,
+                            None,
                         )
                         .await;
                 },
@@ -1082,21 +1134,23 @@ mod test {
                 // modified this vector to correct this. See:
                 //
                 // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_forkchoiceUpdated","params":[{"headBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174", "finalizedBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174"}],"id":1}"#).unwrap()
-            )
-            .await
-            .with_preloaded_responses(
-                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
-                |client| async move {
-                    let _: () = client
-                        .forkchoice_updated_v1(
-                            Hash256::zero(),
-                            Hash256::zero(),
-                        )
-                        .await
-                        .unwrap();
-                },
+                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV1","params":[{"headBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","safeBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","finalizedBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174"},null],"id":1}"#).unwrap()
             )
             .await;
+        /*
+        .with_preloaded_responses(
+            vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
+            |client| async move {
+                let _: () = client
+                    .forkchoice_updated_v1(
+                        Hash256::zero(),
+                        Hash256::zero(),
+                    )
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
+         */
     }
 }
