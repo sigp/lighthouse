@@ -33,32 +33,32 @@ pub fn cli_app<'a>() -> App<'a> {
             derivation scheme.",
         )
         .arg(
-            Arg::with_name(WALLET_NAME_FLAG)
+            Arg::new(WALLET_NAME_FLAG)
                 .long(WALLET_NAME_FLAG)
                 .value_name("WALLET_NAME")
-                .help("Use the wallet identified by this name")
+                .about("Use the wallet identified by this name")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(WALLET_PASSWORD_FLAG)
+            Arg::new(WALLET_PASSWORD_FLAG)
                 .long(WALLET_PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
-                .help("A path to a file containing the password which will unlock the wallet.")
+                .about("A path to a file containing the password which will unlock the wallet.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(WALLETS_DIR_FLAG)
+            Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name(WALLETS_DIR_FLAG)
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
+                .about("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .takes_value(true)
                 .conflicts_with("datadir"),
         )
         .arg(
-            Arg::with_name(SECRETS_DIR_FLAG)
+            Arg::new(SECRETS_DIR_FLAG)
                 .long(SECRETS_DIR_FLAG)
                 .value_name("SECRETS_DIR")
-                .help(
+                .about(
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
@@ -66,37 +66,37 @@ pub fn cli_app<'a>() -> App<'a> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(DEPOSIT_GWEI_FLAG)
+            Arg::new(DEPOSIT_GWEI_FLAG)
                 .long(DEPOSIT_GWEI_FLAG)
                 .value_name("DEPOSIT_GWEI")
-                .help(
+                .about(
                     "The GWEI value of the deposit amount. Defaults to the minimum amount \
                     required for an active validator (MAX_EFFECTIVE_BALANCE)",
                 )
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(STORE_WITHDRAW_FLAG)
+            Arg::new(STORE_WITHDRAW_FLAG)
                 .long(STORE_WITHDRAW_FLAG)
-                .help(
+                .about(
                     "If present, the withdrawal keystore will be stored alongside the voting \
                     keypair. It is generally recommended to *not* store the withdrawal key and \
                     instead generate them from the wallet seed when required.",
                 ),
         )
         .arg(
-            Arg::with_name(COUNT_FLAG)
+            Arg::new(COUNT_FLAG)
                 .long(COUNT_FLAG)
                 .value_name("VALIDATOR_COUNT")
-                .help("The number of validators to create, regardless of how many already exist")
+                .about("The number of validators to create, regardless of how many already exist")
                 .conflicts_with("at-most")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(AT_MOST_FLAG)
+            Arg::new(AT_MOST_FLAG)
                 .long(AT_MOST_FLAG)
                 .value_name("AT_MOST_VALIDATORS")
-                .help(
+                .about(
                     "Observe the number of validators in --validator-dir, only creating enough to \
                     reach the given count. Never deletes an existing validator.",
                 )
@@ -104,11 +104,11 @@ pub fn cli_app<'a>() -> App<'a> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
+            Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .about("If present, read all user inputs from stdin instead of tty."),
         )
 }
 

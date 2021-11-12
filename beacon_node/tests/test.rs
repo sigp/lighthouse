@@ -52,7 +52,6 @@ fn skip_1() {
     assert_eq!(opt, Opt { x: 10, s: 22 });
 }
 
-
 #[test]
 fn http_server_genesis_state() {
     let mut env = env_builder()

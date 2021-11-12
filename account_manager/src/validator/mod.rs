@@ -19,10 +19,10 @@ pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Provides commands for managing Eth2 validators.")
         .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
+            Arg::new(VALIDATOR_DIR_FLAG)
                 .long(VALIDATOR_DIR_FLAG)
                 .value_name("VALIDATOR_DIRECTORY")
-                .help(
+                .about(
                     "The path to search for validator directories. \
                     Defaults to ~/.lighthouse/{network}/validators",
                 )
@@ -61,6 +61,6 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
             "{} does not have a {} command. See --help",
             CMD, unknown
         )),
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
     }
 }

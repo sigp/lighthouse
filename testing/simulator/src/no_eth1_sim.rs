@@ -13,11 +13,13 @@ use tokio::time::sleep;
 use types::{Epoch, EthSpec, MainnetEthSpec};
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
-    let validators_per_node = value_t!(matches, "validators_per_node", usize)
+    let node_count = matches.value_of_t("nodes").expect("missing nodes default");
+    let validators_per_node: usize = matches
+        .value_of_t("validators_per_node")
         .expect("missing validators_per_node default");
-    let speed_up_factor =
-        value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
+    let speed_up_factor: u64 = matches
+        .value_of_t("speed_up_factor")
+        .expect("missing speed_up_factor default");
     let continue_after_checks = matches.is_present("continue_after_checks");
 
     println!("Beacon Chain Simulator:");

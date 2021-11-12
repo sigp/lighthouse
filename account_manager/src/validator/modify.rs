@@ -17,16 +17,16 @@ pub fn cli_app<'a>() -> App<'a> {
             App::new(ENABLE)
                 .about("Enable validator(s) in validator_definitions.yml.")
                 .arg(
-                    Arg::with_name(PUBKEY_FLAG)
+                    Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
-                        .help("Validator pubkey to enable")
+                        .about("Validator pubkey to enable")
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name(ALL)
+                    Arg::new(ALL)
                         .long(ALL)
-                        .help("Enable all validators in the validator directory")
+                        .about("Enable all validators in the validator directory")
                         .takes_value(false)
                         .conflicts_with(PUBKEY_FLAG),
                 ),
@@ -35,16 +35,16 @@ pub fn cli_app<'a>() -> App<'a> {
             App::new(DISABLE)
                 .about("Disable validator(s) in validator_definitions.yml.")
                 .arg(
-                    Arg::with_name(PUBKEY_FLAG)
+                    Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
-                        .help("Validator pubkey to disable")
+                        .about("Validator pubkey to disable")
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name(ALL)
+                    Arg::new(ALL)
                         .long(ALL)
-                        .help("Disable all validators in the validator directory")
+                        .about("Disable all validators in the validator directory")
                         .takes_value(false)
                         .conflicts_with(PUBKEY_FLAG),
                 ),
@@ -62,8 +62,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                 "{} does not have a {} command. See --help",
                 CMD, unknown
             ))
-        },
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
+        }
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
     };
     let mut defs = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
         format!(

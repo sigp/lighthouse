@@ -30,8 +30,8 @@ pub fn run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), 
                 "{} is not a valid {} command. See --help.",
                 unknown, CMD
             ));
-        },
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
+        }
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
     }
 
     Ok(())

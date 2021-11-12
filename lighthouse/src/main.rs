@@ -63,76 +63,76 @@ fn main() {
             long_version.as_str()
         )
         .arg(
-        Arg::with_name("config-file")
+        Arg::new("config-file")
             .long("config-file")
-            .help(
+            .about(
                 "The filepath to a YAML file with flag values. To override any options in \
                     the config file, specify the same option in the command line."
             )
             .takes_value(true)
             .global(true),
         ).arg(
-            Arg::with_name("spec")
+            Arg::new("spec")
                 .short('s')
                 .long("spec")
                 .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
+                .about("This flag is deprecated, it will be disallowed in a future release. This \
                     value is now derived from the --network or --testnet-dir flags.")
                 .takes_value(true)
                 .global(true)
         )
         .arg(
-            Arg::with_name("env_log")
+            Arg::new("env_log")
                 .short('l')
-                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                .about("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("logfile")
+            Arg::new("logfile")
                 .long("logfile")
                 .value_name("FILE")
-                .help(
+                .about(
                     "File path where output will be written.",
                 )
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("log-format")
+            Arg::new("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
-                .help("Specifies the format used for logging.")
+                .about("Specifies the format used for logging.")
                 .possible_values(&["JSON"])
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("debug-level")
+            Arg::new("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .help("The verbosity level for emitting logs.")
+                .about("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .global(true)
                 .default_value("info"),
         )
         .arg(
-            Arg::with_name("datadir")
+            Arg::new("datadir")
                 .long("datadir")
                 .short('d')
                 .value_name("DIR")
                 .global(true)
-                .help(
+                .about(
                     "Used to specify a custom root data directory for lighthouse keys and databases. \
                     Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
                     Note: Users should specify separate custom datadirs for different networks.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("testnet-dir")
+            Arg::new("testnet-dir")
                 .short('t')
                 .long("testnet-dir")
                 .value_name("DIR")
-                .help(
+                .about(
                     "Path to directory containing eth2_testnet specs. Defaults to \
                       a hard-coded Lighthouse testnet. Only effective if there is no \
                       existing database.",
@@ -141,10 +141,10 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("network")
+            Arg::new("network")
                 .long("network")
                 .value_name("network")
-                .help("Name of the Eth2 chain Lighthouse will sync and follow.")
+                .about("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(HARDCODED_NET_NAMES)
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
@@ -152,26 +152,26 @@ fn main() {
 
         )
         .arg(
-            Arg::with_name("dump-config")
+            Arg::new("dump-config")
                 .long("dump-config")
                 .hidden(true)
-                .help("Dumps the config to a desired location. Used for testing only.")
+                .about("Dumps the config to a desired location. Used for testing only.")
                 .takes_value(true)
                 .global(true)
         )
         .arg(
-            Arg::with_name("immediate-shutdown")
+            Arg::new("immediate-shutdown")
                 .long("immediate-shutdown")
                 .hidden(true)
-                .help(
+                .about(
                     "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
                     Used for testing only, DO NOT USE IN PRODUCTION.")
                 .global(true)
         )
         .arg(
-            Arg::with_name(DISABLE_MALLOC_TUNING_FLAG)
+            Arg::new(DISABLE_MALLOC_TUNING_FLAG)
                 .long(DISABLE_MALLOC_TUNING_FLAG)
-                .help(
+                .about(
                     "If present, do not configure the system allocator. Providing this flag will \
                     generally increase memory usage, it should only be provided when debugging \
                     specific memory allocation issues."
@@ -179,16 +179,16 @@ fn main() {
                 .global(true),
         )
         .subcommand(beacon_node::cli_app());
-        // .subcommand(boot_node::cli_app())
-        // .subcommand(validator_client::cli_app())
-        // .subcommand(account_manager::cli_app());
+    // .subcommand(boot_node::cli_app())
+    // .subcommand(validator_client::cli_app())
+    // .subcommand(account_manager::cli_app());
 
     let mut app_clone = app.clone();
     let mut app_clone_2 = app.clone();
 
     let mut cli_matches = app.get_matches();
 
-    eprintln!("cli matches first: {:?}",cli_matches);
+    eprintln!("cli matches first: {:?}", cli_matches);
 
     let file_name_opt = cli_matches.value_of("config-file");
 
@@ -199,16 +199,16 @@ fn main() {
             .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()));
         match yaml_config {
             Ok(yaml) => {
-                let banana = yaml.into_iter()
+                let banana = yaml
+                    .into_iter()
                     .map(|entry| {
                         eprintln!("entry: {:?}", entry);
                         vec![format!("--{}", entry.1), entry.0]
                     })
-                    .flatten().collect::<Vec<_>>();
+                    .flatten()
+                    .collect::<Vec<_>>();
                 eprintln!("banana: {:?}", banana);
-                Some(app_clone.get_matches_from_mut(
-                    banana
-                ))
+                Some(app_clone.get_matches_mut())
             }
             //     eprintln!("file matches: {:?}",file_matches);
             //     for (key, value) in file_matches.args {
@@ -233,14 +233,14 @@ fn main() {
 
     //TODO: think we're close here
 
-    app_clone.get_arguments().map(|arg|{
-        if !file_matches.unwrap().is_present(arg.get_name()) {
-            app_clone_2.mut_arg(arg.get_name(), |arg| arg.default_value(""))
-        }
-        if !cli_matches.is_present(arg.get_name()) {
-            cli_matches.
-        }
-    })
+    // app_clone.get_arguments().map(|arg|{
+    //     if !file_matches.unwrap().is_present(arg.get_name()) {
+    //         app_clone_2.mut_arg(arg.get_name(), |arg| arg.default_value(""))
+    //     }
+    //     if !cli_matches.is_present(arg.get_name()) {
+    //         // cli_matches.
+    //     }
+    // });
     // file_matches.unwrap().args.iter().map(||)
 
     // Configure the allocator early in the process, before it has the chance to use the default values for

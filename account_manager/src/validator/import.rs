@@ -33,46 +33,46 @@ pub fn cli_app<'a>() -> App<'a> {
             Python utility.",
         )
         .arg(
-            Arg::with_name(KEYSTORE_FLAG)
+            Arg::new(KEYSTORE_FLAG)
                 .long(KEYSTORE_FLAG)
                 .value_name("KEYSTORE_PATH")
-                .help("Path to a single keystore to be imported.")
+                .about("Path to a single keystore to be imported.")
                 .conflicts_with(DIR_FLAG)
-                .required_unless(DIR_FLAG)
+                .required_unless_present(DIR_FLAG)
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(DIR_FLAG)
+            Arg::new(DIR_FLAG)
                 .long(DIR_FLAG)
                 .value_name("KEYSTORES_DIRECTORY")
-                .help(
+                .about(
                     "Path to a directory which contains zero or more keystores \
                     for import. This directory and all sub-directories will be \
                     searched and any file name which contains 'keystore' and \
                     has the '.json' extension will be attempted to be imported.",
                 )
                 .conflicts_with(KEYSTORE_FLAG)
-                .required_unless(KEYSTORE_FLAG)
+                .required_unless_present(KEYSTORE_FLAG)
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
+            Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .about("If present, read all user inputs from stdin instead of tty."),
         )
         .arg(
-            Arg::with_name(REUSE_PASSWORD_FLAG)
+            Arg::new(REUSE_PASSWORD_FLAG)
                 .long(REUSE_PASSWORD_FLAG)
-                .help("If present, the same password will be used for all imported keystores."),
+                .about("If present, the same password will be used for all imported keystores."),
         )
         .arg(
-            Arg::with_name(PASSWORD_FLAG)
+            Arg::new(PASSWORD_FLAG)
                 .long(PASSWORD_FLAG)
                 .value_name("KEYSTORE_PASSWORD_PATH")
                 .requires(REUSE_PASSWORD_FLAG)
-                .help(
+                .about(
                     "The path to the file containing the password which will unlock all \
                     keystores being imported. This flag must be used with `--reuse-password`. \
                     The password will be copied to the `validator_definitions.yml` file, so after \

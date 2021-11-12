@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 beacon_node = { path = "../beacon_node" }
-clap = { git = "https://github.com/realbigsean/clap", rev = "ca21cbd3fba8de71f2e48c9b6983d090a2df0ad0"}
+clap = "3.0.0-beta.5"
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 types = { path = "../consensus/types" }
 eth2_ssz = "0.4.0"

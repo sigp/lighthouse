@@ -26,17 +26,17 @@ pub fn cli_app<'a>() -> App<'a> {
             App::new(IMPORT_CMD)
                 .about("Import an interchange file")
                 .arg(
-                    Arg::with_name(IMPORT_FILE_ARG)
+                    Arg::new(IMPORT_FILE_ARG)
                         .takes_value(true)
                         .value_name("FILE")
-                        .help("The slashing protection interchange file to import (.json)"),
+                        .about("The slashing protection interchange file to import (.json)"),
                 )
                 .arg(
-                    Arg::with_name(MINIFY_FLAG)
+                    Arg::new(MINIFY_FLAG)
                         .long(MINIFY_FLAG)
                         .takes_value(true)
                         .possible_values(&["false", "true"])
-                        .help(
+                        .about(
                             "Deprecated: Lighthouse no longer requires minification on import \
                              because it always minifies",
                         ),
@@ -46,28 +46,28 @@ pub fn cli_app<'a>() -> App<'a> {
             App::new(EXPORT_CMD)
                 .about("Export an interchange file")
                 .arg(
-                    Arg::with_name(EXPORT_FILE_ARG)
+                    Arg::new(EXPORT_FILE_ARG)
                         .takes_value(true)
                         .value_name("FILE")
-                        .help("The filename to export the interchange file to"),
+                        .about("The filename to export the interchange file to"),
                 )
                 .arg(
-                    Arg::with_name(PUBKEYS_FLAG)
+                    Arg::new(PUBKEYS_FLAG)
                         .long(PUBKEYS_FLAG)
                         .takes_value(true)
                         .value_name("PUBKEYS")
-                        .help(
+                        .about(
                             "List of public keys to export history for. Keys should be 0x-prefixed, \
                              comma-separated. All known keys will be exported if omitted",
                         ),
                 )
                 .arg(
-                    Arg::with_name(MINIFY_FLAG)
+                    Arg::new(MINIFY_FLAG)
                         .long(MINIFY_FLAG)
                         .takes_value(true)
                         .default_value("false")
                         .possible_values(&["false", "true"])
-                        .help(
+                        .about(
                             "Minify the output file. This will make it smaller and faster to \
                              import, but not faster to generate.",
                         ),
@@ -268,6 +268,6 @@ pub fn cli_run<T: EthSpec>(
         }
         Some(("", _)) => Err("No subcommand provided, see --help for options".to_string()),
         Some((command, _)) => Err(format!("No such subcommand `{}`", command)),
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
     }
 }

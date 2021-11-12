@@ -14,7 +14,7 @@ mod replace_state_pubkeys;
 mod skip_slots;
 mod transition_blocks;
 
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{App, Arg, ArgMatches};
 use clap_utils::parse_path_with_default_in_home_dir;
 use environment::EnvironmentBuilder;
 use parse_ssz::run_parse_ssz;
@@ -31,7 +31,7 @@ fn main() {
         .version(lighthouse_version::VERSION)
         .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
-            Arg::with_name("spec")
+            Arg::new("spec")
                 .short('s')
                 .long("spec")
                 .value_name("STRING")
@@ -42,73 +42,73 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("testnet-dir")
+            Arg::new("testnet-dir")
                 .short('d')
                 .long("testnet-dir")
                 .value_name("PATH")
                 .takes_value(true)
                 .global(true)
-                .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                .about("The testnet dir. Defaults to ~/.lighthouse/testnet"),
         )
         .subcommand(
-            SubCommand::with_name("skip-slots")
+            App::new("skip-slots")
                 .about(
                     "Performs a state transition from some state across some number of skip slots",
                 )
                 .arg(
-                    Arg::with_name("pre-state")
+                    Arg::new("pre-state")
                         .value_name("BEACON_STATE")
                         .takes_value(true)
                         .required(true)
-                        .help("Path to a SSZ file of the pre-state."),
+                        .about("Path to a SSZ file of the pre-state."),
                 )
                 .arg(
-                    Arg::with_name("slots")
+                    Arg::new("slots")
                         .value_name("SLOT_COUNT")
                         .takes_value(true)
                         .required(true)
-                        .help("Number of slots to skip before outputting a state.."),
+                        .about("Number of slots to skip before outputting a state.."),
                 )
                 .arg(
-                    Arg::with_name("output")
+                    Arg::new("output")
                         .value_name("SSZ_FILE")
                         .takes_value(true)
                         .required(true)
                         .default_value("./output.ssz")
-                        .help("Path to output a SSZ file."),
+                        .about("Path to output a SSZ file."),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("transition-blocks")
+            App::new("transition-blocks")
                 .about("Performs a state transition given a pre-state and block")
                 .arg(
-                    Arg::with_name("pre-state")
+                    Arg::new("pre-state")
                         .value_name("BEACON_STATE")
                         .takes_value(true)
                         .required(true)
-                        .help("Path to a SSZ file of the pre-state."),
+                        .about("Path to a SSZ file of the pre-state."),
                 )
                 .arg(
-                    Arg::with_name("block")
+                    Arg::new("block")
                         .value_name("BEACON_BLOCK")
                         .takes_value(true)
                         .required(true)
-                        .help("Path to a SSZ file of the block to apply to pre-state."),
+                        .about("Path to a SSZ file of the block to apply to pre-state."),
                 )
                 .arg(
-                    Arg::with_name("output")
+                    Arg::new("output")
                         .value_name("SSZ_FILE")
                         .takes_value(true)
                         .required(true)
                         .default_value("./output.ssz")
-                        .help("Path to output a SSZ file."),
+                        .about("Path to output a SSZ file."),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("pretty-ssz")
+            App::new("pretty-ssz")
                 .about("Parses SSZ-encoded data from a file")
                 .arg(
-                    Arg::with_name("format")
+                    Arg::new("format")
                         .short('f')
                         .long("format")
                         .value_name("FORMAT")
@@ -116,73 +116,73 @@ fn main() {
                         .required(true)
                         .default_value("json")
                         .possible_values(&["json", "yaml"])
-                        .help("Output format to use")
+                        .about("Output format to use")
                 )
                 .arg(
-                    Arg::with_name("type")
+                    Arg::new("type")
                         .value_name("TYPE")
                         .takes_value(true)
                         .required(true)
-                        .help("Type to decode"),
+                        .about("Type to decode"),
                 )
                 .arg(
-                    Arg::with_name("ssz-file")
+                    Arg::new("ssz-file")
                         .value_name("FILE")
                         .takes_value(true)
                         .required(true)
-                        .help("Path to SSZ bytes"),
+                        .about("Path to SSZ bytes"),
                 )
         )
         .subcommand(
-            SubCommand::with_name("deploy-deposit-contract")
+            App::new("deploy-deposit-contract")
                 .about(
                     "Deploy a testing eth1 deposit contract.",
                 )
                 .arg(
-                    Arg::with_name("eth1-http")
+                    Arg::new("eth1-http")
                         .long("eth1-http")
                         .short('e')
                         .value_name("ETH1_HTTP_PATH")
-                        .help("Path to an Eth1 JSON-RPC IPC endpoint")
+                        .about("Path to an Eth1 JSON-RPC IPC endpoint")
                         .takes_value(true)
                         .required(true)
                 )
                 .arg(
-                    Arg::with_name("confirmations")
+                    Arg::new("confirmations")
                         .value_name("INTEGER")
                         .long("confirmations")
                         .takes_value(true)
                         .default_value("3")
-                        .help("The number of block confirmations before declaring the contract deployed."),
+                        .about("The number of block confirmations before declaring the contract deployed."),
                 )
                 .arg(
-                    Arg::with_name("validator-count")
+                    Arg::new("validator-count")
                         .value_name("VALIDATOR_COUNT")
                         .long("validator-count")
                         .takes_value(true)
-                        .help("If present, makes `validator_count` number of INSECURE deterministic deposits after \
+                        .about("If present, makes `validator_count` number of INSECURE deterministic deposits after \
                                 deploying the deposit contract."
                         ),
                 )
         )
         .subcommand(
-            SubCommand::with_name("eth1-genesis")
+            App::new("eth1-genesis")
                 .about("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
-                    Arg::with_name("eth1-endpoint")
+                    Arg::new("eth1-endpoint")
                         .short('e')
                         .long("eth1-endpoint")
                         .value_name("HTTP_SERVER")
                         .takes_value(true)
-                        .help("Deprecated. Use --eth1-endpoints."),
+                        .about("Deprecated. Use --eth1-endpoints."),
                 )
                 .arg(
-                    Arg::with_name("eth1-endpoints")
+                    Arg::new("eth1-endpoints")
                         .long("eth1-endpoints")
                         .value_name("HTTP_SERVER_LIST")
                         .takes_value(true)
                         .conflicts_with("eth1-endpoint")
-                        .help(
+                        .about(
                             "One or more comma-delimited URLs to eth1 JSON-RPC http APIs. \
                                 If multiple endpoints are given the endpoints are used as \
                                 fallback in the given order.",
@@ -190,60 +190,60 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("interop-genesis")
+            App::new("interop-genesis")
                 .about("Produces an interop-compatible genesis state using deterministic keypairs")
                 .arg(
-                    Arg::with_name("validator-count")
+                    Arg::new("validator-count")
                         .long("validator-count")
                         .index(1)
                         .value_name("INTEGER")
                         .takes_value(true)
                         .default_value("1024")
-                        .help("The number of validators in the genesis state."),
+                        .about("The number of validators in the genesis state."),
                 )
                 .arg(
-                    Arg::with_name("genesis-time")
+                    Arg::new("genesis-time")
                         .long("genesis-time")
                         .short('t')
                         .value_name("UNIX_EPOCH")
                         .takes_value(true)
-                        .help("The value for state.genesis_time. Defaults to now."),
+                        .about("The value for state.genesis_time. Defaults to now."),
                 )
                 .arg(
-                    Arg::with_name("genesis-fork-version")
+                    Arg::new("genesis-fork-version")
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .help(
+                        .about(
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
                         ),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("change-genesis-time")
+            App::new("change-genesis-time")
                 .about(
                     "Loads a file with an SSZ-encoded BeaconState and modifies the genesis time.",
                 )
                 .arg(
-                    Arg::with_name("ssz-state")
+                    Arg::new("ssz-state")
                         .index(1)
                         .value_name("PATH")
                         .takes_value(true)
                         .required(true)
-                        .help("The path to the SSZ file"),
+                        .about("The path to the SSZ file"),
                 )
                 .arg(
-                    Arg::with_name("genesis-time")
+                    Arg::new("genesis-time")
                         .index(2)
                         .value_name("UNIX_EPOCH")
                         .takes_value(true)
                         .required(true)
-                        .help("The value for state.genesis_time."),
+                        .about("The value for state.genesis_time."),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("replace-state-pubkeys")
+            App::new("replace-state-pubkeys")
                 .about(
                     "Loads a file with an SSZ-encoded BeaconState and replaces \
                     all the validator pubkeys with ones derived from the mnemonic \
@@ -251,15 +251,15 @@ fn main() {
                     derivation paths.",
                 )
                 .arg(
-                    Arg::with_name("ssz-state")
+                    Arg::new("ssz-state")
                         .index(1)
                         .value_name("PATH")
                         .takes_value(true)
                         .required(true)
-                        .help("The path to the SSZ file"),
+                        .about("The path to the SSZ file"),
                 )
                 .arg(
-                    Arg::with_name("mnemonic")
+                    Arg::new("mnemonic")
                         .index(2)
                         .value_name("BIP39_MNENMONIC")
                         .takes_value(true)
@@ -268,288 +268,288 @@ fn main() {
                             "replace nephew blur decorate waste convince soup column \
                             orient excite play baby",
                         )
-                        .help("The mnemonic for key derivation."),
+                        .about("The mnemonic for key derivation."),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("new-testnet")
+            App::new("new-testnet")
                 .about(
                     "Produce a new testnet directory. If any of the optional flags are not
                     supplied the values will remain the default for the --spec flag",
                 )
                 .arg(
-                    Arg::with_name("force")
+                    Arg::new("force")
                         .long("force")
                         .short('f')
                         .takes_value(false)
-                        .help("Overwrites any previous testnet configurations"),
+                        .about("Overwrites any previous testnet configurations"),
                 )
                 .arg(
-                    Arg::with_name("min-genesis-time")
+                    Arg::new("min-genesis-time")
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
                         .takes_value(true)
-                        .help(
+                        .about(
                             "The minimum permitted genesis time. For non-eth1 testnets will be
                               the genesis time. Defaults to now.",
                         ),
                 )
                 .arg(
-                    Arg::with_name("min-genesis-active-validator-count")
+                    Arg::new("min-genesis-active-validator-count")
                         .long("min-genesis-active-validator-count")
                         .value_name("INTEGER")
                         .takes_value(true)
-                        .help("The number of validators required to trigger eth2 genesis."),
+                        .about("The number of validators required to trigger eth2 genesis."),
                 )
                 .arg(
-                    Arg::with_name("genesis-delay")
+                    Arg::new("genesis-delay")
                         .long("genesis-delay")
                         .value_name("SECONDS")
                         .takes_value(true)
-                        .help("The delay between sufficient eth1 deposits and eth2 genesis."),
+                        .about("The delay between sufficient eth1 deposits and eth2 genesis."),
                 )
                 .arg(
-                    Arg::with_name("min-deposit-amount")
+                    Arg::new("min-deposit-amount")
                         .long("min-deposit-amount")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .help("The minimum permitted deposit amount."),
+                        .about("The minimum permitted deposit amount."),
                 )
                 .arg(
-                    Arg::with_name("max-effective-balance")
+                    Arg::new("max-effective-balance")
                         .long("max-effective-balance")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .help("The amount required to become a validator."),
+                        .about("The amount required to become a validator."),
                 )
                 .arg(
-                    Arg::with_name("effective-balance-increment")
+                    Arg::new("effective-balance-increment")
                         .long("effective-balance-increment")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .help("The steps in effective balance calculation."),
+                        .about("The steps in effective balance calculation."),
                 )
                 .arg(
-                    Arg::with_name("ejection-balance")
+                    Arg::new("ejection-balance")
                         .long("ejection-balance")
                         .value_name("GWEI")
                         .takes_value(true)
-                        .help("The balance at which a validator gets ejected."),
+                        .about("The balance at which a validator gets ejected."),
                 )
                 .arg(
-                    Arg::with_name("eth1-follow-distance")
+                    Arg::new("eth1-follow-distance")
                         .long("eth1-follow-distance")
                         .value_name("ETH1_BLOCKS")
                         .takes_value(true)
-                        .help("The distance to follow behind the eth1 chain head."),
+                        .about("The distance to follow behind the eth1 chain head."),
                 )
                 .arg(
-                    Arg::with_name("genesis-fork-version")
+                    Arg::new("genesis-fork-version")
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
-                        .help(
+                        .about(
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
                         ),
                 )
                 .arg(
-                    Arg::with_name("seconds-per-slot")
+                    Arg::new("seconds-per-slot")
                         .long("seconds-per-slot")
                         .value_name("SECONDS")
                         .takes_value(true)
-                        .help("Eth2 slot time"),
+                        .about("Eth2 slot time"),
                 )
                 .arg(
-                    Arg::with_name("seconds-per-eth1-block")
+                    Arg::new("seconds-per-eth1-block")
                         .long("seconds-per-eth1-block")
                         .value_name("SECONDS")
                         .takes_value(true)
-                        .help("Eth1 block time"),
+                        .about("Eth1 block time"),
                 )
                 .arg(
-                    Arg::with_name("eth1-id")
+                    Arg::new("eth1-id")
                         .long("eth1-id")
                         .value_name("ETH1_ID")
                         .takes_value(true)
-                        .help("The chain id and network id for the eth1 testnet."),
+                        .about("The chain id and network id for the eth1 testnet."),
                 )
                 .arg(
-                    Arg::with_name("deposit-contract-address")
+                    Arg::new("deposit-contract-address")
                         .long("deposit-contract-address")
                         .value_name("ETH1_ADDRESS")
                         .takes_value(true)
                         .required(true)
-                        .help("The address of the deposit contract."),
+                        .about("The address of the deposit contract."),
                 )
                 .arg(
-                    Arg::with_name("deposit-contract-deploy-block")
+                    Arg::new("deposit-contract-deploy-block")
                         .long("deposit-contract-deploy-block")
                         .value_name("ETH1_BLOCK_NUMBER")
                         .takes_value(true)
                         .default_value("0")
-                        .help(
+                        .about(
                             "The block the deposit contract was deployed. Setting this is a huge
                               optimization for nodes, please do it.",
                         ),
                 )
                 .arg(
-                    Arg::with_name("altair-fork-epoch")
+                    Arg::new("altair-fork-epoch")
                         .long("altair-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
-                        .help(
+                        .about(
                             "The epoch at which to enable the Altair hard fork",
                         ),
                 )
         )
         .subcommand(
-            SubCommand::with_name("check-deposit-data")
+            App::new("check-deposit-data")
                 .about("Checks the integrity of some deposit data.")
                 .arg(
-                    Arg::with_name("deposit-amount")
+                    Arg::new("deposit-amount")
                         .index(1)
                         .value_name("GWEI")
                         .takes_value(true)
                         .required(true)
-                        .help("The amount (in Gwei) that was deposited"),
+                        .about("The amount (in Gwei) that was deposited"),
                 )
                 .arg(
-                    Arg::with_name("deposit-data")
+                    Arg::new("deposit-data")
                         .index(2)
                         .value_name("HEX")
                         .takes_value(true)
                         .required(true)
-                        .help(
+                        .about(
                             "A 0x-prefixed hex string of the deposit data. Should include the
                             function signature.",
                         ),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("generate-bootnode-enr")
+            App::new("generate-bootnode-enr")
                 .about("Generates an ENR address to be used as a pre-genesis boot node.")
                 .arg(
-                    Arg::with_name("ip")
+                    Arg::new("ip")
                         .long("ip")
                         .value_name("IP_ADDRESS")
                         .takes_value(true)
                         .required(true)
-                        .help("The IP address to be included in the ENR and used for discovery"),
+                        .about("The IP address to be included in the ENR and used for discovery"),
                 )
                 .arg(
-                    Arg::with_name("udp-port")
+                    Arg::new("udp-port")
                         .long("udp-port")
                         .value_name("UDP_PORT")
                         .takes_value(true)
                         .required(true)
-                        .help("The UDP port to be included in the ENR and used for discovery"),
+                        .about("The UDP port to be included in the ENR and used for discovery"),
                 )
                 .arg(
-                    Arg::with_name("tcp-port")
+                    Arg::new("tcp-port")
                         .long("tcp-port")
                         .value_name("TCP_PORT")
                         .takes_value(true)
                         .required(true)
-                        .help(
+                        .about(
                             "The TCP port to be included in the ENR and used for application comms",
                         ),
                 )
                 .arg(
-                    Arg::with_name("output-dir")
+                    Arg::new("output-dir")
                         .long("output-dir")
                         .value_name("OUTPUT_DIRECTORY")
                         .takes_value(true)
                         .required(true)
-                        .help("The directory in which to create the network dir"),
+                        .about("The directory in which to create the network dir"),
                 )
                 .arg(
-                    Arg::with_name("genesis-fork-version")
+                    Arg::new("genesis-fork-version")
                         .long("genesis-fork-version")
                         .value_name("HEX")
                         .takes_value(true)
                         .required(true)
-                        .help(
+                        .about(
                             "Used to avoid reply attacks between testnets. Recommended to set to
                               non-default.",
                         ),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("insecure-validators")
+            App::new("insecure-validators")
                 .about("Produces validator directories with INSECURE, deterministic keypairs.")
                 .arg(
-                    Arg::with_name("count")
+                    Arg::new("count")
                         .long("count")
                         .value_name("COUNT")
                         .takes_value(true)
-                        .help("Produces validators in the range of 0..count."),
+                        .about("Produces validators in the range of 0..count."),
                 )
                 .arg(
-                    Arg::with_name("base-dir")
+                    Arg::new("base-dir")
                         .long("base-dir")
                         .value_name("BASE_DIR")
                         .takes_value(true)
-                        .help("The base directory where validator keypairs and secrets are stored"),
+                        .about("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
-                    Arg::with_name("node-count")
+                    Arg::new("node-count")
                         .long("node-count")
                         .value_name("NODE_COUNT")
                         .takes_value(true)
-                        .help("The number of nodes to divide the validator keys to"),
+                        .about("The number of nodes to divide the validator keys to"),
                 )
         )
         .subcommand(
-            SubCommand::with_name("etl-block-efficiency")
+            App::new("etl-block-efficiency")
                 .about(
                     "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
                     extract data from.",
                 )
                 .arg(
-                    Arg::with_name("endpoint")
+                    Arg::new("endpoint")
                         .long("endpoint")
                         .short('e')
                         .takes_value(true)
                         .default_value("http://localhost:5052")
-                        .help(
+                        .about(
                             "The endpoint of the Beacon Node API."
                         ),
                 )
                 .arg(
-                    Arg::with_name("output")
+                    Arg::new("output")
                         .long("output")
                         .short('o')
                         .takes_value(true)
-                        .help("The path of the output data in CSV file.")
+                        .about("The path of the output data in CSV file.")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("start-epoch")
+                    Arg::new("start-epoch")
                         .long("start-epoch")
                         .takes_value(true)
-                        .help(
+                        .about(
                             "The first epoch in the range of epochs to be evaluated. Use with \
                             --end-epoch.",
                         )
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("end-epoch")
+                    Arg::new("end-epoch")
                         .long("end-epoch")
                         .takes_value(true)
-                        .help(
+                        .about(
                             "The last epoch in the range of epochs to be evaluated. Use with \
                             --start-epoch.",
                         )
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("offline-window")
+                    Arg::new("offline-window")
                         .long("offline-window")
                         .takes_value(true)
                         .default_value("3")
-                        .help(
+                        .about(
                             "If a validator does not submit an attestion within this many epochs, \
                             they are deemed offline. For example, for a offline window of 3, if a \
                             validator does not attest in epochs 4, 5 or 6, it is deemed offline \
@@ -577,10 +577,7 @@ fn main() {
     }
 }
 
-fn run<T: EthSpec>(
-    env_builder: EnvironmentBuilder<T>,
-    matches: &ArgMatches,
-) -> Result<(), String> {
+fn run<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
@@ -632,6 +629,6 @@ fn run<T: EthSpec>(
             .block_on(etl::block_efficiency::run::<T>(matches))
             .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
+        None => return Err("No subcommand. See --help".to_string()),
     }
 }

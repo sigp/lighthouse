@@ -24,57 +24,57 @@ pub fn cli_app<'a>() -> App<'a> {
             only recover the keys associated with the validator at index 0 for an HD wallet \
             in accordance with the EIP-2333 spec.")
         .arg(
-            Arg::with_name(FIRST_INDEX_FLAG)
+            Arg::new(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)
                 .value_name("FIRST_INDEX")
-                .help("The first of consecutive key indexes you wish to recover.")
+                .about("The first of consecutive key indexes you wish to recover.")
                 .takes_value(true)
                 .required(false)
                 .default_value("0"),
         )
         .arg(
-            Arg::with_name(COUNT_FLAG)
+            Arg::new(COUNT_FLAG)
                 .long(COUNT_FLAG)
                 .value_name("COUNT")
-                .help("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
+                .about("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
                 .takes_value(true)
                 .required(false)
                 .default_value("1"),
         )
         .arg(
-            Arg::with_name(MNEMONIC_FLAG)
+            Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
-                .help(
+                .about(
                     "If present, the mnemonic will be read in from this file.",
                 )
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name(SECRETS_DIR_FLAG)
+            Arg::new(SECRETS_DIR_FLAG)
                 .long(SECRETS_DIR_FLAG)
                 .value_name("SECRETS_DIR")
-                .help(
+                .about(
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(STORE_WITHDRAW_FLAG)
+            Arg::new(STORE_WITHDRAW_FLAG)
                 .long(STORE_WITHDRAW_FLAG)
-                .help(
+                .about(
                     "If present, the withdrawal keystore will be stored alongside the voting \
                     keypair. It is generally recommended to *not* store the withdrawal key and \
                     instead generate them from the wallet seed when required.",
                 ),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
+            Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .about("If present, read all user inputs from stdin instead of tty."),
         )
 }
 

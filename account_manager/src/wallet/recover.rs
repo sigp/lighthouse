@@ -11,20 +11,20 @@ pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(
-            Arg::with_name(NAME_FLAG)
+            Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)
                 .value_name("WALLET_NAME")
-                .help(
+                .about(
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(PASSWORD_FLAG)
+            Arg::new(PASSWORD_FLAG)
                 .long(PASSWORD_FLAG)
                 .value_name("PASSWORD_FILE_PATH")
-                .help(
+                .about(
                     "This will be the new password for your recovered wallet. \
                     A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
@@ -34,17 +34,17 @@ pub fn cli_app<'a>() -> App<'a> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(MNEMONIC_FLAG)
+            Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
-                .help("If present, the mnemonic will be read in from this file.")
+                .about("If present, the mnemonic will be read in from this file.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(TYPE_FLAG)
+            Arg::new(TYPE_FLAG)
                 .long(TYPE_FLAG)
                 .value_name("WALLET_TYPE")
-                .help(
+                .about(
                     "The type of wallet to create. Only HD (hierarchical-deterministic) \
                             wallets are supported presently..",
                 )
@@ -53,11 +53,11 @@ pub fn cli_app<'a>() -> App<'a> {
                 .default_value(HD_TYPE),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
+            Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .about("If present, read all user inputs from stdin instead of tty."),
         )
 }
 

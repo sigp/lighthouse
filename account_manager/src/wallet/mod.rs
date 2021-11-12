@@ -13,10 +13,10 @@ pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
         .about("Manage wallets, from which validator keys can be derived.")
         .arg(
-            Arg::with_name(WALLETS_DIR_FLAG)
+            Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name("WALLETS_DIRECTORY")
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
+                .about("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .takes_value(true)
                 .conflicts_with("datadir"),
         )
@@ -44,6 +44,6 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             "{} does not have a {} command. See --help",
             CMD, unknown
         )),
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD))
+        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
     }
 }
