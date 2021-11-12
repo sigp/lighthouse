@@ -1,4 +1,5 @@
 use crate::{test_utils::TestRandom, *};
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -59,14 +60,17 @@ impl<T: EthSpec> ExecutionPayload<T> {
         }
     }
 
-    pub fn payload_size(&self) -> usize {
-        let mut tx_size = ssz::BYTES_PER_LENGTH_OFFSET * self.transactions.len();
+    /// Returns the ssz size of `self`.
+    pub fn payload_size(&self) -> Result<usize, ArithError> {
+        let mut tx_size = ssz::BYTES_PER_LENGTH_OFFSET.safe_mul(self.transactions.len())?;
         for tx in self.transactions.iter() {
-            tx_size += tx.len();
+            tx_size.safe_add_assign(tx.len())?;
         }
-        Self::empty().as_ssz_bytes().len()
-            + <u8 as Encode>::ssz_fixed_len() * self.extra_data.len()
-            + tx_size
+        Self::empty()
+            .as_ssz_bytes()
+            .len()
+            .safe_add(<u8 as Encode>::ssz_fixed_len().safe_mul(self.extra_data.len())?)?
+            .safe_add(tx_size)
     }
 
     #[allow(clippy::integer_arithmetic)]
@@ -87,13 +91,19 @@ mod tests {
 
     #[test]
     fn test_payload_size() {
-        let mut payload = ExecutionPayload::empty();
+        let mut payload = ExecutionPayload::<crate::MainnetEthSpec>::empty();
 
-        assert_eq!(payload.as_ssz_bytes().len(), payload.payload_size());
+        assert_eq!(
+            payload.as_ssz_bytes().len(),
+            payload.payload_size().unwrap()
+        );
 
         payload.extra_data = VariableList::from(vec![42; 16]);
         payload.transactions = VariableList::from(vec![VariableList::from(vec![42; 42])]);
 
-        assert_eq!(payload.as_ssz_bytes().len(), payload.payload_size());
+        assert_eq!(
+            payload.as_ssz_bytes().len(),
+            payload.payload_size().unwrap()
+        );
     }
 }
