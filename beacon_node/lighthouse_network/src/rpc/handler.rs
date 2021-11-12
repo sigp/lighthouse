@@ -26,7 +26,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
@@ -154,6 +154,9 @@ struct InboundInfo<TSpec: EthSpec> {
     protocol: Protocol,
     /// Responses that the peer is still expecting from us.
     remaining_chunks: u64,
+    /// Useful to timing how long each request took to process. Currently only used by
+    /// BlocksByRange.
+    request_start_time: Instant,
     /// Key to keep track of the substream's timeout via `self.inbound_substreams_delay`.
     delay_key: Option<delay_queue::Key>,
 }
@@ -348,6 +351,7 @@ where
                     pending_items: VecDeque::with_capacity(expected_responses as usize),
                     delay_key: Some(delay_key),
                     protocol: req.protocol(),
+                    request_start_time: Instant::now(),
                     remaining_chunks: expected_responses,
                 },
             );
@@ -725,6 +729,13 @@ where
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.remove(delay_key);
                                 }
+
+                                // BlocksByRange is the one that typically consumes the most time.
+                                // Its useful to log when the request was completed.
+                                if matches!(info.protocol, Protocol::BlocksByRange) {
+                                    debug!(self.log, "BlocksByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                }
+
                                 // There is nothing more to process on this substream as it has
                                 // been closed. Move on to the next one.
                                 break;
@@ -743,6 +754,10 @@ where
                                     proto: info.protocol,
                                     id: *id,
                                 }));
+
+                                if matches!(info.protocol, Protocol::BlocksByRange) {
+                                    debug!(self.log, "BlocksByRange Response failed"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                }
                                 break;
                             }
                             // The sending future has not completed. Leave the state as busy and
