@@ -222,7 +222,7 @@ impl EngineApi for HttpJsonRpc {
             json_payload_attributes
         ]);
 
-        let result: ForkchoiceUpdatedResponse = self
+        let result: JsonForkchoiceUpdatedResponse = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V1,
                 params,
@@ -230,7 +230,7 @@ impl EngineApi for HttpJsonRpc {
             )
             .await?;
 
-        Ok(result)
+        Ok(ForkchoiceUpdatedResponse::from(result))
     }
 }
 
@@ -358,6 +358,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadAttributesV1 {
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub random: Hash256,
     pub fee_recipient: Address,
@@ -443,6 +444,87 @@ impl From<JsonExecutePayloadResponseV1> for ExecutePayloadResponse {
             latest_valid_hash: j.latest_valid_hash,
             message: j.message,
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum JsonForkchoiceUpdatedResponseStatus {
+    Success,
+    Syncing,
+}
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonForkchoiceUpdatedResponse {
+    pub status: JsonForkchoiceUpdatedResponseStatus,
+    #[serde(with = "opt_u64_hex_be")]
+    pub payload_id: Option<PayloadId>,
+}
+
+impl From<JsonForkchoiceUpdatedResponseStatus> for ForkchoiceUpdatedResponseStatus {
+    fn from(j: JsonForkchoiceUpdatedResponseStatus) -> Self {
+        match j {
+            JsonForkchoiceUpdatedResponseStatus::Success => {
+                ForkchoiceUpdatedResponseStatus::Success
+            }
+            JsonForkchoiceUpdatedResponseStatus::Syncing => {
+                ForkchoiceUpdatedResponseStatus::Syncing
+            }
+        }
+    }
+}
+impl From<ForkchoiceUpdatedResponseStatus> for JsonForkchoiceUpdatedResponseStatus {
+    fn from(f: ForkchoiceUpdatedResponseStatus) -> Self {
+        match f {
+            ForkchoiceUpdatedResponseStatus::Success => {
+                JsonForkchoiceUpdatedResponseStatus::Success
+            }
+            ForkchoiceUpdatedResponseStatus::Syncing => {
+                JsonForkchoiceUpdatedResponseStatus::Syncing
+            }
+        }
+    }
+}
+impl From<JsonForkchoiceUpdatedResponse> for ForkchoiceUpdatedResponse {
+    fn from(j: JsonForkchoiceUpdatedResponse) -> Self {
+        Self {
+            status: ForkchoiceUpdatedResponseStatus::from(j.status),
+            payload_id: j.payload_id,
+        }
+    }
+}
+impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedResponse {
+    fn from(f: ForkchoiceUpdatedResponse) -> Self {
+        Self {
+            status: JsonForkchoiceUpdatedResponseStatus::from(f.status),
+            payload_id: f.payload_id,
+        }
+    }
+}
+
+mod opt_u64_hex_be {
+    use serde::de::{Error, Visitor};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(value: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct Helper<'a>(#[serde(with = "eth2_serde_utils::u64_hex_be")] &'a u64);
+
+        value.as_ref().map(Helper).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper(#[serde(with = "eth2_serde_utils::u64_hex_be")] u64);
+
+        let helper = Option::deserialize(deserializer)?;
+        Ok(helper.map(|Helper(external)| external))
     }
 }
 
@@ -626,6 +708,7 @@ mod test {
     const ADDRESS_01: &str = "0x0101010101010101010101010101010101010101";
 
     const JSON_NULL: serde_json::Value = serde_json::Value::Null;
+    const LOGS_BLOOM_00: &str = "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     fn encode_transactions<E: EthSpec>(
@@ -927,28 +1010,19 @@ mod test {
 
     #[tokio::test]
     async fn forkchoice_updated_request() {
-        /*
-        {
-            "jsonrpc":"2.0",
-            "method":"engine_forkchoiceUpdatedV1",
-            "params":[{
-                "headBlockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
-                "safeBlockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
-                "finalizedBlockHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a"
-            }, null],
-            "id":67
-        }
-        */
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let forkchoice_state = ForkChoiceStateV1 {
-                        head_block_hash: Hash256::repeat_byte(0),
-                        safe_block_hash: Hash256::repeat_byte(0),
-                        finalized_block_hash: Hash256::repeat_byte(1),
-                    };
-
-                    let _ = client.forkchoice_updated_v1(forkchoice_state, None).await;
+                    let _ = client
+                        .forkchoice_updated_v1(
+                            ForkChoiceStateV1 {
+                                head_block_hash: Hash256::repeat_byte(0),
+                                safe_block_hash: Hash256::repeat_byte(0),
+                                finalized_block_hash: Hash256::repeat_byte(1),
+                            },
+                            None,
+                        )
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -973,70 +1047,142 @@ mod test {
     async fn geth_test_vectors() {
         Tester::new()
             .assert_request_equals(
+                // engine_forkchoiceUpdatedV1 (prepare payload) REQUEST validation
                 |client| async move {
                     let _ = client
-                        .prepare_payload(
-                            Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
-                            5,
-                            Hash256::zero(),
-                            Address::zero(),
+                        .forkchoice_updated_v1(
+                            ForkChoiceStateV1 {
+                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: Hash256::zero(),
+                            },
+                            Some(PayloadAttributes {
+                                timestamp: 5,
+                                random: Hash256::zero(),
+                                fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            })
                         )
                         .await;
                 },
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_preparePayload","params":[{"parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131", "timestamp":"0x5", "random":"0x0000000000000000000000000000000000000000000000000000000000000000", "feeRecipient":"0x0000000000000000000000000000000000000000"}],"id": 1}"#).unwrap()
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_FORKCHOICE_UPDATED_V1,
+                    "params": [{
+                        "headBlockHash": "0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+                        "safeBlockHash": "0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+                        "finalizedBlockHash": HASH_00,
+                    },
+                    {
+                        "timestamp":"0x5",
+                        "random": HASH_00,
+                        "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+                    }]
+                })
             )
             .await
             .with_preloaded_responses(
-                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":1,"result":{"payloadId":"0x0"}}"#).unwrap()],
+                // engine_forkchoiceUpdatedV1 (prepare payload) RESPONSE validation
+                //
+                // NOTE THIS HAD TO BE MODIFIED FROM ORIGINAL RESPONSE
+                // {
+                //      "jsonrpc":"2.0",
+                //      "id":67,
+                //      "result":{
+                //          "status":"VALID", // <- This must be SUCCESS
+                //          "payloadId":"0xa247243752eb10b4"
+                //      }
+                // }
+                // see spec for engine_forkchoiceUpdatedV1 response:
+                // https://github.com/ethereum/execution-apis/blob/v1.0.0-alpha.4/src/engine/specification.md#response-1
+                vec![json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "result": {
+                        "status": "SUCCESS",
+                        "payloadId": "0xa247243752eb10b4"
+                    }
+                })],
                 |client| async move {
-                    let payload_id = client
-                        .prepare_payload(
-                            Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
-                            5,
-                            Hash256::zero(),
-                            Address::zero(),
+                    let response = client
+                        .forkchoice_updated_v1(
+                            ForkChoiceStateV1 {
+                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: Hash256::zero(),
+                            },
+                            Some(PayloadAttributes {
+                                timestamp: 5,
+                                random: Hash256::zero(),
+                                fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            })
                         )
                         .await
                         .unwrap();
-
-                    assert_eq!(payload_id, 0);
+                    assert_eq!(response, ForkchoiceUpdatedResponse {
+                        status: ForkchoiceUpdatedResponseStatus::Success,
+                        payload_id: Some(u64::from_str_radix("a247243752eb10b4",16).unwrap()),
+                    });
                 },
             )
             .await
             .assert_request_equals(
+                // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(0)
+                        .get_payload_v1::<MainnetEthSpec>(u64::from_str_radix("a247243752eb10b4",16).unwrap())
                         .await;
                 },
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_getPayloadV1","params":["0x0"],"id":1}"#).unwrap()
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_GET_PAYLOAD_V1,
+                    "params": ["0xa247243752eb10b4"]
+                })
             )
             .await
             .with_preloaded_responses(
-                // Note: this response has been modified due to errors in the test vectors:
-                //
-                // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
-                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}}"#).unwrap()],
+                // engine_getPayloadV1 RESPONSE validation
+                vec![json!({
+                    "jsonrpc":JSONRPC_VERSION,
+                    "id":STATIC_ID,
+                    "result":{
+                        "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+                        "coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+                        "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
+                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "logsBloom": LOGS_BLOOM_00,
+                        "random": HASH_00,
+                        "blockNumber":"0x1",
+                        "gasLimit":"0x1c9c380",
+                        "gasUsed":"0x0",
+                        "timestamp":"0x5",
+                        "extraData":"0x",
+                        "baseFeePerGas":"0x7",
+                        "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                        "transactions":[]
+                    }
+                })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec>(0)
+                        .get_payload_v1::<MainnetEthSpec>(u64::from_str_radix("a247243752eb10b4",16).unwrap())
                         .await
                         .unwrap();
 
-                    let expected =  ExecutionPayload {
-                            parent_hash: Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                    let expected = ExecutionPayload {
+                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
                             random: Hash256::zero(),
                             block_number: 1,
-                            gas_limit: 10000000,
+                            gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
-                            base_fee_per_gas: Uint256::from(0),
-                            block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            base_fee_per_gas: Uint256::from(7),
+                            block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
                         };
 
@@ -1045,36 +1191,72 @@ mod test {
             )
             .await
             .assert_request_equals(
+                // engine_executePayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
                         .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::from_str("0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131").unwrap(),
+                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
                             random: Hash256::zero(),
                             block_number: 1,
-                            gas_limit: 10000000,
+                            gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
-                            base_fee_per_gas: Uint256::from(0),
-                            block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
+                            base_fee_per_gas: Uint256::from(7),
+                            block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
                         })
                         .await;
                 },
-                // Note: I have renamed the `recieptsRoot` field to `recieptRoot` and `number` to `blockNumber` since I think
-                // Geth has an issue. See:
-                //
-                // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_executePayloadV1","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","parentHash":"0xa0513a503d5bd6e89a144c3268e5b7e9da9dbf63df125a360e3950a7d0d67131","coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b","stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45","receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","random":"0x0000000000000000000000000000000000000000000000000000000000000000","blockNumber":"0x1","gasLimit":"0x989680","gasUsed":"0x0","timestamp":"0x5","extraData":"0x","baseFeePerGas":"0x0","transactions":[]}],"id":1}"#).unwrap()
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_EXECUTE_PAYLOAD_V1,
+                    "params": [{
+                        "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+                        "coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+                        "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
+                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "logsBloom": LOGS_BLOOM_00,
+                        "random": HASH_00,
+                        "blockNumber":"0x1",
+                        "gasLimit":"0x1c9c380",
+                        "gasUsed":"0x0",
+                        "timestamp":"0x5",
+                        "extraData":"0x",
+                        "baseFeePerGas":"0x7",
+                        "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                        "transactions":[]
+                    }],
+                })
             )
             .await
             .with_preloaded_responses(
-                //vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"status":"VALID"}}"#).unwrap()],
-                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":{"status":"VALID","latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858","message":null}}"#).unwrap()],
+                // engine_executePayloadV1 RESPONSE validation
+                //
+                // NOTE THIS HAD TO BE MODIFIED FROM ORIGINAL RESPONSE
+                // {
+                //      "jsonrpc":"2.0",
+                //      "id":67,
+                //      "result":{
+                //          "status":"SUCCESS", // <- This must be VALID
+                //          "latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858"
+                //      }
+                // }
+                // see spec for engine_executePayloadV1 response:
+                // https://github.com/ethereum/execution-apis/blob/v1.0.0-alpha.4/src/engine/specification.md#response
+                vec![json!({
+                    "jsonrpc": JSONRPC_VERSION,
+                    "id": STATIC_ID,
+                    "result":{
+                        "status":"VALID",
+                        "latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858"
+                    }
+                })],
                 |client| async move {
                     let response = client
                         .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload::default())
@@ -1092,50 +1274,32 @@ mod test {
             )
             .await
             .assert_request_equals(
+                // engine_forkchoiceUpdatedV1 REQUEST validation
                 |client| async move {
-                    let _ = client
-                        .consensus_validated(
-                            Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
-                            ConsensusStatus::Valid
-                        )
-                        .await;
-                },
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_consensusValidated","params":[{"blockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174", "status":"VALID"}],"id":1}"#).unwrap()
-            )
-            .await
-            .with_preloaded_responses(
-                vec![serde_json::from_str(r#"{"jsonrpc":"2.0","id":67,"result":null}"#).unwrap()],
-                |client| async move {
-                    let _: () = client
-                        .consensus_validated(
-                            Hash256::zero(),
-                            ConsensusStatus::Valid
-                        )
-                        .await
-                        .unwrap();
-                },
-            )
-            .await
-            .assert_request_equals(
-                |client| async move {
-                    let forkchoice_state = ForkChoiceStateV1 {
-                        head_block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
-                        safe_block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
-                        finalized_block_hash: Hash256::from_str("0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174").unwrap(),
-                    };
                     let _ = client
                         .forkchoice_updated_v1(
-                            forkchoice_state,
+                            ForkChoiceStateV1 {
+                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            },
                             None,
                         )
                         .await;
                 },
-                // Note: Geth incorrectly uses `engine_forkChoiceUpdated` (capital `C`). I've
-                // modified this vector to correct this. See:
-                //
-                // https://github.com/ethereum/go-ethereum/pull/23607#issuecomment-930668512
-                serde_json::from_str(r#"{"jsonrpc":"2.0","method":"engine_forkchoiceUpdatedV1","params":[{"headBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","safeBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174","finalizedBlockHash":"0xb084c10440f05f5a23a55d1d7ebcb1b3892935fb56f23cdc9a7f42c348eed174"},null],"id":1}"#).unwrap()
+                json!({
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_FORKCHOICE_UPDATED_V1,
+                    "params": [
+                        {
+                            "headBlockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                            "safeBlockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                            "finalizedBlockHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a"
+                        }, JSON_NULL],
+                    "id": STATIC_ID
+                })
             )
+<<<<<<< HEAD
             .await;
         /*
         .with_preloaded_responses(
@@ -1152,5 +1316,37 @@ mod test {
         )
         .await;
          */
+=======
+            .await
+            .with_preloaded_responses(
+                // engine_forkchoiceUpdatedV1 RESPONSE validation
+                vec![json!({
+                    "jsonrpc": JSONRPC_VERSION,
+                    "id": STATIC_ID,
+                    "result": {
+                        "status":"SUCCESS",
+                        "payloadId": "0x"
+                    }
+                })],
+                |client| async move {
+                    let response = client
+                        .forkchoice_updated_v1(
+                            ForkChoiceStateV1 {
+                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            },
+                            None,
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(response, ForkchoiceUpdatedResponse {
+                        status: ForkchoiceUpdatedResponseStatus::Success,
+                        payload_id: None,
+                    });
+                },
+            )
+            .await;
+>>>>>>> 1a6093da8 (Added new geth test vectors)
     }
 }

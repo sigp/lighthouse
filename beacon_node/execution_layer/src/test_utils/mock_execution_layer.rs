@@ -123,7 +123,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.timestamp, timestamp);
         assert_eq!(payload.random, random);
 
-        let (payload_response, latest_valid_hash) = self.el.execute_payload(&payload).await.unwrap();
+        let (payload_response, latest_valid_hash) =
+            self.el.execute_payload(&payload).await.unwrap();
         assert_eq!(payload_response, ExecutePayloadResponseStatus::Valid);
         assert_eq!(latest_valid_hash, Some(payload.block_hash));
 

@@ -1,5 +1,6 @@
 use crate::engine_api::{
-    http::JsonPreparePayloadRequest, ConsensusStatus, ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock,
+    http::JsonPreparePayloadRequest, ConsensusStatus, ExecutePayloadResponse,
+    ExecutePayloadResponseStatus, ExecutionBlock,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -274,7 +275,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             return ExecutePayloadResponse {
                 status: ExecutePayloadResponseStatus::Invalid,
                 latest_valid_hash: self.latest_execution_block().map(|block| block.block_hash),
-                message: None
+                message: None,
             };
         };
 
@@ -282,7 +283,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             return ExecutePayloadResponse {
                 status: ExecutePayloadResponseStatus::Invalid,
                 latest_valid_hash: self.latest_execution_block().map(|block| block.block_hash),
-                message: None
+                message: None,
             };
         }
 
@@ -292,7 +293,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         ExecutePayloadResponse {
             status: ExecutePayloadResponseStatus::Valid,
             latest_valid_hash: Some(valid_hash),
-            message: None
+            message: None,
         }
     }
 

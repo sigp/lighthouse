@@ -384,6 +384,11 @@ impl ExecutionLayer {
         }
 
         if valid > 0 {
+            let handle = ExecutePayloadHandle {
+                block_hash: execution_payload.block_hash,
+                execution_layer: Some(self.clone()),
+                log: self.log().clone(),
+            };
             Ok((
                 ExecutePayloadResponseStatus::Valid,
                 Some(execution_payload.block_hash),

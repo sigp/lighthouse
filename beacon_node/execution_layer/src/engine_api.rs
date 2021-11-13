@@ -132,14 +132,12 @@ pub struct PayloadAttributes {
     pub fee_recipient: Address,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ForkchoiceUpdatedResponseStatus {
     Success,
     Syncing,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ForkchoiceUpdatedResponse {
     pub status: ForkchoiceUpdatedResponseStatus,
     pub payload_id: Option<PayloadId>,
