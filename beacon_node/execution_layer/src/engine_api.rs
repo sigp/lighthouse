@@ -8,6 +8,7 @@ use crate::engines::ForkChoiceStateV1;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
+pub mod json_structures;
 
 pub type PayloadId = u64;
 

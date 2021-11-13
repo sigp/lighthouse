@@ -1,7 +1,7 @@
 use crate::engine_api::{
-    http::JsonPreparePayloadRequest, ConsensusStatus, ExecutePayloadResponse,
-    ExecutePayloadResponseStatus, ExecutionBlock,
+    ConsensusStatus, ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock,
 };
+use crate::json_structures::JsonPreparePayloadRequest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
