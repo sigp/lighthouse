@@ -106,9 +106,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let timestamp = block_number;
         let random = Hash256::from_low_u64_be(block_number);
 
-        let _payload_id = self
-            .el
-            .prepare_payload(parent_hash, timestamp, random)
+        self.el
+            .notify_forkchoice_updated(
+                parent_hash,
+                Hash256::zero(),
+                Some(PayloadAttributes {
+                    timestamp,
+                    random,
+                    fee_recipient: Address::repeat_byte(42),
+                }),
+            )
             .await
             .unwrap();
 

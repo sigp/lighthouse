@@ -30,16 +30,6 @@ pub struct JsonResponseBody {
     pub id: u32,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsonPreparePayloadRequest {
-    pub parent_hash: Hash256,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub timestamp: u64,
-    pub random: Hash256,
-    pub fee_recipient: Address,
-}
-
 /// On the request, just provide the `payload_id`, without the object wrapper (transparent).
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent, rename_all = "camelCase")]
@@ -152,13 +142,6 @@ impl From<JsonPayloadAttributesV1> for PayloadAttributes {
             fee_recipient: j.fee_recipient,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsonConsensusValidatedRequest {
-    pub block_hash: Hash256,
-    pub status: ConsensusStatus,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

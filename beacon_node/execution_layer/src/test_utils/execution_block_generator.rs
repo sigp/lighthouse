@@ -1,7 +1,7 @@
 use crate::engine_api::{
-    ConsensusStatus, ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock,
+    ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock, PayloadAttributes,
 };
-use crate::json_structures::JsonPreparePayloadRequest;
+use crate::engines::ForkChoiceStateV1;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
@@ -223,46 +223,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(())
     }
 
-    pub fn prepare_payload(&mut self, payload: JsonPreparePayloadRequest) -> Result<u64, String> {
-        if !self.blocks.iter().any(|(_, block)| {
-            block.block_hash() == self.terminal_block_hash
-                || block.block_number() == self.terminal_block_number
-        }) {
-            return Err("refusing to create payload id before terminal block".to_string());
-        }
-
-        let parent = self
-            .blocks
-            .get(&payload.parent_hash)
-            .ok_or_else(|| format!("unknown parent block {:?}", payload.parent_hash))?;
-
-        let id = self.next_payload_id;
-        self.next_payload_id += 1;
-
-        let mut execution_payload = ExecutionPayload {
-            parent_hash: payload.parent_hash,
-            coinbase: payload.fee_recipient,
-            receipt_root: Hash256::repeat_byte(42),
-            state_root: Hash256::repeat_byte(43),
-            logs_bloom: vec![0; 256].into(),
-            random: payload.random,
-            block_number: parent.block_number() + 1,
-            gas_limit: GAS_LIMIT,
-            gas_used: GAS_USED,
-            timestamp: payload.timestamp,
-            extra_data: "block gen was here".as_bytes().to_vec().into(),
-            base_fee_per_gas: Uint256::one(),
-            block_hash: Hash256::zero(),
-            transactions: vec![].into(),
-        };
-
-        execution_payload.block_hash = execution_payload.tree_hash_root();
-
-        self.payload_ids.insert(id, execution_payload);
-
-        Ok(id)
-    }
-
     pub fn get_payload(&mut self, id: u64) -> Option<ExecutionPayload<T>> {
         self.payload_ids.remove(&id)
     }
@@ -297,41 +257,88 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         }
     }
 
-    pub fn consensus_validated(
+    pub fn forkchoice_updated_v1(
         &mut self,
-        block_hash: Hash256,
-        status: ConsensusStatus,
-    ) -> Result<(), String> {
-        let payload = self
+        forkchoice_state: ForkChoiceStateV1,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<Option<u64>, String> {
+        if let Some(payload) = self
             .pending_payloads
-            .remove(&block_hash)
-            .ok_or_else(|| format!("no pending payload for {:?}", block_hash))?;
-
-        match status {
-            ConsensusStatus::Valid => self.insert_block(Block::PoS(payload)),
-            ConsensusStatus::Invalid => Ok(()),
-        }
-    }
-
-    pub fn forkchoice_updated(
-        &mut self,
-        block_hash: Hash256,
-        finalized_block_hash: Hash256,
-    ) -> Result<(), String> {
-        if !self.blocks.contains_key(&block_hash) {
-            return Err(format!("block hash {:?} unknown", block_hash));
-        }
-
-        if finalized_block_hash != Hash256::zero()
-            && !self.blocks.contains_key(&finalized_block_hash)
+            .remove(&forkchoice_state.head_block_hash)
         {
+            self.insert_block(Block::PoS(payload))?;
+        }
+        if !self.blocks.contains_key(&forkchoice_state.head_block_hash) {
             return Err(format!(
-                "finalized block hash {:?} is unknown",
-                finalized_block_hash
+                "block hash {:?} unknown",
+                forkchoice_state.head_block_hash
+            ));
+        }
+        if !self.blocks.contains_key(&forkchoice_state.safe_block_hash) {
+            return Err(format!(
+                "block hash {:?} unknown",
+                forkchoice_state.head_block_hash
             ));
         }
 
-        Ok(())
+        if forkchoice_state.finalized_block_hash != Hash256::zero()
+            && !self
+                .blocks
+                .contains_key(&forkchoice_state.finalized_block_hash)
+        {
+            return Err(format!(
+                "finalized block hash {:?} is unknown",
+                forkchoice_state.finalized_block_hash
+            ));
+        }
+
+        match payload_attributes {
+            None => Ok(None),
+            Some(attributes) => {
+                if !self.blocks.iter().any(|(_, block)| {
+                    block.block_hash() == self.terminal_block_hash
+                        || block.block_number() == self.terminal_block_number
+                }) {
+                    return Err("refusing to create payload id before terminal block".to_string());
+                }
+
+                let parent = self
+                    .blocks
+                    .get(&forkchoice_state.head_block_hash)
+                    .ok_or_else(|| {
+                        format!(
+                            "unknown parent block {:?}",
+                            forkchoice_state.head_block_hash
+                        )
+                    })?;
+
+                let id = self.next_payload_id;
+                self.next_payload_id += 1;
+
+                let mut execution_payload = ExecutionPayload {
+                    parent_hash: forkchoice_state.head_block_hash,
+                    coinbase: attributes.fee_recipient,
+                    receipt_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].into(),
+                    random: attributes.random,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: attributes.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    base_fee_per_gas: Uint256::one(),
+                    block_hash: Hash256::zero(),
+                    transactions: vec![].into(),
+                };
+
+                execution_payload.block_hash = execution_payload.tree_hash_root();
+
+                self.payload_ids.insert(id, execution_payload);
+
+                Ok(Some(id))
+            }
+        }
     }
 }
 

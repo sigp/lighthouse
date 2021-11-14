@@ -25,7 +25,7 @@ pub enum Error {
     ExecutionBlockNotFound(Hash256),
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(Hash256),
-    PayloadIdNotFound,
+    PayloadIdNotInCache,
 }
 
 impl From<reqwest::Error> for Error {
@@ -55,14 +55,6 @@ pub trait EngineApi {
         block_hash: Hash256,
     ) -> Result<Option<ExecutionBlock>, Error>;
 
-    async fn prepare_payload(
-        &self,
-        parent_hash: Hash256,
-        timestamp: u64,
-        random: Hash256,
-        fee_recipient: Address,
-    ) -> Result<PayloadId, Error>;
-
     async fn execute_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
@@ -72,12 +64,6 @@ pub trait EngineApi {
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error>;
-
-    async fn consensus_validated(
-        &self,
-        block_hash: Hash256,
-        status: ConsensusStatus,
-    ) -> Result<(), Error>;
 
     async fn forkchoice_updated_v1(
         &self,
@@ -100,13 +86,6 @@ pub struct ExecutePayloadResponse {
     pub status: ExecutePayloadResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
     pub message: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ConsensusStatus {
-    Valid,
-    Invalid,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]

@@ -54,17 +54,8 @@ pub async fn handle_rpc<T: EthSpec>(
             )
             .unwrap())
         }
-        ENGINE_PREPARE_PAYLOAD => {
-            let request = get_param_0(params)?;
-            let payload_id = ctx
-                .execution_block_generator
-                .write()
-                .prepare_payload(request)?;
-
-            Ok(serde_json::to_value(JsonPayloadIdResponse { payload_id }).unwrap())
-        }
         ENGINE_EXECUTE_PAYLOAD_V1 => {
-            let request: JsonExecutionPayloadV1<T> = get_param_0(params)?;
+            let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
             let response = if let Some(status) = *ctx.static_execute_payload_response.lock() {
                 match status {
@@ -89,7 +80,7 @@ pub async fn handle_rpc<T: EthSpec>(
             Ok(serde_json::to_value(JsonExecutePayloadResponseV1::from(response)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
-            let request: JsonPayloadIdRequest = get_param_0(params)?;
+            let request: JsonPayloadIdRequest = get_param(params, 0)?;
             let id = request.payload_id;
 
             let response = ctx
@@ -100,22 +91,22 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonExecutionPayloadV1::from(response)).unwrap())
         }
-
-        ENGINE_CONSENSUS_VALIDATED => {
-            let request: JsonConsensusValidatedRequest = get_param_0(params)?;
-            ctx.execution_block_generator
-                .write()
-                .consensus_validated(request.block_hash, request.status)?;
-
-            Ok(JsonValue::Null)
-        }
         ENGINE_FORKCHOICE_UPDATED_V1 => {
-            let request: JsonForkChoiceStateV1 = get_param_0(params)?;
-            ctx.execution_block_generator
+            let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
+            let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
+            let id = ctx
+                .execution_block_generator
                 .write()
-                .forkchoice_updated(request.head_block_hash, request.finalized_block_hash)?;
+                .forkchoice_updated_v1(
+                    forkchoice_state.into(),
+                    payload_attributes.map(|json| json.into()),
+                )?;
 
-            Ok(JsonValue::Null)
+            Ok(serde_json::to_value(JsonForkchoiceUpdatedResponse {
+                status: JsonForkchoiceUpdatedResponseStatus::Success,
+                payload_id: id,
+            })
+            .unwrap())
         }
         other => Err(format!(
             "The method {} does not exist/is not available",
@@ -124,12 +115,12 @@ pub async fn handle_rpc<T: EthSpec>(
     }
 }
 
-fn get_param_0<T: DeserializeOwned>(params: &JsonValue) -> Result<T, String> {
+fn get_param<T: DeserializeOwned>(params: &JsonValue, index: usize) -> Result<T, String> {
     params
-        .get(0)
-        .ok_or_else(|| "missing/invalid params[0] value".to_string())
+        .get(index)
+        .ok_or_else(|| format!("missing/invalid params[{}] value", index))
         .and_then(|param| {
             serde_json::from_value(param.clone())
-                .map_err(|e| format!("failed to deserialize param[0]: {:?}", e))
+                .map_err(|e| format!("failed to deserialize param[{}]: {:?}", index, e))
         })
 }

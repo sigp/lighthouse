@@ -19,12 +19,10 @@ use tokio::{
     time::{sleep, sleep_until, Instant},
 };
 
-pub use engine_api::{http::HttpJsonRpc, ConsensusStatus, ExecutePayloadResponseStatus};
-pub use execute_payload_handle::ExecutePayloadHandle;
+pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
 mod engine_api;
 mod engines;
-mod execute_payload_handle;
 pub mod test_utils;
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
@@ -236,39 +234,6 @@ impl ExecutionLayer {
         self.engines().any_synced().await
     }
 
-    /// Maps to the `engine_preparePayload` JSON-RPC function.
-    ///
-    /// ## Fallback Behavior
-    ///
-    /// The result will be returned from the first node that returns successfully. No more nodes
-    /// will be contacted.
-    pub async fn prepare_payload(
-        &self,
-        parent_hash: Hash256,
-        timestamp: u64,
-        random: Hash256,
-    ) -> Result<PayloadId, Error> {
-        let fee_recipient = self.fee_recipient()?;
-        debug!(
-            self.log(),
-            "Issuing engine_preparePayload";
-            "fee_recipient" => ?fee_recipient,
-            "random" => ?random,
-            "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
-        );
-        self.engines()
-            .first_success(|engine| {
-                // TODO(merge): make a cache for these IDs, so we don't always have to perform this
-                // request.
-                engine
-                    .api
-                    .prepare_payload(parent_hash, timestamp, random, fee_recipient)
-            })
-            .await
-            .map_err(Error::EngineErrors)
-    }
-
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
     /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
@@ -298,7 +263,7 @@ impl ExecutionLayer {
                 let payload_id = engine
                     .get_payload_id(parent_hash, timestamp, random, fee_recipient)
                     .await
-                    .ok_or(ApiError::PayloadIdNotFound)?;
+                    .ok_or(ApiError::PayloadIdNotInCache)?;
                 engine.api.get_payload_v1(payload_id).await
             })
             .await
@@ -384,11 +349,6 @@ impl ExecutionLayer {
         }
 
         if valid > 0 {
-            let handle = ExecutePayloadHandle {
-                block_hash: execution_payload.block_hash,
-                execution_layer: Some(self.clone()),
-                log: self.log().clone(),
-            };
             Ok((
                 ExecutePayloadResponseStatus::Valid,
                 Some(execution_payload.block_hash),
@@ -399,44 +359,6 @@ impl ExecutionLayer {
             Ok((ExecutePayloadResponseStatus::Syncing, None))
         } else {
             Err(Error::EngineErrors(errors))
-        }
-    }
-
-    /// Maps to the `engine_consensusValidated` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Ok, if any node returns successfully.
-    /// - An error, if all nodes return an error.
-    pub async fn consensus_validated(
-        &self,
-        block_hash: Hash256,
-        status: ConsensusStatus,
-    ) -> Result<(), Error> {
-        debug!(
-            self.log(),
-            "Issuing engine_consensusValidated";
-            "status" => ?status,
-            "block_hash" => ?block_hash,
-        );
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| engine.api.consensus_validated(block_hash, status))
-            .await;
-
-        if broadcast_results.iter().any(Result::is_ok) {
-            Ok(())
-        } else {
-            Err(Error::EngineErrors(
-                broadcast_results
-                    .into_iter()
-                    .filter_map(Result::err)
-                    .collect(),
-            ))
         }
     }
 
