@@ -256,27 +256,77 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedResponse {
 }
 
 pub mod opt_u64_hex_be {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde::de::{Error, Visitor};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    struct OptWrapper(Option<u64>);
+    impl<'de> Deserialize<'de> for OptWrapper {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct OptVisitor;
+            const BYTES_LEN: usize = 8;
+            impl<'de> Visitor<'de> for OptVisitor {
+                type Value = OptWrapper;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("a hex string")
+                }
+
+                fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+                where
+                    E: Error,
+                {
+                    if value.eq("null") {
+                        return Ok(OptWrapper(None));
+                    }
+                    if let Some(stripped) = value.strip_prefix("0x") {
+                        if stripped.is_empty() {
+                            // the string '0x' is often used for null..
+                            // at least it is in many of the geth test vectors
+                            // TODO: verify it's valid in this context
+                            return Ok(OptWrapper(None));
+                        }
+                        let bytes_vec = hex::decode(stripped)
+                            .map_err(|e| Error::custom(format!("invalid hex: {:?}", e)))?;
+                        // TODO: are they allowed to send us less than 8 bytes?
+                        if bytes_vec.len() > BYTES_LEN {
+                            return Err(Error::custom(format!(
+                                "expected max {} bytes for array, got {}",
+                                BYTES_LEN,
+                                bytes_vec.len()
+                            )));
+                        }
+                        let mut bytes_array = [0; BYTES_LEN];
+                        bytes_array[BYTES_LEN - bytes_vec.len()..].copy_from_slice(&bytes_vec);
+                        Ok(OptWrapper(Some(u64::from_be_bytes(bytes_array))))
+                    } else {
+                        Err(Error::custom(format!("must start with 0x")))
+                    }
+                }
+            }
+
+            deserializer.deserialize_str(OptVisitor)
+        }
+    }
 
     pub fn serialize<S>(value: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        #[derive(Serialize)]
-        struct Helper<'a>(#[serde(with = "eth2_serde_utils::u64_hex_be")] &'a u64);
-
-        value.as_ref().map(Helper).serialize(serializer)
+        match value {
+            None => serializer.serialize_str("null"),
+            Some(num) => serializer.serialize_str(&format!("0x{}", hex::encode(num.to_be_bytes()))),
+        }
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        struct Helper(#[serde(with = "eth2_serde_utils::u64_hex_be")] u64);
-
-        let helper = Option::deserialize(deserializer)?;
-        Ok(helper.map(|Helper(external)| external))
+        let opt_wrapper = OptWrapper::deserialize(deserializer)?;
+        Ok(opt_wrapper.0)
     }
 }
 

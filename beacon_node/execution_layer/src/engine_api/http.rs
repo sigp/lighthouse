@@ -9,7 +9,7 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
-use types::{EthSpec, Transaction, Unsigned, VariableList};
+use types::EthSpec;
 
 pub use reqwest::Client;
 
@@ -196,7 +196,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::MainnetEthSpec;
+    use types::{MainnetEthSpec, Transaction, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
