@@ -1,7 +1,7 @@
 use crate::engine_api::{
     ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock, PayloadAttributes,
 };
-use crate::engines::ForkChoiceStateV1;
+use crate::engines::ForkChoiceState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
@@ -259,7 +259,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
     pub fn forkchoice_updated_v1(
         &mut self,
-        forkchoice_state: ForkChoiceStateV1,
+        forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<Option<u64>, String> {
         if let Some(payload) = self

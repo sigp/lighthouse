@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
-use crate::engines::ForkChoiceStateV1;
+use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
@@ -67,21 +67,19 @@ pub trait EngineApi {
 
     async fn forkchoice_updated_v1(
         &self,
-        forkchoice_state: ForkChoiceStateV1,
+        forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExecutePayloadResponseStatus {
     Valid,
     Invalid,
     Syncing,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ExecutePayloadResponse {
     pub status: ExecutePayloadResponseStatus,
     pub latest_valid_hash: Option<Hash256>,

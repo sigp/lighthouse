@@ -19,7 +19,7 @@ enum EngineState {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct ForkChoiceStateV1 {
+pub struct ForkChoiceState {
     pub head_block_hash: Hash256,
     pub safe_block_hash: Hash256,
     pub finalized_block_hash: Hash256,
@@ -92,7 +92,7 @@ impl<T> Engine<T> {
 /// manner.
 pub struct Engines<T> {
     pub engines: Vec<Engine<T>>,
-    pub latest_forkchoice_state: RwLock<Option<ForkChoiceStateV1>>,
+    pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
     pub log: Logger,
 }
 
@@ -104,7 +104,7 @@ pub enum EngineError {
 
 impl<T: EngineApi> Engines<T> {
     async fn send_latest_forkchoice_state(&self, engine: &Engine<T>) {
-        let latest_forkchoice_state: Option<ForkChoiceStateV1> =
+        let latest_forkchoice_state: Option<ForkChoiceState> =
             *self.latest_forkchoice_state.read().await;
         if let Some(forkchoice_state) = latest_forkchoice_state {
             info!(
@@ -138,7 +138,7 @@ impl<T: EngineApi> Engines<T> {
 
     pub async fn notify_forkchoice_updated(
         &self,
-        forkchoice_state: ForkChoiceStateV1,
+        forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<(), Vec<EngineError>> {
         {
@@ -383,8 +383,8 @@ impl<T: EngineApi> Engines<T> {
     }
 }
 
-impl From<(&ForkChoiceStateV1, &PayloadAttributes)> for PayloadIdCacheKey {
-    fn from(pair: (&ForkChoiceStateV1, &PayloadAttributes)) -> Self {
+impl From<(&ForkChoiceState, &PayloadAttributes)> for PayloadIdCacheKey {
+    fn from(pair: (&ForkChoiceState, &PayloadAttributes)) -> Self {
         Self {
             head_block_hash: pair.0.head_block_hash,
             timestamp: pair.1.timestamp,

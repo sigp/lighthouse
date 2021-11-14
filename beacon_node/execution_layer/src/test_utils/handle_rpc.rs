@@ -77,7 +77,7 @@ pub async fn handle_rpc<T: EthSpec>(
                     .execute_payload(request.into())
             };
 
-            Ok(serde_json::to_value(JsonExecutePayloadResponseV1::from(response)).unwrap())
+            Ok(serde_json::to_value(JsonExecutePayloadV1Response::from(response)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
@@ -102,8 +102,8 @@ pub async fn handle_rpc<T: EthSpec>(
                     payload_attributes.map(|json| json.into()),
                 )?;
 
-            Ok(serde_json::to_value(JsonForkchoiceUpdatedResponse {
-                status: JsonForkchoiceUpdatedResponseStatus::Success,
+            Ok(serde_json::to_value(JsonForkchoiceUpdatedV1Response {
+                status: JsonForkchoiceUpdatedV1ResponseStatus::Success,
                 payload_id: id,
             })
             .unwrap())

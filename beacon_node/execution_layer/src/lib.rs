@@ -5,7 +5,7 @@
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines, ForkChoiceStateV1, Logging};
+use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, debug, error, info, Logger};
@@ -387,7 +387,7 @@ impl ExecutionLayer {
 
         // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
         // for now, we must set safe_block_hash = head_block_hash
-        let forkchoice_state = ForkChoiceStateV1 {
+        let forkchoice_state = ForkChoiceState {
             head_block_hash,
             safe_block_hash: head_block_hash,
             finalized_block_hash,

@@ -139,7 +139,7 @@ impl EngineApi for HttpJsonRpc {
     ) -> Result<ExecutePayloadResponse, Error> {
         let params = json!([JsonExecutionPayloadV1::from(execution_payload)]);
 
-        let result: ExecutePayloadResponse = self
+        let response: JsonExecutePayloadV1Response = self
             .rpc_request(
                 ENGINE_EXECUTE_PAYLOAD_V1,
                 params,
@@ -147,7 +147,7 @@ impl EngineApi for HttpJsonRpc {
             )
             .await?;
 
-        Ok(result)
+        Ok(response.into())
     }
 
     async fn get_payload_v1<T: EthSpec>(
@@ -160,12 +160,12 @@ impl EngineApi for HttpJsonRpc {
             .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await?;
 
-        Ok(ExecutionPayload::from(response))
+        Ok(response.into())
     }
 
     async fn forkchoice_updated_v1(
         &self,
-        forkchoice_state: ForkChoiceStateV1,
+        forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let json_payload_attributes = match payload_attributes {
@@ -177,7 +177,7 @@ impl EngineApi for HttpJsonRpc {
             json_payload_attributes
         ]);
 
-        let result: JsonForkchoiceUpdatedResponse = self
+        let response: JsonForkchoiceUpdatedV1Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V1,
                 params,
@@ -185,7 +185,7 @@ impl EngineApi for HttpJsonRpc {
             )
             .await?;
 
-        Ok(ForkchoiceUpdatedResponse::from(result))
+        Ok(response.into())
     }
 }
 
@@ -196,7 +196,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Transaction, VariableList};
+    use types::{MainnetEthSpec, Transaction, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -385,10 +385,9 @@ mod test {
 
         /*
          * Check for too many transactions
+         *
+         * THERE'S SOME KIND OF PROBLEM WITH THESE TESTS! THEY ARE RUNNING AN INFINITE LOOP!
          */
-
-        /*
-        THERE'S SOME KIND OF PROBLEM WITH THESE TESTS! THEY ARE RUNNING AN INFINITE LOOP!
 
         let num_max_txs = <MainnetEthSpec as EthSpec>::MaxTransactionsPerPayload::to_usize();
         let max_txs = (0..num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
@@ -444,7 +443,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceStateV1 {
+                            ForkChoiceState {
                                 head_block_hash: Hash256::repeat_byte(1),
                                 safe_block_hash: Hash256::repeat_byte(1),
                                 finalized_block_hash: Hash256::zero(),
@@ -549,7 +548,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceStateV1 {
+                            ForkChoiceState {
                                 head_block_hash: Hash256::repeat_byte(0),
                                 safe_block_hash: Hash256::repeat_byte(0),
                                 finalized_block_hash: Hash256::repeat_byte(1),
@@ -585,7 +584,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceStateV1 {
+                            ForkChoiceState {
                                 head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: Hash256::zero(),
@@ -640,7 +639,7 @@ mod test {
                 |client| async move {
                     let response = client
                         .forkchoice_updated_v1(
-                            ForkChoiceStateV1 {
+                            ForkChoiceState {
                                 head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: Hash256::zero(),
@@ -812,7 +811,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceStateV1 {
+                            ForkChoiceState {
                                 head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
@@ -847,7 +846,7 @@ mod test {
                 |client| async move {
                     let response = client
                         .forkchoice_updated_v1(
-                            ForkChoiceStateV1 {
+                            ForkChoiceState {
                                 head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),

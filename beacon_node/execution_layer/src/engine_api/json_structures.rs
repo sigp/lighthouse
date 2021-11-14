@@ -152,8 +152,8 @@ pub struct JsonForkChoiceStateV1 {
     pub finalized_block_hash: Hash256,
 }
 
-impl From<ForkChoiceStateV1> for JsonForkChoiceStateV1 {
-    fn from(f: ForkChoiceStateV1) -> Self {
+impl From<ForkChoiceState> for JsonForkChoiceStateV1 {
+    fn from(f: ForkChoiceState) -> Self {
         Self {
             head_block_hash: f.head_block_hash,
             safe_block_hash: f.safe_block_hash,
@@ -162,7 +162,7 @@ impl From<ForkChoiceStateV1> for JsonForkChoiceStateV1 {
     }
 }
 
-impl From<JsonForkChoiceStateV1> for ForkChoiceStateV1 {
+impl From<JsonForkChoiceStateV1> for ForkChoiceState {
     fn from(j: JsonForkChoiceStateV1) -> Self {
         Self {
             head_block_hash: j.head_block_hash,
@@ -173,27 +173,54 @@ impl From<JsonForkChoiceStateV1> for ForkChoiceStateV1 {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum JsonExecutePayloadV1ResponseStatus {
+    Valid,
+    Invalid,
+    Syncing,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonExecutePayloadResponseV1 {
-    pub status: ExecutePayloadResponseStatus,
+pub struct JsonExecutePayloadV1Response {
+    pub status: JsonExecutePayloadV1ResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
     pub message: Option<String>,
 }
 
-impl From<ExecutePayloadResponse> for JsonExecutePayloadResponseV1 {
+impl From<ExecutePayloadResponseStatus> for JsonExecutePayloadV1ResponseStatus {
+    fn from(e: ExecutePayloadResponseStatus) -> Self {
+        match e {
+            ExecutePayloadResponseStatus::Valid => JsonExecutePayloadV1ResponseStatus::Valid,
+            ExecutePayloadResponseStatus::Invalid => JsonExecutePayloadV1ResponseStatus::Invalid,
+            ExecutePayloadResponseStatus::Syncing => JsonExecutePayloadV1ResponseStatus::Syncing,
+        }
+    }
+}
+impl From<JsonExecutePayloadV1ResponseStatus> for ExecutePayloadResponseStatus {
+    fn from(j: JsonExecutePayloadV1ResponseStatus) -> Self {
+        match j {
+            JsonExecutePayloadV1ResponseStatus::Valid => ExecutePayloadResponseStatus::Valid,
+            JsonExecutePayloadV1ResponseStatus::Invalid => ExecutePayloadResponseStatus::Invalid,
+            JsonExecutePayloadV1ResponseStatus::Syncing => ExecutePayloadResponseStatus::Syncing,
+        }
+    }
+}
+
+impl From<ExecutePayloadResponse> for JsonExecutePayloadV1Response {
     fn from(e: ExecutePayloadResponse) -> Self {
         Self {
-            status: e.status,
+            status: e.status.into(),
             latest_valid_hash: e.latest_valid_hash,
             message: e.message,
         }
     }
 }
 
-impl From<JsonExecutePayloadResponseV1> for ExecutePayloadResponse {
-    fn from(j: JsonExecutePayloadResponseV1) -> Self {
+impl From<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
+    fn from(j: JsonExecutePayloadV1Response) -> Self {
         Self {
-            status: j.status,
+            status: j.status.into(),
             latest_valid_hash: j.latest_valid_hash,
             message: j.message,
         }
@@ -202,54 +229,54 @@ impl From<JsonExecutePayloadResponseV1> for ExecutePayloadResponse {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum JsonForkchoiceUpdatedResponseStatus {
+pub enum JsonForkchoiceUpdatedV1ResponseStatus {
     Success,
     Syncing,
 }
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonForkchoiceUpdatedResponse {
-    pub status: JsonForkchoiceUpdatedResponseStatus,
+pub struct JsonForkchoiceUpdatedV1Response {
+    pub status: JsonForkchoiceUpdatedV1ResponseStatus,
     #[serde(with = "opt_u64_hex_be")]
     pub payload_id: Option<PayloadId>,
 }
 
-impl From<JsonForkchoiceUpdatedResponseStatus> for ForkchoiceUpdatedResponseStatus {
-    fn from(j: JsonForkchoiceUpdatedResponseStatus) -> Self {
+impl From<JsonForkchoiceUpdatedV1ResponseStatus> for ForkchoiceUpdatedResponseStatus {
+    fn from(j: JsonForkchoiceUpdatedV1ResponseStatus) -> Self {
         match j {
-            JsonForkchoiceUpdatedResponseStatus::Success => {
+            JsonForkchoiceUpdatedV1ResponseStatus::Success => {
                 ForkchoiceUpdatedResponseStatus::Success
             }
-            JsonForkchoiceUpdatedResponseStatus::Syncing => {
+            JsonForkchoiceUpdatedV1ResponseStatus::Syncing => {
                 ForkchoiceUpdatedResponseStatus::Syncing
             }
         }
     }
 }
-impl From<ForkchoiceUpdatedResponseStatus> for JsonForkchoiceUpdatedResponseStatus {
+impl From<ForkchoiceUpdatedResponseStatus> for JsonForkchoiceUpdatedV1ResponseStatus {
     fn from(f: ForkchoiceUpdatedResponseStatus) -> Self {
         match f {
             ForkchoiceUpdatedResponseStatus::Success => {
-                JsonForkchoiceUpdatedResponseStatus::Success
+                JsonForkchoiceUpdatedV1ResponseStatus::Success
             }
             ForkchoiceUpdatedResponseStatus::Syncing => {
-                JsonForkchoiceUpdatedResponseStatus::Syncing
+                JsonForkchoiceUpdatedV1ResponseStatus::Syncing
             }
         }
     }
 }
-impl From<JsonForkchoiceUpdatedResponse> for ForkchoiceUpdatedResponse {
-    fn from(j: JsonForkchoiceUpdatedResponse) -> Self {
+impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
+    fn from(j: JsonForkchoiceUpdatedV1Response) -> Self {
         Self {
-            status: ForkchoiceUpdatedResponseStatus::from(j.status),
+            status: j.status.into(),
             payload_id: j.payload_id,
         }
     }
 }
-impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedResponse {
+impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     fn from(f: ForkchoiceUpdatedResponse) -> Self {
         Self {
-            status: JsonForkchoiceUpdatedResponseStatus::from(f.status),
+            status: f.status.into(),
             payload_id: f.payload_id,
         }
     }
