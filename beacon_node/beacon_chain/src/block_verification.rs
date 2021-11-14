@@ -1139,8 +1139,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
-        // TODO: do something with this hash later if the block is invaid
-        let (latest_valid_hash, payload_verification_status) =
+        //
+        // TODO(merge): handle the latest_valid_hash of an invalid payload.
+        let (_latest_valid_hash, payload_verification_status) =
             if is_execution_enabled(&state, block.message().body()) {
                 let execution_layer = chain
                     .execution_layer

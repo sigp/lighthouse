@@ -329,7 +329,7 @@ pub mod opt_u64_hex_be {
                         bytes_array[BYTES_LEN - bytes_vec.len()..].copy_from_slice(&bytes_vec);
                         Ok(OptWrapper(Some(u64::from_be_bytes(bytes_array))))
                     } else {
-                        Err(Error::custom(format!("must start with 0x")))
+                        Err(Error::custom("must start with 0x".to_string()))
                     }
                 }
             }
