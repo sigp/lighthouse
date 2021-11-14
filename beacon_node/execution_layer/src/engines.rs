@@ -153,11 +153,15 @@ impl<T: EngineApi> Engines<T> {
                     .forkchoice_updated_v1(forkchoice_state, payload_attributes)
                     .await;
                 if let Ok(response) = result.as_ref() {
-                    if let Some(payload_id) = response.payload_id {
+                    if let Some(payload_id) = &response.payload_id {
                         if let Some(key) = payload_attributes
                             .map(|pa| PayloadIdCacheKey::from((&forkchoice_state, &pa)))
                         {
-                            engine.payload_id_cache.write().await.put(key, payload_id);
+                            engine
+                                .payload_id_cache
+                                .write()
+                                .await
+                                .put(key, payload_id.clone());
                         }
                     }
                 }

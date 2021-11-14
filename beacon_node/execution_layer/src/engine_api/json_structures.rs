@@ -34,16 +34,14 @@ pub struct JsonResponseBody {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(transparent, rename_all = "camelCase")]
 pub struct JsonPayloadIdRequest {
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub payload_id: u64,
+    pub payload_id: PayloadId,
 }
 
 /// On the response, expect without the object wrapper (non-transparent).
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadIdResponse {
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub payload_id: u64,
+    pub payload_id: PayloadId,
 }
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -237,7 +235,6 @@ pub enum JsonForkchoiceUpdatedV1ResponseStatus {
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceUpdatedV1Response {
     pub status: JsonForkchoiceUpdatedV1ResponseStatus,
-    #[serde(with = "opt_u64_hex_be")]
     pub payload_id: Option<PayloadId>,
 }
 

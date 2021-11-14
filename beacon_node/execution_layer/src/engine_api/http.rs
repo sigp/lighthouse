@@ -480,13 +480,15 @@ mod test {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_payload_v1::<MainnetEthSpec>(42).await;
+                    let _ = client
+                        .get_payload_v1::<MainnetEthSpec>(vec![42; 8].into())
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
                     "method": ENGINE_GET_PAYLOAD_V1,
-                    "params": ["0x2a"]
+                    "params": ["0x2a2a2a2a2a2a2a2a"]
                 }),
             )
             .await;
@@ -654,7 +656,7 @@ mod test {
                         .unwrap();
                     assert_eq!(response, ForkchoiceUpdatedResponse {
                         status: ForkchoiceUpdatedResponseStatus::Success,
-                        payload_id: Some(u64::from_str_radix("a247243752eb10b4",16).unwrap()),
+                        payload_id: Some(serde_json::from_str("0xa247243752eb10b4").unwrap()),
                     });
                 },
             )
@@ -663,7 +665,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(u64::from_str_radix("a247243752eb10b4",16).unwrap())
+                        .get_payload_v1::<MainnetEthSpec>(serde_json::from_str("0xa247243752eb10b4").unwrap())
                         .await;
                 },
                 json!({
@@ -698,7 +700,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec>(u64::from_str_radix("a247243752eb10b4",16).unwrap())
+                        .get_payload_v1::<MainnetEthSpec>(serde_json::from_str("0xa247243752eb10b4").unwrap())
                         .await
                         .unwrap();
 

@@ -1,5 +1,6 @@
 use crate::engine_api::{
     ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock, PayloadAttributes,
+    PayloadId,
 };
 use crate::engines::ForkChoiceState;
 use serde::{Deserialize, Serialize};
@@ -91,7 +92,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      */
     pub pending_payloads: HashMap<Hash256, ExecutionPayload<T>>,
     pub next_payload_id: u64,
-    pub payload_ids: HashMap<u64, ExecutionPayload<T>>,
+    pub payload_ids: HashMap<PayloadId, ExecutionPayload<T>>,
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -223,8 +224,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(())
     }
 
-    pub fn get_payload(&mut self, id: u64) -> Option<ExecutionPayload<T>> {
-        self.payload_ids.remove(&id)
+    pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<T>> {
+        self.payload_ids.remove(id)
     }
 
     pub fn execute_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
@@ -261,7 +262,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         &mut self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<Option<u64>, String> {
+    ) -> Result<Option<PayloadId>, String> {
         if let Some(payload) = self
             .pending_payloads
             .remove(&forkchoice_state.head_block_hash)
@@ -312,7 +313,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                         )
                     })?;
 
-                let id = self.next_payload_id;
+                let id = payload_id_from_u64(self.next_payload_id);
                 self.next_payload_id += 1;
 
                 let mut execution_payload = ExecutionPayload {
@@ -334,12 +335,17 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
                 execution_payload.block_hash = execution_payload.tree_hash_root();
 
-                self.payload_ids.insert(id, execution_payload);
+                self.payload_ids.insert(id.clone(), execution_payload);
 
                 Ok(Some(id))
             }
         }
     }
+}
+
+fn payload_id_from_u64(n: u64) -> PayloadId {
+    let bytes = n.to_le_bytes();
+    PayloadId::new(bytes.to_vec()).expect("u64 always contains 8 bytes")
 }
 
 pub fn generate_pow_block(

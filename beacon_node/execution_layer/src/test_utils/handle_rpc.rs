@@ -86,8 +86,8 @@ pub async fn handle_rpc<T: EthSpec>(
             let response = ctx
                 .execution_block_generator
                 .write()
-                .get_payload(id)
-                .ok_or_else(|| format!("no payload for id {}", id))?;
+                .get_payload(&id)
+                .ok_or_else(|| format!("no payload for id {:?}", id))?;
 
             Ok(serde_json::to_value(JsonExecutionPayloadV1::from(response)).unwrap())
         }
