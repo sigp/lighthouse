@@ -4,7 +4,7 @@ mod metrics;
 
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
@@ -16,7 +16,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
-use types::{EthSpec, EthSpecId, Uint256};
+use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 fn bls_library_name() -> &'static str {
@@ -464,47 +464,4 @@ fn run<E: EthSpec>(
         ShutdownReason::Success(_) => Ok(()),
         ShutdownReason::Failure(msg) => Err(msg.to_string()),
     }
-}
-
-/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
-/// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
-    let optional_network_config = if cli_args.is_present("network") {
-        clap_utils::parse_hardcoded_network(cli_args, "network")?
-    } else if cli_args.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
-    } else {
-        // if neither is present, assume the default network
-        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
-    };
-
-    let mut eth2_network_config =
-        optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
-
-    if let Some(string) =
-        clap_utils::parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
-    {
-        let stripped = string.replace(",", "");
-        let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
-            format!(
-                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
-                e
-            )
-        })?;
-
-        eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
-    }
-
-    if let Some(hash) = clap_utils::parse_optional(cli_args, "terminal-block-hash-override")? {
-        eth2_network_config.config.terminal_block_hash = hash;
-    }
-
-    if let Some(epoch) = clap_utils::parse_optional(cli_args, "terminal-block-hash-epoch-override")?
-    {
-        eth2_network_config
-            .config
-            .terminal_block_hash_activation_epoch = epoch;
-    }
-
-    Ok(eth2_network_config)
 }
