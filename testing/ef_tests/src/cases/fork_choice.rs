@@ -1,5 +1,6 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
+use ::fork_choice::PayloadVerificationStatus;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
@@ -218,6 +219,8 @@ impl<E: EthSpec> Tester<E> {
             .spec(spec.clone())
             .keypairs(vec![])
             .genesis_state_ephemeral_store(case.anchor_state.clone())
+            .mock_execution_layer()
+            .mock_execution_layer_all_payloads_valid()
             .build();
 
         if harness.chain.genesis_block_root != case.anchor_block.canonical_root() {
@@ -283,10 +286,11 @@ impl<E: EthSpec> Tester<E> {
         let block_root = block.canonical_root();
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
-                "block with root {} was valid={} whilst test expects valid={}",
+                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
                 block_root,
                 result.is_ok(),
-                valid
+                valid,
+                result
             )));
         }
 
@@ -319,6 +323,7 @@ impl<E: EthSpec> Tester<E> {
                     &block,
                     block_root,
                     &state,
+                    PayloadVerificationStatus::Irrelevant,
                     &self.harness.chain.spec,
                 );
 

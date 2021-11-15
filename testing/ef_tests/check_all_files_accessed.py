@@ -32,9 +32,16 @@ excluded_paths = [
     # LightClientSnapshot
     "tests/minimal/altair/ssz_static/LightClientSnapshot",
     "tests/mainnet/altair/ssz_static/LightClientSnapshot",
+    "tests/minimal/merge/ssz_static/LightClientSnapshot",
+    "tests/mainnet/merge/ssz_static/LightClientSnapshot",
     # Merkle-proof tests for light clients
-    "tests/mainnet/altair/merkle/single_proof/pyspec_tests/",
-    "tests/minimal/altair/merkle/single_proof/pyspec_tests/"
+    "tests/mainnet/altair/merkle/single_proof",
+    "tests/minimal/altair/merkle/single_proof",
+    "tests/mainnet/merge/merkle/single_proof",
+    "tests/minimal/merge/merkle/single_proof",
+    # Fork choice tests featuring PoW blocks
+    "tests/minimal/merge/fork_choice/on_merge_block/",
+    "tests/mainnet/merge/fork_choice/on_merge_block/"
 ]
 
 def normalize_path(path):

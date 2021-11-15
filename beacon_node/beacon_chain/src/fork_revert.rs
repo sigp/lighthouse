@@ -178,6 +178,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 block.canonical_root(),
                 &state,
                 payload_verification_status,
+                spec,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }
