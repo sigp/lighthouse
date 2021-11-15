@@ -180,6 +180,8 @@ enum InboundState<TSpec: EthSpec> {
     /// The underlying substream is not being used.
     Idle(InboundSubstream<TSpec>),
     /// The underlying substream is processing responses.
+    /// The return value of the future is (substream, stream_was_closed). The stream_was_closed boolean
+    /// indicates if the stream was closed due to an error or successfully completing a response.
     Busy(Pin<Box<dyn Future<Output = Result<(InboundSubstream<TSpec>, bool), RPCError>> + Send>>),
     /// Temporary state during processing
     Poisoned,
@@ -756,7 +758,7 @@ where
                                 }));
 
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
-                                    debug!(self.log, "BlocksByRange Response failed"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                    debug!(self.log, "BlocksByRange Response failed"; "duration" => info.request_start_time.elapsed().as_secs());
                                 }
                                 break;
                             }
