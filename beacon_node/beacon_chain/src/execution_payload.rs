@@ -301,9 +301,9 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
 
 /// Extracts a reference to an execution payload from a block, returning an error if there is a
 /// fork mismatch.
-fn execution_payload_ref<'a, T: EthSpec>(
-    block: BeaconBlockRef<'a, T>,
-) -> Result<&'a ExecutionPayload<T>, BlockError<T>> {
+fn execution_payload_ref<T: EthSpec>(
+    block: BeaconBlockRef<T>,
+) -> Result<&ExecutionPayload<T>, BlockError<T>> {
     block.body().execution_payload().ok_or_else(|| {
         InconsistentFork {
             fork_at_slot: eth2::types::ForkName::Merge,
