@@ -232,10 +232,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash) {
             parent
         } else {
-            // TODO: make this smarter..
             return ExecutePayloadResponse {
-                status: ExecutePayloadResponseStatus::Invalid,
-                latest_valid_hash: self.latest_execution_block().map(|block| block.block_hash),
+                status: ExecutePayloadResponseStatus::Syncing,
+                latest_valid_hash: None,
                 message: None,
             };
         };
@@ -243,8 +242,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         if payload.block_number != parent.block_number() + 1 {
             return ExecutePayloadResponse {
                 status: ExecutePayloadResponseStatus::Invalid,
-                latest_valid_hash: self.latest_execution_block().map(|block| block.block_hash),
-                message: None,
+                latest_valid_hash: Some(parent.block_hash()),
+                message: Some("invalid block number".to_string()),
             };
         }
 
