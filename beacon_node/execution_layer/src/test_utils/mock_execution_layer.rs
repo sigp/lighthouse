@@ -6,7 +6,7 @@ use environment::null_logger;
 use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Address, ChainSpec, EthSpec, Hash256, Uint256};
+use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
     pub runtime: Option<Arc<tokio::runtime::Runtime>>,
@@ -59,6 +59,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             Hash256::zero(),
+            Epoch::new(0),
         )
     }
 
@@ -66,11 +67,15 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: Hash256,
+        terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
         let el_runtime = ExecutionLayerRuntime::default();
         let handle = el_runtime.runtime.as_ref().unwrap().handle();
 
-        let spec = T::default_spec();
+        let mut spec = T::default_spec();
+        spec.terminal_total_difficulty = terminal_total_difficulty;
+        spec.terminal_block_hash = terminal_block_hash;
+        spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
         let server = MockServer::new(
             handle,
