@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Checkpoint, Epoch, Hash256, Uint256};
+use types::{Checkpoint, Epoch, Hash256};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
