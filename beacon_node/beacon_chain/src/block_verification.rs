@@ -266,24 +266,12 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     RejectedByExecutionEngine,
-    /// The execution engine returned SYNCING for the payload
-    ///
-    /// ## Peer scoring
-    ///
-    /// It is not known if the block is valid or invalid.
-    ExecutionEngineIsSyncing,
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
     InvalidPayloadTimestamp { expected: u64, found: u64 },
-    /// The execution payload transaction list data exceeds size limits
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty
-    TransactionDataExceedsSizeLimit,
     /// The execution payload references an execution block that cannot trigger the merge.
     ///
     /// ## Peer scoring
@@ -291,13 +279,6 @@ pub enum ExecutionPayloadError {
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
     InvalidTerminalPoWBlock,
-    /// The execution payload references execution blocks that are unavailable on our execution
-    /// nodes.
-    ///
-    /// ## Peer scoring
-    ///
-    /// It's not clear if the peer is invalid or if it's on a different execution fork to us.
-    TerminalPoWBlockNotFound,
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
