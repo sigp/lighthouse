@@ -50,7 +50,7 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use execution_layer::ExecutePayloadResponse;
+use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -1139,7 +1139,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         }
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
-        let (execute_payload_handle, payload_verification_status) =
+        //
+        // TODO(merge): handle the latest_valid_hash of an invalid payload.
+        let (_latest_valid_hash, payload_verification_status) =
             if is_execution_enabled(&state, block.message().body()) {
                 let execution_layer = chain
                     .execution_layer
@@ -1159,15 +1161,15 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                     .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
 
                 match execute_payload_response {
-                    Ok((status, handle)) => match status {
-                        ExecutePayloadResponse::Valid => {
-                            (handle, PayloadVerificationStatus::Verified)
+                    Ok((status, latest_valid_hash)) => match status {
+                        ExecutePayloadResponseStatus::Valid => {
+                            (latest_valid_hash, PayloadVerificationStatus::Verified)
                         }
-                        ExecutePayloadResponse::Invalid => {
+                        ExecutePayloadResponseStatus::Invalid => {
                             return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
                         }
-                        ExecutePayloadResponse::Syncing => {
-                            (handle, PayloadVerificationStatus::NotVerified)
+                        ExecutePayloadResponseStatus::Syncing => {
+                            (latest_valid_hash, PayloadVerificationStatus::NotVerified)
                         }
                     },
                     Err(_) => (None, PayloadVerificationStatus::NotVerified),
@@ -1272,15 +1274,6 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 block: block.state_root(),
                 local: state_root,
             });
-        }
-
-        // If this block required an `executePayload` call to the execution node, inform it that the
-        // block is indeed valid.
-        //
-        // If the handle is dropped without explicitly declaring validity, an invalid message will
-        // be sent to the execution engine.
-        if let Some(execute_payload_handle) = execute_payload_handle {
-            execute_payload_handle.publish_consensus_valid();
         }
 
         Ok(Self {

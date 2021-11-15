@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
+use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
+pub mod json_structures;
 
-pub type PayloadId = u64;
+pub type PayloadId = [u8; 8];
 
 #[derive(Debug)]
 pub enum Error {
@@ -23,6 +25,7 @@ pub enum Error {
     ExecutionBlockNotFound(Hash256),
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(Hash256),
+    PayloadIdUnavailable,
 }
 
 impl From<reqwest::Error> for Error {
@@ -52,50 +55,35 @@ pub trait EngineApi {
         block_hash: Hash256,
     ) -> Result<Option<ExecutionBlock>, Error>;
 
-    async fn prepare_payload(
-        &self,
-        parent_hash: Hash256,
-        timestamp: u64,
-        random: Hash256,
-        fee_recipient: Address,
-    ) -> Result<PayloadId, Error>;
-
-    async fn execute_payload<T: EthSpec>(
+    async fn execute_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error>;
 
-    async fn get_payload<T: EthSpec>(
+    async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error>;
 
-    async fn consensus_validated(
+    async fn forkchoice_updated_v1(
         &self,
-        block_hash: Hash256,
-        status: ConsensusStatus,
-    ) -> Result<(), Error>;
-
-    async fn forkchoice_updated(
-        &self,
-        head_block_hash: Hash256,
-        finalized_block_hash: Hash256,
-    ) -> Result<(), Error>;
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error>;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ExecutePayloadResponse {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ExecutePayloadResponseStatus {
     Valid,
     Invalid,
     Syncing,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ConsensusStatus {
-    Valid,
-    Invalid,
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExecutePayloadResponse {
+    pub status: ExecutePayloadResponseStatus,
+    pub latest_valid_hash: Option<Hash256>,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -113,4 +101,22 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: Hash256,
     pub total_difficulty: Uint256,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PayloadAttributes {
+    pub timestamp: u64,
+    pub random: Hash256,
+    pub fee_recipient: Address,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ForkchoiceUpdatedResponseStatus {
+    Success,
+    Syncing,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForkchoiceUpdatedResponse {
+    pub status: ForkchoiceUpdatedResponseStatus,
+    pub payload_id: Option<PayloadId>,
 }

@@ -1,11 +1,17 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
-use crate::engine_api::{EngineApi, Error as EngineApiError};
+use crate::engine_api::{EngineApi, Error as EngineApiError, PayloadAttributes, PayloadId};
 use futures::future::join_all;
+use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
-use tokio::sync::RwLock;
-use types::Hash256;
+use tokio::sync::{Mutex, RwLock};
+use types::{Address, Hash256};
+
+/// The number of payload IDs that will be stored for each `Engine`.
+///
+/// Since the size of each value is small (~100 bytes) a large number is used for safety.
+const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
@@ -16,8 +22,9 @@ enum EngineState {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct ForkChoiceHead {
+pub struct ForkChoiceState {
     pub head_block_hash: Hash256,
+    pub safe_block_hash: Hash256,
     pub finalized_block_hash: Hash256,
 }
 
@@ -37,10 +44,19 @@ impl Logging {
     }
 }
 
+#[derive(Hash, PartialEq, std::cmp::Eq)]
+struct PayloadIdCacheKey {
+    pub head_block_hash: Hash256,
+    pub timestamp: u64,
+    pub random: Hash256,
+    pub fee_recipient: Address,
+}
+
 /// An execution engine.
 pub struct Engine<T> {
     pub id: String,
     pub api: T,
+    payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
 }
 
@@ -50,8 +66,58 @@ impl<T> Engine<T> {
         Self {
             id,
             api,
+            payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
         }
+    }
+
+    pub async fn get_payload_id(
+        &self,
+        head_block_hash: Hash256,
+        timestamp: u64,
+        random: Hash256,
+        fee_recipient: Address,
+    ) -> Option<PayloadId> {
+        self.payload_id_cache
+            .lock()
+            .await
+            .get(&PayloadIdCacheKey {
+                head_block_hash,
+                timestamp,
+                random,
+                fee_recipient,
+            })
+            .cloned()
+    }
+}
+
+impl<T: EngineApi> Engine<T> {
+    pub async fn notify_forkchoice_updated(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+        log: &Logger,
+    ) -> Result<Option<PayloadId>, EngineApiError> {
+        let response = self
+            .api
+            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .await?;
+
+        if let Some(payload_id) = response.payload_id {
+            if let Some(key) =
+                payload_attributes.map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
+            {
+                self.payload_id_cache.lock().await.put(key, payload_id);
+            } else {
+                debug!(
+                    log,
+                    "Engine returned unexpected payload_id";
+                    "payload_id" => ?payload_id
+                );
+            }
+        }
+
+        Ok(response.payload_id)
     }
 }
 
@@ -59,7 +125,7 @@ impl<T> Engine<T> {
 /// manner.
 pub struct Engines<T> {
     pub engines: Vec<Engine<T>>,
-    pub latest_head: RwLock<Option<ForkChoiceHead>>,
+    pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
     pub log: Logger,
 }
 
@@ -70,23 +136,30 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
-    pub async fn set_latest_head(&self, latest_head: ForkChoiceHead) {
-        *self.latest_head.write().await = Some(latest_head);
+    async fn get_latest_forkchoice_state(&self) -> Option<ForkChoiceState> {
+        *self.latest_forkchoice_state.read().await
     }
 
-    async fn send_latest_head(&self, engine: &Engine<T>) {
-        let latest_head: Option<ForkChoiceHead> = *self.latest_head.read().await;
-        if let Some(head) = latest_head {
+    pub async fn set_latest_forkchoice_state(&self, state: ForkChoiceState) {
+        *self.latest_forkchoice_state.write().await = Some(state);
+    }
+
+    async fn send_latest_forkchoice_state(&self, engine: &Engine<T>) {
+        let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
+
+        if let Some(forkchoice_state) = latest_forkchoice_state {
             info!(
                 self.log,
                 "Issuing forkchoiceUpdated";
-                "head" => ?head,
+                "forkchoice_state" => ?forkchoice_state,
                 "id" => &engine.id,
             );
 
+            // For simplicity, payload attributes are never included in this call. It may be
+            // reasonable to include them in the future.
             if let Err(e) = engine
                 .api
-                .forkchoice_updated(head.head_block_hash, head.finalized_block_hash)
+                .forkchoice_updated_v1(forkchoice_state, None)
                 .await
             {
                 debug!(
@@ -132,8 +205,8 @@ impl<T: EngineApi> Engines<T> {
                             );
                         }
 
-                        // Send the node our latest head.
-                        self.send_latest_head(engine).await;
+                        // Send the node our latest forkchoice_state.
+                        self.send_latest_forkchoice_state(engine).await;
 
                         *state_lock = EngineState::Synced
                     }
@@ -146,8 +219,8 @@ impl<T: EngineApi> Engines<T> {
                             )
                         }
 
-                        // Send the node our latest head, it may assist with syncing.
-                        self.send_latest_head(engine).await;
+                        // Send the node our latest forkchoice_state, it may assist with syncing.
+                        self.send_latest_forkchoice_state(engine).await;
 
                         *state_lock = EngineState::Syncing
                     }
@@ -310,5 +383,16 @@ impl<T: EngineApi> Engines<T> {
         });
 
         join_all(futures).await
+    }
+}
+
+impl PayloadIdCacheKey {
+    fn new(state: &ForkChoiceState, attributes: &PayloadAttributes) -> Self {
+        Self {
+            head_block_hash: state.head_block_hash,
+            timestamp: attributes.timestamp,
+            random: attributes.random,
+            fee_recipient: attributes.fee_recipient,
+        }
     }
 }

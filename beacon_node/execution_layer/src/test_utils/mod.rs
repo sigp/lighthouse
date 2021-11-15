@@ -1,7 +1,7 @@
 //! Provides a mock execution engine HTTP JSON-RPC API for use in testing.
 
 use crate::engine_api::http::JSONRPC_VERSION;
-use crate::engine_api::ExecutePayloadResponse;
+use crate::engine_api::ExecutePayloadResponseStatus;
 use bytes::Bytes;
 use environment::null_logger;
 use handle_rpc::handle_rpc;
@@ -116,7 +116,7 @@ impl<T: EthSpec> MockServer<T> {
     }
 
     pub fn all_payloads_valid(&self) {
-        *self.ctx.static_execute_payload_response.lock() = Some(ExecutePayloadResponse::Valid)
+        *self.ctx.static_execute_payload_response.lock() = Some(ExecutePayloadResponseStatus::Valid)
     }
 }
 
@@ -152,7 +152,7 @@ pub struct Context<T: EthSpec> {
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
-    pub static_execute_payload_response: Arc<Mutex<Option<ExecutePayloadResponse>>>,
+    pub static_execute_payload_response: Arc<Mutex<Option<ExecutePayloadResponseStatus>>>,
     pub _phantom: PhantomData<T>,
 }
 
