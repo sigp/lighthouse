@@ -13,14 +13,14 @@ use env_logger::{Builder, Env};
 use environment::EnvironmentBuilder;
 use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
-use indexmap::IndexMap;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
+use std::collections::HashMap;
+use std::env;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
-use std::{env, fs};
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -56,7 +56,7 @@ fn main() {
     );
 
     // Due to lifetimes in `App`, this needs to be initialized before `App`.
-    let mut file_args = IndexMap::new();
+    let mut file_args = HashMap::new();
     let beacon_node_app = beacon_node::cli_app();
     let boot_node_app = boot_node::cli_app();
     let validator_client_app = validator_client::cli_app();
@@ -214,9 +214,7 @@ fn main() {
         .get_matches();
     let file_name_opt = first_matches.value_of("config-file");
     if let Some(file_name) = file_name_opt {
-        let yaml_config: Result<IndexMap<String, String>, _> = fs::read_to_string(file_name)
-            .map_err(|e| e.to_string())
-            .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()));
+        let yaml_config = clap_utils::parse_file_config(file_name);
         match yaml_config {
             Ok(yaml) => {
                 for entry in yaml {
