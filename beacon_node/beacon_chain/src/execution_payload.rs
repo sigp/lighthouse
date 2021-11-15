@@ -2,6 +2,26 @@ use crate::{BeaconChain, BeaconChainTypes, BlockProductionError};
 use state_processing::per_block_processing::{compute_timestamp_at_slot, is_merge_complete};
 use types::*;
 
+/// Gets an execution payload for inclusion in a block.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
+/// after the merge fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `get_execution_payload` function in the Validator Guide:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
+pub fn get_execution_payload<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    state: &BeaconState<T::EthSpec>,
+) -> Result<ExecutionPayload<T::EthSpec>, BlockProductionError> {
+    Ok(prepare_execution_payload_blocking(chain, state)?.unwrap_or_default())
+}
+
+/// Wraps the async `prepare_execution_payload` function as a blocking task.
 pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
@@ -16,6 +36,20 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
         .map_err(BlockProductionError::BlockingFailed)?
 }
 
+/// Prepares an execution payload for inclusion in a block.
+///
+/// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
+/// after the merge fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 pub async fn prepare_execution_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
@@ -26,7 +60,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
-    let parent_hash = if !is_merge_complete(&state) {
+    let parent_hash = if !is_merge_complete(state) {
         let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
         let is_activation_epoch_reached =
             state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
@@ -49,7 +83,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         state.latest_execution_payload_header()?.block_hash
     };
 
-    let timestamp = compute_timestamp_at_slot(&state, spec).map_err(BeaconStateError::from)?;
+    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(state.current_epoch())?;
     let finalized_root = state.finalized_checkpoint().root;
 
