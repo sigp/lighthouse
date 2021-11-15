@@ -105,16 +105,24 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let random = Hash256::from_low_u64_be(block_number);
+        let finalized_block_hash = parent_hash;
 
-        let _payload_id = self
-            .el
-            .prepare_payload(parent_hash, timestamp, random)
+        self.el
+            .notify_forkchoice_updated(
+                parent_hash,
+                Hash256::zero(),
+                Some(PayloadAttributes {
+                    timestamp,
+                    random,
+                    fee_recipient: Address::repeat_byte(42),
+                }),
+            )
             .await
             .unwrap();
 
         let payload = self
             .el
-            .get_payload::<T>(parent_hash, timestamp, random)
+            .get_payload::<T>(parent_hash, timestamp, random, finalized_block_hash)
             .await
             .unwrap();
         let block_hash = payload.block_hash;
@@ -123,16 +131,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.timestamp, timestamp);
         assert_eq!(payload.random, random);
 
-        let (payload_response, payload_handle) = self.el.execute_payload(&payload).await.unwrap();
-        assert_eq!(payload_response, ExecutePayloadResponse::Valid);
-
-        payload_handle
-            .unwrap()
-            .publish_async(ConsensusStatus::Valid)
-            .await;
+        let (payload_response, latest_valid_hash) =
+            self.el.execute_payload(&payload).await.unwrap();
+        assert_eq!(payload_response, ExecutePayloadResponseStatus::Valid);
+        assert_eq!(latest_valid_hash, Some(payload.block_hash));
 
         self.el
-            .forkchoice_updated(block_hash, Hash256::zero())
+            .notify_forkchoice_updated(block_hash, Hash256::zero(), None)
             .await
             .unwrap();
 

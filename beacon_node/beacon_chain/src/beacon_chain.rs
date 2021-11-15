@@ -2908,10 +2908,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let timestamp =
                 compute_timestamp_at_slot(&state, &self.spec).map_err(BeaconStateError::from)?;
             let random = *state.get_randao_mix(state.current_epoch())?;
+            let finalized_root = state.finalized_checkpoint().root;
+
+            let finalized_block_hash =
+                if let Some(block) = self.fork_choice.read().get_block(&finalized_root) {
+                    block.execution_status.block_hash()
+                } else {
+                    self.store
+                        .get_block(&finalized_root)
+                        .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
+                        .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
+                        .message()
+                        .body()
+                        .execution_payload()
+                        .map(|ep| ep.block_hash)
+                };
 
             execution_layer
                 .block_on(|execution_layer| {
-                    execution_layer.get_payload(parent_hash, timestamp, random)
+                    execution_layer.get_payload(
+                        parent_hash,
+                        timestamp,
+                        random,
+                        finalized_block_hash.unwrap_or_else(Hash256::zero),
+                    )
                 })
                 .map_err(BlockProductionError::GetPayloadFailed)
         };
@@ -3168,7 +3188,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
         // Used later for the execution engine.
-        let new_head_execution_block_hash = new_head
+        let new_head_execution_block_hash_opt = new_head
             .beacon_block
             .message()
             .body()
@@ -3404,7 +3424,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If this is a post-merge block, update the execution layer.
-        if let Some(block_hash) = new_head_execution_block_hash {
+        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
             if is_merge_complete {
                 let execution_layer = self
                     .execution_layer
@@ -3420,7 +3440,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             execution_layer,
                             store,
                             new_finalized_checkpoint.root,
-                            block_hash,
+                            new_head_execution_block_hash,
                         )
                         .await
                         {
@@ -3461,7 +3481,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or_else(Hash256::zero);
 
         execution_layer
-            .forkchoice_updated(head_execution_block_hash, finalized_execution_block_hash)
+            .notify_forkchoice_updated(
+                head_execution_block_hash,
+                finalized_execution_block_hash,
+                None,
+            )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed)
     }
