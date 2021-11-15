@@ -361,6 +361,7 @@ where
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
+            spec.terminal_block_hash_activation_epoch,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
