@@ -84,42 +84,78 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
     fn from(e: ExecutionPayload<T>) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let ExecutionPayload {
+            parent_hash,
+            coinbase,
+            state_root,
+            receipt_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions,
+        } = e;
+
         Self {
-            parent_hash: e.parent_hash,
-            coinbase: e.coinbase,
-            state_root: e.state_root,
-            receipt_root: e.receipt_root,
-            logs_bloom: e.logs_bloom,
-            random: e.random,
-            block_number: e.block_number,
-            gas_limit: e.gas_limit,
-            gas_used: e.gas_used,
-            timestamp: e.timestamp,
-            extra_data: e.extra_data,
-            base_fee_per_gas: e.base_fee_per_gas,
-            block_hash: e.block_hash,
-            transactions: e.transactions,
+            parent_hash,
+            coinbase,
+            state_root,
+            receipt_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions,
         }
     }
 }
 
 impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
     fn from(e: JsonExecutionPayloadV1<T>) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonExecutionPayloadV1 {
+            parent_hash,
+            coinbase,
+            state_root,
+            receipt_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions,
+        } = e;
+
         Self {
-            parent_hash: e.parent_hash,
-            coinbase: e.coinbase,
-            state_root: e.state_root,
-            receipt_root: e.receipt_root,
-            logs_bloom: e.logs_bloom,
-            random: e.random,
-            block_number: e.block_number,
-            gas_limit: e.gas_limit,
-            gas_used: e.gas_used,
-            timestamp: e.timestamp,
-            extra_data: e.extra_data,
-            base_fee_per_gas: e.base_fee_per_gas,
-            block_hash: e.block_hash,
-            transactions: e.transactions,
+            parent_hash,
+            coinbase,
+            state_root,
+            receipt_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions,
         }
     }
 }
@@ -135,20 +171,34 @@ pub struct JsonPayloadAttributesV1 {
 
 impl From<PayloadAttributes> for JsonPayloadAttributesV1 {
     fn from(p: PayloadAttributes) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let PayloadAttributes {
+            timestamp,
+            random,
+            fee_recipient,
+        } = p;
+
         Self {
-            timestamp: p.timestamp,
-            random: p.random,
-            fee_recipient: p.fee_recipient,
+            timestamp,
+            random,
+            fee_recipient,
         }
     }
 }
 
 impl From<JsonPayloadAttributesV1> for PayloadAttributes {
     fn from(j: JsonPayloadAttributesV1) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonPayloadAttributesV1 {
+            timestamp,
+            random,
+            fee_recipient,
+        } = j;
+
         Self {
-            timestamp: j.timestamp,
-            random: j.random,
-            fee_recipient: j.fee_recipient,
+            timestamp,
+            random,
+            fee_recipient,
         }
     }
 }
@@ -163,20 +213,34 @@ pub struct JsonForkChoiceStateV1 {
 
 impl From<ForkChoiceState> for JsonForkChoiceStateV1 {
     fn from(f: ForkChoiceState) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let ForkChoiceState {
+            head_block_hash,
+            safe_block_hash,
+            finalized_block_hash,
+        } = f;
+
         Self {
-            head_block_hash: f.head_block_hash,
-            safe_block_hash: f.safe_block_hash,
-            finalized_block_hash: f.finalized_block_hash,
+            head_block_hash,
+            safe_block_hash,
+            finalized_block_hash,
         }
     }
 }
 
 impl From<JsonForkChoiceStateV1> for ForkChoiceState {
     fn from(j: JsonForkChoiceStateV1) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonForkChoiceStateV1 {
+            head_block_hash,
+            safe_block_hash,
+            finalized_block_hash,
+        } = j;
+
         Self {
-            head_block_hash: j.head_block_hash,
-            safe_block_hash: j.safe_block_hash,
-            finalized_block_hash: j.finalized_block_hash,
+            head_block_hash,
+            safe_block_hash,
+            finalized_block_hash,
         }
     }
 }
@@ -218,20 +282,34 @@ impl From<JsonExecutePayloadV1ResponseStatus> for ExecutePayloadResponseStatus {
 
 impl From<ExecutePayloadResponse> for JsonExecutePayloadV1Response {
     fn from(e: ExecutePayloadResponse) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let ExecutePayloadResponse {
+            status,
+            latest_valid_hash,
+            message,
+        } = e;
+
         Self {
-            status: e.status.into(),
-            latest_valid_hash: e.latest_valid_hash,
-            message: e.message,
+            status: status.into(),
+            latest_valid_hash,
+            message,
         }
     }
 }
 
 impl From<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
     fn from(j: JsonExecutePayloadV1Response) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonExecutePayloadV1Response {
+            status,
+            latest_valid_hash,
+            message,
+        } = j;
+
         Self {
-            status: j.status.into(),
-            latest_valid_hash: j.latest_valid_hash,
-            message: j.message,
+            status: status.into(),
+            latest_valid_hash,
+            message,
         }
     }
 }
@@ -275,17 +353,23 @@ impl From<ForkchoiceUpdatedResponseStatus> for JsonForkchoiceUpdatedV1ResponseSt
 }
 impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
     fn from(j: JsonForkchoiceUpdatedV1Response) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonForkchoiceUpdatedV1Response { status, payload_id } = j;
+
         Self {
-            status: j.status.into(),
-            payload_id: j.payload_id.map(Into::into),
+            status: status.into(),
+            payload_id: payload_id.map(Into::into),
         }
     }
 }
 impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     fn from(f: ForkchoiceUpdatedResponse) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let ForkchoiceUpdatedResponse { status, payload_id } = f;
+
         Self {
-            status: f.status.into(),
-            payload_id: f.payload_id.map(Into::into),
+            status: status.into(),
+            payload_id: payload_id.map(Into::into),
         }
     }
 }

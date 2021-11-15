@@ -3460,7 +3460,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|ep| ep.block_hash)
             .unwrap_or_else(Hash256::zero);
 
-        // TODO: handle payload attributes!
         execution_layer
             .notify_forkchoice_updated(
                 head_execution_block_hash,

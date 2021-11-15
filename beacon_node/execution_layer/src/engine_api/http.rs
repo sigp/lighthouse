@@ -168,13 +168,9 @@ impl EngineApi for HttpJsonRpc {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let json_payload_attributes = match payload_attributes {
-            Some(p) => json!(JsonPayloadAttributesV1::from(p)),
-            None => serde_json::Value::Null,
-        };
         let params = json!([
             JsonForkChoiceStateV1::from(forkchoice_state),
-            json_payload_attributes
+            payload_attributes.map(JsonPayloadAttributesV1::from)
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self

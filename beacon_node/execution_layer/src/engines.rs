@@ -5,10 +5,13 @@ use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use types::{Address, Hash256};
 
-const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 128;
+/// The number of payload IDs that will be stored for each `Engine`.
+///
+/// Since the size of each value is small (~100 bytes) a large number is used for safety.
+const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq)]
@@ -53,7 +56,7 @@ struct PayloadIdCacheKey {
 pub struct Engine<T> {
     pub id: String,
     pub api: T,
-    payload_id_cache: RwLock<LruCache<PayloadIdCacheKey, PayloadId>>,
+    payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
 }
 
@@ -63,7 +66,7 @@ impl<T> Engine<T> {
         Self {
             id,
             api,
-            payload_id_cache: RwLock::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
+            payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
         }
     }
@@ -76,7 +79,7 @@ impl<T> Engine<T> {
         fee_recipient: Address,
     ) -> Option<PayloadId> {
         self.payload_id_cache
-            .write()
+            .lock()
             .await
             .get(&PayloadIdCacheKey {
                 head_block_hash,
@@ -114,7 +117,8 @@ impl<T: EngineApi> Engines<T> {
                 "id" => &engine.id,
             );
 
-            // TODO: handle PayloadAttributes?
+            // For simplicity, payload attributes are never included in this call. It may be
+            // reasonable to include them in the future.
             if let Err(e) = engine
                 .api
                 .forkchoice_updated_v1(forkchoice_state, None)
@@ -141,10 +145,7 @@ impl<T: EngineApi> Engines<T> {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<(), Vec<EngineError>> {
-        {
-            // is this needed to drop the write lock?
-            *self.latest_forkchoice_state.write().await = Some(forkchoice_state);
-        }
+        *self.latest_forkchoice_state.write().await = Some(forkchoice_state);
 
         let broadcast_results = self
             .broadcast(|engine| async move {
@@ -155,9 +156,15 @@ impl<T: EngineApi> Engines<T> {
                 if let Ok(response) = result.as_ref() {
                     if let Some(payload_id) = response.payload_id {
                         if let Some(key) = payload_attributes
-                            .map(|pa| PayloadIdCacheKey::from((&forkchoice_state, &pa)))
+                            .map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
                         {
-                            engine.payload_id_cache.write().await.put(key, payload_id);
+                            engine.payload_id_cache.lock().await.put(key, payload_id);
+                        } else {
+                            debug!(
+                                self.log,
+                                "Engine returned unexpected payload_id";
+                                "payload_id" => ?payload_id
+                            );
                         }
                     }
                 }
@@ -383,13 +390,13 @@ impl<T: EngineApi> Engines<T> {
     }
 }
 
-impl From<(&ForkChoiceState, &PayloadAttributes)> for PayloadIdCacheKey {
-    fn from(pair: (&ForkChoiceState, &PayloadAttributes)) -> Self {
+impl PayloadIdCacheKey {
+    fn new(state: &ForkChoiceState, attributes: &PayloadAttributes) -> Self {
         Self {
-            head_block_hash: pair.0.head_block_hash,
-            timestamp: pair.1.timestamp,
-            random: pair.1.random,
-            fee_recipient: pair.1.fee_recipient,
+            head_block_hash: state.head_block_hash,
+            timestamp: attributes.timestamp,
+            random: attributes.random,
+            fee_recipient: attributes.fee_recipient,
         }
     }
 }
