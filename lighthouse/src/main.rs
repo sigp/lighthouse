@@ -107,7 +107,7 @@ fn main() {
                     "The maximum size (in MB) each log file can grow to before rotating. If set \
                     to 0, background file logging is disabled.")
                 .takes_value(true)
-                .default_value("1000")
+                .default_value("200")
                 .global(true),
         )
         .arg(
