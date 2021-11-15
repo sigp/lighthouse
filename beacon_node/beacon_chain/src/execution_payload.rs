@@ -1,3 +1,12 @@
+//! This module contains various functions for producing and verifying `ExecutionPayloads`.
+//!
+//! Lighthouse tends to do payload tasks in *slightly* different locations to the specification.
+//! This is because some tasks involve calling out to external servers and it's nice to keep those
+//! away from our pure `state_processing` and `fork_choice` crates.
+//!
+//! So, this module contains functions that one might expect to find in other crates, but they live
+//! here for good reason.
+
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
@@ -16,11 +25,6 @@ use types::*;
 /// Verify that `execution_payload` contained by `block` is considered valid by an execution
 /// engine.
 ///
-/// ## Errors
-///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
-///
 /// ## Specification
 ///
 /// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes:
@@ -35,13 +39,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
         return Ok(PayloadVerificationStatus::Irrelevant);
     }
 
-    let execution_payload = block
-        .body()
-        .execution_payload()
-        .ok_or_else(|| InconsistentFork {
-            fork_at_slot: eth2::types::ForkName::Merge,
-            object_fork: block.body().fork_name(),
-        })?;
+    let execution_payload = execution_payload_ref(block)?;
 
     // Perform the initial stages of payload verification.
     //
@@ -88,13 +86,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-    let execution_payload = block
-        .body()
-        .execution_payload()
-        .ok_or_else(|| InconsistentFork {
-            fork_at_slot: eth2::types::ForkName::Merge,
-            object_fork: block.body().fork_name(),
-        })?;
+    let execution_payload = execution_payload_ref(block)?;
 
     if spec.terminal_block_hash != Hash256::zero() {
         if block_epoch < spec.terminal_block_hash_activation_epoch {
@@ -305,4 +297,18 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
     Ok(Some(execution_payload))
+}
+
+/// Extracts a reference to an execution payload from a block, returning an error if there is a
+/// fork mismatch.
+fn execution_payload_ref<'a, T: EthSpec>(
+    block: BeaconBlockRef<'a, T>,
+) -> Result<&'a ExecutionPayload<T>, BlockError<T>> {
+    block.body().execution_payload().ok_or_else(|| {
+        InconsistentFork {
+            fork_at_slot: eth2::types::ForkName::Merge,
+            object_fork: block.body().fork_name(),
+        }
+        .into()
+    })
 }
