@@ -183,6 +183,8 @@ pub enum BlockProductionError {
     ExecutionLayerMissing,
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
+    FailedToReadFinalizedBlock(store::Error),
+    MissingFinalizedBlock(Hash256),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

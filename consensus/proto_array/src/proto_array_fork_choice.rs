@@ -40,6 +40,15 @@ impl ExecutionStatus {
     pub fn irrelevant() -> Self {
         ExecutionStatus::Irrelevant(false)
     }
+
+    pub fn block_hash(&self) -> Option<Hash256> {
+        match self {
+            ExecutionStatus::Valid(hash)
+            | ExecutionStatus::Invalid(hash)
+            | ExecutionStatus::Unknown(hash) => Some(*hash),
+            ExecutionStatus::Irrelevant(_) => None,
+        }
+    }
 }
 
 /// A block that is to be applied to the fork choice.
