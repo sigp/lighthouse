@@ -154,7 +154,7 @@ impl EngineApi for HttpJsonRpc {
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let params = json!([JsonPayloadIdRequest { payload_id }]);
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
@@ -480,9 +480,7 @@ mod test {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(vec![42; 8].into())
-                        .await;
+                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -573,6 +571,20 @@ mod test {
             .await;
     }
 
+    fn str_to_payload_id(s: &str) -> PayloadId {
+        serde_json::from_str::<TransparentJsonPayloadId>(&format!("\"{}\"", s))
+            .unwrap()
+            .into()
+    }
+
+    #[test]
+    fn str_payload_id() {
+        assert_eq!(
+            str_to_payload_id("0x002a2a2a2a2a2a01"),
+            [0, 42, 42, 42, 42, 42, 42, 1]
+        );
+    }
+
     /// Test vectors provided by Geth:
     ///
     /// https://notes.ethereum.org/@9AeMAlpyQYaAAyuj47BzRw/rkwW3ceVY
@@ -656,7 +668,8 @@ mod test {
                         .unwrap();
                     assert_eq!(response, ForkchoiceUpdatedResponse {
                         status: ForkchoiceUpdatedResponseStatus::Success,
-                        payload_id: Some(serde_json::from_str("0xa247243752eb10b4").unwrap()),
+                        payload_id:
+                            Some(str_to_payload_id("0xa247243752eb10b4")),
                     });
                 },
             )
@@ -665,7 +678,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(serde_json::from_str("0xa247243752eb10b4").unwrap())
+                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -700,7 +713,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec>(serde_json::from_str("0xa247243752eb10b4").unwrap())
+                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap();
 
@@ -837,12 +850,15 @@ mod test {
             .await
             .with_preloaded_responses(
                 // engine_forkchoiceUpdatedV1 RESPONSE validation
+                //
+                // Note: this test was modified to provide `null` rather than `0x`. The geth vectors
+                // are invalid.
                 vec![json!({
                     "jsonrpc": JSONRPC_VERSION,
                     "id": STATIC_ID,
                     "result": {
                         "status":"SUCCESS",
-                        "payloadId": "0x"
+                        "payloadId": serde_json::Value::Null
                     }
                 })],
                 |client| async move {

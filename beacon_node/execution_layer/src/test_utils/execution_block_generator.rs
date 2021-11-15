@@ -335,7 +335,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
                 execution_payload.block_hash = execution_payload.tree_hash_root();
 
-                self.payload_ids.insert(id.clone(), execution_payload);
+                self.payload_ids.insert(id, execution_payload);
 
                 Ok(Some(id))
             }
@@ -344,8 +344,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 }
 
 fn payload_id_from_u64(n: u64) -> PayloadId {
-    let bytes = n.to_le_bytes();
-    PayloadId::new(bytes.to_vec()).expect("u64 always contains 8 bytes")
+    n.to_le_bytes()
 }
 
 pub fn generate_pow_block(

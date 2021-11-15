@@ -81,7 +81,7 @@ pub async fn handle_rpc<T: EthSpec>(
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
-            let id = request.payload_id;
+            let id = request.into();
 
             let response = ctx
                 .execution_block_generator
@@ -104,7 +104,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonForkchoiceUpdatedV1Response {
                 status: JsonForkchoiceUpdatedV1ResponseStatus::Success,
-                payload_id: id,
+                payload_id: id.map(Into::into),
             })
             .unwrap())
         }

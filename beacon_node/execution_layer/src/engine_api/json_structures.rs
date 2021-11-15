@@ -28,17 +28,30 @@ pub struct JsonResponseBody {
     pub id: u32,
 }
 
-/// On the request, just provide the `payload_id`, without the object wrapper (transparent).
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent, rename_all = "camelCase")]
-pub struct JsonPayloadIdRequest {
-    pub payload_id: PayloadId,
+#[serde(transparent)]
+pub struct TransparentJsonPayloadId(#[serde(with = "eth2_serde_utils::bytes_8_hex")] pub PayloadId);
+
+impl From<PayloadId> for TransparentJsonPayloadId {
+    fn from(id: PayloadId) -> Self {
+        Self(id)
+    }
 }
+
+impl From<TransparentJsonPayloadId> for PayloadId {
+    fn from(wrapper: TransparentJsonPayloadId) -> Self {
+        wrapper.0
+    }
+}
+
+/// On the request, use a transparent wrapper.
+pub type JsonPayloadIdRequest = TransparentJsonPayloadId;
 
 /// On the response, expect without the object wrapper (non-transparent).
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadIdResponse {
+    #[serde(with = "eth2_serde_utils::bytes_8_hex")]
     pub payload_id: PayloadId,
 }
 
@@ -233,7 +246,7 @@ pub enum JsonForkchoiceUpdatedV1ResponseStatus {
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceUpdatedV1Response {
     pub status: JsonForkchoiceUpdatedV1ResponseStatus,
-    pub payload_id: Option<PayloadId>,
+    pub payload_id: Option<TransparentJsonPayloadId>,
 }
 
 impl From<JsonForkchoiceUpdatedV1ResponseStatus> for ForkchoiceUpdatedResponseStatus {
@@ -264,7 +277,7 @@ impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
     fn from(j: JsonForkchoiceUpdatedV1Response) -> Self {
         Self {
             status: j.status.into(),
-            payload_id: j.payload_id,
+            payload_id: j.payload_id.map(Into::into),
         }
     }
 }
@@ -272,7 +285,7 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     fn from(f: ForkchoiceUpdatedResponse) -> Self {
         Self {
             status: f.status.into(),
-            payload_id: f.payload_id,
+            payload_id: f.payload_id.map(Into::into),
         }
     }
 }

@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use eth1::http::RpcError;
 use serde::{Deserialize, Serialize};
-use ssz_types::{typenum::U8, FixedVector};
 
 pub const LATEST_TAG: &str = "latest";
 
@@ -11,7 +10,7 @@ pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 pub mod http;
 pub mod json_structures;
 
-pub type PayloadId = FixedVector<u8, U8>;
+pub type PayloadId = [u8; 8];
 
 #[derive(Debug)]
 pub enum Error {
