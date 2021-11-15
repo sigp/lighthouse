@@ -381,8 +381,6 @@ mod test {
 
         /*
          * Check for too many transactions
-         *
-         * THERE'S SOME KIND OF PROBLEM WITH THESE TESTS! THEY ARE RUNNING AN INFINITE LOOP!
          */
 
         let num_max_txs = <MainnetEthSpec as EthSpec>::MaxTransactionsPerPayload::to_usize();
