@@ -20,7 +20,7 @@ spec-minimal = []
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = { git = "https://github.com/macladson/sloggers", rev = "c962164" }
+sloggers = "2.1.1"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 eth2_hashing = "0.2.0"

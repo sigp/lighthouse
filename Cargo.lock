@@ -5342,8 +5342,9 @@ dependencies = [
 
 [[package]]
 name = "sloggers"
-version = "2.0.2"
-source = "git+https://github.com/macladson/sloggers?rev=c962164#c96216411cdf7462324ffa21111bbbf7d9a24c28"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e20d36cb80da75a9c5511872f15247ddad14ead8c1dd97a86b56d1be9f5d4a0e"
 dependencies = [
  "chrono",
  "libc",
