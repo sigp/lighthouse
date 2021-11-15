@@ -2,11 +2,73 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
+use execution_layer::ExecutePayloadResponseStatus;
+use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::{compute_timestamp_at_slot, is_merge_complete};
+use state_processing::per_block_processing::{
+    compute_timestamp_at_slot, is_execution_enabled, is_merge_complete,
+    partially_verify_execution_payload,
+};
 use types::*;
+
+/// Verify that `execution_payload` contained by `block` is considered valid by an execution
+/// engine.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
+/// after the merge fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#execute_payload
+pub fn execute_payload<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    state: &BeaconState<T::EthSpec>,
+    block: BeaconBlockRef<T::EthSpec>,
+) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+    if !is_execution_enabled(state, block.body()) {
+        return Ok(PayloadVerificationStatus::Irrelevant);
+    }
+
+    let execution_payload = block
+        .body()
+        .execution_payload()
+        .ok_or_else(|| InconsistentFork {
+            fork_at_slot: eth2::types::ForkName::Merge,
+            object_fork: block.body().fork_name(),
+        })?;
+
+    // Perform the initial stages of payload verification.
+    //
+    // We will duplicate these checks again during `per_block_processing`, however these checks
+    // are cheap and doing them here ensures we protect the execution payload from junk.
+    partially_verify_execution_payload(state, execution_payload, &chain.spec)
+        .map_err(BlockError::PerBlockProcessingError)?;
+
+    let execution_layer = chain
+        .execution_layer
+        .as_ref()
+        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+    let execute_payload_response = execution_layer
+        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+
+    match execute_payload_response {
+        Ok((status, _latest_valid_hash)) => match status {
+            ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
+            // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
+            ExecutePayloadResponseStatus::Invalid => {
+                Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
+            }
+            ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
+        },
+        Err(_) => Ok(PayloadVerificationStatus::NotVerified),
+    }
+}
 
 /// Verify that the block that triggers the merge is valid to be imported to fork choice.
 ///

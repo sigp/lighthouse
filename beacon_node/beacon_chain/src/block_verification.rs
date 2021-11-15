@@ -40,7 +40,9 @@
 //!            END
 //!
 //! ```
-use crate::execution_payload::{validate_execution_payload_for_gossip, validate_merge_block};
+use crate::execution_payload::{
+    execute_payload, validate_execution_payload_for_gossip, validate_merge_block,
+};
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -51,7 +53,6 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -59,7 +60,7 @@ use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::{is_execution_enabled, is_merge_block};
+use state_processing::per_block_processing::is_merge_block;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -1109,45 +1110,13 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             validate_merge_block(chain, block.message())?
         }
 
-        // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
+        // The specification declares that this should be run *inside* `per_block_processing`,
+        // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
+        // servers).
         //
-        // TODO(merge): handle the latest_valid_hash of an invalid payload.
-        let (_latest_valid_hash, payload_verification_status) =
-            if is_execution_enabled(&state, block.message().body()) {
-                let execution_layer = chain
-                    .execution_layer
-                    .as_ref()
-                    .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-                let execution_payload =
-                    block
-                        .message()
-                        .body()
-                        .execution_payload()
-                        .ok_or_else(|| InconsistentFork {
-                            fork_at_slot: eth2::types::ForkName::Merge,
-                            object_fork: block.message().body().fork_name(),
-                        })?;
-
-                let execute_payload_response = execution_layer
-                    .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
-
-                match execute_payload_response {
-                    Ok((status, latest_valid_hash)) => match status {
-                        ExecutePayloadResponseStatus::Valid => {
-                            (latest_valid_hash, PayloadVerificationStatus::Verified)
-                        }
-                        ExecutePayloadResponseStatus::Invalid => {
-                            return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
-                        }
-                        ExecutePayloadResponseStatus::Syncing => {
-                            (latest_valid_hash, PayloadVerificationStatus::NotVerified)
-                        }
-                    },
-                    Err(_) => (None, PayloadVerificationStatus::NotVerified),
-                }
-            } else {
-                (None, PayloadVerificationStatus::Irrelevant)
-            };
+        // It is important that this function is called *after* `per_slot_processing`, since the
+        // `randao` may change.
+        let payload_verification_status = execute_payload(chain, &state, block.message())?;
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
