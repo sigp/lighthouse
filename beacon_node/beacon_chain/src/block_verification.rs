@@ -40,6 +40,7 @@
 //!            END
 //!
 //! ```
+use crate::execution_payload::validate_execution_payload_for_gossip;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -53,7 +54,7 @@ use crate::{
 use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
-use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -71,9 +72,9 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionPayload, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
+    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -749,8 +750,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // validate the block's execution_payload
-        validate_execution_payload(&parent_block, block.message(), chain)?;
+        // Validate the block's execution_payload (if any).
+        validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         Ok(Self {
             block,
@@ -1269,64 +1270,6 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             payload_verification_status,
         })
     }
-}
-
-/// Validate the gossip block's execution_payload according to the checks described here:
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
-fn validate_execution_payload<T: BeaconChainTypes>(
-    parent_block: &ProtoBlock,
-    block: BeaconBlockRef<'_, T::EthSpec>,
-    chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
-    // Only apply this validation if this is a merge beacon block.
-    if let Some(execution_payload) = block.body().execution_payload() {
-        // This logic should match `is_execution_enabled`. We use only the execution block hash of
-        // the parent here in order to avoid loading the parent state during gossip verification.
-
-        let is_merge_complete = match parent_block.execution_status {
-            // Optimistically declare that an "unknown" status block has completed the merge.
-            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
-            // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
-            // by definition.
-            ExecutionStatus::Irrelevant(_) => false,
-            // If the parent has an invalid payload then it's impossible to build a valid block upon
-            // it. Reject the block.
-            ExecutionStatus::Invalid(_) => {
-                return Err(BlockError::ParentExecutionPayloadInvalid {
-                    parent_root: parent_block.root,
-                })
-            }
-        };
-        let is_merge_block =
-            !is_merge_complete && *execution_payload != <ExecutionPayload<T::EthSpec>>::default();
-        if !is_merge_block && !is_merge_complete {
-            return Ok(());
-        }
-
-        let expected_timestamp = chain
-            .slot_clock
-            .compute_timestamp_at_slot(block.slot())
-            .ok_or(BlockError::BeaconChainError(
-                BeaconChainError::UnableToComputeTimeAtSlot,
-            ))?;
-        // The block's execution payload timestamp is correct with respect to the slot
-        if execution_payload.timestamp != expected_timestamp {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::InvalidPayloadTimestamp {
-                    expected: expected_timestamp,
-                    found: execution_payload.timestamp,
-                },
-            ));
-        }
-        // The execution payload transaction list data is within expected size limits
-        if execution_payload.transactions.len() > T::EthSpec::max_transactions_per_payload() {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::TransactionDataExceedsSizeLimit,
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 /// Check that the count of skip slots between the block and its parent does not exceed our maximum

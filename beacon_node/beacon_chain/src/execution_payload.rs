@@ -1,6 +1,61 @@
-use crate::{BeaconChain, BeaconChainTypes, BlockProductionError};
+use crate::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
+    ExecutionPayloadError,
+};
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use slot_clock::SlotClock;
 use state_processing::per_block_processing::{compute_timestamp_at_slot, is_merge_complete};
 use types::*;
+
+/// Validate the gossip block's execution_payload according to the checks described here:
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
+pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
+    parent_block: &ProtoBlock,
+    block: BeaconBlockRef<'_, T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), BlockError<T::EthSpec>> {
+    // Only apply this validation if this is a merge beacon block.
+    if let Some(execution_payload) = block.body().execution_payload() {
+        // This logic should match `is_execution_enabled`. We use only the execution block hash of
+        // the parent here in order to avoid loading the parent state during gossip verification.
+
+        let is_merge_complete = match parent_block.execution_status {
+            // Optimistically declare that an "unknown" status block has completed the merge.
+            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
+            // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
+            // by definition.
+            ExecutionStatus::Irrelevant(_) => false,
+            // If the parent has an invalid payload then it's impossible to build a valid block upon
+            // it. Reject the block.
+            ExecutionStatus::Invalid(_) => {
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: parent_block.root,
+                })
+            }
+        };
+
+        if is_merge_complete {
+            let expected_timestamp = chain
+                .slot_clock
+                .compute_timestamp_at_slot(block.slot())
+                .ok_or(BlockError::BeaconChainError(
+                    BeaconChainError::UnableToComputeTimeAtSlot,
+                ))?;
+
+            // The block's execution payload timestamp is correct with respect to the slot
+            if execution_payload.timestamp != expected_timestamp {
+                return Err(BlockError::ExecutionPayloadError(
+                    ExecutionPayloadError::InvalidPayloadTimestamp {
+                        expected: expected_timestamp,
+                        found: execution_payload.timestamp,
+                    },
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
 
 /// Gets an execution payload for inclusion in a block.
 ///
