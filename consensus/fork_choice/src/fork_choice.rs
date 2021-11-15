@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
-    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 use crate::ForkChoiceStore;
@@ -469,6 +469,7 @@ where
         block_root: Hash256,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
 

@@ -64,10 +64,15 @@ pub async fn handle_rpc<T: EthSpec>(
         }
         ENGINE_EXECUTE_PAYLOAD => {
             let request: JsonExecutionPayload<T> = get_param_0(params)?;
+
             let status = ctx
-                .execution_block_generator
-                .write()
-                .execute_payload(request.into());
+                .static_execute_payload_response
+                .lock()
+                .unwrap_or_else(|| {
+                    ctx.execution_block_generator
+                        .write()
+                        .execute_payload(request.into())
+                });
 
             Ok(serde_json::to_value(ExecutePayloadResponseWrapper { status }).unwrap())
         }

@@ -26,6 +26,7 @@ mod ssz_generic;
 mod ssz_static;
 mod transition;
 
+pub use self::fork_choice::*;
 pub use bls_aggregate_sigs::*;
 pub use bls_aggregate_verify::*;
 pub use bls_eth_aggregate_pubkeys::*;
@@ -36,7 +37,6 @@ pub use bls_verify_msg::*;
 pub use common::SszStaticType;
 pub use epoch_processing::*;
 pub use fork::ForkTest;
-pub use fork_choice::*;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
 pub use operations::*;
