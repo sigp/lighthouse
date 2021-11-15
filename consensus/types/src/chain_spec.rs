@@ -533,7 +533,11 @@ impl ChainSpec {
             merge_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX
                 .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("calculation does not overflow"),
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
             terminal_block_hash: Hash256::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
