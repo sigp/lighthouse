@@ -1,4 +1,4 @@
-//! Formats `[u8; 4]` as a 0x-prefixed hex string.
+//! Formats `[u8; n]` as a 0x-prefixed hex string.
 //!
 //! E.g., `[0, 1, 2, 3]` serializes as `"0x00010203"`.
 
