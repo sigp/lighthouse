@@ -40,7 +40,7 @@
 //!            END
 //!
 //! ```
-use crate::execution_payload::validate_execution_payload_for_gossip;
+use crate::execution_payload::{validate_execution_payload_for_gossip, validate_merge_block};
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -56,7 +56,7 @@ use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::{is_execution_enabled, is_merge_block};
@@ -280,6 +280,27 @@ pub enum ExecutionPayloadError {
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
     InvalidTerminalPoWBlock,
+    /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
+    /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidActivationEpoch {
+        activation_epoch: Epoch,
+        epoch: Epoch,
+    },
+    /// The `TERMINAL_BLOCK_HASH` is set, but does not match the value specified by the block.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidTerminalBlockHash {
+        terminal_block_hash: Hash256,
+        payload_parent_hash: Hash256,
+    },
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -1085,42 +1106,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
         //   calls to remote servers.
         if is_merge_block(&state, block.message().body()) {
-            let execution_layer = chain
-                .execution_layer
-                .as_ref()
-                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-            let execution_payload =
-                block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .ok_or_else(|| InconsistentFork {
-                        fork_at_slot: eth2::types::ForkName::Merge,
-                        object_fork: block.message().body().fork_name(),
-                    })?;
-
-            let is_valid_terminal_pow_block = execution_layer
-                .block_on(|execution_layer| {
-                    execution_layer.is_valid_terminal_pow_block_hash(
-                        execution_payload.parent_hash,
-                        &chain.spec,
-                    )
-                })
-                .map_err(ExecutionPayloadError::from)?;
-
-            match is_valid_terminal_pow_block {
-                Some(true) => Ok(()),
-                Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock),
-                None => {
-                    info!(
-                        chain.log,
-                        "Optimistically accepting terminal block";
-                        "block_hash" => ?execution_payload.parent_hash,
-                        "msg" => "the terminal block/parent was unavailable"
-                    );
-                    Ok(())
-                }
-            }?;
+            validate_merge_block(chain, block.message())?
         }
 
         // This is the soonest we can run these checks as they must be called AFTER per_slot_processing

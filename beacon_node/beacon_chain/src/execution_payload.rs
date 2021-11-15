@@ -3,9 +3,80 @@ use crate::{
     ExecutionPayloadError,
 };
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{compute_timestamp_at_slot, is_merge_complete};
 use types::*;
+
+/// Verify that the block that triggers the merge is valid to be imported to fork choice.
+///
+/// ## Errors
+///
+/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
+/// after the merge fork.
+///
+/// ## Specification
+///
+/// Equivalent to the `validate_merge_block` function in the merge Fork Choice Changes:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
+pub fn validate_merge_block<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block: BeaconBlockRef<T::EthSpec>,
+) -> Result<(), BlockError<T::EthSpec>> {
+    let spec = &chain.spec;
+    let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+    let execution_payload = block
+        .body()
+        .execution_payload()
+        .ok_or_else(|| InconsistentFork {
+            fork_at_slot: eth2::types::ForkName::Merge,
+            object_fork: block.body().fork_name(),
+        })?;
+
+    if spec.terminal_block_hash != Hash256::zero() {
+        if block_epoch < spec.terminal_block_hash_activation_epoch {
+            return Err(ExecutionPayloadError::InvalidActivationEpoch {
+                activation_epoch: spec.terminal_block_hash_activation_epoch,
+                epoch: block_epoch,
+            }
+            .into());
+        }
+
+        if execution_payload.parent_hash != spec.terminal_block_hash {
+            return Err(ExecutionPayloadError::InvalidTerminalBlockHash {
+                terminal_block_hash: spec.terminal_block_hash,
+                payload_parent_hash: execution_payload.parent_hash,
+            }
+            .into());
+        }
+    }
+
+    let execution_layer = chain
+        .execution_layer
+        .as_ref()
+        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+
+    let is_valid_terminal_pow_block = execution_layer
+        .block_on(|execution_layer| {
+            execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash)
+        })
+        .map_err(ExecutionPayloadError::from)?;
+
+    match is_valid_terminal_pow_block {
+        Some(true) => Ok(()),
+        Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock.into()),
+        None => {
+            debug!(
+                chain.log,
+                "Optimistically accepting terminal block";
+                "block_hash" => ?execution_payload.parent_hash,
+                "msg" => "the terminal block/parent was unavailable"
+            );
+            Ok(())
+        }
+    }
+}
 
 /// Validate the gossip block's execution_payload according to the checks described here:
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
