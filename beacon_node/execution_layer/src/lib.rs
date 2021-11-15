@@ -248,6 +248,7 @@ impl ExecutionLayer {
         parent_hash: Hash256,
         timestamp: u64,
         random: Hash256,
+        finalized_block_hash: Hash256,
     ) -> Result<ExecutionPayload<T>, Error> {
         let fee_recipient = self.fee_recipient()?;
         debug!(
@@ -260,10 +261,40 @@ impl ExecutionLayer {
         );
         self.engines()
             .first_success(|engine| async move {
-                let payload_id = engine
+                let payload_id = if let Some(id) = engine
                     .get_payload_id(parent_hash, timestamp, random, fee_recipient)
                     .await
-                    .ok_or(ApiError::PayloadIdNotInCache)?;
+                {
+                    // The payload id has been cached for this engine.
+                    id
+                } else {
+                    // The payload id has *not* been cached for this engine. Trigger an artificial
+                    // fork choice update to retrieve a payload ID.
+                    //
+                    // TODO(merge): a better algorithm might try to favour a node that already had a
+                    // cached payload id, since a payload that has had more time to produce is
+                    // likely to be more profitable.
+                    let fork_choice_state = ForkChoiceState {
+                        head_block_hash: parent_hash,
+                        safe_block_hash: parent_hash,
+                        finalized_block_hash,
+                    };
+                    let payload_attributes = PayloadAttributes {
+                        timestamp,
+                        random,
+                        fee_recipient,
+                    };
+
+                    engine
+                        .notify_forkchoice_updated(
+                            fork_choice_state,
+                            Some(payload_attributes),
+                            self.log(),
+                        )
+                        .await?
+                        .ok_or(ApiError::PayloadIdUnavailable)?
+                };
+
                 engine.api.get_payload_v1(payload_id).await
             })
             .await
@@ -394,9 +425,27 @@ impl ExecutionLayer {
         };
 
         self.engines()
-            .notify_forkchoice_updated(forkchoice_state, payload_attributes)
-            .await
-            .map_err(Error::EngineErrors)
+            .set_latest_forkchoice_state(forkchoice_state)
+            .await;
+
+        let broadcast_results = self
+            .engines()
+            .broadcast(|engine| async move {
+                engine
+                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+                    .await
+            })
+            .await;
+
+        if broadcast_results.iter().any(Result::is_ok) {
+            Ok(())
+        } else {
+            let errors = broadcast_results
+                .into_iter()
+                .filter_map(Result::err)
+                .collect();
+            Err(Error::EngineErrors(errors))
+        }
     }
 
     /// Used during block production to determine if the merge has been triggered.

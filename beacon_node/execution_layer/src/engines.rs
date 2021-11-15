@@ -91,6 +91,36 @@ impl<T> Engine<T> {
     }
 }
 
+impl<T: EngineApi> Engine<T> {
+    pub async fn notify_forkchoice_updated(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+        log: &Logger,
+    ) -> Result<Option<PayloadId>, EngineApiError> {
+        let response = self
+            .api
+            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .await?;
+
+        if let Some(payload_id) = response.payload_id {
+            if let Some(key) =
+                payload_attributes.map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
+            {
+                self.payload_id_cache.lock().await.put(key, payload_id);
+            } else {
+                debug!(
+                    log,
+                    "Engine returned unexpected payload_id";
+                    "payload_id" => ?payload_id
+                );
+            }
+        }
+
+        Ok(response.payload_id)
+    }
+}
+
 /// Holds multiple execution engines and provides functionality for managing them in a fallback
 /// manner.
 pub struct Engines<T> {
@@ -106,9 +136,17 @@ pub enum EngineError {
 }
 
 impl<T: EngineApi> Engines<T> {
+    async fn get_latest_forkchoice_state(&self) -> Option<ForkChoiceState> {
+        *self.latest_forkchoice_state.read().await
+    }
+
+    pub async fn set_latest_forkchoice_state(&self, state: ForkChoiceState) {
+        *self.latest_forkchoice_state.write().await = Some(state);
+    }
+
     async fn send_latest_forkchoice_state(&self, engine: &Engine<T>) {
-        let latest_forkchoice_state: Option<ForkChoiceState> =
-            *self.latest_forkchoice_state.read().await;
+        let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
+
         if let Some(forkchoice_state) = latest_forkchoice_state {
             info!(
                 self.log,
@@ -137,48 +175,6 @@ impl<T: EngineApi> Engines<T> {
                 "No head, not sending to engine";
                 "id" => &engine.id,
             );
-        }
-    }
-
-    pub async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<(), Vec<EngineError>> {
-        *self.latest_forkchoice_state.write().await = Some(forkchoice_state);
-
-        let broadcast_results = self
-            .broadcast(|engine| async move {
-                let result = engine
-                    .api
-                    .forkchoice_updated_v1(forkchoice_state, payload_attributes)
-                    .await;
-                if let Ok(response) = result.as_ref() {
-                    if let Some(payload_id) = response.payload_id {
-                        if let Some(key) = payload_attributes
-                            .map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
-                        {
-                            engine.payload_id_cache.lock().await.put(key, payload_id);
-                        } else {
-                            debug!(
-                                self.log,
-                                "Engine returned unexpected payload_id";
-                                "payload_id" => ?payload_id
-                            );
-                        }
-                    }
-                }
-                result
-            })
-            .await;
-
-        if broadcast_results.iter().any(Result::is_ok) {
-            Ok(())
-        } else {
-            Err(broadcast_results
-                .into_iter()
-                .filter_map(Result::err)
-                .collect())
         }
     }
 

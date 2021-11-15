@@ -2908,10 +2908,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let timestamp =
                 compute_timestamp_at_slot(&state, &self.spec).map_err(BeaconStateError::from)?;
             let random = *state.get_randao_mix(state.current_epoch())?;
+            let finalized_root = state.finalized_checkpoint().root;
+
+            let finalized_block_hash =
+                if let Some(block) = self.fork_choice.read().get_block(&finalized_root) {
+                    block.execution_status.block_hash()
+                } else {
+                    self.store
+                        .get_block(&finalized_root)
+                        .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
+                        .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
+                        .message()
+                        .body()
+                        .execution_payload()
+                        .map(|ep| ep.block_hash)
+                };
 
             execution_layer
                 .block_on(|execution_layer| {
-                    execution_layer.get_payload(parent_hash, timestamp, random)
+                    execution_layer.get_payload(
+                        parent_hash,
+                        timestamp,
+                        random,
+                        finalized_block_hash.unwrap_or_else(Hash256::zero),
+                    )
                 })
                 .map_err(BlockProductionError::GetPayloadFailed)
         };

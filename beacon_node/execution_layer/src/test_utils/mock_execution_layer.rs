@@ -105,6 +105,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let random = Hash256::from_low_u64_be(block_number);
+        let finalized_block_hash = parent_hash;
 
         self.el
             .notify_forkchoice_updated(
@@ -121,7 +122,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let payload = self
             .el
-            .get_payload::<T>(parent_hash, timestamp, random)
+            .get_payload::<T>(parent_hash, timestamp, random, finalized_block_hash)
             .await
             .unwrap();
         let block_hash = payload.block_hash;

@@ -25,7 +25,7 @@ pub enum Error {
     ExecutionBlockNotFound(Hash256),
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(Hash256),
-    PayloadIdNotInCache,
+    PayloadIdUnavailable,
 }
 
 impl From<reqwest::Error> for Error {
