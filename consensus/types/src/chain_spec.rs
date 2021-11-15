@@ -612,7 +612,6 @@ pub struct Config {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub terminal_block_hash_activation_epoch: Epoch,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
