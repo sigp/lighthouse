@@ -569,7 +569,7 @@ mod test {
         VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
         serde_json::Error,
     > {
-        let json = json!({
+        let mut json = json!({
             "parentHash": HASH_00,
             "coinbase": ADDRESS_01,
             "stateRoot": HASH_01,
@@ -583,8 +583,11 @@ mod test {
             "extraData": "0x",
             "baseFeePerGas": "0x1",
             "blockHash": HASH_01,
-            "transactions": transactions,
         });
+        // Take advantage of the fact that we own `transactions` and don't need to reserialize it.
+        json.as_object_mut()
+            .unwrap()
+            .insert("transactions".into(), transactions);
         let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
         Ok(ep.transactions)
     }
@@ -671,24 +674,6 @@ mod test {
             decode_transactions::<MainnetEthSpec>(serde_json::to_value(too_many_txs).unwrap())
                 .is_err()
         );
-
-        /*
-         * Check for transaction too large
-         */
-
-        use eth2_serde_utils::hex;
-
-        let num_max_bytes = <MainnetEthSpec as EthSpec>::MaxBytesPerTransaction::to_usize();
-        let max_bytes = (0..num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
-        let too_many_bytes = (0..=num_max_bytes).map(|_| 0_u8).collect::<Vec<_>>();
-        decode_transactions::<MainnetEthSpec>(
-            serde_json::to_value(&[hex::encode(&max_bytes)]).unwrap(),
-        )
-        .unwrap();
-        assert!(decode_transactions::<MainnetEthSpec>(
-            serde_json::to_value(&[hex::encode(&too_many_bytes)]).unwrap()
-        )
-        .is_err());
     }
 
     #[tokio::test]
