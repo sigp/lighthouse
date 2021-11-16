@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use super::methods::*;
 use super::protocol::Protocol;
-use super::protocol::ProtocolId;
+use super::protocol::{ProtocolId, MAX_RPC_SIZE};
 use super::RPCError;
 use crate::rpc::protocol::Encoding;
 use crate::rpc::protocol::Version;
@@ -150,7 +150,7 @@ where
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
                     protocol,
-                    usize::max_value(),
+                    MAX_RPC_SIZE,
                     self.fork_context.clone(),
                 ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)
