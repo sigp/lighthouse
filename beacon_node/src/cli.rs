@@ -400,42 +400,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("terminal-total-difficulty-override")
-                .long("terminal-total-difficulty-override")
-                .value_name("INTEGER")
-                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal difficulty. \
-                       Incorrect use of this flag will cause your node to experience a consensus
-                       failure. Be extremely careful with this flag.")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("terminal-block-hash-override")
-                .long("terminal-block-hash-override")
-                .value_name("TERMINAL_BLOCK_HASH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
-                       Accepts a 256-bit decimal integer (not a hex value). \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
-                       failure. Be extremely careful with this flag.")
-                .requires("terminal-block-hash-epoch-override")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("terminal-block-hash-epoch-override")
-                .long("terminal-block-hash-epoch-override")
-                .value_name("EPOCH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
-                       parameter. This flag should only be used if the user has a clear understanding \
-                       that the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
-                       failure. Be extremely careful with this flag.")
-                .requires("terminal-block-hash-override")
-                .takes_value(true)
-        )
-        .arg(
             Arg::with_name("fee-recipient")
                 .long("fee-recipient")
                 .help("Once the merge has happened, this address will receive transaction fees \

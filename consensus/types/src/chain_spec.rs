@@ -533,7 +533,11 @@ impl ChainSpec {
             merge_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX
                 .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("calculation does not overflow"),
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
             terminal_block_hash: Hash256::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
@@ -604,6 +608,11 @@ impl Default for ChainSpec {
 pub struct Config {
     #[serde(default)]
     pub preset_base: String,
+
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash_activation_epoch: Epoch,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
@@ -707,6 +716,10 @@ impl Config {
         Self {
             preset_base: T::spec_name().to_string(),
 
+            terminal_total_difficulty: spec.terminal_total_difficulty,
+            terminal_block_hash: spec.terminal_block_hash,
+            terminal_block_hash_activation_epoch: spec.terminal_block_hash_activation_epoch,
+
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
             genesis_fork_version: spec.genesis_fork_version,
@@ -750,6 +763,9 @@ impl Config {
         // Pattern match here to avoid missing any fields.
         let &Config {
             ref preset_base,
+            terminal_total_difficulty,
+            terminal_block_hash,
+            terminal_block_hash_activation_epoch,
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
@@ -799,6 +815,9 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            terminal_total_difficulty,
+            terminal_block_hash,
+            terminal_block_hash_activation_epoch,
             ..chain_spec.clone()
         })
     }

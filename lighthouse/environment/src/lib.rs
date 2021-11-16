@@ -255,7 +255,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             log: self.log.ok_or("Cannot build environment without log")?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
-            eth2_network_config: self.eth2_network_config,
+            eth2_network_config: self.eth2_network_config.map(Arc::new),
         })
     }
 }
@@ -269,6 +269,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub executor: TaskExecutor,
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
+    pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -280,6 +281,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             executor: self.executor.clone_with_name(service_name),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
         }
     }
 
@@ -307,7 +309,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub eth2_network_config: Option<Eth2NetworkConfig>,
+    pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
 }
 
 impl<E: EthSpec> Environment<E> {
@@ -330,6 +332,7 @@ impl<E: EthSpec> Environment<E> {
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
         }
     }
 
@@ -344,6 +347,7 @@ impl<E: EthSpec> Environment<E> {
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
         }
     }
 

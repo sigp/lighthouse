@@ -18,6 +18,7 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
+use types::ChainSpec;
 
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
@@ -47,8 +48,6 @@ impl From<ApiError> for Error {
 
 struct Inner {
     engines: Engines<HttpJsonRpc>,
-    terminal_total_difficulty: Uint256,
-    terminal_block_hash: Hash256,
     fee_recipient: Option<Address>,
     execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
@@ -73,8 +72,6 @@ impl ExecutionLayer {
     /// Instantiate `Self` with `urls.len()` engines, all using the JSON-RPC via HTTP.
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
-        terminal_total_difficulty: Uint256,
-        terminal_block_hash: Hash256,
         fee_recipient: Option<Address>,
         executor: TaskExecutor,
         log: Logger,
@@ -98,8 +95,6 @@ impl ExecutionLayer {
                 latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
-            terminal_total_difficulty,
-            terminal_block_hash,
             fee_recipient,
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
@@ -119,14 +114,6 @@ impl ExecutionLayer {
 
     fn executor(&self) -> &TaskExecutor {
         &self.inner.executor
-    }
-
-    fn terminal_total_difficulty(&self) -> Uint256 {
-        self.inner.terminal_total_difficulty
-    }
-
-    fn terminal_block_hash(&self) -> Hash256 {
-        self.inner.terminal_block_hash
     }
 
     fn fee_recipient(&self) -> Result<Address, Error> {
@@ -455,11 +442,14 @@ impl ExecutionLayer {
     /// `get_terminal_pow_block_hash`
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/validator.md
-    pub async fn get_terminal_pow_block_hash(&self) -> Result<Option<Hash256>, Error> {
+    pub async fn get_terminal_pow_block_hash(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Option<Hash256>, Error> {
         let hash_opt = self
             .engines()
             .first_success(|engine| async move {
-                if self.terminal_block_hash() != Hash256::zero() {
+                if spec.terminal_block_hash != Hash256::zero() {
                     // Note: the specification is written such that if there are multiple blocks in
                     // the PoW chain with the terminal block hash, then to select 0'th one.
                     //
@@ -468,11 +458,12 @@ impl ExecutionLayer {
                     // hash. Such a scenario would be a devestating hash collision with external
                     // implications far outweighing those here.
                     Ok(self
-                        .get_pow_block(engine, self.terminal_block_hash())
+                        .get_pow_block(engine, spec.terminal_block_hash)
                         .await?
                         .map(|block| block.block_hash))
                 } else {
-                    self.get_pow_block_hash_at_total_difficulty(engine).await
+                    self.get_pow_block_hash_at_total_difficulty(engine, spec)
+                        .await
                 }
             })
             .await
@@ -482,8 +473,8 @@ impl ExecutionLayer {
             info!(
                 self.log(),
                 "Found terminal block hash";
-                "terminal_block_hash_override" => ?self.terminal_block_hash(),
-                "terminal_total_difficulty" => ?self.terminal_total_difficulty(),
+                "terminal_block_hash_override" => ?spec.terminal_block_hash,
+                "terminal_total_difficulty" => ?spec.terminal_total_difficulty,
                 "block_hash" => ?hash,
             );
         }
@@ -503,6 +494,7 @@ impl ExecutionLayer {
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
         engine: &Engine<HttpJsonRpc>,
+        spec: &ChainSpec,
     ) -> Result<Option<Hash256>, ApiError> {
         let mut ttd_exceeding_block = None;
         let mut block = engine
@@ -518,7 +510,7 @@ impl ExecutionLayer {
         //
         // https://github.com/ethereum/consensus-specs/issues/2636
         loop {
-            if block.total_difficulty >= self.terminal_total_difficulty() {
+            if block.total_difficulty >= spec.terminal_total_difficulty {
                 ttd_exceeding_block = Some(block.block_hash);
 
                 // Try to prevent infinite loops.
@@ -565,6 +557,7 @@ impl ExecutionLayer {
     pub async fn is_valid_terminal_pow_block_hash(
         &self,
         block_hash: Hash256,
+        spec: &ChainSpec,
     ) -> Result<Option<bool>, Error> {
         let broadcast_results = self
             .engines()
@@ -574,7 +567,7 @@ impl ExecutionLayer {
                         self.get_pow_block(engine, pow_block.parent_hash).await?
                     {
                         return Ok(Some(
-                            self.is_valid_terminal_pow_block(pow_block, pow_parent),
+                            self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
                         ));
                     }
                 }
@@ -618,15 +611,19 @@ impl ExecutionLayer {
     /// This function should remain internal.
     ///
     /// External users should use `self.is_valid_terminal_pow_block_hash`.
-    fn is_valid_terminal_pow_block(&self, block: ExecutionBlock, parent: ExecutionBlock) -> bool {
-        if block.block_hash == self.terminal_block_hash() {
+    fn is_valid_terminal_pow_block(
+        &self,
+        block: ExecutionBlock,
+        parent: ExecutionBlock,
+        spec: &ChainSpec,
+    ) -> bool {
+        if block.block_hash == spec.terminal_block_hash {
             return true;
         }
 
-        let is_total_difficulty_reached =
-            block.total_difficulty >= self.terminal_total_difficulty();
+        let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
         let is_parent_total_difficulty_valid =
-            parent.total_difficulty < self.terminal_total_difficulty();
+            parent.total_difficulty < spec.terminal_total_difficulty;
         is_total_difficulty_reached && is_parent_total_difficulty_valid
     }
 
@@ -685,14 +682,14 @@ mod test {
     async fn finds_valid_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_block_prior_to_terminal_block()
-            .with_terminal_block(|el, _| async move {
-                assert_eq!(el.get_terminal_pow_block_hash().await.unwrap(), None)
+            .with_terminal_block(|spec, el, _| async move {
+                assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
             })
             .await
             .move_to_terminal_block()
-            .with_terminal_block(|el, terminal_block| async move {
+            .with_terminal_block(|spec, el, terminal_block| async move {
                 assert_eq!(
-                    el.get_terminal_pow_block_hash().await.unwrap(),
+                    el.get_terminal_pow_block_hash(&spec).await.unwrap(),
                     Some(terminal_block.unwrap().block_hash)
                 )
             })
@@ -703,9 +700,9 @@ mod test {
     async fn verifies_valid_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .with_terminal_block(|el, terminal_block| async move {
+            .with_terminal_block(|spec, el, terminal_block| async move {
                 assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash)
+                    el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
                         .await
                         .unwrap(),
                     Some(true)
@@ -718,11 +715,11 @@ mod test {
     async fn rejects_invalid_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .with_terminal_block(|el, terminal_block| async move {
+            .with_terminal_block(|spec, el, terminal_block| async move {
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(invalid_terminal_block)
+                    el.is_valid_terminal_pow_block_hash(invalid_terminal_block, &spec)
                         .await
                         .unwrap(),
                     Some(false)
@@ -735,11 +732,11 @@ mod test {
     async fn rejects_unknown_terminal_block_hash() {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
-            .with_terminal_block(|el, _| async move {
+            .with_terminal_block(|spec, el, _| async move {
                 let missing_terminal_block = Hash256::repeat_byte(42);
 
                 assert_eq!(
-                    el.is_valid_terminal_pow_block_hash(missing_terminal_block)
+                    el.is_valid_terminal_pow_block_hash(missing_terminal_block, &spec)
                         .await
                         .unwrap(),
                     None

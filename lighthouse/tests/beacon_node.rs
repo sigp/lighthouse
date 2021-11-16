@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Checkpoint, Epoch, Hash256, Uint256};
+use types::{Checkpoint, Epoch, Hash256};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -815,83 +815,6 @@ pub fn malloc_tuning_flag() {
         .with_config(|config| {
             assert!(!config.http_metrics.allocator_metrics_enabled);
         });
-}
-#[test]
-pub fn ttd_override_decimal() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert!(config.terminal_total_difficulty_override.is_none());
-    });
-
-    CommandLineTest::new()
-        .flag("merge", None)
-        .flag(
-            "terminal-total-difficulty-override",
-            Some("31,841,035,257,753,085,493,511"),
-        )
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.terminal_total_difficulty_override.unwrap(),
-                Uint256::from_dec_str(&"31841035257753085493511").unwrap()
-            );
-        });
-
-    CommandLineTest::new()
-        .flag("merge", None)
-        .flag(
-            "terminal-total-difficulty-override",
-            Some("31841035257753085493511"),
-        )
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.terminal_total_difficulty_override.unwrap(),
-                Uint256::from_dec_str(&"31841035257753085493511").unwrap()
-            );
-        });
-
-    CommandLineTest::new()
-        .flag("merge", None)
-        .flag("terminal-total-difficulty-override", Some("1234"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.terminal_total_difficulty_override.unwrap(),
-                Uint256::from(1234)
-            );
-        });
-
-    CommandLineTest::new()
-        .flag("merge", None)
-        .flag("terminal-total-difficulty-override", Some("1,234"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.terminal_total_difficulty_override.unwrap(),
-                Uint256::from(1234)
-            );
-        });
-}
-#[test]
-#[should_panic]
-pub fn ttd_override_without_merge() {
-    CommandLineTest::new()
-        .flag("terminal-total-difficulty-override", Some("1234"))
-        .run();
-}
-#[test]
-#[should_panic]
-pub fn ttd_override_hex() {
-    CommandLineTest::new()
-        .flag("terminal-total-difficulty-override", Some("0xabcd"))
-        .run();
-}
-#[test]
-#[should_panic]
-pub fn ttd_override_none() {
-    CommandLineTest::new()
-        .flag("terminal-total-difficulty-override", None)
-        .run();
 }
 #[test]
 #[should_panic]
