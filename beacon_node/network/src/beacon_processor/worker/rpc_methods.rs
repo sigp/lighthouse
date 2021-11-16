@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
         if blocks_sent < (req.count as usize) {
-            debug!(self.log, "BlocksByRange Response sent";
+            debug!(self.log, "BlocksByRange Response processed";
                 "peer" => %peer_id,
                 "msg" => "Failed to return all requested blocks",
                 "start_slot" => req.start_slot,
@@ -263,7 +263,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "requested" => req.count,
                 "returned" => blocks_sent);
         } else {
-            debug!(self.log, "BlocksByRange Response sent";
+            debug!(self.log, "BlocksByRange Response processed";
                 "peer" => %peer_id,
                 "start_slot" => req.start_slot,
                 "current_slot" => current_slot,

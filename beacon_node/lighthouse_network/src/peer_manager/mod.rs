@@ -421,7 +421,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // They closed early, this could mean poor connection
                 PeerAction::MidToleranceError
             }
-            RPCError::InternalError(_) | RPCError::HandlerRejected => {
+            RPCError::InternalError(e) => {
+                debug!(self.log, "Internal RPC Error"; "error" => %e, "peer_id" => %peer_id);
+                return;
+            }
+            RPCError::HandlerRejected => {
                 // Our fault. Do nothing
                 return;
             }
@@ -478,8 +482,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
             RPCError::StreamTimeout => match direction {
                 ConnectionDirection::Incoming => {
-                    // we timed out
-                    warn!(self.log, "Timed out to a peer's request. Likely insufficient resources, reduce peer count");
+                    // There was a timeout responding to a peer.
+                    debug!(self.log, "Timed out responding to RPC Request"; "peer_id" => %peer_id);
                     return;
                 }
                 ConnectionDirection::Outgoing => match protocol {
