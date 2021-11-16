@@ -530,7 +530,12 @@ impl ExecutionLayer {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd && block.parent_hash == Hash256::zero() {
                 return Ok(Some(block.block_hash));
+            } else if block.parent_hash == Hash256::zero() {
+                // The end of the chain has been reached without finding the TTD, there is no
+                // terminal block.
+                return Ok(None);
             }
+
             let parent = self
                 .get_pow_block(engine, block.parent_hash)
                 .await?
