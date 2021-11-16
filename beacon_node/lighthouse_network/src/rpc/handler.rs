@@ -619,8 +619,12 @@ where
 
         // drive inbound streams that need to be processed
         let mut substreams_to_remove = Vec::new(); // Closed substreams that need to be removed
-        for (id, info) in self.inbound_substreams.iter_mut() {
-            loop {
+        let mut process_further = true; // Whether there are more chunks to be sent in any substream.
+        while process_further {
+            // Check if this iteration leaves chunks to be sent or streams to be closed.
+            process_further = false;
+
+            for (id, info) in self.inbound_substreams.iter_mut() {
                 match std::mem::replace(&mut info.state, InboundState::Poisoned) {
                     // This state indicates that we are not currently sending any messages to the
                     // peer. We need to check if there are messages to send, if so, start the
@@ -634,12 +638,11 @@ where
                                 send_message_to_inbound_substream(substream, message, last_chunk)
                                     .boxed();
                             // Update the state and try to process this further.
-                            info.state = InboundState::Busy(Box::pin(fut));
+                            info.state = InboundState::Busy(fut);
                         } else {
                             // There is nothing left to process. Set the stream to idle and
                             // move on to the next one.
                             info.state = InboundState::Idle(substream);
-                            break;
                         }
                     }
                     // This state indicates we are not sending at the moment, and the handler is in
@@ -647,9 +650,12 @@ where
                     InboundState::Idle(mut substream) => {
                         // Handler is deactivated, close the stream and mark it for removal
                         match substream.close().poll_unpin(cx) {
-                            // if we can't close right now, put the substream back and try again
-                            // immediately, continue to do this until we close the substream.
-                            Poll::Pending => info.state = InboundState::Idle(substream),
+                            Poll::Pending => {
+                                // if we can't close right now, put the substream back and try again
+                                // immediately, continue to do this until we close the substream.
+                                info.state = InboundState::Idle(substream);
+                                process_further = true;
+                            }
                             Poll::Ready(res) => {
                                 // The substream closed, we remove it from the mapping and remove
                                 // the timeout
@@ -680,11 +686,10 @@ where
                                 }
                             }
                         }
-                        break;
                     }
-                    // This state indicates that there are messages to send back to the peer.
-                    // The future here is built by the `process_inbound_substream` function. The
-                    // output returns a substream and whether it was closed in this operation.
+                    // This state indicates that there are messages to send back to the peer.  The
+                    // future here is built by the `process_inbound_substream` function. The output
+                    // returns a substream and whether it was closed in this operation.
                     InboundState::Busy(mut fut) => {
                         // Check if the future has completed (i.e we have completed sending all our
                         // pending items)
@@ -716,13 +721,12 @@ where
                                         )
                                         .boxed();
                                         // Update the state and try to process this further.
-                                        info.state = InboundState::Busy(Box::pin(fut));
+                                        info.state = InboundState::Busy(fut);
                                     }
                                 } else {
                                     // There is nothing left to process. Set the stream to idle and
                                     // move on to the next one.
                                     info.state = InboundState::Idle(substream);
-                                    break;
                                 }
                             }
                             // The pending messages have been sent successfully and the stream has
@@ -738,12 +742,11 @@ where
                                 // BlocksByRange is the one that typically consumes the most time.
                                 // Its useful to log when the request was completed.
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
-                                    debug!(self.log, "BlocksByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                    debug!(self.log, "BlocksByRange Response sent"; "duration" => info.request_start_time.elapsed().as_secs());
                                 }
 
                                 // There is nothing more to process on this substream as it has
                                 // been closed. Move on to the next one.
-                                break;
                             }
                             // An error occurred when trying to send a response.
                             // This means we terminate the substream.
@@ -763,13 +766,12 @@ where
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(self.log, "BlocksByRange Response failed"; "duration" => info.request_start_time.elapsed().as_secs());
                                 }
-                                break;
                             }
                             // The sending future has not completed. Leave the state as busy and
                             // try to progress later.
                             Poll::Pending => {
                                 info.state = InboundState::Busy(fut);
-                                break;
+                                process_further = true;
                             }
                         };
                     }
