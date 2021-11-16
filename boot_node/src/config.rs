@@ -1,5 +1,6 @@
-use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
+use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
@@ -7,7 +8,6 @@ use lighthouse_network::{
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
-use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
@@ -23,14 +23,12 @@ pub struct BootNodeConfig<T: EthSpec> {
     phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
-    type Error = String;
-
-    fn try_from(matches: &ArgMatches<'_>) -> Result<Self, Self::Error> {
+impl<T: EthSpec> BootNodeConfig<T> {
+    pub fn new(
+        matches: &ArgMatches<'_>,
+        eth2_network_config: &Eth2NetworkConfig,
+    ) -> Result<Self, String> {
         let data_dir = get_data_dir(matches);
-
-        // Try and grab network config from input CLI params
-        let eth2_network_config = get_eth2_network_config(matches)?;
 
         // Try and obtain bootnodes
 

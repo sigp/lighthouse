@@ -330,7 +330,6 @@ where
     }
 
     pub fn execution_layer(mut self, urls: &[&str]) -> Self {
-        let spec = self.spec.clone().expect("cannot build without spec");
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
@@ -345,8 +344,6 @@ where
             .unwrap();
         let execution_layer = ExecutionLayer::from_urls(
             urls,
-            spec.terminal_total_difficulty,
-            spec.terminal_block_hash,
             Some(Address::repeat_byte(42)),
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
@@ -364,6 +361,7 @@ where
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
+            spec.terminal_block_hash_activation_epoch,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);

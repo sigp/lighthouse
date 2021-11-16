@@ -301,6 +301,7 @@ dependencies = [
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "execution_layer",
  "fork_choice",
  "futures",
  "genesis",
@@ -318,6 +319,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "safe_arith",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "slasher",
@@ -480,6 +482,7 @@ dependencies = [
  "beacon_node",
  "clap",
  "clap_utils",
+ "eth2_network_config",
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex",
  "lighthouse_network",
@@ -682,6 +685,7 @@ dependencies = [
  "dirs",
  "eth2_network_config",
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ethereum-types 0.12.1",
  "hex",
 ]
 
@@ -697,6 +701,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_config",
+ "execution_layer",
  "genesis",
  "http_api",
  "http_metrics",
@@ -1273,6 +1278,7 @@ dependencies = [
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-types 0.12.1",
+ "fork_choice",
  "fs2",
  "hex",
  "rayon",
@@ -1571,6 +1577,7 @@ dependencies = [
 name = "eth2_serde_utils"
 version = "0.1.0"
 dependencies = [
+ "ethereum-types 0.12.1",
  "hex",
  "serde",
  "serde_derive",
@@ -1780,6 +1787,35 @@ dependencies = [
  "impl-serde",
  "primitive-types 0.10.1",
  "uint 0.9.1",
+]
+
+[[package]]
+name = "execution_layer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "environment",
+ "eth1",
+ "eth2_serde_utils 0.1.0",
+ "eth2_ssz_types 0.2.1",
+ "exit-future",
+ "futures",
+ "hex",
+ "lru",
+ "parking_lot",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "tree_hash 0.4.0",
+ "tree_hash_derive 0.4.0",
+ "types",
+ "warp 0.3.0",
 ]
 
 [[package]]
@@ -2383,7 +2419,7 @@ dependencies = [
  "tokio-stream",
  "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types",
- "warp",
+ "warp 0.3.2",
  "warp_utils",
 ]
 
@@ -2404,7 +2440,7 @@ dependencies = [
  "store",
  "tokio",
  "types",
- "warp",
+ "warp 0.3.2",
  "warp_utils",
 ]
 
@@ -2581,6 +2617,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "input_buffer"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f97967975f448f1a7ddb12b0bc41069d09ed6a1c161a92687e057325db35d413"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2709,6 +2754,7 @@ dependencies = [
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_wallet",
  "genesis",
+ "int_to_bytes",
  "lighthouse_network",
  "lighthouse_version",
  "log",
@@ -3590,6 +3636,24 @@ name = "multimap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
+
+[[package]]
+name = "multipart"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050aeedc89243f5347c3e237e3e13dc76fbe4ae3742a57b94dc14f69acf76d4"
+dependencies = [
+ "buf_redux",
+ "httparse",
+ "log",
+ "mime",
+ "mime_guess",
+ "quick-error",
+ "rand 0.7.3",
+ "safemem",
+ "tempfile",
+ "twoway",
+]
 
 [[package]]
 name = "multipart"
@@ -5988,6 +6052,19 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1a5f475f1b9d077ea1017ecbc60890fda8e54942d680ca0b1d2b47cfa2d861b"
+dependencies = [
+ "futures-util",
+ "log",
+ "pin-project 1.0.8",
+ "tokio",
+ "tungstenite 0.12.0",
+]
+
+[[package]]
+name = "tokio-tungstenite"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "511de3f85caf1c98983545490c3d09685fa8eb634e57eec22bb4db271f46cbd8"
@@ -5996,7 +6073,7 @@ dependencies = [
  "log",
  "pin-project 1.0.8",
  "tokio",
- "tungstenite",
+ "tungstenite 0.14.0",
 ]
 
 [[package]]
@@ -6061,6 +6138,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f4ed65637b8390770814083d20756f87bfa2c21bf2f110babdc5438351746e4"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "tracing-futures"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
+dependencies = [
+ "pin-project 1.0.8",
+ "tracing",
 ]
 
 [[package]]
@@ -6224,6 +6311,25 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tungstenite"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ada8297e8d70872fa9a551d93250a9f407beb9f37ef86494eb20012a2ff7c24"
+dependencies = [
+ "base64 0.13.0",
+ "byteorder",
+ "bytes",
+ "http",
+ "httparse",
+ "input_buffer",
+ "log",
+ "rand 0.8.4",
+ "sha-1",
+ "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0b2d8558abd2e276b0a8df5c05a2ec762609344191e5fd23e292c910e9165b5"
@@ -6270,7 +6376,7 @@ dependencies = [
  "derivative",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_interop_keypairs",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils 0.1.0",
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -6490,7 +6596,7 @@ dependencies = [
  "types",
  "url",
  "validator_dir",
- "warp",
+ "warp 0.3.2",
  "warp_utils",
 ]
 
@@ -6558,6 +6664,36 @@ dependencies = [
 
 [[package]]
 name = "warp"
+version = "0.3.0"
+source = "git+https://github.com/macladson/warp?rev=dfa259e#dfa259e19b7490e6bc4bf247e8b76f671d29a0eb"
+dependencies = [
+ "bytes",
+ "futures",
+ "headers",
+ "http",
+ "hyper",
+ "log",
+ "mime",
+ "mime_guess",
+ "multipart 0.17.1",
+ "percent-encoding",
+ "pin-project 1.0.8",
+ "scoped-tls",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tokio-tungstenite 0.13.0",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "tracing-futures",
+]
+
+[[package]]
+name = "warp"
 version = "0.3.2"
 source = "git+https://github.com/macladson/warp?rev=7e75acc#7e75acc368229a46a236a8c991bf251fe7fe50ef"
 dependencies = [
@@ -6570,7 +6706,7 @@ dependencies = [
  "log",
  "mime",
  "mime_guess",
- "multipart",
+ "multipart 0.18.0",
  "percent-encoding",
  "pin-project 1.0.8",
  "scoped-tls",
@@ -6580,7 +6716,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-stream",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.15.0",
  "tokio-util",
  "tower-service",
  "tracing",
@@ -6600,7 +6736,7 @@ dependencies = [
  "state_processing",
  "tokio",
  "types",
- "warp",
+ "warp 0.3.2",
 ]
 
 [[package]]

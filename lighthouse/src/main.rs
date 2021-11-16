@@ -2,9 +2,9 @@
 
 mod metrics;
 
-use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
@@ -211,6 +211,45 @@ fn main() {
                 )
                 .global(true),
         )
+        .arg(
+            Arg::with_name("terminal-total-difficulty-override")
+                .long("terminal-total-difficulty-override")
+                .value_name("INTEGER")
+                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
+                       Accepts a 256-bit decimal integer (not a hex value). \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal difficulty. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-override")
+                .long("terminal-block-hash-override")
+                .value_name("TERMINAL_BLOCK_HASH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-epoch-override")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-epoch-override")
+                .long("terminal-block-hash-epoch-override")
+                .value_name("EPOCH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
+                       parameter. This flag should only be used if the user has a clear understanding \
+                       that the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-override")
+                .takes_value(true)
+                .global(true)
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
@@ -250,7 +289,13 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(&matches, bootnode_matches, eth_spec_id, debug_info);
+            boot_node::run(
+                &matches,
+                bootnode_matches,
+                eth_spec_id,
+                &eth2_network_config,
+                debug_info,
+            );
 
             return Ok(());
         }
@@ -424,11 +469,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(
-                matches,
-                &context.eth2_config().spec,
-                context.log().clone(),
-            )?;
+            let config = beacon_node::get_config::<E>(matches, &context)?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
             {

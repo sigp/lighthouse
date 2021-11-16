@@ -6,7 +6,7 @@ use environment::null_logger;
 use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Address, EthSpec, Hash256, Uint256};
+use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
     pub runtime: Option<Arc<tokio::runtime::Runtime>>,
@@ -50,6 +50,7 @@ pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
     pub el: ExecutionLayer,
     pub el_runtime: ExecutionLayerRuntime,
+    pub spec: ChainSpec,
 }
 
 impl<T: EthSpec> MockExecutionLayer<T> {
@@ -58,6 +59,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             Hash256::zero(),
+            Epoch::new(0),
         )
     }
 
@@ -65,9 +67,15 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: Hash256,
+        terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
         let el_runtime = ExecutionLayerRuntime::default();
         let handle = el_runtime.runtime.as_ref().unwrap().handle();
+
+        let mut spec = T::default_spec();
+        spec.terminal_total_difficulty = terminal_total_difficulty;
+        spec.terminal_block_hash = terminal_block_hash;
+        spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
         let server = MockServer::new(
             handle,
@@ -80,8 +88,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let el = ExecutionLayer::from_urls(
             vec![url],
-            terminal_total_difficulty,
-            Hash256::zero(),
             Some(Address::repeat_byte(42)),
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
@@ -92,6 +98,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             server,
             el,
             el_runtime,
+            spec,
         }
     }
 
@@ -171,7 +178,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
     pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
     where
-        U: Fn(ExecutionLayer, Option<ExecutionBlock>) -> V,
+        U: Fn(ChainSpec, ExecutionLayer, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self
@@ -183,7 +190,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .execution_block_generator()
             .execution_block_by_number(terminal_block_number);
 
-        func(self.el.clone(), terminal_block).await;
+        func(self.spec.clone(), self.el.clone(), terminal_block).await;
         self
     }
 }
