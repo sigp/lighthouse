@@ -33,7 +33,10 @@ use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
-pub const RESPONSE_TIMEOUT: u64 = 10;
+pub const RESP_TIMEOUT: u64 = 10;
+
+/// Time to first byte of a response before the request times out.
+const TTFB_TIMEOUT: u64 = 5;
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -343,7 +346,7 @@ where
             // Store the stream and tag the output.
             let delay_key = self.inbound_substreams_delay.insert(
                 self.current_inbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
+                Duration::from_secs(TTFB_TIMEOUT),
             );
             let awaiting_stream = InboundState::Idle(substream);
             self.inbound_substreams.insert(
@@ -395,7 +398,7 @@ where
             // new outbound request. Store the stream and tag the output.
             let delay_key = self.outbound_substreams_delay.insert(
                 self.current_outbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
+                Duration::from_secs(TTFB_TIMEOUT),
             );
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(out),
@@ -695,10 +698,10 @@ where
                                 info.remaining_chunks = info.remaining_chunks.saturating_sub(1);
 
                                 // If this substream has not ended, we reset the timer.
-                                // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
+                                // Each chunk is allowed RESP_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                        .reset(delay_key, Duration::from_secs(RESP_TIMEOUT));
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -832,7 +835,7 @@ where
                                     };
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
                                 self.outbound_substreams_delay
-                                    .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    .reset(delay_key, Duration::from_secs(RESP_TIMEOUT));
                             }
                         } else {
                             // either this is a single response request or this response closes the
