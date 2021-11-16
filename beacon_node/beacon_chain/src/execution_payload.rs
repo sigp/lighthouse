@@ -40,7 +40,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
         return Ok(PayloadVerificationStatus::Irrelevant);
     }
 
-    let execution_payload = execution_payload_ref(block)?;
+    let execution_payload = block.execution_payload()?;
 
     // Perform the initial stages of payload verification.
     //
@@ -87,7 +87,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-    let execution_payload = execution_payload_ref(block)?;
+    let execution_payload = block.execution_payload()?;
 
     if spec.terminal_block_hash != Hash256::zero() {
         if block_epoch < spec.terminal_block_hash_activation_epoch {
@@ -303,18 +303,4 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
     Ok(Some(execution_payload))
-}
-
-/// Extracts a reference to an execution payload from a block, returning an error if there is a
-/// fork mismatch.
-fn execution_payload_ref<T: EthSpec>(
-    block: BeaconBlockRef<T>,
-) -> Result<&ExecutionPayload<T>, BlockError<T>> {
-    block.body().execution_payload().ok_or_else(|| {
-        InconsistentFork {
-            fork_at_slot: eth2::types::ForkName::Merge,
-            object_fork: block.body().fork_name(),
-        }
-        .into()
-    })
 }

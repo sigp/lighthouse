@@ -302,7 +302,7 @@ pub fn get_new_eth1_data<T: EthSpec>(
 ///
 /// ## Specification
 ///
-/// Partially equivalent to the `process_execution_payload` function:
+/// Contains a partial set of checks from the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
 pub fn partially_verify_execution_payload<T: EthSpec>(

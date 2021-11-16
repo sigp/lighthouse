@@ -234,6 +234,17 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
             ..self.block_header()
         }
     }
+
+    /// Extracts a reference to an execution payload from a block, returning an error if the block
+    /// is pre-merge.
+    pub fn execution_payload(&self) -> Result<&ExecutionPayload<T>, InconsistentFork> {
+        self.body()
+            .execution_payload()
+            .ok_or_else(|| InconsistentFork {
+                fork_at_slot: ForkName::Merge,
+                object_fork: self.body().fork_name(),
+            })
+    }
 }
 
 impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {

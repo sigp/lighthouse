@@ -142,7 +142,7 @@ impl ExecutionLayer {
             .runtime()
             .upgrade()
             .ok_or(Error::ShuttingDown)?;
-        // TODO(paul): respect the shutdown signal.
+        // TODO(merge): respect the shutdown signal.
         runtime.block_on(generate_future(self))
     }
 
@@ -160,7 +160,7 @@ impl ExecutionLayer {
             .runtime()
             .upgrade()
             .ok_or(Error::ShuttingDown)?;
-        // TODO(paul): respect the shutdown signal.
+        // TODO(merge): respect the shutdown signal.
         Ok(runtime.block_on(generate_future(self)))
     }
 
@@ -521,11 +521,13 @@ impl ExecutionLayer {
 
         self.execution_blocks().await.put(block.block_hash, block);
 
-        // TODO(merge): This implementation assumes that the following PR is merged:
+        // TODO(merge): This implementation adheres to the following PR in the `dev` branch:
         //
         // https://github.com/ethereum/consensus-specs/pull/2719
         //
-        // We should check on the status of this PR prior to production.
+        // Therefore this implementation is not strictly v1.1.5, it is more lenient to some
+        // edge-cases during EL genesis. We should revisit this prior to the merge to ensure that
+        // this implementation becomes canonical.
         loop {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd && block.parent_hash == Hash256::zero() {
