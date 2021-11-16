@@ -459,7 +459,7 @@ impl ExecutionLayer {
     ///
     /// `get_terminal_pow_block_hash`
     ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/validator.md
+    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     pub async fn get_terminal_pow_block_hash(
         &self,
         spec: &ChainSpec,
@@ -467,24 +467,21 @@ impl ExecutionLayer {
         let hash_opt = self
             .engines()
             .first_success(|engine| async move {
-                if spec.terminal_block_hash != Hash256::zero() {
-                    // Note: the specification is written such that if there are multiple blocks in
-                    // the PoW chain with the terminal block hash, then to select 0'th one.
-                    //
-                    // Whilst it's not clear what the 0'th block is, we ignore this completely and
-                    // make the assumption that there are no two blocks in the chain with the same
-                    // hash. Such a scenario would be a devestating hash collision with external
-                    // implications far outweighing those here.
-                    Ok(self
-                        .get_pow_block(engine, spec.terminal_block_hash)
+                let terminal_block_hash = spec.terminal_block_hash;
+                if terminal_block_hash != Hash256::zero() {
+                    if self
+                        .get_pow_block(engine, terminal_block_hash)
                         .await?
-                        .map(|block| block.block_hash))
-                } else {
-                    self.get_pow_block_hash_at_total_difficulty(engine, spec)
-                        .await
+                        .is_some()
+                    {
+                        return Ok(Some(terminal_block_hash));
+                    } else {
+                        return Ok(None);
+                    }
                 }
 
-                self.get_pow_block_hash_at_total_difficulty(engine).await
+                self.get_pow_block_hash_at_total_difficulty(engine, spec)
+                    .await
             })
             .await
             .map_err(Error::EngineErrors)?;
@@ -530,33 +527,18 @@ impl ExecutionLayer {
         //
         // We should check on the status of this PR prior to production.
         loop {
-<<<<<<< HEAD
-            if block.total_difficulty >= spec.terminal_total_difficulty {
-                ttd_exceeding_block = Some(block.block_hash);
-
-                // Try to prevent infinite loops.
-                if block.block_hash == block.parent_hash {
-                    return Err(ApiError::ParentHashEqualsBlockHash(block.block_hash));
-                }
-
-                block = self
-                    .get_pow_block(engine, block.parent_hash)
-                    .await?
-                    .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
-=======
-            let block_reached_ttd = block.total_difficulty >= self.terminal_total_difficulty();
+            let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd && block.parent_hash == Hash256::zero() {
                 return Ok(Some(block.block_hash));
             }
             let parent = self
-                .get_pow_block_from_engine(engine, block.parent_hash)
+                .get_pow_block(engine, block.parent_hash)
                 .await?
                 .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
-            let parent_reached_ttd = parent.total_difficulty >= self.terminal_total_difficulty();
+            let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
 
             if block_reached_ttd && !parent_reached_ttd {
                 return Ok(Some(block.block_hash));
->>>>>>> edb03f1f9 (Start working on new fork choice tests)
             } else {
                 block = parent;
             }
@@ -597,10 +579,9 @@ impl ExecutionLayer {
         let broadcast_results = self
             .engines()
             .broadcast(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block_from_engine(engine, block_hash).await? {
-                    if let Some(pow_parent) = self
-                        .get_pow_block_from_engine(engine, pow_block.parent_hash)
-                        .await?
+                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
+                    if let Some(pow_parent) =
+                        self.get_pow_block(engine, pow_block.parent_hash).await?
                     {
                         return Ok(Some(
                             self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
@@ -653,25 +634,10 @@ impl ExecutionLayer {
         parent: ExecutionBlock,
         spec: &ChainSpec,
     ) -> bool {
-        if block.block_hash == spec.terminal_block_hash {
-            return true;
-        }
-
         let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
         let is_parent_total_difficulty_valid =
             parent.total_difficulty < spec.terminal_total_difficulty;
         is_total_difficulty_reached && is_parent_total_difficulty_valid
-    }
-
-    /// Wraps `get_pow_block_from_engine` and tries all engines, returning the first success
-    /// (success includes an `Ok(None)` response).
-    pub async fn get_pow_block(&self, hash: Hash256) -> Result<Option<ExecutionBlock>, Error> {
-        self.engines()
-            .first_success(
-                |engine| async move { self.get_pow_block_from_engine(engine, hash).await },
-            )
-            .await
-            .map_err(Error::EngineErrors)
     }
 
     /// Maps to the `eth_getBlockByHash` JSON-RPC call.
@@ -683,7 +649,7 @@ impl ExecutionLayer {
     /// correct or not, see the discussion here:
     ///
     /// https://github.com/ethereum/consensus-specs/issues/2636
-    async fn get_pow_block_from_engine(
+    async fn get_pow_block(
         &self,
         engine: &Engine<HttpJsonRpc>,
         hash: Hash256,

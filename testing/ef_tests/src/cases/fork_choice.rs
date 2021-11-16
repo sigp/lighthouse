@@ -146,11 +146,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
-        // TODO(paul): remove this!
-        if self.description != "too_early_for_merge" {
-            return Ok(());
-        }
-
         // The reason for this failure is documented here:
         //
         // https://github.com/sigp/lighthouse/issues/2741
