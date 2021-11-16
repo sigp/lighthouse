@@ -20,7 +20,7 @@ use tokio::{
 };
 use types::ChainSpec;
 
-pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
+pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus, ExecutionBlock};
 
 mod engine_api;
 mod engines;
@@ -530,6 +530,7 @@ impl ExecutionLayer {
         //
         // We should check on the status of this PR prior to production.
         loop {
+<<<<<<< HEAD
             if block.total_difficulty >= spec.terminal_total_difficulty {
                 ttd_exceeding_block = Some(block.block_hash);
 
@@ -542,6 +543,20 @@ impl ExecutionLayer {
                     .get_pow_block(engine, block.parent_hash)
                     .await?
                     .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
+=======
+            let block_reached_ttd = block.total_difficulty >= self.terminal_total_difficulty();
+            if block_reached_ttd && block.parent_hash == Hash256::zero() {
+                return Ok(Some(block.block_hash));
+            }
+            let parent = self
+                .get_pow_block_from_engine(engine, block.parent_hash)
+                .await?
+                .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
+            let parent_reached_ttd = parent.total_difficulty >= self.terminal_total_difficulty();
+
+            if block_reached_ttd && !parent_reached_ttd {
+                return Ok(Some(block.block_hash));
+>>>>>>> edb03f1f9 (Start working on new fork choice tests)
             } else {
                 block = parent;
             }
@@ -582,9 +597,10 @@ impl ExecutionLayer {
         let broadcast_results = self
             .engines()
             .broadcast(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
-                    if let Some(pow_parent) =
-                        self.get_pow_block(engine, pow_block.parent_hash).await?
+                if let Some(pow_block) = self.get_pow_block_from_engine(engine, block_hash).await? {
+                    if let Some(pow_parent) = self
+                        .get_pow_block_from_engine(engine, pow_block.parent_hash)
+                        .await?
                     {
                         return Ok(Some(
                             self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
@@ -647,6 +663,17 @@ impl ExecutionLayer {
         is_total_difficulty_reached && is_parent_total_difficulty_valid
     }
 
+    /// Wraps `get_pow_block_from_engine` and tries all engines, returning the first success
+    /// (success includes an `Ok(None)` response).
+    pub async fn get_pow_block(&self, hash: Hash256) -> Result<Option<ExecutionBlock>, Error> {
+        self.engines()
+            .first_success(
+                |engine| async move { self.get_pow_block_from_engine(engine, hash).await },
+            )
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
     /// Maps to the `eth_getBlockByHash` JSON-RPC call.
     ///
     /// ## TODO(merge)
@@ -656,7 +683,7 @@ impl ExecutionLayer {
     /// correct or not, see the discussion here:
     ///
     /// https://github.com/ethereum/consensus-specs/issues/2636
-    async fn get_pow_block(
+    async fn get_pow_block_from_engine(
         &self,
         engine: &Engine<HttpJsonRpc>,
         hash: Hash256,

@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::ExecutePayloadResponseStatus;
+use execution_layer::{ExecutePayloadResponseStatus, ExecutionBlock};
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -111,25 +111,47 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let is_valid_terminal_pow_block = execution_layer
-        .block_on(|execution_layer| {
-            execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash)
-        })
+    let pow_block_opt = execution_layer
+        .block_on(|execution_layer| execution_layer.get_pow_block(execution_payload.parent_hash))
         .map_err(ExecutionPayloadError::from)?;
 
-    match is_valid_terminal_pow_block {
-        Some(true) => Ok(()),
-        Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock.into()),
-        None => {
-            debug!(
-                chain.log,
-                "Optimistically accepting terminal block";
-                "block_hash" => ?execution_payload.parent_hash,
-                "msg" => "the terminal block/parent was unavailable"
-            );
-            Ok(())
+    if let Some(pow_block) = pow_block_opt {
+        let pow_parent_opt = execution_layer
+            .block_on(|execution_layer| execution_layer.get_pow_block(pow_block.parent_hash))
+            .map_err(ExecutionPayloadError::from)?;
+
+        if let Some(pow_parent) = pow_parent_opt {
+            dbg!(spec.terminal_total_difficulty, &pow_block, &pow_parent);
+            if is_valid_terminal_pow_block(pow_block, pow_parent, spec) {
+                dbg!("valid");
+                Ok(())
+            } else {
+                dbg!("invalid");
+                Err(ExecutionPayloadError::InvalidTerminalPoWBlock.into())
+            }
+        } else {
+            Err(ExecutionPayloadError::PoWParentMissing(pow_block.parent_hash).into())
         }
+    } else {
+        dbg!("optimistic");
+        debug!(
+            chain.log,
+            "Optimistically accepting terminal block";
+            "block_hash" => ?execution_payload.parent_hash,
+            "msg" => "the terminal block/parent was unavailable"
+        );
+        Ok(())
     }
+}
+
+fn is_valid_terminal_pow_block(
+    block: ExecutionBlock,
+    parent: ExecutionBlock,
+    spec: &ChainSpec,
+) -> bool {
+    let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
+    let is_parent_total_difficulty_valid = parent.total_difficulty < spec.terminal_total_difficulty;
+    is_total_difficulty_reached && is_parent_total_difficulty_valid
 }
 
 /// Validate the gossip block's execution_payload according to the checks described here:

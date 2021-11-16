@@ -424,6 +424,12 @@ fn fork_choice_on_block() {
 }
 
 #[test]
+fn fork_choice_on_merge_block() {
+    ForkChoiceOnMergeBlockHandler::<MinimalEthSpec>::default().run();
+    ForkChoiceOnMergeBlockHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn genesis_initialization() {
     GenesisInitializationHandler::<MinimalEthSpec>::default().run();
 }

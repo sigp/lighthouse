@@ -302,6 +302,13 @@ pub enum ExecutionPayloadError {
         terminal_block_hash: Hash256,
         payload_parent_hash: Hash256,
     },
+    /// The execution node failed to provide a parent block to a known block. This indicates an
+    /// issue with the execution node.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer is not necessarily invalid.
+    PoWParentMissing(Hash256),
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
