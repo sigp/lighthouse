@@ -1,8 +1,8 @@
 use clap::ArgMatches;
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
+use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use environment::RuntimeContext;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
@@ -14,9 +14,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use types::{
-    ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, Uint256, GRAFFITI_BYTES_LEN,
-};
+use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -27,9 +25,11 @@ use types::{
 /// response of some remote server.
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    spec: &ChainSpec,
-    log: Logger,
+    context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
+    let spec = &context.eth2_config.spec;
+    let log = context.log();
+
     let mut client_config = ClientConfig {
         data_dir: get_data_dir(cli_args),
         ..Default::default()
@@ -63,7 +63,7 @@ pub fn get_config<E: EthSpec>(
         &mut client_config.network,
         cli_args,
         &client_config.data_dir,
-        &log,
+        log,
         false,
     )?;
 
@@ -242,32 +242,7 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    if let Some(string) =
-        clap_utils::parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
-    {
-        let stripped = string.replace(",", "");
-        let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
-            format!(
-                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
-                e
-            )
-        })?;
-
-        if client_config.execution_endpoints.is_none() {
-            return Err(
-                "The --merge flag must be provided when using --terminal-total-difficulty-override"
-                    .into(),
-            );
-        }
-
-        client_config.terminal_total_difficulty_override = Some(terminal_total_difficulty);
-    }
-
     client_config.fee_recipient = clap_utils::parse_optional(cli_args, "fee-recipient")?;
-    client_config.terminal_block_hash_override =
-        clap_utils::parse_optional(cli_args, "terminal-block-hash-override")?;
-    client_config.terminal_block_hash_epoch_override =
-        clap_utils::parse_optional(cli_args, "terminal-block-hash-epoch-override")?;
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
@@ -321,7 +296,10 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_network_config = get_eth2_network_config(cli_args)?;
+    let eth2_network_config = context
+        .eth2_network_config
+        .as_ref()
+        .ok_or("Context is missing eth2 network config")?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
@@ -344,13 +322,16 @@ pub fn get_config<E: EthSpec>(
 
     // Only append network config bootnodes if discovery is not disabled
     if !client_config.network.disable_discovery {
-        if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
-            client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+        if let Some(boot_nodes) = &eth2_network_config.boot_enr {
+            client_config
+                .network
+                .boot_nodes_enr
+                .extend_from_slice(boot_nodes)
         }
     }
 
     client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes
+        eth2_network_config.genesis_state_bytes.clone()
     {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
@@ -780,20 +761,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
-/// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
-    let optional_network_config = if cli_args.is_present("network") {
-        clap_utils::parse_hardcoded_network(cli_args, "network")?
-    } else if cli_args.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
-    } else {
-        // if neither is present, assume the default network
-        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
-    };
-    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

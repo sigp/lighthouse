@@ -1,11 +1,10 @@
-use beacon_chain::types::Epoch;
 use directory::DEFAULT_ROOT_DIR;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use types::{Address, Graffiti, Hash256, PublicKeyBytes, Uint256};
+use types::{Address, Graffiti, PublicKeyBytes};
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -76,9 +75,6 @@ pub struct Config {
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
     pub execution_endpoints: Option<Vec<SensitiveUrl>>,
-    pub terminal_total_difficulty_override: Option<Uint256>,
-    pub terminal_block_hash_override: Option<Hash256>,
-    pub terminal_block_hash_epoch_override: Option<Epoch>,
     pub fee_recipient: Option<Address>,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
@@ -101,9 +97,6 @@ impl Default for Config {
             sync_eth1_chain: false,
             eth1: <_>::default(),
             execution_endpoints: None,
-            terminal_total_difficulty_override: None,
-            terminal_block_hash_override: None,
-            terminal_block_hash_epoch_override: None,
             fee_recipient: None,
             disabled_forks: Vec::new(),
             graffiti: Graffiti::default(),
