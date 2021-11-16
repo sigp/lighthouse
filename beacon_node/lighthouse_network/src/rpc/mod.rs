@@ -30,7 +30,7 @@ pub use methods::{
     RPCResponseErrorCode, RequestId, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
 pub(crate) use outbound::OutboundRequest;
-pub use protocol::{Protocol, RPCError};
+pub use protocol::{Protocol, RPCError, MAX_RPC_SIZE};
 
 pub(crate) mod codec;
 mod handler;
