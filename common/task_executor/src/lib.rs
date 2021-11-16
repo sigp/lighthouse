@@ -179,6 +179,44 @@ impl TaskExecutor {
         }
     }
 
+    /// Run a task to completion on the runtime and return the result.
+    /// The task is wrapped in an exit future and is shutdown on receiving the exit signal.
+    ///
+    /// Returns `None` if the task is shutdown before completion or if the runtime has been dropped.
+    pub fn block_on<V>(&self, task: impl Future<Output = V>, name: &'static str) -> Option<V> {
+        let exit = self.exit.clone();
+        let log = self.log.clone();
+
+        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
+            // Task is shutdown before it completes if `exit` receives
+            let int_gauge_1 = int_gauge.clone();
+            let future = future::select(Box::pin(task), exit).then(move |either| {
+                let result = match either {
+                    future::Either::Left((value, _)) => {
+                        trace!(log, "Async task completed"; "task" => name);
+                        Some(value)
+                    }
+                    future::Either::Right(_) => {
+                        debug!(log, "Async task shutdown, exit received"; "task" => name);
+                        None
+                    }
+                };
+                int_gauge_1.dec();
+                futures::future::ready(result)
+            });
+
+            int_gauge.inc();
+            if let Some(runtime) = self.runtime.upgrade() {
+                runtime.block_on(future)
+            } else {
+                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     /// Spawn a future on the tokio runtime wrapped in an `exit_future::Exit` returning an optional
     /// join handle to the future.
     /// The task is canceled when the corresponding exit_future `Signal` is fired/dropped.
